@@ -725,6 +725,21 @@ func TestMise(t *testing.T) {
 	s.fails(1, "mise", "lock")
 	s.env["MISE_STUB_FAIL"] = "1"
 	s.fails(1, "mise", "lock")
+	// A certificate it doesn't trust, in its log file too; the bundle it
+	// was pointed at, copied.
+	s.env["MISE_STUB_FAIL"] = "untrusted"
+	s.env["MISE_LOG_FILE"] = filepath.Join(s.dir, "mise.log")
+	s.write("bundle.pem", "roots")
+	s.env["MISE_EXTRA_CA_CERTS"] = filepath.Join(s.dir, "bundle.pem")
+	s.write("roots.pem", "system")
+	s.env["SSL_CERT_FILE"] = filepath.Join(s.dir, "roots.pem")
+	s.fails(1, "mise", "lock")
+	if !strings.Contains(s.read("mise.log"), "invalid peer certificate: UnknownIssuer") {
+		t.Error("no certificate error in its log")
+	}
+	if s.read("mise-ca.pem") != "roots" || s.read("mise-roots.pem") != "system" {
+		t.Error("the bundles")
+	}
 }
 
 // The host's other stand-ins: open, code, qemu-img, sw_vers, uname and

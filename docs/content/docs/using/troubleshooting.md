@@ -161,6 +161,8 @@ Builds behind a company proxy go through a proxy of devvm's, which allows any ho
 
 When apt, `npm install`, `pip install`, `git clone` over HTTPS or an image's build fails with an error such as `certificate verify failed`, `self-signed certificate in certificate chain` or `unable to get local issuer certificate`, the network you're on may inspect TLS. Ask your IT team for the CA's certificate, or export it from this machine's store, such as Keychain Access on macOS. Put it in `~/.config/devvm/ca` and open the VM again ([a company's CA](settings.md#a-companys-ca)).
 
+When resolving the shared tools' versions fails because this machine doesn't trust a server's certificate, mise's lines in the run log end with `invalid peer certificate: UnknownIssuer`. On Linux, put the CA in `~/.config/devvm/ca`, or add it to this machine's own store, as `update-ca-certificates` does on Debian and Ubuntu, and run devvm again. A bundle that `SSL_CERT_FILE` names in devvm's environment works too, because that mise reads it in place of the system's. On macOS, open the CA's certificate in Keychain Access and set it to be trusted, because the part of that mise that checks where each tool's release was built trusts only what macOS trusts.
+
 `devvm doctor` says so when `HTTPS_PROXY` or `config.toml`'s `proxy.https` is set and the folder has no CA certificates. Many proxies don't inspect TLS, so that line isn't a problem in itself. When devvm refuses a file in the folder, it names the file, and you take out anything that isn't a CA certificate, such as a private key or a server's certificate.
 
 ## A listed port isn't forwarded

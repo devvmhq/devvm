@@ -1,0 +1,63 @@
+# The host's mise and a network that inspects TLS: a certificate mise
+# doesn't trust says so and names the CA folder, both before the first
+# lock and when it's resolved again; mise gets the folder's CAs as extra
+# ones (MISE_EXTRA_CA_CERTS), and on Linux a bundle of the system's roots
+# and them (SSL_CERT_FILE).
+env CAS=$XDG_CONFIG_HOME/devvm/ca
+
+# No lock yet: the certificate, not being offline.
+env MISE_STUB_FAIL=untrusted
+project py
+! exec devvm --network open --no-git-protect --tools python
+stdout '^==> resolving_tools$'
+stderr 'invalid peer certificate: UnknownIssuer'
+stderr '^devvm: tools_untrusted dir=\S*/config/devvm/ca$'
+! stderr tools_need_resolve
+! exists $DATA/mise.lock
+! exists $STUB_DIR/mise-ca.pem
+
+# With the company's CA in the folder, around text of its own, mise's
+# extra CAs are the certificate alone; on Linux its roots, the system's
+# bundle and that CA, end with it, and on macOS it gets none.
+mkdir $CAS
+cp $WORK/company.pem $CAS/company.pem
+! exec devvm --network open --no-git-protect --tools python
+stderr '^devvm: tools_untrusted dir=\S*/config/devvm/ca$'
+cmp $STUB_DIR/mise-ca.pem $WORK/ca-only.pem
+[linux] exec tail -n 10 $STUB_DIR/mise-roots.pem
+[linux] cmp stdout $WORK/ca-only.pem
+[!linux] ! exists $STUB_DIR/mise-roots.pem
+
+# Trusted, it resolves; resolving again fails the same way, the lock left.
+env MISE_STUB_FAIL=
+exec devvm --network open --no-git-protect --tools python
+cmp $DATA/mise.lock $MISE_STUB_LOCK
+env MISE_STUB_FAIL=untrusted
+! exec devvm _refresh-tools
+stderr '^devvm: tools_untrusted dir=\S*/config/devvm/ca$'
+cmp $DATA/mise.lock $MISE_STUB_LOCK
+
+-- company.pem --
+# Company root, exported from the host's store
+-----BEGIN CERTIFICATE-----
+MIIBVjCB/aADAgECAhQ2DjUE5GCuu3ghlAaTzuuBTKpHPzAKBggqhkjOPQQDAjAY
+MRYwFAYDVQQDDA1kZXZ2bSB0ZXN0IENBMCAXDTI2MTAzMTAwNDM1MloYDzIxMjYx
+MDA3MDA0MzUyWjAYMRYwFAYDVQQDDA1kZXZ2bSB0ZXN0IENBMFkwEwYHKoZIzj0C
+AQYIKoZIzj0DAQcDQgAEXBvNefEBySKRQIYneFCwVPU9XeTIb9BQmqWNOzHUUZ14
+yJRSOti9OaVDmBkNGfc8s9Y6EH+kO0OUh7d/ZobZaKMjMCEwDwYDVR0TAQH/BAUw
+AwEB/zAOBgNVHQ8BAf8EBAMCAgQwCgYIKoZIzj0EAwIDSAAwRQIgEzyH5x1Z+iba
+nf2OXZ+UmygJuhGk1Wbhqk3OSSCAPKYCIQCSBQAoZ0blPVefpXNe9FNJEicksKlE
+Ak+ibQllnrw4LA==
+-----END CERTIFICATE-----
+private notes after it
+-- ca-only.pem --
+-----BEGIN CERTIFICATE-----
+MIIBVjCB/aADAgECAhQ2DjUE5GCuu3ghlAaTzuuBTKpHPzAKBggqhkjOPQQDAjAY
+MRYwFAYDVQQDDA1kZXZ2bSB0ZXN0IENBMCAXDTI2MTAzMTAwNDM1MloYDzIxMjYx
+MDA3MDA0MzUyWjAYMRYwFAYDVQQDDA1kZXZ2bSB0ZXN0IENBMFkwEwYHKoZIzj0C
+AQYIKoZIzj0DAQcDQgAEXBvNefEBySKRQIYneFCwVPU9XeTIb9BQmqWNOzHUUZ14
+yJRSOti9OaVDmBkNGfc8s9Y6EH+kO0OUh7d/ZobZaKMjMCEwDwYDVR0TAQH/BAUw
+AwEB/zAOBgNVHQ8BAf8EBAMCAgQwCgYIKoZIzj0EAwIDSAAwRQIgEzyH5x1Z+iba
+nf2OXZ+UmygJuhGk1Wbhqk3OSSCAPKYCIQCSBQAoZ0blPVefpXNe9FNJEicksKlE
+Ak+ibQllnrw4LA==
+-----END CERTIFICATE-----

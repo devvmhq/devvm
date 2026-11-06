@@ -415,6 +415,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"fetch_failed":                   "using/clone#deleting-the-vm",
 	"mise_download_failed":           "using/images#shared-tools",
 	"tools_resolve_failed":           "using/images#shared-tools",
+	"tools_untrusted":                "using/settings#a-companys-ca",
 	"tool_bad_version":               "using/toolchains#adding-and-removing-tools",
 	"vm_lacks":                       "using/toolchains#adding-and-removing-tools",
 	"rule_missing":                   "safety/network#changing-rules",

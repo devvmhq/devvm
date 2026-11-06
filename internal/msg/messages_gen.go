@@ -3564,6 +3564,11 @@ func ToolsUnmounted(tools string, vm string) M {
 	return M{id: "tools_unmounted", vals: []val{{"tools", tools}, {"vm", vm}}}
 }
 
+// ToolsUntrusted is [tools_untrusted]: "Resolving the shared tools' versions failed because this machine doesn't trust a server's certificate. A network that inspects TLS needs its CA in this machine's store, or on Linux in {{.dir}}."
+func ToolsUntrusted(dir string) M {
+	return M{id: "tools_untrusted", vals: []val{{"dir", dir}}}
+}
+
 // ToolsWrongBase is [tools_wrong_base]: "Image {{.key}} isn't the base these shared tools are built for, so devvm didn't build them in it. Run the command again."
 func ToolsWrongBase(key string) M {
 	return M{id: "tools_wrong_base", vals: []val{{"key", key}}}
@@ -4688,6 +4693,7 @@ var specs = map[string]spec{
 	"tools_resolve_failed":           {},
 	"tools_switch":                   {fields: []string{"vm"}},
 	"tools_unmounted":                {fields: []string{"tools", "vm"}},
+	"tools_untrusted":                {fields: []string{"dir"}},
 	"tools_wrong_base":               {fields: []string{"key"}},
 	"ubuntu_bad_signature":           {fields: []string{"release", "url"}},
 	"ubuntu_mirror_invalid":          {fields: []string{"setting"}},

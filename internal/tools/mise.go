@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"bytes"
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"maps"
@@ -17,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/trust"
 )
 
 // The mise devvm resolves the tools lock with, on the host: pinned, and
@@ -71,6 +74,9 @@ func (t Versions) HostMise(ctx context.Context) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
+	if err := t.trustCAs(); err != nil {
+		return "", err
+	}
 	stop := t.Status(msg.DownloadingMise(miseVersion))
 	defer stop()
 	// fetch keeps the download only once its SHA-256 is the pin's, and
@@ -90,6 +96,9 @@ func (t Versions) HostMise(ctx context.Context) (string, error) {
 	case errors.Is(err, fetch.ErrProxy) && isMsg:
 		// The company proxy's own refusal, such as its password unsaved.
 		return "", m
+	case errors.As(err, new(x509.UnknownAuthorityError)):
+		// A network that inspects TLS, whose CA this machine doesn't have.
+		return "", msg.ToolsUntrusted(t.Dirs.TrustedCAs()).Because(err)
 	case err != nil && ctx.Err() != nil:
 		return "", ctx.Err()
 	case err != nil:
@@ -107,13 +116,18 @@ func (t Versions) HostMise(ctx context.Context) (string, error) {
 // physical path, stops it at dir. It goes through config.toml's company
 // proxy when devvm's environment sets none (Proxy's Env): its
 // environment, never its arguments, holds the proxy's password, as mise
-// takes it only in the proxy's URL.
+// takes it only in the proxy's URL. It trusts the user's CAs (caEnv), and
+// logs to a file in dir too (miseLog).
 func (t Versions) miseCmd(ctx context.Context, mise, dir string, args ...string) (*exec.Cmd, error) {
 	dir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		return nil, err
 	}
 	proxyEnv, err := t.Proxy.Env(ctx)
+	if err != nil {
+		return nil, err
+	}
+	caEnv, err := t.caEnv(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -127,15 +141,76 @@ func (t Versions) miseCmd(ctx context.Context, mise, dir string, args ...string)
 		"MISE_GLOBAL_CONFIG_FILE="+filepath.Join(dir, "config", "none.toml"),
 		"MISE_TRUSTED_CONFIG_PATHS="+dir,
 		"MISE_CEILING_PATHS="+filepath.Dir(dir),
+		"MISE_LOG_FILE="+filepath.Join(dir, miseLog),
 	)
 	cmd.Env = append(cmd.Env, proxyEnv...)
+	cmd.Env = append(cmd.Env, caEnv...)
 	return cmd, nil
+}
+
+// miseLog is the file in its folder that the host's mise logs to as well
+// (MISE_LOG_FILE), which resolveFailed reads.
+const miseLog = "mise.log"
+
+// untrustedCert is what mise's log says of a server's certificate that
+// mise doesn't trust: rustls' error, which mise's TLS is on every host.
+const untrustedCert = "invalid peer certificate"
+
+// errUntrusted is what tools_untrusted carries, so Lock keeps it.
+var errUntrusted = errors.New("a server's certificate isn't trusted")
+
+// caEnv is what makes the host's mise trust the user's CAs (trust.Read)
+// as well as this machine's own, in files in dir, mise's own folder.
+// MISE_EXTRA_CA_CERTS names their bundle, which mise adds to its roots on
+// every platform, but only in its own HTTP client: its Sigstore client,
+// which fetches the trust root that its provenance checks need, ignores
+// it. That client reads the system's roots as the rest of mise does, from
+// files on Linux, so there SSL_CERT_FILE names a bundle of the system's
+// and the user's CAs too (trust.CAs.Host), which every client reads.
+// macOS's mise asks the Keychain, which no variable adds to. None without
+// CAs.
+func (t Versions) caEnv(dir string) ([]string, error) {
+	cas, err := trust.Read(t.Dirs.TrustedCAs())
+	if err != nil || len(cas) == 0 {
+		return nil, err
+	}
+	extra := filepath.Join(dir, "devvm-ca.pem")
+	if err := state.WriteFile(extra, cas.Bundle()); err != nil {
+		return nil, err
+	}
+	env := []string{"MISE_EXTRA_CA_CERTS=" + extra}
+	if t.OS != "linux" {
+		return env, nil
+	}
+	roots := filepath.Join(dir, "devvm-roots.pem")
+	bundle, rootsEnv, err := cas.Host(roots, t.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	return append(env, rootsEnv...), state.WriteFile(roots, bundle)
+}
+
+// trustCAs makes the client that downloads the host's mise trust the
+// user's CAs (trust.Read) as well as this machine's own.
+func (t Versions) trustCAs() error {
+	cas, err := trust.Read(t.Dirs.TrustedCAs())
+	if err != nil || len(cas) == 0 {
+		return err
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		return err
+	}
+	pool.AppendCertsFromPEM(cas.Bundle())
+	t.Client.Trust(pool)
+	return nil
 }
 
 // Resolve resolves shared-tools/mise.toml to the newest matching releases, for
 // every platform VMs run, into out (and out.toml, the mise.toml it's
 // from). Every tool, or nothing: offline, or with a tool mise can't
-// resolve, it writes nothing and returns tools_resolve_failed, with the
+// resolve, it writes nothing and returns tools_resolve_failed
+// (tools_untrusted for a certificate mise doesn't trust), with the
 // details in the run log. mise's version lists come from its versions
 // host (no GitHub rate limit). It returns the lock it wrote.
 func (t Versions) Resolve(ctx context.Context, out string) (Lock, error) {
@@ -160,16 +235,16 @@ func (t Versions) Resolve(ctx context.Context, out string) (Lock, error) {
 		return Lock{}, err
 	}
 	if err := t.LoggedCmd(ctx, msg.ResolvingTools(), cmd); err != nil {
-		return Lock{}, t.resolveFailed(ctx)
+		return Lock{}, t.resolveFailed(ctx, tmp)
 	}
 	lock, err := parseLockFile(filepath.Join(tmp, "mise.lock"))
 	if err != nil {
-		return Lock{}, t.resolveFailed(ctx)
+		return Lock{}, t.resolveFailed(ctx, tmp)
 	}
 	names, specs := configTools(config)
 	for _, n := range names {
 		if !lock.Has(n) {
-			return Lock{}, t.resolveFailed(ctx)
+			return Lock{}, t.resolveFailed(ctx, tmp)
 		}
 	}
 	if lock, err = t.stepBack(ctx, mise, lock, names, specs); err != nil {
@@ -181,9 +256,16 @@ func (t Versions) Resolve(ctx context.Context, out string) (Lock, error) {
 	return lock, state.WriteFile(out, lock.Bytes())
 }
 
-func (t Versions) resolveFailed(ctx context.Context) error {
+// resolveFailed is the failure of mise's run in dir: tools_untrusted when
+// its log says a server's certificate wasn't trusted, as on a network
+// that inspects TLS, else tools_resolve_failed.
+func (t Versions) resolveFailed(ctx context.Context, dir string) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	log, err := os.ReadFile(filepath.Join(dir, miseLog)) //nolint:gosec // mise's log, in devvm's own folder
+	if err == nil && bytes.Contains(log, []byte(untrustedCert)) {
+		return backend.Logged(msg.ToolsUntrusted(t.Dirs.TrustedCAs()).Because(errUntrusted))
 	}
 	return backend.Logged(msg.ToolsResolveFailed())
 }

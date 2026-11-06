@@ -2123,6 +2123,9 @@ other = "Resolving the shared tools' versions failed. Check that you're online."
 [tools_need_resolve]
 other = "Resolving the shared tools' versions failed, and devvm has to do it once, online. Try again when you're online."
 
+[tools_untrusted]
+other = "Resolving the shared tools' versions failed because this machine doesn't trust a server's certificate. A network that inspects TLS needs its CA in this machine's store, or on Linux in {{.dir}}."
+
 [tool_not_locked]
 other = "The tools lock {{.lock}} has no version of {{.tool}}. Run devvm tools update to resolve the shared tools again."
 
