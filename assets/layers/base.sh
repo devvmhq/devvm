@@ -15,26 +15,33 @@ export DEBIAN_FRONTEND=noninteractive
 # which have no snapshots: they aren't pinned.
 if [[ $devvm_libc == musl ]]; then
   # GNU tar: devvm's launch sends files with it (busybox's lacks options it uses). sqlite: an export
-  # of agents' history copies opencode's database without its logins with it.
+  # of agents' history copies opencode's database without its logins with it. icu-libs: the dotnet
+  # shared tool's .NET needs ICU.
   sudo apk add --no-cache git curl wget ca-certificates build-base unzip jq ripgrep bash coreutils tar \
-    util-linux util-linux-misc losetup findmnt erofs-utils sqlite
+    util-linux util-linux-misc losetup findmnt erofs-utils sqlite icu-libs
   echo "devvm: Alpine's packages aren't pinned" >&2
 else
 # The package lists are apt.sh begin's: base's packages are recorded at its first build and replayed
 # from devvm's cache after (layers/apt.sh), and a --from image's come from its own sources, unpinned.
 # erofs-utils: the shared tools' builds make their images with it, in a VM cloned from base. sqlite3:
-# an export of agents' history copies opencode's database without its logins with it.
-sudo apt-get install -y git curl wget ca-certificates build-essential unzip jq ripgrep erofs-utils sqlite3
+# an export of agents' history copies opencode's database without its logins with it. ICU: the dotnet
+# shared tool's .NET needs it, and its package's name has its version (libicu76), so it's the newest
+# libicuN the package lists have (a replay's lists have only the one recorded).
+icu=$(apt-cache pkgnames libicu | grep -E '^libicu[0-9]+$' | sort -V | tail -1 || true)
+sudo apt-get install -y git curl wget ca-certificates build-essential unzip jq ripgrep erofs-utils sqlite3 ${icu:+"$icu"}
 fi
 
 # devvm-fetch URL SHA256 OUT: every layer downloads through this, so an image only ever contains
-# files whose checksums are pinned in devvm's scripts.
+# files whose checksums are pinned in devvm's scripts. A SHA-512 (128 hex digits) is checked as one:
+# the shared tools' build gets the .NET SDK's from the tools lock.
 sudo tee /usr/local/bin/devvm-fetch >/dev/null <<'SH'
 #!/bin/sh
 set -eu
 url=$1 want=$2 out=$3
 curl -fsSL --retry 3 -o "$out" "$url"
-got=$(sha256sum "$out" | cut -d' ' -f1)
+sum=sha256sum
+[ "${#want}" -ne 128 ] || sum=sha512sum
+got=$("$sum" "$out" | cut -d' ' -f1)
 if [ "$got" != "$want" ]; then
   rm -f "$out"
   printf 'devvm-fetch: checksum mismatch for %s\n  expected %s\n  got      %s\n' "$url" "$want" "$got" >&2
@@ -70,7 +77,7 @@ fi
 mkdir -p ~/.bashrc.d
 grep -qs bashrc.d ~/.bashrc || echo 'for f in ~/.bashrc.d/*.sh; do [ -r "$f" ] && . "$f"; done' >> ~/.bashrc
 
-# mise runs the shared tools (node, python, go, rust, agents), read-only images mounted at
+# mise runs the shared tools (node, python, go, rust, dotnet, agents), read-only images mounted at
 # /opt/devvm/tools by devvm-tools (guest/tools.sh). Each VM's tools and versions are in
 # /etc/mise/config.toml (written by guest/sync.sh); the user's own mise config and a project's version
 # files (.nvmrc, .python-version, ...) come first, and versions that aren't shared install into the VM.
@@ -82,15 +89,21 @@ rm /tmp/mise
 # Every shell finds the tools: login shells through profile.d, interactive ones through mise activate
 # (it follows `cd` into projects with other versions), and the rest (`bash -c` from agents, editors
 # over SSH) through BASH_ENV and mise's shims. Read-only installs can't take global packages or update
-# themselves: npm installs globals into ~/.npm-global, and Claude Code's and opencode's auto-updates
-# are off.
+# themselves: npm installs globals into ~/.npm-global, Claude Code's and opencode's auto-updates are
+# off, and dotnet tool install -g installs into ~/.dotnet/tools, which is on the PATH, so the SDK
+# doesn't add it to a shell's profile on its first run. .NET's telemetry, its first-run banner and
+# its background check for workload updates are off.
 sudo tee /etc/profile.d/devvm-tools.sh >/dev/null <<'SH'
 case ":$PATH:" in *":$HOME/.local/share/mise/shims:"*) ;; *)
-  export PATH="$HOME/.npm-global/bin:$HOME/go/bin:$HOME/.cargo/bin:$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH" ;;
+  export PATH="$HOME/.npm-global/bin:$HOME/go/bin:$HOME/.cargo/bin:$HOME/.dotnet/tools:$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH" ;;
 esac
 export NPM_CONFIG_PREFIX="$HOME/.npm-global"
 export DISABLE_AUTOUPDATER=1
 export OPENCODE_DISABLE_AUTOUPDATE=1
+export DOTNET_CLI_TELEMETRY_OPTOUT=1
+export DOTNET_NOLOGO=1
+export DOTNET_ADD_GLOBAL_TOOLS_TO_PATH=false
+export DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=true
 SH
 grep -qs devvm-tools /etc/environment || echo 'BASH_ENV=/etc/profile.d/devvm-tools.sh' | sudo tee -a /etc/environment >/dev/null
 echo 'eval "$(mise activate bash)"' > ~/.bashrc.d/mise.sh
@@ -129,7 +142,8 @@ SH
 sudo chmod 755 /usr/local/bin/xdg-open
 echo 'export BROWSER=xdg-open' | sudo tee /etc/profile.d/devvm-browser.sh >/dev/null
 
-# Telemetry off for every tool that has a switch (installed by devvm or commonly by projects).
+# Telemetry off for every tool that has a switch (installed by devvm or commonly by projects), but
+# .NET's, which devvm-tools.sh turns off in every shell.
 sudo tee /etc/profile.d/devvm-telemetry.sh >/dev/null <<'SH'
 export DO_NOT_TRACK=1                 # generic opt-out (bun and others)
 export DISABLE_TELEMETRY=1            # Claude Code
@@ -141,7 +155,6 @@ export NUXT_TELEMETRY_DISABLED=1
 export GATSBY_TELEMETRY_DISABLED=1
 export STORYBOOK_DISABLE_TELEMETRY=1
 export YARN_ENABLE_TELEMETRY=0
-export DOTNET_CLI_TELEMETRY_OPTOUT=1
 SH
 # Ubuntu: no news fetched for the login banner or apt output.
 sudo sed -i 's/^ENABLED=1/ENABLED=0/' /etc/default/motd-news 2>/dev/null || true

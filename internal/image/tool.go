@@ -42,6 +42,11 @@ const (
 	// Rustup installs it: rustup, pinned in build.sh, checks the toolchain
 	// against its own signed manifest, so the lock has no download for it.
 	Rustup
+	// DotnetSDK installs it: build.sh unpacks Microsoft's SDK archive, the
+	// lock's download, checked against the SHA-512 that devvm adds to the
+	// lock from Microsoft's release metadata. mise's own installer for it
+	// runs Microsoft's install script, which nothing pins or checks.
+	DotnetSDK
 )
 
 // ToolDef is a shared tool as devvm offers it: what a VM is given by its
@@ -55,7 +60,9 @@ type ToolDef struct {
 	// that its name stands for, itself first: node is node, pnpm and bun.
 	Members []string
 	// Detect are the files in a project folder's top level that call for
-	// it, in the order they're looked for: the first found is named.
+	// it, in the order they're looked for: the first found is named. A
+	// name with a * is a pattern (path.Match's), which names the first
+	// file it matches, in the folder's name order.
 	Detect []string
 	// Installer is what installs it.
 	Installer Installer
@@ -70,6 +77,7 @@ var SharedTools = []ToolDef{
 	{Name: "python", Kind: Toolchain, Members: []string{"python", "uv"}, Detect: []string{"pyproject.toml", "requirements.txt", "uv.lock", "setup.py", "Pipfile"}},
 	{Name: "rust", Kind: Toolchain, Members: []string{"rust"}, Detect: []string{"Cargo.toml"}, Installer: Rustup},
 	{Name: "go", Kind: Toolchain, Members: []string{"go"}, Detect: []string{"go.mod"}},
+	{Name: "dotnet", Kind: Toolchain, Members: []string{"dotnet"}, Detect: []string{"*.sln", "*.slnx", "*.csproj", "*.fsproj", "global.json"}, Installer: DotnetSDK},
 	{Name: "claude", Kind: Agent, Members: []string{"claude"}},
 	{Name: "codex", Kind: Agent, Members: []string{"codex"}},
 	{Name: "opencode", Kind: Agent, Members: []string{"opencode"}},
@@ -152,7 +160,12 @@ func GroupTools(name string) []string {
 
 // NoDownload reports whether a tool in the lock needs no download there,
 // as its shared tool's installer fetches it: rust, which rustup installs.
-func NoDownload(tool string) bool { return installerOf(tool) != Mise }
+func NoDownload(tool string) bool { return installerOf(tool) == Rustup }
+
+// OwnDownload reports whether shared-tools/build.sh fetches a tool's
+// download from the lock itself, rather than mise or rustup: dotnet,
+// whose download and checksum devvm adds to the lock.
+func OwnDownload(tool string) bool { return installerOf(tool) == DotnetSDK }
 
 // installerOf is what installs a tool in the lock: its shared tool's
 // Installer, mise for a tool no shared tool has.
@@ -226,7 +239,7 @@ func ToolVersion(s string) bool { return toolVersion.MatchString(s) }
 // shared-tools/build.sh (in assets, devvm's own files) as its build runs
 // it, after the prelude (OwnScript), the [settings] of
 // devvm's shared-tools/mise.toml, which change what mise installs, the
-// version of mise that installs it (MiseVersion; not for a tool rustup
+// version of mise that installs it (MiseVersion; only for a tool mise
 // installs), the libc, the base it builds in (devvm's own for gnu, for
 // musl its digest) and, unless it's build.sh's own, the format.
 func ToolFile(assets fs.FS, t Tool) (string, error) {

@@ -4,6 +4,7 @@
 # (~/.local/share/devvm/mise.lock) in its .build folder. Each tool gets a VM and a folder of its own,
 # so nothing one tool's installer does, as root or not, reaches another tool's image.
 #   build.sh TOOL VERSION FILE
+#   build.sh dotnet VERSION FILE URL SHA512
 # The tool is installed at exactly the locked version (checked against the lock's checksums), then
 # packed into one compressed read-only EROFS image, FILE in that folder; devvm moves it into the share
 # and records its hash. Project VMs mount it at /opt/devvm/tools/<tool>/<version>, where mise finds it
@@ -57,7 +58,8 @@ glibc_needs() {
   rm -f "$files" "$elf"
 }
 [[ $devvm_libc != gnu ]] || command -v readelf >/dev/null || { echo "build.sh: base has no readelf (binutils)" >&2; exit 1; }
-(( $# == 3 )) || { echo "build.sh: wants TOOL VERSION FILE, got $# arguments" >&2; exit 2; }
+(( $# == 3 )) || [[ $# == 5 && $1 == dotnet ]] ||
+  { echo "build.sh: wants TOOL VERSION FILE (dotnet: and URL SHA512), got $# arguments" >&2; exit 2; }
 tool=$1 version=$2 file=$3
 
 wait_share
@@ -75,6 +77,22 @@ if [[ $tool == rust ]]; then
   RUSTUP_HOME=$work/rustup CARGO_HOME=$work/cargo "$dir/rustup-init" -y -q --no-modify-path \
     --profile default --default-toolchain "$version" -c rust-src -c rust-analyzer
   mv "$work/rustup/toolchains/$version-$triple" "$dir/toolchain"
+elif [[ $tool == dotnet ]]; then
+  # Microsoft's SDK archive, the lock's download for this platform, which devvm passes with the
+  # SHA-512 the lock records for it: mise's own installer runs Microsoft's install script, which
+  # checks nothing.
+  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $# == 5 ]] || { echo "build.sh: dotnet wants a release's VERSION, URL and SHA512" >&2; exit 2; }
+  dir=$work/dotnet/$version; mkdir -p "$dir"
+  devvm-fetch "$4" "$5" /tmp/dotnet-sdk.tar.gz
+  tar -xzf /tmp/dotnet-sdk.tar.gz -C "$dir"
+  rm /tmp/dotnet-sdk.tar.gz
+  sdks=$("$dir/dotnet" --list-sdks)
+  [[ $sdks == "$version "* ]] || { echo "build.sh: the archive has another SDK than $version: $sdks" >&2; exit 1; }
+  # Workloads install into the user's ~/.dotnet, which the SDK does when its folder has this marker
+  # for its feature band (10.0.400 for 10.0.403): the SDK's own folder is read-only in VMs.
+  band=${version%.*}.$(( ${version##*.} / 100 * 100 ))
+  mkdir -p "$dir/metadata/workloads/$band"
+  touch "$dir/metadata/workloads/$band/userlocal"
 else
   # By name: mise resolves mise.toml's version through the lock (an explicit tool@version isn't
   # matched to the lock's entry).

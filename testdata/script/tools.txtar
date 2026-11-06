@@ -97,6 +97,29 @@ project cli
 exec devvm --network open --no-git-protect --tools go --agents claude
 ! stdout 'checking_tools|building_tools'
 
+# A .NET project's file calls for dotnet, named in the summary. Its build
+# gets the lock's download for this VM's platform and its SHA-512 after
+# its tool, version and file, which build.sh checks the SDK's archive
+# against (mise's own installer for it checks nothing).
+project shop
+cp $WORK/Shop.csproj Shop.csproj
+stub_reset
+exec devvm --network open --no-git-protect
+stdout '^new_vm_toolchain_for file=Shop\.csproj tool=dotnet$'
+stdout '^==> building_tools tools=dotnet 10\.0\.401$'
+vm_name SHOP shop
+vm_state $SHOP_dir/vm.json
+stdout '^tools.names=dotnet$'
+stdout '^tools.made.files=dotnet-10\.0\.401-[0-9a-f]{12}\.erofs$'
+stub_calls
+stdout '^limactl shell --workdir / devvm-tools-build bash -s -- dotnet 10\.0\.401 dotnet-10\.0\.401-[0-9a-f]{12}\.erofs https://builds\.dotnet\.microsoft\.com/dotnet/Sdk/10\.0\.401/dotnet-sdk-10\.0\.401-linux-(arm64|x64)\.tar\.gz [0-9a-f]{128}$'
+# global.json alone calls for it too.
+project sdk
+cp $WORK/global.json global.json
+exec devvm --network open --no-git-protect
+stdout '^new_vm_toolchain_for file=global\.json tool=dotnet$'
+! stdout 'building_tools'
+
 # The shared tools aren't images: build and rebuild refuse them.
 ! exec devvm rebuild node
 stderr '^devvm: tool_not_layer tool=node$'
@@ -171,3 +194,12 @@ late: 1, mount ./share
 never: 60, 60 mounts
 -- package.json --
 {}
+-- Shop.csproj --
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+</Project>
+-- global.json --
+{ "sdk": { "version": "10.0.401" } }

@@ -81,6 +81,27 @@ checksum = "sha256:4f573944c1d2059109d75a2f4d0cc9c03697288224a5e407717a9de98fc01
 url = "https://github.com/openai/codex/releases/download/rust-v0.162.0/codex-package-x86_64-unknown-linux-musl.tar.gz"
 url_api = "https://api.github.com/repos/openai/codex/releases/assets/622683980"
 
+[[tools.dotnet]]
+version = "10.0.401"
+backend = "core:dotnet"
+specifiers = ["latest"]
+
+[tools.dotnet."platforms.linux-arm64"]
+checksum = "sha512:8d8cd675b78d00ebc51379d4a733a46b88a79b7f816abdfd8d1957b15e9e6a84d6dc6de91e7fc0c18d81071a43aaf2954af7f6fa378e097a1238ec6520c32c9d"
+url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-linux-arm64.tar.gz"
+
+[tools.dotnet."platforms.linux-arm64-musl"]
+checksum = "sha512:12d55a49b8a94b9d132ad9e4846516347a9dae1789bc58fda9fa54293edb24d7d49293c5b865551dc8b8e1516832793a7c9988af4e43ae8c9c4f3b7b5a881ae9"
+url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-linux-musl-arm64.tar.gz"
+
+[tools.dotnet."platforms.linux-x64"]
+checksum = "sha512:bc87ac5d0cdaa601354fdf58d6680890e5ad1a11b63ff0042207ea392ad9f0a3a531e3d3e0c543f8dccf93a085d6df01459139eb581f9922c27d3f9ddba719cb"
+url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-linux-x64.tar.gz"
+
+[tools.dotnet."platforms.linux-x64-musl"]
+checksum = "sha512:3a994e48a600ec1cafc0bac75c84fd89701a3972ea4afb4cd3df84ab23ab5d0f863364d13d6baf0ae1e11d568706ca6689827da557dc63c728bbcd8983d91175"
+url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-linux-musl-x64.tar.gz"
+
 [[tools.go]]
 version = "1.27.2"
 backend = "core:go"

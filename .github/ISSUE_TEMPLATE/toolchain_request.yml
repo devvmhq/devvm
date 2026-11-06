@@ -1,5 +1,5 @@
 name: Toolchain request
-description: A language or runtime you'd like devvm to build in, such as .NET, Java, PHP, Ruby or Elixir.
+description: A language or runtime you'd like devvm to build in, such as Java, PHP, Ruby or Elixir.
 labels: ["enhancement", "toolchain", "triage"]
 body:
   - type: markdown
@@ -18,7 +18,7 @@ body:
     attributes:
       label: The toolchain
       description: Its usual name, and its mise tool name if you know it (what `mise registry NAME` prints).
-      placeholder: .NET (mise's dotnet)
+      placeholder: Ruby (mise's ruby)
     validations:
       required: true
   - type: textarea
@@ -26,7 +26,7 @@ body:
     attributes:
       label: Files that should pick it
       description: The project files that tell devvm a folder needs this toolchain.
-      placeholder: "*.csproj, *.sln, global.json"
+      placeholder: "Gemfile, .ruby-version"
     validations:
       required: true
   - type: textarea
@@ -41,25 +41,25 @@ body:
     attributes:
       label: Versions
       description: Whether the latest is enough or you need several major versions, and which.
-      placeholder: The latest LTS, and 8 for older projects
+      placeholder: The latest, and 3.3 for older projects
   - type: input
     id: source
     attributes:
       label: Official install source
       description: Where the toolchain's own builds come from.
-      placeholder: https://dotnet.microsoft.com/download
+      placeholder: https://www.ruby-lang.org/en/downloads/
   - type: textarea
     id: registries
     attributes:
       label: Package managers and their hosts
       description: The package managers people use with it and the hosts they download from, which the toolchain's network policy lets through.
-      placeholder: "NuGet: api.nuget.org, globalcdn.nuget.org"
+      placeholder: "RubyGems: rubygems.org, index.rubygems.org"
   - type: textarea
     id: writes
     attributes:
       label: What it writes into its own folder
       description: Global installs, plugins or self-updates that write into the toolchain's install folder, which devvm has to send somewhere else because shared tools are read-only in VMs.
-      placeholder: "`dotnet tool install -g` writes to ~/.dotnet/tools"
+      placeholder: "`gem install` writes into Ruby's own gems folder"
   - type: dropdown
     id: builds
     attributes:

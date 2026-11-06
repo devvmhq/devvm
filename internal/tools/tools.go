@@ -96,6 +96,9 @@ type Env struct {
 	// and platform) and checksums, by platform.
 	miseURL  string
 	miseSums map[string]string
+	// dotnetURL is a .NET channel's releases.json (a format taking the
+	// channel), which the lock's dotnet downloads come from.
+	dotnetURL string
 }
 
 // Versions is the tools lock: resolving it with the host's mise, the daily
@@ -129,7 +132,7 @@ func New(d paths.Dirs, assets fs.FS, version string, r msg.Reporter, host platfo
 	t := &Env{
 		Dirs: d, Assets: assets, Self: self, Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH,
 		Getenv: os.Getenv, Client: newClient(), RetryDelay: time.Second, Now: time.Now, Detach: daemon.Detach,
-		ShareNote: 3 * time.Second, miseURL: miseURL, miseSums: miseSHA256,
+		ShareNote: 3 * time.Second, miseURL: miseURL, miseSums: miseSHA256, dotnetURL: dotnetReleases,
 		Reporter: r, FreeSpace: host.FreeSpace,
 	}
 	// The environment it reads is Getenv's, and the Proxy the one at each

@@ -134,17 +134,21 @@ func TestToolFile(t *testing.T) {
 	if got := toolFile(t, withBase(root, baseScript+"# edit\nnode_version=1\n"), node()); got != f {
 		t.Errorf("the rest of base.sh: %q, want %q", got, f)
 	}
-	// rustup installs rust: mise's version doesn't count, and base.sh's
-	// pin isn't read.
-	rust := Tool{Name: "rust", Version: "1.99.1", LockEntry: []byte("[[tools.rust]]\n"), Libc: "gnu"}
-	r := toolFile(t, root, rust)
-	if got := toolFile(t, withBase(root, "mise_version=2026.2.0\n"), rust); got != r {
-		t.Errorf("rust with another mise: %q, want %q", got, r)
-	}
+	// rustup installs rust, and build.sh dotnet: mise's version doesn't
+	// count, and base.sh's pin isn't read.
 	noBase := maps.Clone(root)
 	delete(noBase, "layers/base.sh")
-	if got := toolFile(t, noBase, rust); got != r {
-		t.Errorf("rust without base.sh: %q, want %q", got, r)
+	for _, tool := range []Tool{
+		{Name: "rust", Version: "1.99.1", LockEntry: []byte("[[tools.rust]]\n"), Libc: "gnu"},
+		{Name: "dotnet", Version: "10.0.403", LockEntry: []byte("[[tools.dotnet]]\n"), Libc: "gnu"},
+	} {
+		r := toolFile(t, root, tool)
+		if got := toolFile(t, withBase(root, "mise_version=2026.2.0\n"), tool); got != r {
+			t.Errorf("%s with another mise: %q, want %q", tool.Name, got, r)
+		}
+		if got := toolFile(t, noBase, tool); got != r {
+			t.Errorf("%s without base.sh: %q, want %q", tool.Name, got, r)
+		}
 	}
 }
 
@@ -275,17 +279,22 @@ func TestSortToolsAndGroups(t *testing.T) {
 }
 
 // The table's views: the toolchains, then the agents; rust alone needs
-// no download in the lock.
+// no download in the lock, and dotnet alone has build.sh fetch its own.
 func TestSharedTools(t *testing.T) {
-	if want := []string{"node", "python", "rust", "go"}; !slices.Equal(Toolchains, want) {
+	if want := []string{"node", "python", "rust", "go", "dotnet"}; !slices.Equal(Toolchains, want) {
 		t.Errorf("Toolchains = %q, want %q", Toolchains, want)
 	}
 	if want := []string{"claude", "codex", "opencode"}; !slices.Equal(Agents, want) {
 		t.Errorf("Agents = %q, want %q", Agents, want)
 	}
-	for tool, want := range map[string]bool{"rust": true, "node": false, "pnpm": false, "claude": false, "nix": false} {
+	for tool, want := range map[string]bool{"rust": true, "dotnet": false, "node": false, "pnpm": false, "claude": false, "nix": false} {
 		if got := NoDownload(tool); got != want {
 			t.Errorf("NoDownload(%s) = %v, want %v", tool, got, want)
+		}
+	}
+	for tool, want := range map[string]bool{"dotnet": true, "rust": false, "node": false, "claude": false, "nix": false} {
+		if got := OwnDownload(tool); got != want {
+			t.Errorf("OwnDownload(%s) = %v, want %v", tool, got, want)
 		}
 	}
 	if _, ok := Def("pnpm"); ok {

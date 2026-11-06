@@ -1,0 +1,8 @@
+# dotnet: NuGet's packages and tools, and the revocation lists of DigiCert, which issues NuGet's
+# signing certificates, that NuGet checks each package's signatures against; the SDKs mise installs
+# for a global.json's version (the install script at dot.net, the SDK's archive). Microsoft's
+# telemetry is left out.
+api.nuget.org
+crl3.digicert.com:80
+dot.net
+builds.dotnet.microsoft.com

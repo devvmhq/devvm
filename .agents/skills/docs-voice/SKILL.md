@@ -63,7 +63,7 @@ Use these terms on every page and in every message.
 - **Feature** on user pages means only base image features (omb, fzf, cli-tools) and devcontainer features. Backend features, which are native, emulated or none, appear only on the How it works pages. devvm doctor prints backend features as "features", so say so where a user page compares backends.
 - **Image** means devvm's images, such as base or foo+bar. Say "container image" for the images that `--from` and a `devcontainer.json` start from.
 - **Layer** means devvm's layers. Say "Docker's image layers" when you mean Docker's.
-- **Shared tool** means node, python, rust, go, claude, codex or opencode.
+- **Shared tool** means node, python, rust, go, dotnet, claude, codex or opencode.
 
 ## Workflow
 

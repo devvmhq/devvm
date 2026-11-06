@@ -166,6 +166,10 @@ func (t Versions) Resolve(ctx context.Context, out string) (Lock, error) {
 	if err != nil {
 		return Lock{}, t.resolveFailed(ctx)
 	}
+	if lock, err = t.withSDKDownloads(ctx, lock); err != nil {
+		_, _ = fmt.Fprintln(t.LogWriter(), err)
+		return Lock{}, t.resolveFailed(ctx)
+	}
 	names, specs := configTools(config)
 	for _, n := range names {
 		if !lock.Has(n) {
@@ -298,5 +302,8 @@ func (t Versions) lockVersions(ctx context.Context, mise, tool string, versions 
 	}
 	_ = t.LoggedCmd(ctx, msg.ResolvingTools(), cmd) // what it locked is checked below
 	l, err := parseLockFile(filepath.Join(dir, "mise.lock"))
+	if err == nil {
+		l, err = t.withSDKDownloads(ctx, l)
+	}
 	return l, err == nil
 }

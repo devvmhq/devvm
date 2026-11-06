@@ -39,6 +39,11 @@ func TestDetect(t *testing.T) {
 		{"Pipfile", "python"},
 		{"Cargo.toml", "rust"},
 		{"go.mod", "go"},
+		{"App.sln", "dotnet"},
+		{"App.slnx", "dotnet"},
+		{"App.csproj", "dotnet"},
+		{"Lib.fsproj", "dotnet"},
+		{"global.json", "dotnet"},
 		{"flake.nix", "nix"},
 		{"shell.nix", "nix"},
 		{"devenv.nix", "nix"},
@@ -69,6 +74,31 @@ func TestDetect(t *testing.T) {
 	want := []detected{{"node", "package.json"}, {"python", "pyproject.toml"}, {"go", "go.mod"}, {"nix", "flake.nix"}}
 	if got := detectFiles(d); !slices.Equal(got, want) {
 		t.Errorf("detectFiles = %v, want %v", got, want)
+	}
+}
+
+// A pattern names the file it matched: the first, in name order, of the
+// first pattern that matches, before the names after it; only the top
+// level counts, and a name that only looks like it doesn't.
+func TestDetectPatterns(t *testing.T) {
+	d := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(d, "src"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	touchAll(t, filepath.Join(d, "src", "App.csproj"), filepath.Join(d, "App.csproj.user"), filepath.Join(d, "global.json.bak"))
+	if got := detect(d); got != nil {
+		t.Errorf("detect with src/App.csproj, App.csproj.user and global.json.bak = %v", got)
+	}
+	touchAll(t, filepath.Join(d, "global.json"), filepath.Join(d, "Web.csproj"), filepath.Join(d, "Api.csproj"))
+	if got, want := detectFiles(d), []detected{{"dotnet", "Api.csproj"}}; !slices.Equal(got, want) {
+		t.Errorf("detectFiles = %v, want %v", got, want)
+	}
+	touchAll(t, filepath.Join(d, "Shop.sln"))
+	if got, want := detectFiles(d), []detected{{"dotnet", "Shop.sln"}}; !slices.Equal(got, want) {
+		t.Errorf("detectFiles with Shop.sln = %v, want %v", got, want)
+	}
+	if got := detectFiles(filepath.Join(d, "none")); got != nil {
+		t.Errorf("detectFiles of a missing folder = %v", got)
 	}
 }
 

@@ -158,7 +158,7 @@ stderr '^devvm: part_other_flag flag=--tools given=claude other=--agents$'
 ! exec devvm --tools node,docker
 stderr '^devvm: part_other_flag flag=--tools given=docker other=--layers$'
 ! exec devvm --tools java
-stderr '^devvm: unknown_part flag=--tools given=java names=node python rust go$'
+stderr '^devvm: unknown_part flag=--tools given=java names=node python rust go dotnet$'
 ! exec devvm --agents cladue
 stderr '^devvm: unknown_part_like flag=--agents given=cladue like=claude$'
 ! exec devvm --layers node
