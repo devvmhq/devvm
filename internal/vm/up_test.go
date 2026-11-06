@@ -45,8 +45,13 @@ func TestUp(t *testing.T) {
 	if spec.Tools != e.Dirs.Tools() || spec.ToolsAt != tools.ShareAt {
 		t.Errorf("CreateVM's tools share = %q at %q", spec.Tools, spec.ToolsAt)
 	}
-	if got := staged(t, f); got["tools"] != "" || !strings.HasPrefix(got["sync.sh"], "#!/bin/bash") || got["tools.sh"] == "" {
+	got := staged(t, f)
+	if got["tools"] != "" || !strings.HasPrefix(got["sync.sh"], "#!/bin/bash") || got["tools.sh"] == "" {
 		t.Errorf("staged = %q", got)
+	}
+	// The backends each tool's image comes from, for the VM's mise.
+	if want, err := tools.Aliases(e.Assets); err != nil || got["tool-alias.toml"] != string(want) || !strings.HasPrefix(string(want), "[tool_alias]\n") {
+		t.Errorf("staged tool-alias.toml = %q, want %q (%v)", got["tool-alias.toml"], want, err)
 	}
 	if len(*execs) != 1 || (*execs)[0].Path != "/bin/shell" {
 		t.Errorf("exec = %+v", *execs)

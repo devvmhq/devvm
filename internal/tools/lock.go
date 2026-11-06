@@ -7,6 +7,8 @@ import (
 	"errors"
 	"maps"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -197,4 +199,27 @@ func configTools(data []byte) (names []string, versions map[string]string) {
 		versions[k] = strings.Trim(strings.TrimSpace(v), `"`)
 	}
 	return names, versions
+}
+
+// configAliases reads the [tool_alias] table of a mise.toml: each tool
+// whose backend it names, and that backend (aqua:openai/codex).
+func configAliases(data []byte) (map[string]string, error) {
+	var config struct {
+		Aliases map[string]string `toml:"tool_alias"`
+	}
+	if err := toml.Unmarshal(data, &config); err != nil {
+		return nil, err
+	}
+	return config.Aliases, nil
+}
+
+// aliasTable is a [tool_alias] table as a mise.toml takes it: a line per
+// tool, naming its backend, in the tools' order.
+func aliasTable(aliases map[string]string) []byte {
+	var b bytes.Buffer
+	b.WriteString("[tool_alias]\n")
+	for _, tool := range slices.Sorted(maps.Keys(aliases)) {
+		b.WriteString(tool + " = " + strconv.Quote(aliases[tool]) + "\n")
+	}
+	return b.Bytes()
 }

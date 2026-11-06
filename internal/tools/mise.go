@@ -203,9 +203,9 @@ func (t Versions) stepBack(ctx context.Context, mise string, lock Lock, names []
 		if lock.HasDownload(tool, t.platforms()) {
 			continue
 		}
-		v := lock.Version(tool)
-		older := t.olderVersions(ctx, mise, lock.Backend(tool), specs[tool], v)
-		one, c := t.olderWithDownload(ctx, mise, tool, older)
+		v, backendName := lock.Version(tool), lock.Backend(tool)
+		older := t.olderVersions(ctx, mise, backendName, specs[tool], v)
+		one, c := t.olderWithDownload(ctx, mise, tool, backendName, older)
 		if one == nil {
 			t.Warn(msg.ToolNoDownload(tool, v))
 			continue
@@ -227,8 +227,8 @@ func (t Versions) stepBack(ctx context.Context, mise string, lock Lock, names []
 // olderWithDownload returns the entry of the newest of these older
 // versions of a tool (newest first) that has a download for every
 // platform, and its version: nil when none has.
-func (t Versions) olderWithDownload(ctx context.Context, mise, tool string, older []string) (lockEntry, string) {
-	entries, ok := t.lockVersions(ctx, mise, tool, older)
+func (t Versions) olderWithDownload(ctx context.Context, mise, tool, backendName string, older []string) (lockEntry, string) {
+	entries, ok := t.lockVersions(ctx, mise, tool, backendName, older)
 	if !ok {
 		return nil, ""
 	}
@@ -276,10 +276,11 @@ func (t Versions) olderVersions(ctx context.Context, mise, backendName, spec, v 
 }
 
 // lockVersions locks these versions of a tool, all in one lock (mise
-// takes a list of versions), in a folder of its own: mise also reads the
-// mise.toml of the folders above. False when there are none, or mise
-// fails.
-func (t Versions) lockVersions(ctx context.Context, mise, tool string, versions []string) (Lock, bool) {
+// takes a list of versions), from the backend its newest came from (the
+// name mise's registry gives it may stand for another), in a folder of
+// its own: mise also reads the mise.toml of the folders above. False when
+// there are none, or mise fails.
+func (t Versions) lockVersions(ctx context.Context, mise, tool, backendName string, versions []string) (Lock, bool) {
 	if len(versions) == 0 {
 		return Lock{}, false
 	}
@@ -289,7 +290,11 @@ func (t Versions) lockVersions(ctx context.Context, mise, tool string, versions 
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	list := `"` + strings.Join(versions, `","`) + `"`
-	if err := state.WriteFile(filepath.Join(dir, "mise.toml"), []byte("[tools]\n"+tool+" = ["+list+"]\n")); err != nil {
+	config := []byte("[tools]\n" + tool + " = [" + list + "]\n")
+	if backendName != "" {
+		config = append(append(aliasTable(map[string]string{tool: backendName}), '\n'), config...)
+	}
+	if err := state.WriteFile(filepath.Join(dir, "mise.toml"), config); err != nil {
 		return Lock{}, false
 	}
 	cmd, err := t.miseCmd(ctx, mise, dir, "lock", "--platform", strings.Join(t.platforms(), ","))
