@@ -13,6 +13,11 @@ updates:
     commit-message:
       prefix: build
       include: scope
+    # pflag 1.1 prints every boolean flag as --flag[=true|false] in the help, with no way to turn it
+    # off, so devvm stays on 1.0.x.
+    ignore:
+      - dependency-name: github.com/spf13/pflag
+        versions: [">= 1.1.0"]
     groups:
       go:
         patterns: ["*"]
