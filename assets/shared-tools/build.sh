@@ -14,11 +14,11 @@ set -euxo pipefail
 : "${devvm_arch:?}" "${devvm_libc:?}"   # devvm's prelude (prelude.sh) comes before this script
 # Pinned downloads (scripts/bump.sh updates them). rustup checks the toolchain against Rust's signed
 # channel manifest.
-rustup_version=1.29.1
-rustup_sha256_arm64=15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433
-rustup_sha256_amd64=dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
-rustup_sha256_arm64_musl=1ddf36182ac5d1782dbeefcb9bea7f5f9412d88f4a0d5047b1564a223624e8c6
-rustup_sha256_amd64_musl=331228566cc931f32cd684f9bebc5956a5e5d7394c8d5de595f196a658ab98e6
+rustup_version=1.29.3
+rustup_sha256_arm64=9f608c142e0e38a78957d0661ba1dfaf0b6fb37184cfaa4b9a0aa57af6184282
+rustup_sha256_amd64=b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55
+rustup_sha256_arm64_musl=956deacdc27ab82ae7ac821d5d3e9e95e4795d476d17efe99743bb8531ca1031
+rustup_sha256_amd64_musl=1552169aba2836777136ccff7a381e95c17233b5d8250cd5e10ae3cb971bfcfc
 
 share=/mnt/devvm-tools
 # Where VMs mount the tools: installs record absolute paths (mise's bin links, scripts' shebangs).

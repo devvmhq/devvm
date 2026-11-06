@@ -4,11 +4,11 @@
 set -euxo pipefail
 : "${devvm_arch:?}" "${devvm_libc:?}"   # devvm's prelude (prelude.sh) comes before this script
 # Pinned downloads (scripts/bump.sh updates them).
-mise_version=2026.10.7
-mise_sha256_arm64=c7108d85a32ba17e4747d31d4a42f39f0c134f16211e204e8ef0a49d4f518fe1
-mise_sha256_amd64=6eb1b890e90818417ca34c90dbbd47881917d5cd199f31b63b062ea9c6b18d85
-mise_sha256_arm64_musl=e036eb7bd3ca63e8565497e597967484330a74ff24e9c4c9f2ac41824cbf4090
-mise_sha256_amd64_musl=fc5137a3147494e039c3d5fc3d84de354170d7d8dafdb0b5f0b6f3f19d1dd922
+mise_version=2026.11.3
+mise_sha256_arm64=a9a2a66bbbe87ea9cc849e1f006606ae2b34f3d3ba56a54d5cd5d64b6557d164
+mise_sha256_amd64=c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
+mise_sha256_arm64_musl=78c87fb8c8af031755f9241cbcd1886cd458c75e8f324020015445a776789e38
+mise_sha256_amd64_musl=72f1cb4591ee2ba90150022c3ee8aea4dd88fadac10c56d04ede4faffb5a1b03
 
 export DEBIAN_FRONTEND=noninteractive
 # Alpine (--from alpine): apk, OpenRC and musl. Its packages come from the release's repositories,

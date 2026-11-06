@@ -5,11 +5,11 @@ set -euxo pipefail
 : "${devvm_libc:?}"   # devvm's prelude (prelude.sh) comes before this script
 # Pinned downloads (scripts/bump.sh updates them). Docker's repository has no snapshots: its packages
 # are pinned by version.
-docker_version=29.9.0
-containerd_version=2.4.1
-buildx_version=0.38.0
-compose_version=5.6.0
-model_version=1.2.6
+docker_version=29.9.3
+containerd_version=2.4.2
+buildx_version=0.38.1
+compose_version=5.7.0
+model_version=1.2.9
 docker_gpg_sha256=1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570
 
 # Alpine (--from alpine): Docker is Alpine's own package, from the release's repositories, which have

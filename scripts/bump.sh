@@ -54,7 +54,7 @@ valid() {
   case $1 in
     *_sha256*) re='^[0-9a-f]{64}$' ;;
     *_commit) re='^[0-9a-f]{40}$' ;;
-    *_digest) re='^sha256:[0-9a-f]{64}$' ;;
+    *_digest | *Digest) re='^sha256:[0-9a-f]{64}$' ;;
     *_release) re='^release-[0-9]{8}$' ;;
     *_built) re='^[0-9]{8}T[0-9]{6}Z$' ;;
   esac

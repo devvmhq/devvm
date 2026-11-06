@@ -8,9 +8,9 @@ set -euxo pipefail
 eza_version=0.23.5
 eza_sha256_arm64=40b87ae8628aa2ff0f0d2dc24ab52f689631366385c3da630bae745671fd71ec
 eza_sha256_amd64=e06eebab74b73d6b7d51a796a353824b001bea82df077706382e100815d28904
-tealdeer_version=1.9.0
-tealdeer_sha256_arm64=a748f181c00933980cb850f4a24199c45900fc523787f6c524232a6bfc66b895
-tealdeer_sha256_amd64=dc7263b550e90c0689ea2cb434e3144469805d5dddecbb1f7fc534e1185b7408
+tealdeer_version=1.9.1
+tealdeer_sha256_arm64=247746dd2d18f0135da79b849bb6b49e45262e2fe4318adfc3082dc6ce3ee968
+tealdeer_sha256_amd64=5a9c3f0691b9cf375ee5c99de802885f3d50498cf686a539e2ddda028eb6b4f6
 
 if [[ $devvm_libc == musl ]]; then
   # Alpine packages eza too (its arm64 release build below is glibc).

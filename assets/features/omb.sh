@@ -2,7 +2,7 @@
 # oh-my-bash: themed prompt, completions, aliases
 set -euxo pipefail
 # Pinned commit (scripts/bump.sh updates it); git checks the content against it.
-omb_commit=abf846186ab0a8a41ec5888e827ece6277dfe446
+omb_commit=94c2977eda06f230aafa9628fcd869123f01896b
 
 # Its own installer, from the pinned commit and cloning from it (OSH_REPOSITORY), so nothing comes
 # from master. Replaces ~/.bashrc (backed up first); re-add the ~/.bashrc.d loader afterwards.

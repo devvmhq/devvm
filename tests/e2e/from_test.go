@@ -20,9 +20,9 @@ import (
 // (scripts/bump.sh e2e-from moves the digests). One check keeps a tag,
 // so devvm's registry lookup is checked too: the company proxy's
 // alpine:3.21, converted each run anyway.
-const fromNodeDigest = "sha256:e7add2a490bb17d97b485b8641bd88455fff7839ade0f5eba493c3508124d413"
+const fromNodeDigest = "sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da149452a3e40"
 
-const fromAlpineDigest = "sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a"
+const fromAlpineDigest = "sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a"
 
 const fromUbuntuDigest = "sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
 
