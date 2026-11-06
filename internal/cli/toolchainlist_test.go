@@ -71,7 +71,7 @@ func TestToolchainsListedOnce(t *testing.T) {
 	}
 	for _, path := range files {
 		rel, _ := filepath.Rel(repoRoot, path)
-		if slices.Contains(listedToolchains(),filepath.ToSlash(rel)) {
+		if slices.Contains(listedToolchains(), filepath.ToSlash(rel)) {
 			continue
 		}
 		data, err := os.ReadFile(path) //nolint:gosec // G304 the repo's own files
