@@ -94,7 +94,15 @@ write_staged() {
 report() {
   if [[ $2 == "$3" ]]; then printf '  %-9s %-14s up to date\n' "$1" "$2"; return 1; fi
   # The latest comes from upstream: no control characters on the terminal.
-  printf '  %-9s %-14s -> %s\n' "$1" "$2" "$(LC_ALL=C tr -d '\000-\037\177' <<<"$3")"
+  local shown
+  shown=$(LC_ALL=C tr -d '\000-\037\177' <<<"$3")
+  # Upstream's latest can lag behind a pin (a release marker not yet moved): an older version is
+  # never offered.
+  local ver='^v?[0-9]+(\.[0-9]+)*$'
+  if [[ $2 =~ $ver && $3 =~ $ver && $(printf '%s\n%s\n' "${2#v}" "${3#v}" | sort -V | head -1) == "${3#v}" ]]; then
+    printf "  %-9s %-14s newer than upstream's latest, %s\n" "$1" "$2" "$shown"; return 1
+  fi
+  printf '  %-9s %-14s -> %s\n' "$1" "$2" "$shown"
   $check && return 1
   summary+=("$1: $2 -> $3")
 }

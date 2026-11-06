@@ -82,6 +82,14 @@ stdout ' -> 9\.9\.9\[2J$'
 ! stdout '\x1b'
 cmp repo/assets/oci/build.sh before
 
+# An upstream latest older than the pin is never offered: the pin is
+# reported as newer, and nothing is edited.
+cp latest-older up/crane-latest
+exec repo/scripts/bump.sh crane
+stdout '^  crane +0\.22\.1 +newer than upstream''s latest, 0\.1\.0$'
+! stdout ' -> '
+cmp repo/assets/oci/build.sh before
+
 # An unknown tool: refused.
 ! exec repo/scripts/bump.sh nope
 stderr '^bump: unknown tool ''nope'''
@@ -142,6 +150,8 @@ exit 22
 {"tag_name":"v9.9.9"}
 -- latest-hostile --
 {"tag_name":"v1$(id)"}
+-- latest-older --
+{"tag_name":"v0.1.0"}
 -- latest-escape --
 {"tag_name":"v9.9.9\u001b[2J"}
 -- sums-good --

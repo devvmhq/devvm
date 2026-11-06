@@ -1,0 +1,66 @@
+name: Pins
+
+# scripts/bump.sh --check once a week: the pins with a newer upstream go in
+# one open issue, which closes when none is left. It reports and never bumps.
+on:
+  schedule:
+    - cron: "47 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pins
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the pins
+        run: |
+          set -euo pipefail
+          scripts/bump.sh --check | tee "$RUNNER_TEMP/check.txt"
+      # bump.sh's output is upstream's text: it goes through files, never into
+      # a script.
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          title="Pinned versions to bump"
+          grep -F ' -> ' "$RUNNER_TEMP/check.txt" > "$RUNNER_TEMP/outdated.txt" || true
+          number=$(gh issue list --state open --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [[ ! -s $RUNNER_TEMP/outdated.txt ]]; then
+            if [[ -n $number ]]; then
+              gh issue close "$number" --comment "Every pin is up to date: scripts/bump.sh --check lists nothing to bump."
+            fi
+            exit 0
+          fi
+          {
+            echo "scripts/bump.sh --check found pins with a newer upstream version:"
+            echo
+            # Four backticks: a line from upstream can't end the block early.
+            echo '````'
+            cat "$RUNNER_TEMP/outdated.txt"
+            echo '````'
+            echo
+            echo "Bump them with \`scripts/bump.sh TOOL…\` (the tools named above), or \`scripts/bump.sh\` for all."
+            echo "Pin bumps change images, so run the \`--from\` tier of the end-to-end tests before merging:"
+            echo "see [Updating pinned versions](https://devvm.dev/docs/contributing/maintaining/#updating-pinned-versions)."
+          } > "$RUNNER_TEMP/body.md"
+          if [[ -n $number ]]; then
+            gh issue edit "$number" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --title "$title" --label enhancement --body-file "$RUNNER_TEMP/body.md"
+          fi
