@@ -3,7 +3,17 @@ title: Toolchains
 weight: 2
 ---
 
-devvm has five toolchains: node, python, rust, go and dotnet. A new VM gets the ones its folder's files call for, which the summary of the new VM shows, unless you customize the VM and check others in the list or give others with `--tools`, as in `devvm --tools node,python` ([what a new VM gets](images.md#what-a-new-vm-gets)). Each section below says what the toolchain brings and which files make devvm choose it. A project that gets its toolchain from Nix uses the `nix` layer, which [Nix projects](#nix-projects) covers.
+devvm has these toolchains:
+
+| Toolchain | What it brings |
+| --- | --- |
+| [node](#node) | Node 24, with npm, pnpm, yarn and bun |
+| [python](#python) | CPython, with pip and uv |
+| [rust](#rust) | rustup, cargo and the stable toolchain |
+| [go](#go) | Go |
+| [dotnet](#dotnet) | the .NET SDK and its runtimes |
+
+A new VM gets the ones its folder's files call for, which the summary of the new VM shows, unless you customize the VM and check others in the list or give others with `--tools`, as in `devvm --tools node,python` ([what a new VM gets](images.md#what-a-new-vm-gets)). Each section below says what the toolchain brings and which files make devvm choose it. A project that gets its toolchain from Nix uses the `nix` layer, which [Nix projects](#nix-projects) covers.
 
 ## node
 
