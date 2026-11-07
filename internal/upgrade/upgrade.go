@@ -2,7 +2,8 @@
 // installed: for install.sh's, the release's archive, checked against its
 // SHA256SUMS, whose minisign signature is checked against the release
 // key built into devvm, unpacked beside the old version, and the link
-// switched to it once it runs; for Homebrew's, brew upgrade devvm; for
+// switched to it once it runs; for Homebrew's, brew upgrade devvm, or
+// brew upgrade devvm-rc for the formula that follows prereleases; for
 // any other, nothing but saying how it was installed.
 package upgrade
 
@@ -31,15 +32,24 @@ type Available struct {
 	Newer           bool
 }
 
-// Check returns the newest release at s and whether it's newer than
-// current, this devvm's version. It installs nothing, for devvm upgrade
-// --check and a notice that a release is out.
-func (s Source) Check(ctx context.Context, current string) (Available, error) {
-	latest, err := s.Latest(ctx)
+// Check returns the newest release at s, prereleases included for an
+// install that follows them (Find), and whether it's newer than current,
+// this devvm's version. It installs nothing, for devvm upgrade --check.
+func (s Source) Check(ctx context.Context, current string, prereleases bool) (Available, error) {
+	latest, err := s.Find(ctx, prereleases)
 	if err != nil {
 		return Available{}, err
 	}
 	return Available{Current: current, Latest: latest, Newer: Valid(current) && Compare(latest, current) > 0}, nil
+}
+
+// Announcement says that version is out and this devvm, current, can
+// upgrade to it, naming it a prerelease when it's one.
+func Announcement(current, version string) msg.M {
+	if Prerelease(version) {
+		return msg.UpgradeAvailablePrerelease(current, version)
+	}
+	return msg.UpgradeAvailable(current, version)
 }
 
 // An Upgrader installs a release over this devvm, reporting through its
@@ -65,7 +75,8 @@ type Options struct {
 
 // Upgrade installs the newest release, or o.Version, over this devvm, as
 // it was installed, once it's asked. The newest release is never a
-// prerelease (Latest), so only o.Version installs one. It refuses a
+// prerelease (Latest), so only o.Version installs one, but for
+// Homebrew's devvm-rc, which follows prereleases (Newest). It refuses a
 // newest release older than this devvm, as a server sending an old
 // release would, unless o.Version names it; for a prerelease of a
 // release not yet out, that's no failure, only said.
@@ -79,7 +90,7 @@ func (u Upgrader) Upgrade(ctx context.Context, o Options) error {
 	target := o.Version
 	if target == "" {
 		done := u.Status(msg.UpgradeChecking())
-		latest, err := u.Source.Latest(ctx)
+		latest, err := u.Source.Find(ctx, u.Install.Prereleases())
 		done()
 		if err != nil {
 			return err
@@ -119,7 +130,7 @@ func (u Upgrader) confirm(o Options, target string, older bool) (bool, error) {
 	q := msg.UpgradeConfirm(u.Current, target)
 	switch {
 	case u.Install.Kind == Homebrew:
-		q = msg.UpgradeConfirmBrew(u.Current, target)
+		q = msg.UpgradeConfirmBrew(u.Current, u.Install.Formula, target)
 	case older:
 		q = msg.UpgradeConfirmOlder(u.Current, target)
 	}
@@ -145,11 +156,13 @@ func (u Upgrader) NotInstalled() msg.M {
 	return msg.UpgradeOtherInstall(u.Install.Exe)
 }
 
-// brew runs brew upgrade devvm, which upgrades Homebrew's devvm.
+// brew runs brew upgrade with the install's formula, devvm or devvm-rc,
+// which upgrades Homebrew's devvm.
 func (u Upgrader) brew(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx, "brew", "upgrade", "devvm")
-	if err := u.LoggedCmd(ctx, msg.UpgradeBrewStep(), cmd); err != nil {
-		return backend.Logged(msg.UpgradeBrewFailed())
+	f := u.Install.Formula
+	cmd := exec.CommandContext(ctx, "brew", "upgrade", f) //nolint:gosec // f is Formula or RCFormula, which only Detect sets
+	if err := u.LoggedCmd(ctx, msg.UpgradeBrewStep(f), cmd); err != nil {
+		return backend.Logged(msg.UpgradeBrewFailed(f))
 	}
 	u.Info(msg.UpgradeBrewDone())
 	return nil

@@ -3684,6 +3684,11 @@ func UpgradeAvailable(current string, latest string) M {
 	return M{id: "upgrade_available", vals: []val{{"current", current}, {"latest", latest}}}
 }
 
+// UpgradeAvailablePrerelease is [upgrade_available_prerelease]: "devvm {{.latest}}, a prerelease, is out, and this is devvm {{.current}}. Run devvm upgrade to install it."
+func UpgradeAvailablePrerelease(current string, latest string) M {
+	return M{id: "upgrade_available_prerelease", vals: []val{{"current", current}, {"latest", latest}}}
+}
+
 // UpgradeBadArchive is [upgrade_bad_archive]: "The archive of devvm {{.version}} holds something other than devvm's files, so nothing was installed."
 func UpgradeBadArchive(version string) M {
 	return M{id: "upgrade_bad_archive", vals: []val{{"version", version}}}
@@ -3704,14 +3709,14 @@ func UpgradeBrewDone() M {
 	return M{id: "upgrade_brew_done"}
 }
 
-// UpgradeBrewFailed is [upgrade_brew_failed]: "Homebrew's brew upgrade devvm failed, so its devvm stays as it was."
-func UpgradeBrewFailed() M {
-	return M{id: "upgrade_brew_failed"}
+// UpgradeBrewFailed is [upgrade_brew_failed]: "Homebrew's brew upgrade {{.formula}} failed, so its devvm stays as it was."
+func UpgradeBrewFailed(formula string) M {
+	return M{id: "upgrade_brew_failed", vals: []val{{"formula", formula}}}
 }
 
-// UpgradeBrewStep is [upgrade_brew_step]: "running brew upgrade devvm"
-func UpgradeBrewStep() M {
-	return M{id: "upgrade_brew_step"}
+// UpgradeBrewStep is [upgrade_brew_step]: "running brew upgrade {{.formula}}"
+func UpgradeBrewStep(formula string) M {
+	return M{id: "upgrade_brew_step", vals: []val{{"formula", formula}}}
 }
 
 // UpgradeBrewVersion is [upgrade_brew_version]: "Homebrew installed this devvm and installs only its newest version, so devvm upgrade can't take --to. Run devvm upgrade without it."
@@ -3734,9 +3739,9 @@ func UpgradeConfirm(current string, version string) M {
 	return M{id: "upgrade_confirm", vals: []val{{"current", current}, {"version", version}}}
 }
 
-// UpgradeConfirmBrew is [upgrade_confirm_brew]: "Run brew upgrade devvm to install devvm {{.version}} in place of devvm {{.current}}?"
-func UpgradeConfirmBrew(current string, version string) M {
-	return M{id: "upgrade_confirm_brew", vals: []val{{"current", current}, {"version", version}}}
+// UpgradeConfirmBrew is [upgrade_confirm_brew]: "Run brew upgrade {{.formula}} to install devvm {{.version}} in place of devvm {{.current}}?"
+func UpgradeConfirmBrew(current string, formula string, version string) M {
+	return M{id: "upgrade_confirm_brew", vals: []val{{"current", current}, {"formula", formula}, {"version", version}}}
 }
 
 // UpgradeConfirmOlder is [upgrade_confirm_older]: "This is devvm {{.current}}, and devvm {{.version}} is older. Install it anyway?"
@@ -4722,17 +4727,18 @@ var specs = map[string]spec{
 	"upgrade_already":                {fields: []string{"version"}},
 	"upgrade_already_latest":         {fields: []string{"version"}},
 	"upgrade_available":              {fields: []string{"current", "latest"}},
+	"upgrade_available_prerelease":   {fields: []string{"current", "latest"}},
 	"upgrade_bad_archive":            {fields: []string{"version"}},
 	"upgrade_bad_checksum":           {fields: []string{"archive", "version"}},
 	"upgrade_bad_signature":          {fields: []string{"version"}},
 	"upgrade_brew_done":              {},
-	"upgrade_brew_failed":            {},
-	"upgrade_brew_step":              {},
+	"upgrade_brew_failed":            {fields: []string{"formula"}},
+	"upgrade_brew_step":              {fields: []string{"formula"}},
 	"upgrade_brew_version":           {},
 	"upgrade_checking":               {},
 	"upgrade_checkout_build":         {fields: []string{"version"}},
 	"upgrade_confirm":                {fields: []string{"current", "version"}},
-	"upgrade_confirm_brew":           {fields: []string{"current", "version"}},
+	"upgrade_confirm_brew":           {fields: []string{"current", "formula", "version"}},
 	"upgrade_confirm_older":          {fields: []string{"current", "version"}},
 	"upgrade_done":                   {fields: []string{"link", "version"}},
 	"upgrade_download_failed":        {fields: []string{"file", "version"}},

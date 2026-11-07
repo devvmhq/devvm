@@ -7,7 +7,7 @@ Install devvm's newest release
 
 ## Synopsis
 
-Install devvm's newest release the way this devvm was installed, after asking. The install script's devvm gets the release once its signature and checksum check out, and Homebrew's runs brew upgrade devvm. --check only says whether a newer release is out.
+Install devvm's newest release the way this devvm was installed, after asking. The install script's devvm gets the release once its signature and checksum check out, and Homebrew's runs brew upgrade devvm, or brew upgrade devvm-rc for the formula that follows prereleases. --check only says whether a newer release is out.
 
 ```text
 devvm upgrade [flags]

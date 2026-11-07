@@ -180,6 +180,11 @@ stderr '^install: Homebrew installed devvm: run brew upgrade devvm to upgrade it
 exec bash main.sh --no-deps --version 0.1.0 --force
 stdout '^==> installed devvm 0.1.0: \S+/prefix/bin/devvm$'
 rm Cellar/devvm/0.0.9
+# devvm-rc's keg, the formula that follows prereleases, too.
+mkdir Cellar/devvm-rc/0.1.0-rc.1
+! exec bash main.sh --no-deps --version 0.1.0
+stderr '^install: Homebrew installed devvm: run brew upgrade devvm-rc to upgrade it, or brew uninstall devvm-rc first to use this script \(--force installs a second copy\)$'
+rm Cellar/devvm-rc/0.1.0-rc.1
 # An empty rack isn't a keg.
 exec bash main.sh --no-deps --version 0.1.0
 stdout '^==> installed devvm 0.1.0: \S+/prefix/bin/devvm$'

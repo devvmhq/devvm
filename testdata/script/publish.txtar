@@ -73,6 +73,9 @@ stdout '^  SHA256SUMS\.minisig +[0-9]+ bytes  [0-9a-f]{64}$'
 stdout '^  - \*\*New:\*\* a thing\.$'
 ! stdout 'Older'
 stdout '^\+      url "https://github.com/devvmhq/devvm/releases/download/v1\.2\.3/devvm-1\.2\.3-darwin-arm64\.tar\.gz"$'
+stdout '^Formula/devvm\.rb:$'
+stdout '^Formula/devvm-rc\.rb, which the tap doesn''t have yet, for this release too:$'
+stdout '^\+class DevvmRc < Formula$'
 stdout '^  1\. git push origin main: to do$'
 stdout '^  4\. the tap''s commit, devvm 1\.2\.3, and git push: to do$'
 stdout '^--dry-run: nothing published\.$'
@@ -101,7 +104,7 @@ stderr '^publish: the GitHub release v1\.2\.3 failed\.$'
 stderr '^  published: main on origin$'
 stderr '^  published: the tag v1\.2\.3 on origin$'
 stderr '^  not published: the GitHub release v1\.2\.3$'
-stderr '^  not published: the tap''s Formula/devvm\.rb$'
+stderr '^  not published: the tap''s Formula/devvm\.rb and Formula/devvm-rc\.rb$'
 ! exists gh/release
 
 # Run again, with gh failing to publish the draft: it skips the pushes and
@@ -117,12 +120,13 @@ exists gh/draft
 exists gh/release/SHA256SUMS.minisig
 
 # And again: it uploads the draft's files again, publishes it, then commits
-# the formula to the tap and pushes it.
+# the formulas to the tap, devvm's and devvm-rc's, and pushes it.
 rm gh/fail-edit
 ttyin -stdin yes.txt
 exec repo/scripts/publish.sh
 stdout '^  3\. the GitHub release v1\.2\.3: to do, the draft''s files replaced$'
 stdout '^==> devvm 1\.2\.3 is published$'
+stdout '^Check it with Homebrew, brew update && brew upgrade devvm \(or brew trust --formula devvmhq/tap/devvm, then brew install devvmhq/tap/devvm\), or the install script:$'
 stdout '^  curl -fsSL https://github.com/devvmhq/devvm/releases/download/v1\.2\.3/install\.sh \| bash$'
 cmp calls calls.want
 exec bash refs.sh
@@ -132,6 +136,7 @@ cmp stdout assets.want
 ! exists gh/draft
 cmp gh/notes notes.want
 cmp tap/Formula/devvm.rb repo/dist/devvm.rb
+cmp tap/Formula/devvm-rc.rb repo/dist/devvm-rc.rb
 exec git -C tap.git log -1 --format=%s main
 stdout '^devvm 1\.2\.3$'
 
@@ -139,33 +144,46 @@ stdout '^devvm 1\.2\.3$'
 rm calls
 exec repo/scripts/publish.sh
 stdout '^devvm 1\.2\.3 is already published: nothing to do\.$'
+stdout '^Formula/devvm-rc\.rb:\n  \(already this release''s\)$'
 grep '^gh release download v1\.2\.3 ' calls
 ! grep 'push|create|edit' calls
 
-# A prerelease, 1.3.0-rc.1: its GitHub release is marked as one, and it
-# needs no tap checkout and leaves the tap alone.
-exec bash prerelease.sh
+# A prerelease, 1.3.0-rc.1: its GitHub release is marked as one, and its
+# tap commit, devvm-rc 1.3.0-rc.1, moves only devvm-rc, so the formula
+# devvm stays on 1.2.3. It needs the tap checkout too.
+exec bash version.sh 1.3.0-rc.1 'A release candidate.' 'another thing'
 rm gh/release
 rm gh/notes
 rm calls
 env DEVVM_TAP_DIR=$WORK/nowhere
+! exec repo/scripts/publish.sh --dry-run
+stderr '^publish: no tap checkout at '
+env DEVVM_TAP_DIR=$WORK/tap
 exec repo/scripts/publish.sh --dry-run
 stdout '^Version: 1\.3\.0-rc\.1, a prerelease$'
-stdout '^Tap: skipped, as this is a prerelease: Homebrew stays on the last release\.$'
+stdout '^Formula/devvm\.rb: stays on the last release, as this is a prerelease\.$'
+stdout '^Formula/devvm-rc\.rb:$'
+stdout '^\+      url "https://github.com/devvmhq/devvm/releases/download/v1\.3\.0-rc\.1/devvm-1\.3\.0-rc\.1-darwin-arm64\.tar\.gz"$'
+! stdout '^\+class'
 stdout '^  3\. the GitHub prerelease v1\.3\.0-rc\.1: to do, marked as a prerelease$'
-stdout '^  4\. the tap: skipped \(a prerelease\)$'
+stdout '^  4\. the tap''s commit, devvm-rc 1\.3\.0-rc\.1, and git push: to do$'
 stdout '^  - \*\*New:\*\* another thing\.$'
 ! stdout 'Released today'
+! exists repo/dist/devvm.rb
 rm calls
 ttyin -stdin yes.txt
 exec repo/scripts/publish.sh
 stdout '^==> devvm 1\.3\.0-rc\.1 is published$'
-stdout '^Check it with the install script, or devvm upgrade --to 1\.3\.0-rc\.1:$'
+stdout '^Check it with Homebrew, brew update && brew upgrade devvm-rc \(or brew trust --formula devvmhq/tap/devvm-rc, then brew install devvmhq/tap/devvm-rc\), or the install script:$'
 cmp calls calls.pre
 exists gh/prerelease
 cmp gh/notes notes.pre
 exec git -C tap.git log -1 --format=%s main
-stdout '^devvm 1\.2\.3$'
+stdout '^devvm-rc 1\.3\.0-rc\.1$'
+exec git -C tap.git show --name-only --format= main
+cmp stdout rc.changed
+cmp tap/Formula/devvm-rc.rb repo/dist/devvm-rc.rb
+grep 'download/v1\.2\.3/' tap/Formula/devvm.rb
 
 # Run again: everything's done.
 rm calls
@@ -178,6 +196,65 @@ rm gh/prerelease
 ! exec repo/scripts/publish.sh --dry-run
 stderr '^publish: devvm v1\.3\.0-rc\.1 is a prerelease, but its GitHub release isn''t marked as one'
 
+# A release older than devvm-rc's prerelease, 1.2.4: devvm moves to it,
+# and devvm-rc stays on 1.3.0-rc.1.
+exec bash version.sh 1.2.4 'A fix.' 'a fix'
+rm gh/release
+rm gh/notes
+exec repo/scripts/publish.sh --dry-run
+stdout '^Formula/devvm\.rb:$'
+stdout '^Formula/devvm-rc\.rb: stays at 1\.3\.0-rc\.1, which is newer than 1\.2\.4\.$'
+stdout '^  4\. the tap''s commit, devvm 1\.2\.4, and git push: to do$'
+rm calls
+ttyin -stdin yes.txt
+exec repo/scripts/publish.sh
+stdout '^==> the tap''s Formula/devvm\.rb$'
+exec git -C tap.git show --name-only --format= main
+stdout '^Formula/devvm\.rb\n\z'
+grep 'download/v1\.3\.0-rc\.1/' tap/Formula/devvm-rc.rb
+
+# A prerelease older than devvm-rc's, 1.2.5-rc.1: nothing in the tap
+# changes, so there's no tap step.
+exec bash version.sh 1.2.5-rc.1 'An older candidate.' 'an older thing'
+rm gh/release
+rm gh/notes
+exec repo/scripts/publish.sh --dry-run
+stdout '^Formula/devvm-rc\.rb: stays at 1\.3\.0-rc\.1, which is newer than 1\.2\.5-rc\.1\.$'
+stdout '^  4\. the tap: nothing to change$'
+rm calls
+ttyin -stdin yes.txt
+exec repo/scripts/publish.sh
+stdout '^Check it with the install script, or devvm upgrade --to 1\.2\.5-rc\.1:$'
+! grep 'push tap' calls
+
+# The release 1.3.0, newer than devvm-rc's prerelease: devvm-rc moves to
+# it with devvm, in one commit.
+exec bash version.sh 1.3.0 'The release.' 'the release'
+rm gh/release
+rm gh/notes
+rm gh/prerelease
+exec repo/scripts/publish.sh --dry-run
+stdout '^Formula/devvm-rc\.rb, which moves from 1\.3\.0-rc\.1 to this release too:$'
+stdout '^\+      url "https://github.com/devvmhq/devvm/releases/download/v1\.3\.0/devvm-1\.3\.0-darwin-arm64\.tar\.gz"$'
+rm calls
+ttyin -stdin yes.txt
+exec repo/scripts/publish.sh
+exec git -C tap.git log -1 --format=%s main
+stdout '^devvm 1\.3\.0$'
+exec git -C tap.git show --name-only --format= main
+cmp stdout both.changed
+cmp tap/Formula/devvm.rb repo/dist/devvm.rb
+cmp tap/Formula/devvm-rc.rb repo/dist/devvm-rc.rb
+rm calls
+exec repo/scripts/publish.sh
+stdout '^devvm 1\.3\.0 is already published: nothing to do\.$'
+! grep 'push|create|edit' calls
+
+-- rc.changed --
+Formula/devvm-rc.rb
+-- both.changed --
+Formula/devvm-rc.rb
+Formula/devvm.rb
 -- calls.pre --
 gh auth status
 gh release view v1.3.0-rc.1 --repo devvmhq/devvm --json isDraft,isPrerelease,assets --jq (.isDraft | tostring), (.isPrerelease | tostring), .assets[].name
@@ -185,6 +262,7 @@ push origin.git refs/heads/main
 push origin.git refs/tags/v1.3.0-rc.1
 gh release create v1.3.0-rc.1 --repo devvmhq/devvm --title devvm 1.3.0-rc.1 --notes-file notes.md --verify-tag --draft --prerelease devvm-1.3.0-rc.1-darwin-arm64.tar.gz devvm-1.3.0-rc.1-darwin-amd64.tar.gz devvm-1.3.0-rc.1-linux-arm64.tar.gz devvm-1.3.0-rc.1-linux-amd64.tar.gz devvm-1.3.0-rc.1.tar.gz SHA256SUMS SHA256SUMS.minisig install.sh
 gh release edit v1.3.0-rc.1 --repo devvmhq/devvm --title devvm 1.3.0-rc.1 --notes-file notes.md --draft=false --prerelease
+push tap.git refs/heads/main
 -- notes.pre --
 A release candidate.
 
@@ -240,29 +318,31 @@ set -eu
 t=${2:-v1.2.3}
 git -C repo tag -d "$t" >/dev/null 2>&1 || true
 git -C repo -c user.signingkey="$PWD/keys/$1" tag -s "$t" -m "$t"
--- prerelease.sh --
-# VERSION 1.3.0-rc.1 and its changelog entry, committed on main and tagged.
+-- version.sh --
+# VERSION $1 and its changelog entry, $2 then a list item New: $3, over
+# 1.2.3's, committed on main and tagged.
 set -eu
-echo 1.3.0-rc.1 > repo/VERSION
-printf '# Changelog\n\n## 1.3.0-rc.1\n\nA release candidate.\n\n- **New:** another thing.\n\n## 1.2.3\n\nReleased today.\n' > repo/CHANGELOG.md
-git -C repo commit -qam 'release 1.3.0-rc.1'
-bash tag.sh good v1.3.0-rc.1
+echo "$1" > repo/VERSION
+printf '# Changelog\n\n## %s\n\n%s\n\n- **New:** %s.\n\n## 1.2.3\n\nReleased today.\n' "$1" "$2" "$3" > repo/CHANGELOG.md
+git -C repo commit -qam "release $1"
+bash tag.sh good "v$1"
 -- refs.sh --
 # What origin and the tap hold: main's commit message, the tag, the tap's
 # last commit, and whether it has the formula.
 git -C origin.git log -1 --format=%s main
 git -C origin.git tag -l
 git -C tap.git log -1 --format=%s main
-git -C tap.git cat-file -e main:Formula/devvm.rb 2>/dev/null && echo formula || echo no formula
+f=$(git -C tap.git ls-tree --name-only main Formula/ | paste -sd' ' -)
+echo "formulas: ${f:-none}"
 -- refs.before --
 r
 tap
-no formula
+formulas: none
 -- refs.after --
 release 1.2.3
 v1.2.3
 devvm 1.2.3
-formula
+formulas: Formula/devvm-rc.rb Formula/devvm.rb
 -- calls.view --
 gh auth status
 gh release view v1.2.3 --repo devvmhq/devvm --json isDraft,isPrerelease,assets --jq (.isDraft | tostring), (.isPrerelease | tostring), .assets[].name

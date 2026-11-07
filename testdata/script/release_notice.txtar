@@ -113,6 +113,30 @@ ttyin -stdin $WORK/no.txt
 ! exec $DEVVM
 stdout '^==> upgrade_available current=0.3.0-rc.1 latest=0.3.0$'
 
+# Homebrew's devvm-rc follows prereleases: its check reads the releases
+# feed, and a launch announces a newer prerelease, then the release once
+# it's out.
+mkdir $WORK/Cellar/devvm-rc/0.3.0-rc.1/bin
+cp_exe $DEVVM_BIN/devvm $WORK/Cellar/devvm-rc/0.3.0-rc.1/bin/devvm
+env DEVVM=$WORK/Cellar/devvm-rc/0.3.0-rc.1/bin/devvm
+release_server 0.2.0 0.3.0-rc.2 0.3.0-rc.1
+json_set $DATA/cache/release.json tried=2026-01-01T00:00:00Z
+ttyin -stdin $WORK/no.txt
+! exec $DEVVM
+! stdout upgrade_available
+grep '"newest":"0.3.0-rc.2"' $DATA/cache/release.json
+ttyin -stdin $WORK/no.txt
+! exec $DEVVM
+stdout '^==> upgrade_available_prerelease current=0.3.0-rc.1 latest=0.3.0-rc.2$'
+release_server 0.3.0 0.3.0-rc.2 0.3.0-rc.1
+json_set $DATA/cache/release.json tried=2026-01-01T00:00:00Z
+ttyin -stdin $WORK/no.txt
+! exec $DEVVM
+grep '"newest":"0.3.0"' $DATA/cache/release.json
+ttyin -stdin $WORK/no.txt
+! exec $DEVVM
+stdout '^==> upgrade_available current=0.3.0-rc.1 latest=0.3.0$'
+
 -- no.txt --
 n
 -- off.toml --

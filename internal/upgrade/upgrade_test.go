@@ -127,8 +127,18 @@ func TestDetect(t *testing.T) {
 	}
 	keg := filepath.Join(f.prefix, "Cellar", "devvm", "0.1.0", "bin")
 	writeExe(t, keg, nil)
-	if in := upgrade.Detect(filepath.Join(keg, "devvm")); in.Kind != upgrade.Homebrew {
+	if in := upgrade.Detect(filepath.Join(keg, "devvm")); in.Kind != upgrade.Homebrew || in.Formula != upgrade.Formula || in.Prereleases() {
 		t.Errorf("a keg's: %+v", in)
+	}
+	rcKeg := filepath.Join(f.prefix, "Cellar", "devvm-rc", "0.2.0-rc.1", "bin")
+	writeExe(t, rcKeg, nil)
+	if in := upgrade.Detect(filepath.Join(rcKeg, "devvm")); in.Kind != upgrade.Homebrew || in.Formula != upgrade.RCFormula || !in.Prereleases() {
+		t.Errorf("devvm-rc's keg's: %+v", in)
+	}
+	other := filepath.Join(f.prefix, "Cellar", "devvm-nightly", "0.1.0", "bin")
+	writeExe(t, other, nil)
+	if in := upgrade.Detect(filepath.Join(other, "devvm")); in.Kind != upgrade.Other || in.Prereleases() {
+		t.Errorf("another formula's keg's: %+v", in)
 	}
 	writeExe(t, filepath.Join(f.prefix, "go", "bin"), nil)
 	if in := upgrade.Detect(filepath.Join(f.prefix, "go", "bin", "devvm")); in.Kind != upgrade.Other {
@@ -439,6 +449,89 @@ func TestUpgradeHomebrew(t *testing.T) {
 	}
 }
 
+// Homebrew's devvm-rc follows prereleases: its newest release is the
+// releases feed's newest, a prerelease or a release, which brew upgrade
+// devvm-rc installs, asked first, and never --to.
+func TestUpgradeHomebrewRC(t *testing.T) {
+	dir := t.TempDir()
+	keg := filepath.Join(dir, "Cellar", "devvm-rc", "0.2.0-rc.1", "bin")
+	writeExe(t, keg, upgradetest.Script("0.2.0-rc.1"))
+	calls := filepath.Join(dir, "brew-calls")
+	brews := filepath.Join(dir, "brews")
+	writeExe(t, brews, []byte("#!/bin/sh\necho \"$@\" >> "+calls+"\n"))
+	if err := os.Rename(filepath.Join(brews, "devvm"), filepath.Join(brews, "brew")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", brews+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	f := newFixture(t, "0.2.0-rc.1")
+	f.release("0.1.0", true)
+	f.release("0.2.0-rc.2", false)
+	up := f.upgrader()
+	up.Install = upgrade.Detect(filepath.Join(keg, "devvm"))
+	up.Current = "0.2.0-rc.1"
+
+	err := up.Upgrade(t.Context(), upgrade.Options{})
+	r, ok := errors.AsType[*msg.Refusal](err)
+	if !ok || r.Question.ID() != "upgrade_confirm_brew" {
+		t.Fatalf("without a terminal: %v", err)
+	}
+	if got := msg.NamesOf(r.Question); got != "upgrade_confirm_brew current=0.2.0-rc.1 formula=devvm-rc version=0.2.0-rc.2" {
+		t.Errorf("asked %s", got)
+	}
+	if got := msg.IDOf(up.Upgrade(t.Context(), upgrade.Options{Version: "0.2.0-rc.2", Force: true})); got != "upgrade_brew_version" {
+		t.Errorf("--to: %s", got)
+	}
+	if err := up.Upgrade(t.Context(), upgrade.Options{Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(calls); string(b) != "upgrade devvm-rc\n" { //nolint:gosec // the test's own file
+		t.Errorf("brew ran %q", b)
+	}
+	av, err := up.Source.Check(t.Context(), up.Current, up.Install.Prereleases())
+	if err != nil || av.Latest != "0.2.0-rc.2" || !av.Newer {
+		t.Errorf("Check: %+v, %v", av, err)
+	}
+	if got := msg.NamesOf(upgrade.Announcement(av.Current, av.Latest)); got != "upgrade_available_prerelease current=0.2.0-rc.1 latest=0.2.0-rc.2" {
+		t.Errorf("announced %s", got)
+	}
+	if got := msg.IDOf(upgrade.Announcement("0.2.0-rc.2", "0.2.0")); got != "upgrade_available" {
+		t.Errorf("a release announced as %s", got)
+	}
+
+	// The release itself, once it's out, is the newest.
+	f.release("0.2.0", true)
+	if v, err := up.Source.Newest(t.Context()); err != nil || v != "0.2.0" {
+		t.Errorf("Newest = %q, %v", v, err)
+	}
+}
+
+// The releases feed: a feed devvm can't read, or one without a release,
+// has no newest release.
+func TestNewestFeed(t *testing.T) {
+	empty := upgradetest.NewServer(t)
+	src := upgrade.NewSource(empty.URL, "")
+	src.Client.Trust(empty.Roots())
+	if _, err := src.Newest(t.Context()); msg.IDOf(err) != "upgrade_no_latest" {
+		t.Errorf("no releases: %v", err)
+	}
+	garbled := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<feed><entry>"))
+	}))
+	t.Cleanup(garbled.Close)
+	src = upgrade.NewSource(garbled.URL, "")
+	pool := x509.NewCertPool()
+	pool.AddCert(garbled.Certificate())
+	src.Client.Trust(pool)
+	if _, err := src.Find(t.Context(), true); msg.IDOf(err) != "upgrade_no_latest" {
+		t.Errorf("a garbled feed: %v", err)
+	}
+	src = upgrade.NewSource("https://127.0.0.1:1", "")
+	if _, err := src.Newest(t.Context()); msg.IDOf(err) != "upgrade_no_latest" {
+		t.Errorf("offline: %v", err)
+	}
+}
+
 // Any other devvm is refused, saying how it was installed.
 func TestUpgradeOther(t *testing.T) {
 	f := newFixture(t, "0.1.0")
@@ -472,7 +565,7 @@ func TestCheck(t *testing.T) {
 	f.release("0.2.0", true)
 	src := f.upgrader().Source
 	for current, newer := range map[string]bool{"0.1.0": true, "0.2.0": false, "0.3.0": false, "(devel)": false, "0.2.0-rc.1": true} {
-		av, err := src.Check(t.Context(), current)
+		av, err := src.Check(t.Context(), current, false)
 		if err != nil || av.Latest != "0.2.0" || av.Newer != newer || av.Current != current {
 			t.Errorf("Check(%s) = %+v, %v", current, av, err)
 		}

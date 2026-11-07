@@ -160,7 +160,7 @@ mkdir Cellar/devvm/0.1.0/bin
 cp_exe $DEVVM_BIN/devvm Cellar/devvm/0.1.0/bin/devvm
 env PATH=$WORK/brews${:}$PATH
 ! exec Cellar/devvm/0.1.0/bin/devvm upgrade
-stderr '^upgrade_confirm_brew current=0.1.0 version=0.2.0\ndevvm: no_input answer=--force$'
+stderr '^upgrade_confirm_brew current=0.1.0 formula=devvm version=0.2.0\ndevvm: no_input answer=--force$'
 ! exec Cellar/devvm/0.1.0/bin/devvm upgrade --to 0.2.0 --force
 stderr '^devvm: upgrade_brew_version$'
 ! exists brew-calls
@@ -168,6 +168,33 @@ exec Cellar/devvm/0.1.0/bin/devvm upgrade --force
 stdout '^==> upgrade_brew_done\n\z'
 grep '^upgrade devvm$' brew-calls
 exec Cellar/devvm/0.1.0/bin/devvm upgrade --json
+stdout '"install": "homebrew"'
+
+# Homebrew's devvm-rc, which follows prereleases: its newest release is
+# the newest prerelease or release, which brew upgrade devvm-rc installs,
+# asked first, and never --to.
+env DEVVM_TEST_VERSION=0.2.0-rc.1
+release_server 0.1.0 0.2.0-rc.2 0.2.0-rc.1
+mkdir Cellar/devvm-rc/0.2.0-rc.1/bin
+cp_exe $DEVVM_BIN/devvm Cellar/devvm-rc/0.2.0-rc.1/bin/devvm
+env RC=$WORK/Cellar/devvm-rc/0.2.0-rc.1/bin/devvm
+exec $RC upgrade --check
+stdout '^==> upgrade_available_prerelease current=0.2.0-rc.1 latest=0.2.0-rc.2\n\z'
+! exec $RC upgrade
+stderr '^upgrade_confirm_brew current=0.2.0-rc.1 formula=devvm-rc version=0.2.0-rc.2\ndevvm: no_input answer=--force$'
+! exec $RC upgrade --to 0.2.0-rc.2 --force
+stderr '^devvm: upgrade_brew_version$'
+rm brew-calls
+exec $RC upgrade --force
+stdout '^==> upgrade_brew_done\n\z'
+grep '^upgrade devvm-rc$' brew-calls
+
+# Once the release is out, it's the newest.
+release_server 0.2.0 0.2.0-rc.2 0.2.0-rc.1
+exec $RC upgrade --check
+stdout '^==> upgrade_available current=0.2.0-rc.1 latest=0.2.0\n\z'
+exec $RC upgrade --json
+stdout '"latest": "0.2.0"'
 stdout '"install": "homebrew"'
 
 -- yes.txt --

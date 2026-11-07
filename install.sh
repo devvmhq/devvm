@@ -90,10 +90,10 @@ brew_prefixes=(/opt/homebrew /usr/local /home/linuxbrew/.linuxbrew)
 
 # check_brew: stops when Homebrew installed devvm, as a second copy would leave the one first on PATH
 # running and brew upgrade updating the other. --force installs anyway. It never runs brew, which can
-# download its own Ruby: it looks for a devvm keg (Cellar/devvm/<version>) in the Cellar next to the
-# brew on PATH, in HOMEBREW_CELLAR and HOMEBREW_PREFIX's, and in brew_prefixes'.
+# download its own Ruby: it looks for a keg of the formula devvm or devvm-rc (Cellar/<formula>/<version>)
+# in the Cellar next to the brew on PATH, in HOMEBREW_CELLAR and HOMEBREW_PREFIX's, and in brew_prefixes'.
 check_brew() {
-  local b cellars=() c k
+  local b cellars=() c f k
   ! $force || return 0
   b=$(command -v brew) || return 0
   [[ -z ${HOMEBREW_CELLAR:-} ]] || cellars+=("$HOMEBREW_CELLAR")
@@ -101,9 +101,11 @@ check_brew() {
   cellars+=("$(dirname -- "$b")/../Cellar")
   for c in ${brew_prefixes[@]+"${brew_prefixes[@]}"}; do cellars+=("$c/Cellar"); done
   for c in "${cellars[@]}"; do
-    for k in "$c"/devvm/*; do
-      [[ -d $k ]] || continue
-      die "Homebrew installed devvm: run brew upgrade devvm to upgrade it, or brew uninstall devvm first to use this script (--force installs a second copy)"
+    for f in devvm devvm-rc; do
+      for k in "$c/$f"/*; do
+        [[ -d $k ]] || continue
+        die "Homebrew installed devvm: run brew upgrade $f to upgrade it, or brew uninstall $f first to use this script (--force installs a second copy)"
+      done
     done
   done
 }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/xml"
 	"errors"
 	"path/filepath"
 	"runtime"
@@ -22,6 +23,8 @@ const Repo = "https://github.com/devvmhq/devvm"
 const (
 	sumsCap      = 64 << 10
 	signatureCap = 4 << 10
+	// feedCap is the releases feed's: its few newest releases' notes.
+	feedCap = 2 << 20
 	// archiveCap is an archive's: devvm's binary and three text files
 	// are far less.
 	archiveCap = 256 << 20
@@ -66,6 +69,66 @@ func (s Source) Latest(ctx context.Context) (string, error) {
 		return "", msg.UpgradeNoLatest(s.URL).Because(errors.New("releases/latest is the prerelease " + v))
 	}
 	return v, nil
+}
+
+// Newest returns the newest release's version, prereleases included, as
+// Homebrew's devvm-rc follows them, from the repository's releases feed
+// (releases.atom), which lists the newest releases, prereleases among
+// them, and needs no API either.
+func (s Source) Newest(ctx context.Context) (string, error) {
+	newest, _, err := s.feed(ctx)
+	return newest, err
+}
+
+// Find returns the newest release's version for an install that follows
+// prereleases (Newest) or doesn't (Latest).
+func (s Source) Find(ctx context.Context, prereleases bool) (string, error) {
+	if prereleases {
+		return s.Newest(ctx)
+	}
+	return s.Latest(ctx)
+}
+
+// atomFeed is what devvm reads of a releases feed: each entry's links,
+// one of them the release's page, releases/tag/v<version>.
+type atomFeed struct {
+	Entries []struct {
+		Links []struct {
+			Href string `xml:"href,attr"`
+		} `xml:"link"`
+	} `xml:"entry"`
+}
+
+// feed reads the releases feed: the newest release, prereleases
+// included, and the newest that isn't a prerelease, "" when the feed
+// lists none.
+func (s Source) feed(ctx context.Context) (newest, latest string, err error) {
+	body, err := fetch.Get(ctx, s.Client, s.URL+"/releases.atom", feedCap)
+	if err != nil {
+		return "", "", msg.UpgradeNoLatest(s.URL).Because(err)
+	}
+	var f atomFeed
+	if err := xml.Unmarshal(body, &f); err != nil {
+		return "", "", msg.UpgradeNoLatest(s.URL).Because(err)
+	}
+	for _, e := range f.Entries {
+		for _, l := range e.Links {
+			_, v, ok := strings.Cut(l.Href, "/releases/tag/v")
+			if !ok || !Valid(v) {
+				continue
+			}
+			if newest == "" || Compare(v, newest) > 0 {
+				newest = v
+			}
+			if !Prerelease(v) && (latest == "" || Compare(v, latest) > 0) {
+				latest = v
+			}
+		}
+	}
+	if newest == "" {
+		return "", "", msg.UpgradeNoLatest(s.URL)
+	}
+	return newest, latest, nil
 }
 
 // Archive is the name of version's archive for the platform this devvm

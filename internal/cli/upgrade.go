@@ -28,7 +28,8 @@ func newUpgradeCmd(a *app) *cobra.Command {
 		Use:   "upgrade",
 		Short: "Install devvm's newest release",
 		Long: "Install devvm's newest release the way this devvm was installed, after asking. " +
-			"The install script's devvm gets the release once its signature and checksum check out, and Homebrew's runs brew upgrade devvm. " +
+			"The install script's devvm gets the release once its signature and checksum check out, and Homebrew's runs brew upgrade devvm, " +
+			"or brew upgrade devvm-rc for the formula that follows prereleases. " +
 			"--check only says whether a newer release is out.",
 		Example: examples(
 			"devvm upgrade", "install the newest release, asking first",
@@ -109,7 +110,7 @@ type upgradeJSON struct {
 func showUpgrade(ctx context.Context, a *app, up upgrade.Upgrader, asJSON bool) error {
 	u := a.u
 	done := u.Status(msg.UpgradeChecking())
-	av, err := up.Source.Check(ctx, up.Current)
+	av, err := up.Source.Check(ctx, up.Current, up.Install.Prereleases())
 	done()
 	if err != nil {
 		return err
@@ -125,7 +126,7 @@ func showUpgrade(ctx context.Context, a *app, up upgrade.Upgrader, asJSON bool) 
 		u.Info(msg.UpgradeLatestIs(av.Latest))
 		u.Info(up.NotInstalled())
 	case av.Newer:
-		u.Info(msg.UpgradeAvailable(av.Current, av.Latest))
+		u.Info(upgrade.Announcement(av.Current, av.Latest))
 	case av.Latest == av.Current:
 		u.Info(msg.UpgradeAlreadyLatest(av.Current))
 	case upgrade.Prerelease(av.Current):

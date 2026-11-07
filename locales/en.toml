@@ -2652,8 +2652,8 @@ description = "a status step: devvm upgrade downloads and checks a release"
 other = "downloading devvm {{.version}}"
 
 [upgrade_brew_step]
-description = "a status step: devvm upgrade runs Homebrew"
-other = "running brew upgrade devvm"
+description = "a status step: devvm upgrade runs Homebrew; formula is Homebrew's formula, devvm or devvm-rc"
+other = "running brew upgrade {{.formula}}"
 
 [upgrade_no_latest]
 description = "url is the repository whose releases devvm upgrade reads, such as https://github.com/devvmhq/devvm"
@@ -2664,6 +2664,10 @@ other = "The newest release is devvm {{.latest}}."
 
 [upgrade_available]
 other = "devvm {{.latest}} is out, and this is devvm {{.current}}. Run devvm upgrade to install it."
+
+[upgrade_available_prerelease]
+description = "latest is a prerelease's version, such as 0.2.0-rc.1, which Homebrew's devvm-rc installs"
+other = "devvm {{.latest}}, a prerelease, is out, and this is devvm {{.current}}. Run devvm upgrade to install it."
 
 [upgrade_already_latest]
 other = "This is devvm {{.version}}, the newest release."
@@ -2686,7 +2690,8 @@ other = "Install devvm {{.version}} in place of devvm {{.current}}?"
 other = "This is devvm {{.current}}, and devvm {{.version}} is older. Install it anyway?"
 
 [upgrade_confirm_brew]
-other = "Run brew upgrade devvm to install devvm {{.version}} in place of devvm {{.current}}?"
+description = "formula is Homebrew's formula, devvm or devvm-rc"
+other = "Run brew upgrade {{.formula}} to install devvm {{.version}} in place of devvm {{.current}}?"
 
 [upgrade_nothing_installed]
 other = "Nothing was installed."
@@ -2744,7 +2749,8 @@ other = "Installed devvm {{.version}} at {{.link}}."
 other = "devvm {{.version}} stays installed, because a running VM uses it."
 
 [upgrade_brew_failed]
-other = "Homebrew's brew upgrade devvm failed, so its devvm stays as it was."
+description = "formula is Homebrew's formula, devvm or devvm-rc"
+other = "Homebrew's brew upgrade {{.formula}} failed, so its devvm stays as it was."
 
 [upgrade_brew_done]
 other = "Homebrew upgraded devvm."

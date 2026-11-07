@@ -14,8 +14,10 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -174,6 +176,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case p == "/releases/latest" && s.latest != "":
 		http.Redirect(w, r, "/releases/tag/v"+s.latest, http.StatusFound)
+	case p == "/releases.atom":
+		s.feed(w)
 	case strings.HasPrefix(p, "/releases/tag/v") && s.releases[strings.TrimPrefix(p, "/releases/tag/v")] != nil:
 		w.WriteHeader(http.StatusOK)
 	case strings.HasPrefix(p, "/releases/download/v"):
@@ -187,6 +191,25 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// feed writes the releases feed, as GitHub's releases.atom lists them:
+// the feed's own link, then an entry for each release, prereleases too,
+// its link the release's page.
+func (s *Server) feed(w http.ResponseWriter) {
+	vs := slices.Sorted(maps.Keys(s.releases))
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" +
+		`<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en-US">` + "\n" +
+		`  <link type="text/html" rel="alternate" href="` + s.URL + `/releases"/>` + "\n")
+	for _, v := range vs {
+		b.WriteString(`  <entry><id>tag:github.com,2008:Repository/1/v` + v + `</id>` +
+			`<link rel="alternate" type="text/html" href="` + s.URL + `/releases/tag/v` + v + `"/>` +
+			`<title>devvm ` + v + `</title></entry>` + "\n")
+	}
+	b.WriteString("</feed>\n")
+	w.Header().Set("Content-Type", "application/atom+xml")
+	_, _ = w.Write([]byte(b.String()))
 }
 
 func must(err error) {

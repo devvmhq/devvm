@@ -30,20 +30,51 @@ grep '^release_version="1.2.3"$' repo/dist/install.sh
 cmp stdout key.want
 exec bash sums.sh
 cmp stdout sums.want
-exec bash formula.sh
+exec bash formula.sh devvm.rb
+cmp stdout formula.want
+exec bash formula.sh devvm-rc.rb
 cmp stdout formula.want
 
-# --formula-from: the same formula from a published release's signed
-# SHA256SUMS, checked against packaging/minisign.pub; a changed one refused.
+# A release gets both formulas, devvm and devvm-rc, each conflicting with
+# the other: they differ only in that.
+exec bash -c 'diff repo/dist/devvm.rb repo/dist/devvm-rc.rb || true'
+cmp stdout formulas.diff
+
+# --formula-from: the same formulas from a published release's signed
+# SHA256SUMS, checked against packaging/minisign.pub and its trusted
+# comment; a changed one refused, and one signed as another release's.
 mkdir pub
 cp repo/dist/SHA256SUMS repo/dist/SHA256SUMS.minisig pub/
 cp repo/dist/devvm.rb devvm.rb.built
+cp repo/dist/devvm-rc.rb devvm-rc.rb.built
 cp keys/test.pub repo/packaging/minisign.pub
 exec repo/scripts/release.sh --formula-from $WORK/pub
+stdout '^==> dist/devvm\.rb for devvm 1\.2\.3, from '
+stdout '^==> dist/devvm-rc\.rb for devvm 1\.2\.3, from '
 cmp repo/dist/devvm.rb devvm.rb.built
+cmp repo/dist/devvm-rc.rb devvm-rc.rb.built
+exec bash -c 'echo 1.2.4 > repo/VERSION'
+! exec repo/scripts/release.sh --formula-from $WORK/pub
+stderr '^release: \S+/SHA256SUMS is signed as ''devvm 1\.2\.3'', not VERSION''s ''devvm 1\.2\.4''$'
+exec git -C repo checkout -q VERSION
 exec bash -c 'echo x >> pub/SHA256SUMS'
 ! exec repo/scripts/release.sh --formula-from $WORK/pub
 stderr 'SHA256SUMS doesn''t verify with packaging/minisign.pub$'
+
+# The formula substitution, whole: a prerelease's SHA256SUMS gives only
+# devvm-rc.rb, its class, its conflict and each platform's URL and
+# checksum in place.
+mkdir pubrc
+cp sums.rc pubrc/SHA256SUMS
+exec minisign -Sm pubrc/SHA256SUMS -s keys/test.key -t 'devvm 1.3.0-rc.1' -x pubrc/SHA256SUMS.minisig
+exec bash -c 'echo 1.3.0-rc.1 > repo/VERSION'
+rm repo/dist/devvm.rb repo/dist/devvm-rc.rb
+exec repo/scripts/release.sh --formula-from $WORK/pubrc
+! stdout 'dist/devvm\.rb'
+! exists repo/dist/devvm.rb
+exec grep -v '^#' repo/dist/devvm-rc.rb
+cmp stdout devvm-rc.want
+exec git -C repo checkout -q VERSION
 rm repo/packaging/minisign.pub
 
 # Only what's committed goes in.
@@ -52,15 +83,21 @@ stdout '^devvm-1.2.3/VERSION$'
 ! stdout uncommitted
 
 # A prerelease's VERSION, 1.3.0-rc.1: its archives, install.sh and the
-# trusted comment all name it, and the tap is said to keep the last
-# release.
+# trusted comment all name it, it gets only the formula devvm-rc, and the
+# formula devvm is said to keep the last release.
 exec bash -c 'echo 1.3.0-rc.1 > repo/VERSION && git -C repo commit -qam rc'
 exec repo/scripts/release.sh --head
-stdout 'GitHub prerelease v1\.3\.0-rc\.1; devvm\.rb stays out of the tap'
+stdout 'GitHub prerelease v1\.3\.0-rc\.1, devvm-rc\.rb to devvmhq/homebrew-tap''s Formula/; the formula devvm keeps the last release\.$'
 exists repo/dist/devvm-1.3.0-rc.1-linux-arm64.tar.gz
 exists repo/dist/devvm-1.3.0-rc.1.tar.gz
 grep '^release_version="1.3.0-rc.1"$' repo/dist/install.sh
-grep 'releases/download/v1\.3\.0-rc\.1/devvm-1\.3\.0-rc\.1-darwin-arm64\.tar\.gz"$' repo/dist/devvm.rb
+! exists repo/dist/devvm.rb
+grep '^class DevvmRc < Formula$' repo/dist/devvm-rc.rb
+grep '^  conflicts_with "devvmhq/tap/devvm", because: "both install the devvm binary"$' repo/dist/devvm-rc.rb
+grep 'releases/download/v1\.3\.0-rc\.1/devvm-1\.3\.0-rc\.1-darwin-arm64\.tar\.gz"$' repo/dist/devvm-rc.rb
+exec bash formula.sh devvm-rc.rb
+stdout '^https://github.com/devvmhq/devvm/releases/download/v1\.3\.0-rc\.1/devvm-1\.3\.0-rc\.1-linux-amd64\.tar\.gz checksum$'
+stdout '^comments$'
 exec minisign -Vm repo/dist/SHA256SUMS -p keys/test.pub
 stdout 'Trusted comment: devvm 1\.3\.0-rc\.1$'
 exec bash -c 'echo 1.2.3 > repo/VERSION && git -C repo commit -qam back'
@@ -124,9 +161,9 @@ cd repo/dist
 -- sums.want --
 install.sh: OK
 -- formula.sh --
-# Each platform's URL, and the checksum after it, against each archive's own
-# and SHA256SUMS's line for it.
-f=repo/dist/devvm.rb
+# Formula $1's each platform's URL, and the checksum after it, against each
+# archive's own and SHA256SUMS's line for it.
+f=repo/dist/$1
 grep -A1 '^      url ' "$f" | grep -v '^--$' | sed -n 'N;s/\n/ /;p' | while read -r _ u _ s; do
   u=${u//\"/}; s=${s//\"/}; a=${u##*/}
   sha=$({ sha256sum 2>/dev/null || shasum -a 256; } < "repo/dist/$a" | cut -c1-64)
@@ -141,6 +178,60 @@ https://github.com/devvmhq/devvm/releases/download/v1.2.3/devvm-1.2.3-darwin-amd
 https://github.com/devvmhq/devvm/releases/download/v1.2.3/devvm-1.2.3-linux-arm64.tar.gz checksum
 https://github.com/devvmhq/devvm/releases/download/v1.2.3/devvm-1.2.3-linux-amd64.tar.gz checksum
 comments
+-- formulas.diff --
+6c6
+< class Devvm < Formula
+---
+> class DevvmRc < Formula
+35c35
+<   conflicts_with "devvmhq/tap/devvm-rc", because: "both install the devvm binary"
+---
+>   conflicts_with "devvmhq/tap/devvm", because: "both install the devvm binary"
+-- sums.rc --
+1111111111111111111111111111111111111111111111111111111111111111  devvm-1.3.0-rc.1-darwin-arm64.tar.gz
+2222222222222222222222222222222222222222222222222222222222222222  devvm-1.3.0-rc.1-darwin-amd64.tar.gz
+3333333333333333333333333333333333333333333333333333333333333333  devvm-1.3.0-rc.1-linux-arm64.tar.gz
+4444444444444444444444444444444444444444444444444444444444444444  devvm-1.3.0-rc.1-linux-amd64.tar.gz
+-- devvm-rc.want --
+class DevvmRc < Formula
+  desc "Isolated Lima VM per project folder, with shared read-only toolchains"
+  homepage "https://github.com/devvmhq/devvm"
+  license "MIT"
+
+  depends_on "lima"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/devvmhq/devvm/releases/download/v1.3.0-rc.1/devvm-1.3.0-rc.1-darwin-arm64.tar.gz"
+      sha256 "1111111111111111111111111111111111111111111111111111111111111111"
+    end
+    on_intel do
+      url "https://github.com/devvmhq/devvm/releases/download/v1.3.0-rc.1/devvm-1.3.0-rc.1-darwin-amd64.tar.gz"
+      sha256 "2222222222222222222222222222222222222222222222222222222222222222"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/devvmhq/devvm/releases/download/v1.3.0-rc.1/devvm-1.3.0-rc.1-linux-arm64.tar.gz"
+      sha256 "3333333333333333333333333333333333333333333333333333333333333333"
+    end
+    on_intel do
+      url "https://github.com/devvmhq/devvm/releases/download/v1.3.0-rc.1/devvm-1.3.0-rc.1-linux-amd64.tar.gz"
+      sha256 "4444444444444444444444444444444444444444444444444444444444444444"
+    end
+  end
+
+  conflicts_with "devvmhq/tap/devvm", because: "both install the devvm binary"
+
+  def install
+    bin.install "devvm"
+  end
+
+  test do
+    assert_equal version.to_s, shell_output("#{bin}/devvm --version").strip
+  end
+end
 -- log.want --
 release --clean --skip=publish --snapshot DEVVM_VERSION=1.2.3 GORELEASER_CURRENT_TAG=
 -- bin/goreleaser --

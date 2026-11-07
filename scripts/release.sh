@@ -5,7 +5,9 @@
 #   SHA256SUMS                          their checksums and install.sh's, which install.sh checks
 #   SHA256SUMS.minisig                  SHA256SUMS signed with the release key (minisign), which install.sh checks
 #   install.sh                          the install script, set to install this release and to trust the key
-#   devvm.rb                            the Homebrew formula for devvmhq/homebrew-tap: each platform's archive
+#   devvm-rc.rb                         the Homebrew formula devvm-rc for devvmhq/homebrew-tap, which follows
+#                                       prereleases: each platform's archive
+#   devvm.rb                            for a release, not a prerelease, the formula devvm too
 # Nothing is published. The version is VERSION's: x.y.z, or a prerelease's x.y.z-rc.N (any lowercase word,
 # such as beta or alpha, then a number). The public key is packaging/minisign.pub (committed); the secret key
 # is the maintainer's, at DEVVM_MINISIGN_KEY (default ~/.minisign/devvm.key), never in the repo.
@@ -16,8 +18,9 @@
 #   scripts/release.sh --check  only the tag's checks and what the build needs, then prints the tag's commit
 #                               (scripts/publish.sh runs it first); nothing is built
 #   scripts/release.sh --formula-from DIR
-#                               only dist/devvm.rb, for VERSION's published release, from its SHA256SUMS
+#                               only the formulas, for VERSION's published release, from its SHA256SUMS
 #                               and SHA256SUMS.minisig downloaded into DIR, checked against minisign.pub
+#                               and its trusted comment, devvm <version>
 # Needs goreleaser and minisign, pinned in mise.toml: mise exec -- scripts/release.sh.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,15 +33,29 @@ v=$(tr -d '[:space:]' < VERSION)
 ref=v$v
 check=false
 
-# formula TEMPLATE SUMS URL VERSION: the Homebrew formula, from its template, with each platform's
-# archive's URL and its checksum from SHA256SUMS (on lines that aren't comments).
+# The Homebrew formulas VERSION gets: devvm-rc, which follows prereleases, for every release, and devvm
+# for a release that isn't a prerelease.
+names=(devvm-rc)
+[[ $v == *-* ]] || names=(devvm devvm-rc)
+
+# formula TEMPLATE SUMS URL VERSION NAME: the Homebrew formula NAME, devvm or devvm-rc, from its template:
+# its class, the other formula, which it conflicts with (by its full name, which no other tap's devvm
+# makes ambiguous), and each platform's archive's URL and its checksum from SHA256SUMS (on lines that
+# aren't comments).
 formula() {
-  awk -v sums="$2" -v u="$3" -v v="$4" '
+  local class other
+  case $5 in
+    devvm) class=Devvm other=devvmhq/tap/devvm-rc ;;
+    devvm-rc) class=DevvmRc other=devvmhq/tap/devvm ;;
+    *) echo "no formula $5" >&2; return 1 ;;
+  esac
+  awk -v sums="$2" -v u="$3" -v v="$4" -v class="$class" -v other="$other" '
     BEGIN {
       while ((getline line < sums) > 0) { split(line, f, " "); sha[f[2]] = f[1] }
       split("darwin linux", oses, " "); split("arm64 amd64", arches, " ")
     }
     !/^#/ {
+      gsub("@CLASS@", class); gsub("@CONFLICTS@", other)
       for (i in oses) for (j in arches) {
         p = toupper(oses[i] "_" arches[j]); a = "devvm-" v "-" oses[i] "-" arches[j] ".tar.gz"
         if (index($0, "@SHA256_" p "@")) {
@@ -52,21 +69,30 @@ formula() {
     { print } END { exit bad }' "$1"
 }
 
+# formulas TEMPLATE SUMS URL OUT: VERSION's formulas (names), each as OUT/<name>.rb.
+formulas() {
+  local n
+  for n in "${names[@]}"; do formula "$1" "$2" "$3" "$v" "$n" > "$4/$n.rb" || return 1; done
+}
+
 case ${1:-} in
   --head) ref=HEAD ;;
   --check) check=true ;;
   --formula-from)
-    # The formula for a published release, from its downloaded SHA256SUMS and SHA256SUMS.minisig in DIR,
-    # checked against packaging/minisign.pub; nothing is built.
+    # The formulas for a published release, from its downloaded SHA256SUMS and SHA256SUMS.minisig in
+    # DIR, checked against packaging/minisign.pub, and signed as VERSION's release: its trusted comment
+    # is devvm <version>, as this script signs it. Nothing is built.
     dir=${2:-}
     [[ -n $dir && -f $dir/SHA256SUMS && -f $dir/SHA256SUMS.minisig ]] || die "--formula-from DIR needs DIR/SHA256SUMS and DIR/SHA256SUMS.minisig"
     command -v minisign >/dev/null || die "needs minisign (mise exec -- scripts/release.sh)"
-    minisign -Vm "$dir/SHA256SUMS" -x "$dir/SHA256SUMS.minisig" -p packaging/minisign.pub >/dev/null ||
+    verified=$(minisign -Vm "$dir/SHA256SUMS" -x "$dir/SHA256SUMS.minisig" -p packaging/minisign.pub) ||
       die "$dir/SHA256SUMS doesn't verify with packaging/minisign.pub"
+    comment=$(sed -n 's/^Trusted comment: //p' <<<"$verified")
+    [[ $comment == "devvm $v" ]] || die "$dir/SHA256SUMS is signed as '$comment', not VERSION's 'devvm $v'"
     mkdir -p dist
-    formula packaging/homebrew/devvm.rb "$dir/SHA256SUMS" "https://github.com/devvmhq/devvm/releases/download/v$v" "$v" \
-      > dist/devvm.rb || die "couldn't write the formula"
-    echo "==> dist/devvm.rb for devvm $v, from $dir/SHA256SUMS"
+    formulas packaging/homebrew/devvm.rb "$dir/SHA256SUMS" "https://github.com/devvmhq/devvm/releases/download/v$v" dist ||
+      die "couldn't write the formulas"
+    for n in "${names[@]}"; do echo "==> dist/$n.rb for devvm $v, from $dir/SHA256SUMS"; done
     exit 0 ;;
   "") ;;
   *) die "unknown argument '$1' (--head, --check, --formula-from DIR)" ;;
@@ -146,7 +172,7 @@ git show "$commit:install.sh" |
   > "$out/install.sh" || die "install.sh needs one release_version=\"\" and one minisign_key=\"\" line"
 chmod 755 "$out/install.sh"
 git show "$commit:packaging/homebrew/devvm.rb" > "$tmp/devvm.rb" || die "no packaging/homebrew/devvm.rb in $ref"
-formula "$tmp/devvm.rb" "$out/SHA256SUMS" "$url" "$v" > "$out/devvm.rb" || die "couldn't write the formula"
+formulas "$tmp/devvm.rb" "$out/SHA256SUMS" "$url" "$out" || die "couldn't write the formulas"
 
 # install.sh's checksum goes in SHA256SUMS before it's signed, so you can check the script against the
 # release key before you run it.
@@ -158,10 +184,10 @@ if $sign; then
 fi
 
 echo "==> dist/ for devvm $v (from $ref):"
-(cd "$out" && ls -l devvm-*.tar.gz SHA256SUMS* install.sh devvm.rb 2>/dev/null) || true
+(cd "$out" && ls -l devvm-*.tar.gz SHA256SUMS* install.sh devvm*.rb 2>/dev/null) || true
 $sign || echo "(not signed: a test build without DEVVM_MINISIGN_KEY)"
 if [[ $v == *-* ]]; then
-  echo "scripts/publish.sh publishes them: the archives, SHA256SUMS, SHA256SUMS.minisig and install.sh to the GitHub prerelease v$v; devvm.rb stays out of the tap, which keeps the last release."
+  echo "scripts/publish.sh publishes them: the archives, SHA256SUMS, SHA256SUMS.minisig and install.sh to the GitHub prerelease v$v, devvm-rc.rb to devvmhq/homebrew-tap's Formula/; the formula devvm keeps the last release."
 else
-  echo "scripts/publish.sh publishes them: the archives, SHA256SUMS, SHA256SUMS.minisig and install.sh to the GitHub release v$v, devvm.rb to devvmhq/homebrew-tap's Formula/."
+  echo "scripts/publish.sh publishes them: the archives, SHA256SUMS, SHA256SUMS.minisig and install.sh to the GitHub release v$v, devvm.rb to devvmhq/homebrew-tap's Formula/, and devvm-rc.rb too when the tap's devvm-rc is older."
 fi

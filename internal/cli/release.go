@@ -5,7 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/upgrade"
 )
@@ -15,7 +14,8 @@ import (
 const releaseWait = time.Second
 
 // releaseNotice says, at a launch in a terminal, that a newer release is
-// out, from the daily check's record, and starts the check beside the
+// out, from the daily check's record (for Homebrew's devvm-rc, a newer
+// prerelease or release), and starts the check beside the
 // launch when it's due. It never asks and never blocks the launch: the
 // check runs in the background, and the function it returns, which the
 // launch calls once it's done, waits at most releaseWait for it. Nothing
@@ -40,9 +40,10 @@ func releaseNotice(ctx context.Context, a *app) (wait func()) {
 		return none
 	}
 	path := d.ReleaseCheck()
+	pre := up.Install.Prereleases()
 	known := upgrade.ReadKnown(path)
-	if known.Newer(up.Current) {
-		a.u.Info(msg.UpgradeAvailable(up.Current, known.Latest))
+	if next := known.Next(up.Current, pre); next != "" {
+		a.u.Info(upgrade.Announcement(up.Current, next))
 	}
 	now := time.Now()
 	if !known.Due(now) {
@@ -51,7 +52,7 @@ func releaseNotice(ctx context.Context, a *app) (wait func()) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = up.Source.Refresh(ctx, path, now) // offline is silent: the next day tries again
+		_ = up.Source.Refresh(ctx, path, now, pre) // offline is silent: the next day tries again
 	}()
 	return func() {
 		select {
