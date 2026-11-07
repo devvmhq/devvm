@@ -15,8 +15,11 @@ import (
 // ./mise.lock, or $MISE_STUB_OLDER_LOCK for a mise.toml listing versions
 // (the step back's), whose mise.toml it copies to $MISE_STUB_OLDER_CONFIG
 // when that's set; with MISE_STUB_FAIL set, it fails like mise
-// offline. mise ls-remote prints $MISE_STUB_VERSIONS, one a line.
-// Anything else succeeds.
+// offline, or, set to untrusted, like mise refusing a server's
+// certificate, which it logs to $MISE_LOG_FILE too. mise lock copies the
+// bundles $MISE_EXTRA_CA_CERTS and $SSL_CERT_FILE name, when they're set,
+// to $STUB_DIR/mise-ca.pem and $STUB_DIR/mise-roots.pem. mise ls-remote
+// prints $MISE_STUB_VERSIONS, one a line. Anything else succeeds.
 func mise(c *call) int {
 	c.log()
 	switch c.arg(0) {
@@ -27,7 +30,25 @@ func mise(c *call) int {
 	default:
 		return 0
 	}
-	if c.getenv("MISE_STUB_FAIL") != "" {
+	for name, to := range map[string]string{"MISE_EXTRA_CA_CERTS": "mise-ca.pem", "SSL_CERT_FILE": "mise-roots.pem"} {
+		if f := c.getenv(name); f != "" {
+			b, err := readFile(f)
+			if err == nil {
+				err = c.put(to, b)
+			}
+			if err != nil {
+				return c.status(err)
+			}
+		}
+	}
+	switch c.getenv("MISE_STUB_FAIL") {
+	case "":
+	case "untrusted":
+		line := "mise WARN  Remote versions cannot be fetched for pnpm/pnpm: error sending request: client error (Connect): invalid peer certificate: UnknownIssuer"
+		c.say(line)
+		c.logLine(c.getenv("MISE_LOG_FILE"), line)
+		return 1
+	default:
 		c.say("mise ERROR failed to fetch versions: offline")
 		return 1
 	}

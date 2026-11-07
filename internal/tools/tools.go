@@ -207,7 +207,9 @@ func (t Versions) Lock(ctx context.Context) (Lock, error) {
 	t.Info(msg.ResolvingTools())
 	lock, err := t.Resolve(ctx, t.Dirs.ToolLock())
 	if err != nil {
-		if _, ok := errors.AsType[*backend.LoggedError](err); ok {
+		// A certificate mise doesn't trust is said as it is: being online
+		// again doesn't help.
+		if _, ok := errors.AsType[*backend.LoggedError](err); ok && !errors.Is(err, errUntrusted) {
 			return Lock{}, backend.Logged(msg.ToolsNeedResolve())
 		}
 		return Lock{}, err

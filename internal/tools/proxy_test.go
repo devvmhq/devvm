@@ -88,9 +88,9 @@ func TestMiseCmdCompanyProxy(t *testing.T) {
 	if err != nil || slices.ContainsFunc(cmd.Env, func(kv string) bool { return strings.Contains(kv, "proxy.corp") }) {
 		t.Errorf("the environment's: %v, %q", err, cmd.Env)
 	}
-	// None: nothing added.
+	// None: nothing added to mise's own eight.
 	e.Proxy = nil
-	if cmd, err = e.miseCmd(t.Context(), "/bin/true", t.TempDir(), "lock"); err != nil || len(cmd.Env) != len(os.Environ())+7 {
+	if cmd, err = e.miseCmd(t.Context(), "/bin/true", t.TempDir(), "lock"); err != nil || len(cmd.Env) != len(os.Environ())+8 {
 		t.Errorf("none: %v, %d of %d", err, len(cmd.Env), len(os.Environ()))
 	}
 }

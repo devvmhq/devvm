@@ -151,6 +151,23 @@ stderr '^install: --version needs a version$'
 ! exec bash main.sh --no-deps --version '1.2.3/../x'
 stderr '^install: not a devvm version: ''1.2.3/../x''$'
 
+# A prerelease, by --version or DEVVM_VERSION, checked as a release is;
+# without either, the latest release, not the prerelease.
+exec bash prerelease.sh --no-deps --version 0.2.0-rc.1
+stdout '^==> signature checked$'
+stdout '^==> installed devvm 0.2.0-rc.1: \S+/prefix/bin/devvm$'
+stdout '^runs 0.2.0-rc.1$'
+env DEVVM_VERSION=v0.2.0-rc.1
+exec bash prerelease.sh --no-deps
+stdout '^==> installed devvm 0.2.0-rc.1: '
+env DEVVM_VERSION=
+exec bash prerelease.sh --no-deps
+stdout '^==> installed devvm 0.1.0: '
+env SIG='good RWOTHERKEY'
+! exec bash prerelease.sh --no-deps --version 0.2.0-rc.1
+stderr '^install: devvm''s SHA256SUMS isn''t signed with the release key: not installed$'
+env SIG=
+
 # Homebrew's devvm, a keg in the Cellar next to the brew on PATH: the
 # script stops before downloading anything, terminal or not, without
 # running brew; --force installs a second copy.
@@ -301,6 +318,8 @@ for v in 0.1.0 1.20.3 2.0.0-rc.1; do valid_version "$v" && echo "valid $v"; done
 for v in "" 1.2 "1.2.3/../x" "1.2.3 x" "1.2.3';id"; do valid_version "$v" || echo "invalid '$v'"; done
 curl() { echo "https://github.com/devvmhq/devvm/releases/tag/v1.2.3%2F..%2Fx"; }
 (latest_release https://github.com/devvmhq/devvm) 2>/dev/null || echo "odd latest refused"
+curl() { echo "https://github.com/devvmhq/devvm/releases/tag/v0.4.0-rc.1"; }
+(latest_release https://github.com/devvmhq/devvm) 2>/dev/null || echo "prerelease latest refused"
 -- version.want --
 0.2.0
 0.1.5
@@ -314,6 +333,7 @@ invalid '1.2.3/../x'
 invalid '1.2.3 x'
 invalid '1.2.3';id'
 odd latest refused
+prerelease latest refused
 -- fetch.sh --
 . "$WORK/lib.sh"
 curl() { echo "$*"; }
@@ -523,6 +543,19 @@ sudo usermod -aG kvm me
 . "$WORK/lib.sh"
 release 0.1.0
 main "$@"
+-- prerelease.sh --
+# main.sh with a release, 0.1.0, the latest, and a prerelease,
+# 0.2.0-rc.1, whose SHA256SUMS.minisig reads $SIG (default: good), for a
+# script that trusts RWTESTKEY.
+. "$WORK/lib.sh"
+release 0.1.0
+release 0.2.0-rc.1
+echo "good RWTESTKEY" > "$WORK/repo/releases/download/v0.1.0/SHA256SUMS.minisig"
+echo "${SIG:-good RWTESTKEY}" > "$WORK/repo/releases/download/v0.2.0-rc.1/SHA256SUMS.minisig"
+minisign_key=RWTESTKEY
+latest_release() { echo 0.1.0; }
+main "$@"
+echo "runs $("$prefix/bin/devvm")"
 -- nobrew.sh --
 # main.sh without a brew on PATH.
 . "$WORK/lib.sh"

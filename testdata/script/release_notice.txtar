@@ -91,6 +91,28 @@ ttyin -stdin $WORK/no.txt
 ! exec $DEVVM
 stdout '^==> upgrade_available current=0.1.0 latest=0.2.0$'
 
+# A prerelease is never announced: a record naming one is none, and a
+# check that finds one at releases/latest keeps what it knew.
+json_set $DATA/cache/release.json latest=0.3.0-rc.1
+ttyin -stdin $WORK/no.txt
+! exec $DEVVM
+! stdout upgrade_available
+json_set $DATA/cache/release.json latest=0.2.0 tried=2026-01-01T00:00:00Z
+release_server 0.3.0-rc.1
+ttyin -stdin $WORK/no.txt
+! exec $DEVVM
+stdout '^==> upgrade_available current=0.1.0 latest=0.2.0$'
+grep '"latest":"0.2.0"' $DATA/cache/release.json
+! grep '"tried":"2026-01-01' $DATA/cache/release.json
+
+# On a prerelease, the release it comes before is announced once it's
+# out.
+env DEVVM_TEST_VERSION=0.3.0-rc.1
+json_set $DATA/cache/release.json latest=0.3.0
+ttyin -stdin $WORK/no.txt
+! exec $DEVVM
+stdout '^==> upgrade_available current=0.3.0-rc.1 latest=0.3.0$'
+
 -- no.txt --
 n
 -- off.toml --

@@ -1,9 +1,10 @@
 // Package trust is the user's own CAs, a company's for a proxy that
 // inspects TLS: read from devvm's CA folder (paths.Dirs.TrustedCAs) and
 // checked, then trusted in project VMs (sent at each launch, installed by
-// guest/ca.sh), in build VMs while they build (never in the images), and
-// by devvm's proxy for its own connections. It also makes each VM's own
-// CA (InitCA), which the VM's proxy intercepts with.
+// guest/ca.sh), in build VMs while they build (never in the images), by
+// devvm's proxy for its own connections, and by devvm's mise on the host
+// (internal/tools; on Linux with Host's bundle). It also makes each VM's
+// own CA (InitCA), which the VM's proxy intercepts with.
 package trust
 
 import (
@@ -157,6 +158,84 @@ func parse(file string, data []byte) (CAs, error) {
 
 // Bundle returns them all in one PEM file; nil for none.
 func (c CAs) Bundle() []byte { return bytes.Join(c, nil) }
+
+// Host returns what makes a program on a Linux host that reads its roots
+// from files trust them as well as the host's own CAs, as devvm's mise
+// does (rustls' native roots): a bundle of both, which the caller writes
+// at path, and the environment that points the program at it. The host's
+// bundle is the file SSL_CERT_FILE names when getenv has one, else the
+// first of hostBundles that's there, and SSL_CERT_FILE then names path.
+// Such a program reads the host's folders of CAs (hostDirs) only when
+// neither SSL_CERT_FILE nor SSL_CERT_DIR is set, so then SSL_CERT_DIR
+// names them. Otherwise it reads what getenv's name, as before: an
+// SSL_CERT_DIR of getenv's stays, and an SSL_CERT_FILE alone gets no
+// folder, so it trusts nothing it didn't. Nothing for no CAs.
+func (c CAs) Host(path string, getenv func(string) string) (bundle []byte, env []string, err error) {
+	if len(c) == 0 {
+		return nil, nil, nil
+	}
+	own := getenv("SSL_CERT_FILE")
+	probe := own == "" && getenv("SSL_CERT_DIR") == ""
+	if own == "" {
+		own = firstThere(hostBundles())
+	}
+	if own != "" {
+		data, err := os.ReadFile(own) //nolint:gosec // the host's own CA bundle, as the program would read it
+		switch {
+		case err == nil:
+			bundle = append(bytes.TrimRight(data, "\n"), '\n')
+		case !errors.Is(err, fs.ErrNotExist):
+			return nil, nil, err
+		}
+	}
+	bundle = append(bundle, c.Bundle()...)
+	env = []string{"SSL_CERT_FILE=" + path}
+	if probe {
+		var dirs []string
+		for _, d := range hostDirs() {
+			if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+				dirs = append(dirs, d)
+			}
+		}
+		if len(dirs) > 0 {
+			env = append(env, "SSL_CERT_DIR="+strings.Join(dirs, ":"))
+		}
+	}
+	return bundle, env, nil
+}
+
+// hostBundles are where a Linux host's CA bundle may be, in the order
+// rustls' native roots look for it (openssl-probe's list): the first
+// that's there is the host's.
+func hostBundles() []string {
+	return []string{
+		"/etc/ssl/certs/ca-certificates.crt",                // Debian, Ubuntu, Arch
+		"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // Fedora, RHEL
+		"/etc/pki/tls/certs/ca-bundle.crt",
+		"/etc/ssl/ca-bundle.pem", // openSUSE
+		"/etc/pki/tls/cacert.pem",
+		"/etc/ssl/cert.pem", // Alpine
+		"/opt/etc/ssl/certs/ca-certificates.crt",
+		"/etc/ssl/certs/cacert.pem",
+	}
+}
+
+// hostDirs are the folders of a Linux host's CAs, a file each, that
+// rustls' native roots read besides its bundle (openssl-probe's list).
+func hostDirs() []string {
+	return []string{"/etc/ssl/certs", "/etc/pki/tls/certs", "/etc/security/certificates"}
+}
+
+// firstThere is the first of paths that's there, followed if a link; ""
+// for none.
+func firstThere(paths []string) string {
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
 
 // Name is the file the i-th one (from 0) is installed as in a VM.
 func Name(i int) string { return "devvm-extra-" + strconv.Itoa(i+1) + ".crt" }

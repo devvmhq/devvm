@@ -2123,6 +2123,9 @@ other = "Resolving the shared tools' versions failed. Check that you're online."
 [tools_need_resolve]
 other = "Resolving the shared tools' versions failed, and devvm has to do it once, online. Try again when you're online."
 
+[tools_untrusted]
+other = "Resolving the shared tools' versions failed because this machine doesn't trust a server's certificate. A network that inspects TLS needs its CA in this machine's store, or on Linux in {{.dir}}."
+
 [tool_not_locked]
 other = "The tools lock {{.lock}} has no version of {{.tool}}. Run devvm tools update to resolve the shared tools again."
 
@@ -2672,6 +2675,10 @@ other = "This is devvm {{.version}} already, so nothing was installed."
 description = "current is this devvm's version, latest the release server's newest, which is older"
 other = "The newest release, devvm {{.latest}}, is older than this devvm {{.current}}, so devvm upgrade installs nothing. To install it anyway, run devvm upgrade --to {{.latest}}."
 
+[upgrade_prerelease_ahead]
+description = "current is this devvm's version, a prerelease such as 0.2.0-rc.1; latest the newest release, which is older, such as 0.1.0"
+other = "This is devvm {{.current}}, a prerelease newer than the newest release, devvm {{.latest}}, so nothing was installed. To go back to that release, run devvm upgrade --to {{.latest}}."
+
 [upgrade_confirm]
 other = "Install devvm {{.version}} in place of devvm {{.current}}?"
 
@@ -2743,7 +2750,7 @@ other = "Homebrew's brew upgrade devvm failed, so its devvm stays as it was."
 other = "Homebrew upgraded devvm."
 
 [upgrade_not_version]
-other = "--to takes a release's version, such as 0.2.0, not {{.value}}."
+other = "--to takes a release's version, such as 0.2.0 or 0.2.0-rc.1, not {{.value}}."
 
 [upgrade_failed_reason]
 description = "reason is an error from the system, in English"

@@ -26,11 +26,12 @@ type Known struct {
 }
 
 // ReadKnown reads the record at path. A missing or unreadable one is
-// none: the next check writes it again.
+// none, as is one naming a prerelease, which is never announced: the
+// next check writes it again.
 func ReadKnown(path string) Known {
 	var k Known
 	data, err := os.ReadFile(path) //nolint:gosec // paths come from paths.Dirs
-	if err != nil || json.Unmarshal(data, &k) != nil || (k.Latest != "" && !Valid(k.Latest)) {
+	if err != nil || json.Unmarshal(data, &k) != nil || (k.Latest != "" && (!Valid(k.Latest) || Prerelease(k.Latest))) {
 		return Known{}
 	}
 	return k

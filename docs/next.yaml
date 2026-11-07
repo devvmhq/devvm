@@ -1,0 +1,16 @@
+# next.devvm.dev: main's docs, for the next release. The Docs workflow builds it with
+# `hugo -s docs --minify --config hugo.yaml,next.yaml`, which merges this over hugo.yaml.
+# devvm.dev's build, `hugo -s docs --minify`, never reads it.
+baseURL: https://next.devvm.dev/
+
+# Search engines skip every page: Hextra's head says noindex for a page whose noindex
+# param is set, and layouts/robots.txt disallows everything when the site's is.
+cascade:
+  - params:
+      noindex: true
+
+params:
+  noindex: true
+  banner:
+    key: next-docs
+    message: "These docs are for the next devvm, which isn't released yet. The docs for the current release are at [devvm.dev](https://devvm.dev/)."

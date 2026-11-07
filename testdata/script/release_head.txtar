@@ -51,6 +51,20 @@ exec tar -tzf repo/dist/devvm-1.2.3.tar.gz
 stdout '^devvm-1.2.3/VERSION$'
 ! stdout uncommitted
 
+# A prerelease's VERSION, 1.3.0-rc.1: its archives, install.sh and the
+# trusted comment all name it, and the tap is said to keep the last
+# release.
+exec bash -c 'echo 1.3.0-rc.1 > repo/VERSION && git -C repo commit -qam rc'
+exec repo/scripts/release.sh --head
+stdout 'GitHub prerelease v1\.3\.0-rc\.1; devvm\.rb stays out of the tap'
+exists repo/dist/devvm-1.3.0-rc.1-linux-arm64.tar.gz
+exists repo/dist/devvm-1.3.0-rc.1.tar.gz
+grep '^release_version="1.3.0-rc.1"$' repo/dist/install.sh
+grep 'releases/download/v1\.3\.0-rc\.1/devvm-1\.3\.0-rc\.1-darwin-arm64\.tar\.gz"$' repo/dist/devvm.rb
+exec minisign -Vm repo/dist/SHA256SUMS -p keys/test.pub
+stdout 'Trusted comment: devvm 1\.3\.0-rc\.1$'
+exec bash -c 'echo 1.2.3 > repo/VERSION && git -C repo commit -qam back'
+
 # A key that doesn't match the public key: refused.
 exec minisign -G -W -p keys/other.pub -s keys/other.key
 env DEVVM_MINISIGN_PUB=$WORK/keys/other.pub
@@ -69,10 +83,13 @@ exec bash -c 'printf ''#!/bin/sh\n'' > repo/install.sh && git -C repo commit -qa
 ! exec repo/scripts/release.sh --head
 stderr 'install.sh needs one release_version="" and one minisign_key="" line$'
 
-# A VERSION that isn't x.y.z: refused.
+# A VERSION that isn't x.y.z or x.y.z-rc.N: refused.
 exec bash -c 'echo 1.2 > repo/VERSION && git -C repo commit -qam bad-version'
 ! exec repo/scripts/release.sh --head
-stderr '^release: VERSION isn''t x.y.z: ''1.2''$'
+stderr '^release: VERSION isn''t x.y.z or x.y.z-rc.N: ''1.2''$'
+exec bash -c 'echo 1.2.3-RC1 > repo/VERSION && git -C repo commit -qam bad-prerelease'
+! exec repo/scripts/release.sh --head
+stderr '^release: VERSION isn''t x.y.z or x.y.z-rc.N: ''1.2.3-RC1''$'
 
 # A HEAD without install.sh: refused too.
 exec bash -c 'echo 1.2.3 > repo/VERSION && git -C repo rm -q install.sh && git -C repo commit -qam no-install'
