@@ -180,6 +180,23 @@ other = "Docker is installed, so --from can use container images only Docker has
 [docker_missing]
 other = "Docker isn't installed. Only --from with a container image only Docker has needs it."
 
+[doctor_immutable_ok]
+other = "devvm-immutable is installed, so devvm locks .git for VMs on this machine."
+
+[doctor_immutable_missing]
+other = ".git protection on Linux needs devvm-immutable, which isn't installed, so devvm can't lock .git for VMs on this machine."
+
+[doctor_immutable_unusable]
+description = "reason is why devvm-immutable's check failed, in English"
+other = ".git protection on Linux needs devvm-immutable, which doesn't work here, so devvm can't lock .git for VMs on this machine. Its check says {{.reason}}."
+
+[doctor_immutable_install]
+description = "source is the devvm-immutable that came with this devvm, helper where it's installed"
+other = "Run sudo install -D -o root -g root -m 0755 {{.source}} {{.helper}} and then sudo setcap cap_linux_immutable+ep {{.helper}} to install it."
+
+[doctor_immutable_no_source]
+other = "This devvm came without devvm-immutable, so install devvm's release archive or its Homebrew formula, which have it, and run devvm doctor again."
+
 [devvm_other_first]
 description = "first and self are paths of devvm binaries, their links resolved"
 other = "Another devvm comes first on PATH, so devvm runs {{.first}} instead of this one at {{.self}}. Uninstall one of them."
@@ -2035,7 +2052,16 @@ description = "files is a space-separated list of paths"
 other = "The project folder has set-id files owned by root, which run as root for anyone who runs them: {{.files}}. Don't run them, and delete them with sudo rm FILE."
 
 [git_unprotected]
-other = ".git protection needs macOS, so {{.vm}} can change the hooks and config in .git, which run on this machine. To keep a VM out of .git, use devvm --clone, or run devvm git-protect off to stop this warning."
+other = ".git protection on Linux needs devvm-immutable, which isn't installed, so {{.vm}} can change the hooks and config in .git, which run on this machine. Run devvm doctor to see how to install it, use devvm --clone to keep a VM out of .git, or run devvm git-protect off to stop this warning."
+
+[git_unprotected_helper]
+other = ".git protection on Linux needs devvm-immutable, which doesn't work here, so {{.vm}} can change the hooks and config in .git, which run on this machine. Run devvm doctor to see why, use devvm --clone to keep a VM out of .git, or run devvm git-protect off to stop this warning."
+
+[git_unprotected_fs]
+other = "The project folder's file system has no immutable attribute to lock .git with, so {{.vm}} can change the hooks and config in .git, which run on this machine. Use devvm --clone to keep a VM out of .git, or run devvm git-protect off to stop this warning."
+
+[git_protect_available]
+other = ".git protection works on this machine now, and {{.vm}} has it off, as it was made before it did. Run devvm git-protect on to lock its .git, or devvm git-protect off to stop this warning."
 
 [git_unprotected_quiet]
 other = "devvm stops warning about .git at each launch of {{.vm}}, and it still names the hooks and config in .git that change."
@@ -2055,8 +2081,14 @@ other = "Showing or changing .git protection failed: {{.reason}}."
 description = "mode is on, strict or off"
 other = "{{.vm}} is running, so devvm turns its .git protection {{.mode}} when the VM next stops. Run devvm stop or devvm restart to apply it now."
 
-[git_protect_on_needs_macos]
-other = ".git protection needs macOS. To keep a VM out of .git, use devvm --clone."
+[git_protect_on_needs_helper]
+other = ".git protection on Linux needs devvm-immutable, which isn't installed. Run devvm doctor to see how to install it, or use devvm --clone to keep a VM out of .git."
+
+[git_protect_on_helper_unusable]
+other = ".git protection on Linux needs devvm-immutable, which doesn't work here. Run devvm doctor to see why, or use devvm --clone to keep a VM out of .git."
+
+[git_protect_on_needs_fs]
+other = "The project folder's file system has no immutable attribute to lock .git with. To keep a VM out of .git, use devvm --clone."
 
 [git_protect_clone]
 other = "{{.vm}} is a --clone VM, so it mounts no .git to protect."
@@ -2087,6 +2119,13 @@ other = "WARNING: If you didn't make {{.path}}, check it before you run git here
 
 [git_lock_raced]
 other = "{{.path}} moved while devvm was locking it, so devvm left it unlocked and undid the lock where it landed. Check .git before you run git here."
+
+[git_lock_failed]
+other = "WARNING: Locking {{.path}} failed, so the VM can change what git on this machine runs from it. If you didn't make it as it is, check it before you run git here."
+
+[git_still_locked]
+description = "paths is a comma-separated list of paths relative to the project folder"
+other = "WARNING: {{.paths}} stay locked, as devvm can't unlock them without devvm-immutable. Install it as devvm doctor says, or unlock them with sudo chattr -R -i on each."
 
 [git_hooks_path]
 other = "core.hooksPath is {{.path}}, which is inside the project folder, so the VM can edit those hooks, and they run on this machine."

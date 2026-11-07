@@ -737,7 +737,7 @@ func (e remaking) leftBehind(ctx context.Context, t *target, clone string) error
 	switch clone {
 	case CloneOn:
 		if m := gitprotect.Mode(st); m == gitprotect.On || m == gitprotect.Strict {
-			p := e.Protector(t.f.Dir)
+			p := e.Protector(ctx, t.f.Dir)
 			if err := p.Check(ctx, st, false); err != nil {
 				return err
 			}
@@ -760,7 +760,7 @@ func (e remaking) leftBehind(ctx context.Context, t *target, clone string) error
 // section keeps the remote's name, for putBack (unmountFolder).
 func (e remaking) mountFolder(ctx context.Context, t *target) error {
 	e.clones.removeRemote(ctx, t.f.Dir, t.f.Name, sectionOf[cloneInVM](t.st, cloneSection).Made.Remote)
-	return e.Protector(t.f.Dir).NewVM(ctx, t.st)
+	return e.Protector(ctx, t.f.Dir).NewVM(ctx, t.st)
 }
 
 // unmountFolder undoes mountFolder, once putBack has deleted the new
@@ -771,7 +771,7 @@ func (e remaking) mountFolder(ctx context.Context, t *target) error {
 func (e remaking) unmountFolder(ctx context.Context, t *target) {
 	dir, vm := t.f.Dir, t.f.Name
 	if m := gitprotect.Mode(t.st); m == gitprotect.On || m == gitprotect.Strict {
-		p := e.Protector(dir)
+		p := e.Protector(ctx, dir)
 		// An undo goes on whatever Check finds: it has named it.
 		_ = p.Check(ctx, t.st, false)
 		p.Unlock(ctx, t.st)

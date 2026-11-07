@@ -11,12 +11,16 @@ The script installs the release it comes with, or the one that `--version` names
 
 1. It downloads the archive for this machine and the release's `SHA256SUMS`, over HTTPS only. The archive is `devvm-<version>-<os>-<arch>.tar.gz`, where the OS is `darwin` or `linux` and the processor is `arm64` or `amd64`. On Apple silicon, the script picks `arm64` even when it runs under Rosetta.
 2. It checks the signature of `SHA256SUMS`, then the archive's checksum, as [the signature](#the-signature-and-what-it-trusts) describes. When either check fails, it installs nothing.
-3. It puts devvm, which is one binary with its README, changelog and license, in `~/.local/lib/devvm/<version>`, and links `~/.local/bin/devvm` to it. When `~/.local/bin` isn't on `PATH`, the script says how to add it.
-4. Unless you pass `--no-deps`, it runs `devvm doctor --json` and offers the [fixes](#devvm-doctor---json) that devvm reports, asking before each one. Then it runs `devvm doctor`, which shows doctor's warnings too, even when nothing is missing.
+3. It puts devvm, which is one binary with its README, changelog and license, and on Linux devvm-immutable too, in `~/.local/lib/devvm/<version>`, and links `~/.local/bin/devvm` to it. When `~/.local/bin` isn't on `PATH`, the script says how to add it.
+4. Unless you pass `--no-deps`, it offers to install devvm-immutable on Linux, as [devvm-immutable](#devvm-immutable) describes. Then it runs `devvm doctor --json` and offers the [fixes](#devvm-doctor---json) that devvm reports, asking before each one. Then it runs `devvm doctor`, which shows doctor's warnings too, even when nothing is missing.
 
 At the end, when `~/.local/bin` is on `PATH`, the script looks up which devvm `PATH` finds first with `command -v devvm`. It resolves that path's links and those of `~/.local/bin/devvm` with `readlink -f`, and when they differ it warns, naming the other copy's path and saying to remove it or to put `~/.local/bin` first. It only looks the other copy up and never runs it. When `~/.local/bin` isn't on `PATH`, the script prints only how to add it, so you don't get both.
 
 `devvm doctor` makes the same check. It looks up `devvm` on `PATH`, resolves its links and those of the running binary, and when they differ it prints a warning naming both. It skips the check when no devvm is on `PATH`. The warning doesn't change its exit status, and `--json` lists it among the warnings rather than the problems, so the install script doesn't offer it as a fix.
+
+### devvm-immutable
+
+On Linux, devvm locks `.git` through devvm-immutable, which has to be root's, in `/usr/local/libexec/devvm`, with the file capability `cap_linux_immutable+ep` ([on Linux hosts](git-protection.md#on-linux-hosts)). The archive's copy is in `~/.local/lib/devvm/<version>`, and the script installs it from there with sudo, asking first, with `sudo install -D -o root -g root -m 0755` and then `sudo setcap cap_linux_immutable+ep`. It asks nothing when `/usr/local/libexec/devvm/devvm-immutable` has the same SHA-256 as the archive's copy and its `check` passes. `--yes` answers yes, and without a terminal and without `--yes` the script installs nothing and says so. When either command fails, the script says that devvm-immutable isn't installed and that `devvm doctor` says how to install it, and carries on. macOS's archive has no devvm-immutable, so the script offers nothing there.
 
 ## The signature and what it trusts
 
@@ -69,7 +73,10 @@ It warns in these cases:
 - another devvm comes first on your `PATH` ([one devvm](../using/upgrading.md#one-devvm)),
 - the disk that devvm's images and VMs go on has less free space than building base needs ([free space](../using/ports-size.md#free-space)),
 - this machine has less than the 8 GiB of memory or the 4 CPUs that devvm recommends ([requirements](../getting-started/install.md#requirements)),
-- a line of your policy files isn't a rule, which VMs' proxies skip ([rules](../safety/network.md#rules)).
+- a line of your policy files isn't a rule, which VMs' proxies skip ([rules](../safety/network.md#rules)),
+- on Linux, devvm-immutable isn't installed or doesn't work, saying why, so devvm can't lock `.git` ([installing devvm-immutable](../safety/git-protection.md#installing-devvm-immutable)).
+
+On Linux, it then says that devvm-immutable works, or prints the two commands that install the copy that came with this devvm: the one next to the devvm binary, as the install script puts it, or the one in the `libexec` folder beside Homebrew's `bin`. A devvm built from source has none, and doctor says to install a release instead. Doctor runs devvm-immutable's `check`, which a missing capability, a protocol devvm doesn't speak or a file it can't run fails.
 
 Then it says devvm has everything it needs, or it fails. The warnings never make it fail, so a small machine with everything installed passes.
 
@@ -79,8 +86,9 @@ Then it says devvm has everything it needs, or it fails. The warnings never make
 
 - `backend` is the backend that doctor checked, `lima`, which every new VM gets.
 - `problems` has what that backend is missing, each with its `key`, the `fix` command, and the `message` that `devvm doctor` prints for it. The `fix` is a command whose words are separated by spaces, without shell syntax, or `null` when there's none to run, for example when virtualization is turned off in the firmware.
-- `warnings` has the messages of doctor's warnings, which have no keys, because there's nothing for a script to fix. They're about another devvm on `PATH`, low free space, a machine with less than 8 GiB of memory or fewer than 4 CPUs, and each line of `~/.config/devvm/policy`, `~/.config/devvm/layers/*.policy` and `~/.local/share/devvm/vms/*/policy` that isn't a rule (`policy_not_rule`).
+- `warnings` has the messages of doctor's warnings, which have no keys, because there's nothing for a script to fix. They're about another devvm on `PATH`, low free space, a machine with less than 8 GiB of memory or fewer than 4 CPUs, each line of `~/.config/devvm/policy`, `~/.config/devvm/layers/*.policy` and `~/.local/share/devvm/vms/*/policy` that isn't a rule (`policy_not_rule`), and, on Linux, a devvm-immutable that's missing or doesn't work.
 - `docker` says whether Docker is installed, which only `--from` with an image that only Docker has needs.
+- `git_lock` says whether devvm can lock `.git` for VMs on this machine: always on macOS, and on Linux when devvm-immutable works.
 - `features` has, for each backend, how it has each feature, as `native`, `emulated`, `unreviewed` or `none`. The example below shows two of Lima's features.
 
 ```json
@@ -96,6 +104,7 @@ Then it says devvm has everything it needs, or it fails. The warnings never make
   ],
   "warnings": [],
   "docker": true,
+  "git_lock": true,
   "features": {
     "lima": {
       "agent-forwarding": "native",

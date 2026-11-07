@@ -24,8 +24,8 @@ exec devvm git-protect
 [linux] exec devvm git-protect off
 [linux] stdout '^==> git_unprotected_quiet vm=devvm-web-[0-9a-f]{14}$'
 [linux] ! exec devvm git-protect strict
-[linux] stderr '^devvm: git_protect_on_needs_macos$'
-[linux] stop 'no locks off macOS'
+[linux] stderr '^devvm: git_protect_on_needs_helper$'
+[linux] stop 'no locks on Linux without devvm-immutable: git_lock_linux.txtar has its'
 stub_reset
 exec devvm git-protect strict
 stdout '^==> git_protect_next_stop mode=strict vm=devvm-web-[0-9a-f]{14}$'

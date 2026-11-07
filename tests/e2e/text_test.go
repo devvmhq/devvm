@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/devvmhq/devvm/internal/platform"
 )
 
 // SaidLine is whether one of out's lines is one of msg's lines (grep -qxF).
@@ -38,11 +40,12 @@ func Listed(s *S, vm string) bool {
 	return HasLine(r.Stdout, vm)
 }
 
-// Locked is whether the file has macOS's user immutable flag, as .git
-// protection sets it (ls -lO shows uchg).
+// Locked is whether the file has the immutable flag, as .git protection
+// sets it: macOS's user immutable flag (ls -lO shows uchg), or Linux's
+// immutable attribute, which devvm-immutable sets (as statx reports it).
 func Locked(s *S, f string) bool {
 	if runtime.GOOS != "darwin" {
-		return false
+		return platform.Immutable(f)
 	}
 	r, err := s.Run(Cmd{Args: []string{"ls", "-lOd", f}})
 	return err == nil && strings.Contains(r.Stdout, "uchg")

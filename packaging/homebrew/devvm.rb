@@ -36,6 +36,9 @@ class @CLASS@ < Formula
 
   def install
     bin.install "devvm"
+    # Linux's .git lock helper, which needs root to install with its capability: devvm doctor
+    # prints the commands.
+    libexec.install "devvm-immutable" if OS.linux?
   end
 
   test do

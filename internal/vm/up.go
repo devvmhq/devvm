@@ -460,7 +460,7 @@ func (e creation) plan(ctx context.Context, o Options, f project.Folder, b backe
 	if o.Clone {
 		n.clone, n.git = true, gitprotect.InVM{Mode: gitprotect.Clone}
 	} else {
-		n.git = e.Protector(f.Dir).NewSection(o.NoGitProtect)
+		n.git = e.Protector(ctx, f.Dir).NewSection(o.NoGitProtect)
 	}
 	// Its ports, which devvm's forwarder forwards from the backend's ssh,
 	// and a clone, copied in and fetched over ssh.
@@ -649,7 +649,7 @@ func (e creation) undoCreate(b backend.Backend, f project.Folder, locking *atomi
 			st = new(state.VM)
 		}
 		if m := gitprotect.Mode(st); locking.Load() && m != gitprotect.On && m != gitprotect.Strict {
-			e.Protector(f.Dir).Unlock(ctx, st)
+			e.Protector(ctx, f.Dir).Unlock(ctx, st)
 		}
 		if deleted {
 			_ = e.vmFolders.teardown(ctx, e.newTarget(f, st, b), false)

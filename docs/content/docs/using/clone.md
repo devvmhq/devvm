@@ -3,7 +3,7 @@ title: Working on a clone
 weight: 9
 ---
 
-`devvm --clone` gives the VM its own clone of the repo instead of mounting your folder, so nothing in the VM can touch your working tree or `.git`. Use it when you don't trust what runs in the VM, such as an agent working unattended, and on Linux hosts, which have no [`.git` protection](../safety/git-protection.md#linux-hosts). [Files the VM writes](../safety/attack-vectors.md#files-the-vm-writes) lists what `--clone` keeps away from this machine.
+`devvm --clone` gives the VM its own clone of the repo instead of mounting your folder, so nothing in the VM can touch your working tree or `.git`. Use it when you don't trust what runs in the VM, such as an agent working unattended, and on Linux hosts without devvm-immutable, which have no [`.git` protection](../safety/git-protection.md#without-devvm-immutable). [Files the VM writes](../safety/attack-vectors.md#files-the-vm-writes) lists what `--clone` keeps away from this machine.
 
 ```sh
 devvm --clone              # create the VM, copy your branches into it and open a shell in its clone

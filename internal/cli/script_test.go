@@ -215,6 +215,10 @@ func sandbox(env *testscript.Env, bin, stubs string) error {
 		return err
 	}
 	env.Setenv("DEVVM_KVM", kvm)
+	// Linux's devvm-immutable: none, whatever this machine has installed;
+	// a script that locks on Linux sets it to $IMMUTABLE_STUB.
+	env.Setenv("DEVVM_IMMUTABLE_HELPER", filepath.Join(root, "stub", "no-devvm-immutable"))
+	env.Setenv("IMMUTABLE_STUB", filepath.Join(stubs, "devvm-immutable"))
 	env.Setenv("DEVVM_SECRET_SERVICE", "devvm-test")
 	// No launch asks GitHub for devvm's newest release: a script that
 	// tests the check unsets it and serves its own (release_server).

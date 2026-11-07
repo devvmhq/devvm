@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -490,16 +491,34 @@ func limaSSHD(s *S, vm, host, sock string, ssh []string) error {
 	})
 }
 
+// noHelper is why .git's lock checks are skipped on a Linux host.
+const noHelper = "devvm-immutable doesn't work on this Linux host: devvm doctor says how to install it"
+
+// gitLocks is whether devvm locks .git on this machine, as devvm doctor
+// --json's git_lock says: always on macOS, and on Linux with
+// devvm-immutable installed.
+func gitLocks(s *S) bool {
+	if runtime.GOOS == "darwin" {
+		return true
+	}
+	r, err := s.Devvm("", "doctor", "--json")
+	var d struct {
+		GitLock bool `json:"git_lock"`
+	}
+	return err == nil && json.Unmarshal([]byte(r.Stdout), &d) == nil && d.GitLock
+}
+
 func projectGit(s *S, w *webVM) {
 	s.Section(".git protection")
 	p, vm := w.p, w.vm
-	if runtime.GOOS != "darwin" {
-		s.Check("off on Linux (no chflags), and says so", func() error {
+	if !gitLocks(s) {
+		s.Check("off on Linux without devvm-immutable, and says so", func() error {
 			if w.state(s)["git.mode"] != "off" || !grepF(w.launch, s.Msg("git_unprotected", "vm="+vm)) {
 				return errors.New("git protection isn't off, or the launch didn't say so")
 			}
 			return nil
 		})
+		s.Skip("hooks and config are locked", noHelper)
 		return
 	}
 	s.Check("hooks and config are locked", func() error {
@@ -773,16 +792,20 @@ func projectPorts(s *S, w *webVM) {
 func projectGitProtect(s *S, w *webVM) {
 	p, vm := w.p, w.vm
 	config := filepath.Join(p, ".git", "config")
-	if runtime.GOOS != "darwin" {
-		s.Check("git-protect on is refused off macOS", func() error {
+	if !gitLocks(s) {
+		s.Check("git-protect on is refused on Linux without devvm-immutable", func() error {
 			r, _ := s.Devvm(p, "git-protect", "on")
-			if !grepF(r.Out, FirstLine(s.Msg("git_protect_on_needs_macos"))) {
+			if !grepF(r.Out, FirstLine(s.Msg("git_protect_on_needs_helper"))) {
 				return errors.New("devvm git-protect on:\n" + r.Out)
 			}
 			return nil
 		})
 		projectGitWatch(s, w)
+		s.Skip("a swapped .git is reported", noHelper)
 		return
+	}
+	if runtime.GOOS != "darwin" {
+		s.Skip("on Linux, devvm stop names the .git/config the VM changed", "devvm-immutable locks .git here, so it isn't watched")
 	}
 	s.Check("a swapped .git is reported", func() error {
 		_, _ = s.Limactl("shell", "--workdir", "/", vm, "bash", "-c", "cd "+p+" && mv .git .git-old && git init -q")

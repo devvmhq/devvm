@@ -42,15 +42,12 @@ func TestWarnUnprotected(t *testing.T) {
 		t.Errorf("off by the host: %q", f.warns.Names())
 	}
 	f.warns.Reset()
-	f.p.CanLock = true
-	f.p.WarnUnprotected(f.vm)
-	f.p.CanLock = false
 	if err := os.RemoveAll(f.path(".git")); err != nil {
 		t.Fatal(err)
 	}
 	f.p.WarnUnprotected(f.vm)
 	if len(f.warns.Names()) > 0 {
-		t.Errorf("macOS, or no .git: %q", f.warns.Names())
+		t.Errorf("no .git: %q", f.warns.Names())
 	}
 	mkdirs(t, f.path(".git/hooks"))
 	for _, g := range []InVM{{Mode: Off, Chosen: true}, {Mode: Clone}} {
@@ -68,6 +65,38 @@ func TestWarnUnprotected(t *testing.T) {
 	}
 	if err := f.p.Set(t.Context(), f.vm, Off); err != nil || !f.section().Chosen {
 		t.Errorf("devvm git-protect off: %v, chosen %t", err, f.section().Chosen)
+	}
+}
+
+// On a host that can lock, a VM made where devvm couldn't (off, not
+// chosen) keeps its mode and its watch, and each launch says it can be
+// locked now; one the user turned off or on is quiet.
+func TestWarnProtectAvailable(t *testing.T) {
+	needGit(t)
+	f := linuxFixture(t)
+	f.git(f.dir, "init", "-q")
+	_ = f.check() // the repo, made since the VM, recorded
+	f.warns.Reset()
+	f.p.CanLock = true
+	f.p.WarnUnprotected(f.vm)
+	if want := []string{"git_protect_available vm=" + f.vm.Name()}; !slices.Equal(f.warns.Names(), want) {
+		t.Errorf("off by the host: %q", f.warns.Names())
+	}
+	if err := os.WriteFile(f.path(".git/hooks/pre-commit"), []byte("#!/bin/sh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.check(); !slices.Equal(got, []string{"git_changed paths=.git/hooks/pre-commit vm=" + f.vm.Name()}) || len(f.flags) > 0 {
+		t.Errorf("its check: %q, locks %q", got, f.flags)
+	}
+	for _, g := range []InVM{{Mode: Off, Chosen: true}, {Mode: On, Made: Made{Protected: true}}} {
+		if err := record(t.Context(), f.vm, func(s *InVM) { *s = g }); err != nil {
+			t.Fatal(err)
+		}
+		f.warns.Reset()
+		f.p.WarnUnprotected(f.vm)
+		if len(f.warns.Names()) > 0 {
+			t.Errorf("%+v: %q", g, f.warns.Names())
+		}
 	}
 }
 

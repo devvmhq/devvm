@@ -135,7 +135,7 @@ The VM can write anything in the project folder, and devvm locks only `.git`. An
 
 ### The platform
 
-- **`.git` on Linux hosts.** Linux has no flag a user can set to lock a file, so VMs on Linux hosts have no `.git` protection, and the VM can change hooks and config that run on the host. Use `--clone` there ([Linux hosts](git-protection.md#linux-hosts)).
+- **`.git` on Linux hosts.** Linux's immutable attribute needs a capability that you don't have, so devvm locks `.git` there only with devvm-immutable installed. Without it, or on a file system without the attribute, VMs on Linux hosts have no `.git` protection, and the VM can change hooks and config that run on the host, so use `--clone` there ([Linux hosts](git-protection.md#linux-hosts)). With it, any program can lock or unlock its own user's files, including files you locked with sudo ([what devvm-immutable can do](git-protection.md#what-devvm-immutable-can-do)).
 - **Escaping the VM.** A bug in Lima, Apple's Virtualization framework or QEMU could let code out of the VM.
 
 Found a way out of a VM? See [SECURITY.md](https://github.com/devvmhq/devvm/blob/main/SECURITY.md).

@@ -17,11 +17,25 @@ builds:
     ldflags:
       - -s -w -X github.com/devvmhq/devvm/internal/cli.version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}"
+  # Linux's .git lock helper, a program of its own, which is installed root's with
+  # CAP_LINUX_IMMUTABLE (devvm doctor says how).
+  - id: devvm-immutable
+    main: ./cmd/devvm-immutable
+    binary: devvm-immutable
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [arm64, amd64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
-# One archive per platform: the binary (its own files embedded), the README, changelog and license.
+# One archive per platform: the binary (its own files embedded), on Linux devvm-immutable too, the
+# README, changelog and license.
 archives:
   - id: devvm
-    ids: [devvm]
+    ids: [devvm, devvm-immutable]
     formats: [tar.gz]
     name_template: devvm-{{ .Version }}-{{ .Os }}-{{ .Arch }}
     wrap_in_directory: true

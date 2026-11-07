@@ -18,7 +18,8 @@ import (
 	"github.com/devvmhq/devvm/internal/state"
 )
 
-// On hosts without locks (Linux), devvm can't stop the VM changing what a
+// On hosts without locks (Linux without devvm-immutable, or a file system
+// without the immutable attribute), devvm can't stop the VM changing what a
 // lock would cover (paths), so it watches those paths instead: each check
 // sums them, compares with the sums the last one recorded, and names what
 // changed. That's after the fact: git on the host may have run it already.
@@ -43,14 +44,20 @@ const (
 
 // WarnUnprotected warns, at each launch of the VM vm on a host without
 // locks, that it can change the hooks and config of the folder's .git,
-// which git on this machine runs: unless the folder has no .git, or the
-// user chose off (Chosen), which says they know.
+// which git on this machine runs, and why the host can't lock them
+// (unprotected); on a host with locks, that a VM made where devvm
+// couldn't lock (off, not chosen) can have them now. It doesn't when the
+// folder has no .git, or the user chose off (Chosen), which says they
+// know.
 func (p *Protector) WarnUnprotected(vm *state.VM) {
 	g, _ := Of(vm)
-	if p.CanLock || g.Mode == Clone || g.Mode == Off && g.Chosen || !exists(p.git()) {
-		return
+	switch {
+	case g.Mode == Clone || g.Mode == Off && g.Chosen || !exists(p.git()):
+	case !p.CanLock:
+		p.Warn(unprotected(p.Unable, vm.Name()))
+	case g.Mode == Off:
+		p.Warn(msg.GitProtectAvailable(vm.Name()))
 	}
-	p.Warn(msg.GitUnprotected(vm.Name()))
 }
 
 // watcher is a protector's watch, on a host without locks.

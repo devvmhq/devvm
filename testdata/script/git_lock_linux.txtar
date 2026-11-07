@@ -1,0 +1,63 @@
+# On Linux, devvm locks .git through devvm-immutable, here the stub, which
+# sets no attribute: a new VM gets on, its hooks and config are locked
+# before it starts, and nothing warns or watches. A lock that fails is
+# named, and devvm git-protect off unlocks. With a helper that doesn't
+# work, each launch says why, devvm git-protect on is refused, saying why
+# too, and the VM is watched; once the helper works, that VM keeps its
+# off, still watched, and each launch says it can be locked now.
+[!linux] skip 'devvm-immutable is Linux''s: git_protect.txtar has macOS''s locks'
+env DEVVM_IMMUTABLE_HELPER=$IMMUTABLE_STUB
+
+# A new VM: on, locked before it starts.
+project web git
+exec devvm --network open
+vm_name WEB web
+! stderr 'git_unprotected|git_protect_available|git_changed'
+stub_calls
+stdout '^devvm-immutable check$'
+stdout '^devvm-immutable set /\S*/web/\.git/hooks\n(.*\n)*limactl .*start'
+stdout '^devvm-immutable set /\S*/web/\.git/config$'
+exec devvm git-protect
+stdout '\Aon\n\z'
+vm_state $WEB_dir/vm.json
+stdout '^git.made.protected=true$'
+! stdout '^git.watched'
+
+# A lock that fails is named, at devvm stop's check.
+exec sh -c ': > "$STUB_DIR/immutable-fails"'
+exec devvm stop
+stderr '^devvm: git_lock_failed path=/\S*/web/\.git/hooks$'
+stderr '^devvm: git_lock_failed path=/\S*/web/\.git/config$'
+rm $STUB_DIR/immutable-fails
+
+# devvm git-protect off unlocks.
+stub_reset
+exec devvm git-protect off
+stdout '^==> git_unlocked vm=devvm-web-[0-9a-f]{14}$'
+stub_calls
+stdout '^devvm-immutable clear /\S*/web/\.git/config$'
+stdout '^devvm-immutable clear /\S*/web/\.git/hooks$'
+
+# A helper without its capability: the launch says why, on is refused,
+# and the VM is off, watched.
+exec sh -c ': > "$STUB_DIR/immutable-no-cap"'
+project other git
+exec devvm --network open
+vm_name OTHER other
+stderr '^devvm: git_unprotected_helper vm=devvm-other-[0-9a-f]{14}$'
+! exec devvm git-protect on
+stderr '^devvm: git_protect_on_helper_unusable$'
+vm_state $OTHER_dir/vm.json
+stdout '^git.mode=off$'
+stdout '^git.watched.scanned=true$'
+
+# It works again: that VM keeps its off and its watch, and says it can be
+# locked now.
+rm $STUB_DIR/immutable-no-cap
+exec devvm
+stderr '^devvm: git_protect_available vm=devvm-other-[0-9a-f]{14}$'
+exec git config core.fsmonitor ./evil
+exec devvm stop
+stderr '^devvm: git_changed paths=\.git/config vm=devvm-other-[0-9a-f]{14}$'
+exec devvm git-protect
+stdout '\Aoff\n\z'

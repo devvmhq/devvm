@@ -1094,6 +1094,31 @@ func DoctorFailed(reason string) M {
 	return M{id: "doctor_failed", vals: []val{{"reason", reason}}}
 }
 
+// DoctorImmutableInstall is [doctor_immutable_install]: "Run sudo install -D -o root -g root -m 0755 {{.source}} {{.helper}} and then sudo setcap cap_linux_immutable+ep {{.helper}} to install it."
+func DoctorImmutableInstall(helper string, source string) M {
+	return M{id: "doctor_immutable_install", vals: []val{{"helper", helper}, {"source", source}}}
+}
+
+// DoctorImmutableMissing is [doctor_immutable_missing]: ".git protection on Linux needs devvm-immutable, which isn't installed, so devvm can't lock .git for VMs on this machine."
+func DoctorImmutableMissing() M {
+	return M{id: "doctor_immutable_missing"}
+}
+
+// DoctorImmutableNoSource is [doctor_immutable_no_source]: "This devvm came without devvm-immutable, so install devvm's release archive or its Homebrew formula, which have it, and run devvm doctor again."
+func DoctorImmutableNoSource() M {
+	return M{id: "doctor_immutable_no_source"}
+}
+
+// DoctorImmutableOK is [doctor_immutable_ok]: "devvm-immutable is installed, so devvm locks .git for VMs on this machine."
+func DoctorImmutableOK() M {
+	return M{id: "doctor_immutable_ok"}
+}
+
+// DoctorImmutableUnusable is [doctor_immutable_unusable]: ".git protection on Linux needs devvm-immutable, which doesn't work here, so devvm can't lock .git for VMs on this machine. Its check says {{.reason}}."
+func DoctorImmutableUnusable(reason string) M {
+	return M{id: "doctor_immutable_unusable", vals: []val{{"reason", reason}}}
+}
+
 // DoctorLatestRelease is [doctor_latest_release]: "The newest devvm release is {{.latest}}, as of {{.date}}."
 func DoctorLatestRelease(date string, latest string) M {
 	return M{id: "doctor_latest_release", vals: []val{{"date", date}, {"latest", latest}}}
@@ -1424,6 +1449,11 @@ func GitIncludeInside(config string, path string) M {
 	return M{id: "git_include_inside", vals: []val{{"config", config}, {"path", path}}}
 }
 
+// GitLockFailed is [git_lock_failed]: "WARNING: Locking {{.path}} failed, so the VM can change what git on this machine runs from it. If you didn't make it as it is, check it before you run git here."
+func GitLockFailed(path string) M {
+	return M{id: "git_lock_failed", vals: []val{{"path", path}}}
+}
+
 // GitLockLater is [git_lock_later]: "This folder has no .git yet. devvm locks it for {{.vm}} when one appears."
 func GitLockLater(vm string) M {
 	return M{id: "git_lock_later", vals: []val{{"vm", vm}}}
@@ -1449,6 +1479,11 @@ func GitNotLocked(path string) M {
 	return M{id: "git_not_locked", vals: []val{{"path", path}}}
 }
 
+// GitProtectAvailable is [git_protect_available]: ".git protection works on this machine now, and {{.vm}} has it off, as it was made before it did. Run devvm git-protect on to lock its .git, or devvm git-protect off to stop this warning."
+func GitProtectAvailable(vm string) M {
+	return M{id: "git_protect_available", vals: []val{{"vm", vm}}}
+}
+
 // GitProtectClone is [git_protect_clone]: "{{.vm}} is a --clone VM, so it mounts no .git to protect."
 func GitProtectClone(vm string) M {
 	return M{id: "git_protect_clone", vals: []val{{"vm", vm}}}
@@ -1464,9 +1499,19 @@ func GitProtectNextStop(mode string, vm string) M {
 	return M{id: "git_protect_next_stop", vals: []val{{"mode", mode}, {"vm", vm}}}
 }
 
-// GitProtectOnNeedsMacos is [git_protect_on_needs_macos]: ".git protection needs macOS. To keep a VM out of .git, use devvm --clone."
-func GitProtectOnNeedsMacos() M {
-	return M{id: "git_protect_on_needs_macos"}
+// GitProtectOnHelperUnusable is [git_protect_on_helper_unusable]: ".git protection on Linux needs devvm-immutable, which doesn't work here. Run devvm doctor to see why, or use devvm --clone to keep a VM out of .git."
+func GitProtectOnHelperUnusable() M {
+	return M{id: "git_protect_on_helper_unusable"}
+}
+
+// GitProtectOnNeedsFs is [git_protect_on_needs_fs]: "The project folder's file system has no immutable attribute to lock .git with. To keep a VM out of .git, use devvm --clone."
+func GitProtectOnNeedsFs() M {
+	return M{id: "git_protect_on_needs_fs"}
+}
+
+// GitProtectOnNeedsHelper is [git_protect_on_needs_helper]: ".git protection on Linux needs devvm-immutable, which isn't installed. Run devvm doctor to see how to install it, or use devvm --clone to keep a VM out of .git."
+func GitProtectOnNeedsHelper() M {
+	return M{id: "git_protect_on_needs_helper"}
 }
 
 // GitReplaced is [git_replaced]: "WARNING: Something replaced {{.git}} after devvm locked it, possibly the VM. Check its hooks and config before you run git here."
@@ -1474,14 +1519,29 @@ func GitReplaced(git string) M {
 	return M{id: "git_replaced", vals: []val{{"git", git}}}
 }
 
+// GitStillLocked is [git_still_locked]: "WARNING: {{.paths}} stay locked, as devvm can't unlock them without devvm-immutable. Install it as devvm doctor says, or unlock them with sudo chattr -R -i on each."
+func GitStillLocked(paths string) M {
+	return M{id: "git_still_locked", vals: []val{{"paths", paths}}}
+}
+
 // GitUnlocked is [git_unlocked]: "devvm unlocked .git, so {{.vm}} can change its hooks and config, which run on this machine. To lock it again, run devvm git-protect on."
 func GitUnlocked(vm string) M {
 	return M{id: "git_unlocked", vals: []val{{"vm", vm}}}
 }
 
-// GitUnprotected is [git_unprotected]: ".git protection needs macOS, so {{.vm}} can change the hooks and config in .git, which run on this machine. To keep a VM out of .git, use devvm --clone, or run devvm git-protect off to stop this warning."
+// GitUnprotected is [git_unprotected]: ".git protection on Linux needs devvm-immutable, which isn't installed, so {{.vm}} can change the hooks and config in .git, which run on this machine. Run devvm doctor to see how to install it, use devvm --clone to keep a VM out of .git, or run devvm git-protect off to stop this warning."
 func GitUnprotected(vm string) M {
 	return M{id: "git_unprotected", vals: []val{{"vm", vm}}}
+}
+
+// GitUnprotectedFs is [git_unprotected_fs]: "The project folder's file system has no immutable attribute to lock .git with, so {{.vm}} can change the hooks and config in .git, which run on this machine. Use devvm --clone to keep a VM out of .git, or run devvm git-protect off to stop this warning."
+func GitUnprotectedFs(vm string) M {
+	return M{id: "git_unprotected_fs", vals: []val{{"vm", vm}}}
+}
+
+// GitUnprotectedHelper is [git_unprotected_helper]: ".git protection on Linux needs devvm-immutable, which doesn't work here, so {{.vm}} can change the hooks and config in .git, which run on this machine. Run devvm doctor to see why, use devvm --clone to keep a VM out of .git, or run devvm git-protect off to stop this warning."
+func GitUnprotectedHelper(vm string) M {
+	return M{id: "git_unprotected_helper", vals: []val{{"vm", vm}}}
 }
 
 // GitUnprotectedQuiet is [git_unprotected_quiet]: "devvm stops warning about .git at each launch of {{.vm}}, and it still names the hooks and config in .git that change."
@@ -4219,6 +4279,11 @@ var specs = map[string]spec{
 	"docker_missing":                 {},
 	"docker_only":                    {fields: []string{"from"}},
 	"doctor_failed":                  {fields: []string{"reason"}},
+	"doctor_immutable_install":       {fields: []string{"helper", "source"}},
+	"doctor_immutable_missing":       {},
+	"doctor_immutable_no_source":     {},
+	"doctor_immutable_ok":            {},
+	"doctor_immutable_unusable":      {fields: []string{"reason"}},
 	"doctor_latest_release":          {fields: []string{"date", "latest"}},
 	"doctor_ok":                      {fields: []string{"backend", "version"}},
 	"doctor_proxy_ca":                {fields: []string{"dir"}},
@@ -4285,18 +4350,25 @@ var specs = map[string]spec{
 	"git_hooks_path":                 {fields: []string{"path"}},
 	"git_hooks_unlocked":             {fields: []string{"hooks"}},
 	"git_include_inside":             {fields: []string{"config", "path"}},
+	"git_lock_failed":                {fields: []string{"path"}},
 	"git_lock_later":                 {fields: []string{"vm"}},
 	"git_lock_raced":                 {fields: []string{"path"}},
 	"git_locked":                     {fields: []string{"vm"}},
 	"git_locked_strict":              {fields: []string{"vm"}},
 	"git_not_locked":                 {fields: []string{"path"}},
+	"git_protect_available":          {fields: []string{"vm"}},
 	"git_protect_clone":              {fields: []string{"vm"}},
 	"git_protect_failed":             {fields: []string{"reason"}},
 	"git_protect_next_stop":          {fields: []string{"mode", "vm"}},
-	"git_protect_on_needs_macos":     {},
+	"git_protect_on_helper_unusable": {},
+	"git_protect_on_needs_fs":        {},
+	"git_protect_on_needs_helper":    {},
 	"git_replaced":                   {fields: []string{"git"}},
+	"git_still_locked":               {fields: []string{"paths"}},
 	"git_unlocked":                   {fields: []string{"vm"}},
 	"git_unprotected":                {fields: []string{"vm"}},
+	"git_unprotected_fs":             {fields: []string{"vm"}},
+	"git_unprotected_helper":         {fields: []string{"vm"}},
 	"git_unprotected_quiet":          {fields: []string{"vm"}},
 	"git_worktree_stray":             {fields: []string{"wt"}},
 	"github_token_howto":             {},

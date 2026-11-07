@@ -53,8 +53,12 @@ type Env struct {
 	// record keep.
 	Version string
 	Host    func() (Host, error)
-	// Protector returns the .git protection for a project folder.
-	Protector func(dir string) *gitprotect.Protector
+	// Protector returns the .git protection for a project folder, which
+	// locks with Locker.
+	Protector func(ctx context.Context, dir string) *gitprotect.Protector
+	// Locker is how this host locks files (on Linux, devvm-immutable's
+	// path): its zero value can't lock on Linux.
+	Locker platform.Locker
 	// Exec runs the shell in devvm's place; it returns only on failure.
 	Exec func(backend.Command) error
 	// OpenURL opens a URL with macOS's open (devvm desktop's vnc://, in
@@ -157,7 +161,9 @@ func NewEnv(d paths.Dirs, assets fs.FS, self, version string, reg *backend.Regis
 		Reporter:  r,
 		PortInUse: platform.PortInUse, Forwarders: vmssh.NewForwards(d, reg.Review, self), PublicImage: from.NewLookup(d, r, tl.Proxy).Public, FreeSpace: reg.Host.FreeSpace,
 	}
-	e.Protector = func(dir string) *gitprotect.Protector { return gitprotect.New(dir, d.Home, e.Reporter) }
+	e.Protector = func(ctx context.Context, dir string) *gitprotect.Protector {
+		return gitprotect.New(ctx, dir, d.Home, e.Locker, e.Reporter)
+	}
 	e.Links = func(st *state.VM) ([]GuestLink, error) { return guestLinks(d, st) }
 	e.Agent = sshagent.New(d, e.mounts, r)
 	return wire(e)

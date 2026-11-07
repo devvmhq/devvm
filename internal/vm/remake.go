@@ -588,7 +588,7 @@ func (e remaking) finish(ctx context.Context, t *target, p remakeInVM, c chainOf
 	// on its new disk.
 	var git gitprotect.InVM
 	if p.Clone == CloneOff {
-		git = e.Protector(t.f.Dir).NewSection(false)
+		git = e.Protector(ctx, t.f.Dir).NewSection(false)
 	}
 	err := st.Update(ctx, func(st *state.VM) error {
 		if err := madeWith(st, p); err != nil {

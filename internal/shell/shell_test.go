@@ -51,6 +51,27 @@ func TestQuote(t *testing.T) {
 	}
 }
 
+// Word leaves a plain path as it is and quotes the rest, which reaches
+// the shell as it was.
+func TestWord(t *testing.T) {
+	for in, want := range map[string]string{
+		"/usr/local/libexec/devvm/devvm-immutable": "/usr/local/libexec/devvm/devvm-immutable",
+		"/home/a/.local/lib/devvm/0.2.0-rc.1/x+y":  "/home/a/.local/lib/devvm/0.2.0-rc.1/x+y",
+		"/home/a b/x": `'/home/a b/x'`,
+		"":            `''`,
+		"~/x":         `'~/x'`,
+	} {
+		if got := Word(in); got != want {
+			t.Errorf("Word(%q) = %s, want %s", in, got, want)
+		}
+	}
+	for _, s := range nasty {
+		if out, err := sh(t, "printf %s "+Word(s)); err != nil || out != s {
+			t.Errorf("Word(%q): the shell got %q, %v", s, out, err)
+		}
+	}
+}
+
 func FuzzQuote(f *testing.F) {
 	for _, s := range nasty {
 		f.Add(s)

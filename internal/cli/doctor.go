@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,7 +17,9 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/settings"
+	"github.com/devvmhq/devvm/internal/shell"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/trust"
 	"github.com/devvmhq/devvm/internal/ui"
@@ -69,6 +73,7 @@ func newDoctorCmd(a *app) *cobra.Command {
 					}
 					return upgrade.ReadKnown(dirs.ReleaseCheck())
 				},
+				Locker: a.locker(),
 			}
 			if asJSON {
 				return printJSON(u, d.report(cmd.Context(), u.Text, reg.All(), b))
@@ -81,13 +86,16 @@ func newDoctorCmd(a *app) *cobra.Command {
 }
 
 // doctorOutput is devvm doctor --json: the backend new VMs get and what
-// it's missing, doctor's warnings, whether Docker is installed, and every
-// backend's features.
+// it's missing, doctor's warnings, whether Docker is installed, whether
+// devvm can lock .git, and every backend's features.
 type doctorOutput struct {
 	Backend  string        `json:"backend"`
 	Problems []problemJSON `json:"problems"`
 	Warnings []string      `json:"warnings"`
 	Docker   bool          `json:"docker"`
+	// GitLock is whether devvm can lock .git for VMs on this machine:
+	// always on macOS, and on Linux when devvm-immutable works.
+	GitLock bool `json:"git_lock"`
 	// Features is, for each backend, how it has each feature: native,
 	// emulated, unreviewed or none.
 	Features map[string]map[string]string `json:"features"`
@@ -125,11 +133,13 @@ func (d doctor) report(ctx context.Context, text func(msg.M) string, all []backe
 		}
 		out.Problems = append(out.Problems, j)
 	}
-	for _, m := range d.warnings(b) {
+	g := d.gitLock(ctx)
+	for _, m := range d.warnings(b, g) {
 		out.Warnings = append(out.Warnings, text(m))
 	}
 	_, err := exec.LookPath("docker")
 	out.Docker = err == nil
+	out.GitLock = g.ok
 	for _, be := range all {
 		fs := map[string]string{}
 		for _, f := range backend.Features {
@@ -145,11 +155,15 @@ func (d doctor) report(ctx context.Context, text func(msg.M) string, all []backe
 
 // warnings are doctor's warnings, which never make it fail: another devvm
 // first on PATH, low free space, a small host, policy files' lines that
-// aren't rules, and what in the VMs' folder isn't a VM's.
-func (d doctor) warnings(b backend.Backend) []msg.M {
+// aren't rules, what in the VMs' folder isn't a VM's, and, as g says, a
+// devvm-immutable that doesn't work.
+func (d doctor) warnings(b backend.Backend, g gitLock) []msg.M {
 	var ms []msg.M
 	if m, ok := d.Path.other(); ok {
 		ms = append(ms, m)
+	}
+	if !g.ok {
+		ms = append(ms, g.warning)
 	}
 	if m, low := (backend.Space{Free: d.Free}).Warning(b); low {
 		ms = append(ms, m)
@@ -187,6 +201,63 @@ type doctor struct {
 	// Release is what the daily release check last found
 	// (upgrade.ReadKnown); nil for nothing.
 	Release func() upgrade.Known
+	// Locker is how this machine locks .git, whose devvm-immutable
+	// doctor checks on Linux.
+	Locker platform.Locker
+}
+
+// gitLock is doctor's check of how this machine locks .git: on Linux,
+// whether devvm-immutable works, and when it doesn't, the warning and how
+// to install it.
+type gitLock struct {
+	ok      bool
+	warning msg.M
+	install msg.M
+}
+
+// gitLock checks devvm-immutable, on Linux; elsewhere locking needs none.
+func (d doctor) gitLock(ctx context.Context) gitLock {
+	if !platform.LocksNeedHelper {
+		return gitLock{ok: true}
+	}
+	return gitLockOf(d.Locker.HelperUsable(ctx), cmp.Or(d.Locker.Helper, platform.ImmutableHelper), helperSource(d.Path.Executable))
+}
+
+// gitLockOf is what doctor says of devvm-immutable at helper, whose check
+// returned err, src being the one that came with this devvm ("" for none).
+func gitLockOf(err error, helper, src string) gitLock {
+	if err == nil {
+		return gitLock{ok: true}
+	}
+	g := gitLock{warning: msg.DoctorImmutableMissing(), install: msg.DoctorImmutableNoSource()}
+	if !errors.Is(err, platform.ErrNoHelper) {
+		why, _ := strings.CutPrefix(err.Error(), platform.ErrHelperUnusable.Error()+": ")
+		g.warning = msg.DoctorImmutableUnusable(why)
+	}
+	if src != "" {
+		g.install = msg.DoctorImmutableInstall(shell.Word(helper), shell.Word(src))
+	}
+	return g
+}
+
+// helperSource is the devvm-immutable that came with this devvm, its links
+// resolved: next to it, as in a release archive, or in the libexec folder
+// beside its bin, as Homebrew installs it; "" when there's none.
+func helperSource(executable func() (string, error)) string {
+	self, err := executable()
+	if err != nil {
+		return ""
+	}
+	if self, err = filepath.EvalSymlinks(self); err != nil {
+		return ""
+	}
+	dir := filepath.Dir(self)
+	for _, p := range []string{filepath.Join(dir, "devvm-immutable"), filepath.Join(dir, "..", "libexec", "devvm-immutable")} {
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+			return p
+		}
+	}
+	return ""
 }
 
 // known is what the daily release check last found, if anything.
@@ -212,8 +283,16 @@ func (d doctor) run(ctx context.Context, u *ui.UI, b backend.Backend) error {
 		u.Say(msg.DockerMissing())
 	}
 	sayProxyCA(u, d.Dirs)
-	for _, m := range d.warnings(b) {
+	g := d.gitLock(ctx)
+	for _, m := range d.warnings(b, g) {
 		u.Warn(m)
+	}
+	switch {
+	case !platform.LocksNeedHelper:
+	case g.ok:
+		u.Say(msg.DoctorImmutableOK())
+	default:
+		u.Say(g.install)
 	}
 	if k := d.known(); k.Latest != "" {
 		u.Say(msg.DoctorLatestRelease(k.Checked.Local().Format(time.DateOnly), k.Latest))

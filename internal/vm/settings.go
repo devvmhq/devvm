@@ -53,7 +53,7 @@ func (e Settings) SetGitProtect(ctx context.Context, mode string) error {
 	if isClone(t.st) {
 		return msg.GitProtectClone(vm)
 	}
-	p := e.Protector(t.f.Dir)
+	p := e.Protector(ctx, t.f.Dir)
 	if mode == gitprotect.Off && gitprotect.Mode(t.st) != gitprotect.Off {
 		if ok, err := t.widen("devvm git-protect off"); !ok {
 			return err

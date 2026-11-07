@@ -34,7 +34,7 @@ func (e vmFolders) teardown(ctx context.Context, t *target, leaves bool) error {
 	// made one, and .git's locks, if it locked any.
 	e.clones.removeRemote(ctx, t.f.Dir, vm, sectionOf[cloneInVM](t.st, cloneSection).Made.Remote)
 	if m := gitprotect.Mode(t.st); m == gitprotect.On || m == gitprotect.Strict {
-		e.Protector(t.f.Dir).Unlock(ctx, t.st)
+		e.Protector(ctx, t.f.Dir).Unlock(ctx, t.st)
 	}
 	if err := e.groups.forget(ctx, vm); err != nil {
 		return err

@@ -7,9 +7,14 @@ chmod 0755 broken/limactl
 chmod 0755 qemu/qemu-system-aarch64
 chmod 0755 qemu/qemu-system-x86_64
 chmod 0755 qemu/qemu-img
+# On Linux, devvm-immutable: the stub, which works.
+[linux] env DEVVM_IMMUTABLE_HELPER=$IMMUTABLE_STUB
 
-# Everything there: only limactl --version runs.
+# Everything there: only limactl --version runs (and on Linux,
+# devvm-immutable's check).
 exec devvm doctor
+[linux] stdout '^doctor_immutable_ok\n'
+[darwin] ! stdout doctor_immutable
 stdout '^FEATURE +SUPPORT\n'
 stdout '^build-image +native\n'
 stdout '^egress-proxy +native\n'
@@ -22,11 +27,29 @@ stdout '^docker_found\n'
 stdout '^doctor_ok backend=lima version=\S+\n\z'
 ! stderr .
 stub_calls
-stdout '^limactl --version\n\z'
+[darwin] stdout '^limactl --version\n\z'
+[linux] stdout '^limactl --version\ndevvm-immutable check\n\z'
 exec devvm doctor --json
-stdout '^{\n  "version": 1,\n  "backend": "lima",\n  "problems": \[\],\n  "warnings": \[\],\n  "docker": true,\n'
+stdout '^{\n  "version": 1,\n  "backend": "lima",\n  "problems": \[\],\n  "warnings": \[\],\n  "docker": true,\n  "git_lock": true,\n'
 stdout '^      "ports": "emulated",$'
 ! stderr .
+
+# On Linux, a devvm-immutable that's missing or doesn't work is a warning,
+# saying why, with how to install it, and doctor still passes: this devvm
+# came without one.
+[linux] env DEVVM_IMMUTABLE_HELPER=$WORK/none/devvm-immutable
+[linux] exec devvm doctor
+[linux] stderr '^devvm: doctor_immutable_missing$'
+[linux] stdout '^doctor_immutable_no_source\n'
+[linux] stdout '^doctor_ok '
+[linux] exec devvm doctor --json
+[linux] stdout '^  "warnings": \[\n    "doctor_immutable_missing"\n  \],\n  "docker": true,\n  "git_lock": false,$'
+[linux] env DEVVM_IMMUTABLE_HELPER=$IMMUTABLE_STUB
+[linux] exec sh -c ': > "$STUB_DIR/immutable-no-cap"'
+[linux] exec devvm doctor
+[linux] stderr '^devvm: doctor_immutable_unusable reason=it doesn''t hold CAP_LINUX_IMMUTABLE$'
+[linux] stdout '^doctor_ok '
+[linux] rm $STUB_DIR/immutable-no-cap
 
 # What in the VMs' folder isn't a VM's, warned about and left as it is:
 # a file, a folder that isn't named by a hash, and a VM's folder without

@@ -12,6 +12,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/gitprotect"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -21,8 +22,8 @@ import (
 // ("remotes=NAMES").
 func chflagsCalls(e *Env) *[]string {
 	var calls []string
-	e.Protector = func(dir string) *gitprotect.Protector {
-		p := gitprotect.New(dir, e.Dirs.Home, &msg.Fake{})
+	e.Protector = func(ctx context.Context, dir string) *gitprotect.Protector {
+		p := gitprotect.New(ctx, dir, e.Dirs.Home, platform.Locker{}, &msg.Fake{})
 		p.CanLock = true
 		p.Chflags = func(ctx context.Context, flags, path string) error {
 			if flags == "uchg" && path == filepath.Join(dir, ".git", "config") {
@@ -284,8 +285,8 @@ func TestSetCloneUndo(t *testing.T) {
 	}
 	var warned msg.Recorder
 	protector := e.Protector
-	e.Protector = func(dir string) *gitprotect.Protector {
-		p := protector(dir)
+	e.Protector = func(ctx context.Context, dir string) *gitprotect.Protector {
+		p := protector(ctx, dir)
 		p.Reporter = &msg.Fake{OnWarn: warned.Add}
 		return p
 	}

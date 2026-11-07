@@ -2,9 +2,12 @@ package gitprotect
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -223,7 +226,6 @@ func TestLockCreatesMissingHooks(t *testing.T) {
 	}
 	mkdirs(t, f.path(".git/modules/s/objects"), f.path(".git/modules/s/refs"))
 	write(t, f.path(".git/modules/s/HEAD"), "")
-	write(t, f.path(".git/modules/s/config"), "")
 	if err := f.newVM(false); err != nil {
 		t.Fatal(err)
 	}
@@ -231,6 +233,11 @@ func TestLockCreatesMissingHooks(t *testing.T) {
 		if fi, err := os.Stat(f.path(p)); err != nil || !fi.IsDir() || !f.locked(f.path(p)) {
 			t.Errorf("%s: %v, locks %q", p, err, f.flags)
 		}
+	}
+	// A git dir without a config gets one, empty, locked: git runs
+	// without one, so the VM could make it later.
+	if fi, err := os.Stat(f.path(".git/modules/s/config")); err != nil || !fi.Mode().IsRegular() || fi.Size() != 0 || !f.locked(f.path(".git/modules/s/config")) {
+		t.Errorf("the submodule's config: %v, locks %q", err, f.flags)
 	}
 	// What it locked is recorded: .git's identity, and its one git dir
 	// besides .git.
@@ -464,7 +471,8 @@ func TestFlagRaced(t *testing.T) {
 }
 
 // Unlock takes off what lock put on, never through a symlink; on hosts
-// without locks it does nothing.
+// without locks it changes nothing, and names what's still locked, as
+// when devvm-immutable went after it locked.
 func TestUnlock(t *testing.T) {
 	f := newFixture(t, "p")
 	mkdirs(t, f.path(".git/hooks"))
@@ -478,8 +486,34 @@ func TestUnlock(t *testing.T) {
 	f.flags = nil
 	f.p.CanLock = false
 	f.p.Unlock(t.Context(), f.vm)
-	if len(f.flags) > 0 {
-		t.Errorf("linux: flags %q", f.flags)
+	if len(f.flags) > 0 || len(f.warns.Names()) > 0 {
+		t.Errorf("no locks: flags %q, warnings %q", f.flags, f.warns.Names())
+	}
+	f.immutable[f.path(".git/hooks")] = true
+	f.p.Unlock(t.Context(), f.vm)
+	if len(f.flags) > 0 || !slices.Equal(f.warns.Names(), []string{"git_still_locked paths=.git/hooks"}) {
+		t.Errorf("a lock left: flags %q, warnings %q", f.flags, f.warns.Names())
+	}
+}
+
+// A lock that fails is named, and why goes to the run log; one undone by
+// a race is named as that alone; unlocking warns of nothing.
+func TestLockFailed(t *testing.T) {
+	f := newFixture(t, "p")
+	mkdirs(t, f.path(".git/hooks"))
+	var log strings.Builder
+	f.p.Reporter = &msg.Fake{OnWarn: f.warns.Add, Log: &log}
+	f.p.Chflags = func(context.Context, string, string) error { return errors.New("permission denied") }
+	hooks := f.path(".git/hooks")
+	if !f.p.flag(t.Context(), "uchg", hooks) || !slices.Equal(f.warns.Names(), []string{"git_lock_failed path=" + hooks}) {
+		t.Errorf("warnings %q", f.warns.Names())
+	}
+	if !strings.Contains(log.String(), "locking "+hooks+": permission denied") {
+		t.Errorf("run log %q", log.String())
+	}
+	f.warns.Reset()
+	if !f.p.flag(t.Context(), "nouchg", hooks) || len(f.warns.Names()) > 0 {
+		t.Errorf("unlocking: %q", f.warns.Names())
 	}
 }
 
@@ -567,23 +601,48 @@ func TestNewVMOffAndLinux(t *testing.T) {
 	}
 }
 
-// A protector locks where the host has a user-immutable flag, macOS alone.
+// A protector locks where the host can: on macOS, always; on Linux, with
+// devvm-immutable alone, so without one it says why.
 func TestNewCanLock(t *testing.T) {
-	if p := New(t.TempDir(), t.TempDir(), nil); p.CanLock != platform.HasImmutableFlag {
-		t.Errorf("CanLock %t on a host whose immutable flag is %t", p.CanLock, platform.HasImmutableFlag)
+	p := New(t.Context(), t.TempDir(), t.TempDir(), platform.Locker{}, nil)
+	switch runtime.GOOS {
+	case "darwin":
+		if !p.CanLock || p.Unable != nil {
+			t.Errorf("macOS: CanLock %t, %v", p.CanLock, p.Unable)
+		}
+	case "linux":
+		if p.CanLock || !errors.Is(p.Unable, platform.ErrNoHelper) {
+			t.Errorf("Linux without a helper: CanLock %t, %v", p.CanLock, p.Unable)
+		}
+	}
+}
+
+// Why a host can't lock is in the launches' warning and in devvm
+// git-protect on's refusal.
+func TestCantLockSaysWhy(t *testing.T) {
+	for why, want := range map[error][2]string{
+		platform.ErrNoHelper:       {"git_unprotected", "git_protect_on_needs_helper"},
+		platform.ErrHelperUnusable: {"git_unprotected_helper", "git_protect_on_helper_unusable"},
+		platform.ErrNoAttribute:    {"git_unprotected_fs", "git_protect_on_needs_fs"},
+		errors.ErrUnsupported:      {"git_unprotected", "git_protect_on_needs_helper"},
+	} {
+		wrapped := fmt.Errorf("wrapped: %w", why)
+		if got := [2]string{msg.IDOf(unprotected(wrapped, "vm")), msg.IDOf(cantLock(wrapped))}; got != want {
+			t.Errorf("%v: %q, want %q", why, got, want)
+		}
 	}
 }
 
 // The real flag, on macOS: the VM's user can't add a hook or change the
 // config, nor make a hooks folder the repo didn't have.
 func TestRealLocks(t *testing.T) {
-	if !platform.HasImmutableFlag {
+	if runtime.GOOS != "darwin" {
 		t.Skip("chflags is macOS's")
 	}
 	needGit(t)
 	f := newFixture(t, "p")
 	t.Cleanup(func() { _ = exec.Command("chflags", "-R", "nouchg", f.root).Run() }) //nolint:noctx,gosec // cleanup, of the test's own folder
-	f.p.Chflags = New(f.dir, f.p.Home, nil).Chflags
+	f.p.Chflags = platform.Locker{}.Chflags
 	f.git(f.root, "init", "-q", "--template=", f.dir)
 	if err := f.newVM(false); err != nil {
 		t.Fatal(err)
@@ -600,7 +659,7 @@ func TestRealLocks(t *testing.T) {
 	if len(f.warns.Names()) > 0 {
 		t.Errorf("warnings %q", f.warns.Names())
 	}
-	if locked := New(f.dir, f.p.Home, nil).Locked; !locked(f.path(".git/config")) || locked(f.path("HEAD")) {
+	if locked := platform.Immutable; !locked(f.path(".git/config")) || locked(f.path("HEAD")) {
 		t.Error("Locked doesn't see the flag")
 	}
 }
@@ -878,7 +937,7 @@ func TestSetLinuxAndNoGit(t *testing.T) {
 		t.Errorf("new on linux: %s, %v", Mode(f.vm), err)
 	}
 	for _, m := range []string{On, Strict} {
-		if err := f.p.Set(t.Context(), f.vm, m); err == nil || err.(msg.M).Names() != "git_protect_on_needs_macos" { //nolint:errorlint,forcetypeassert // a message
+		if err := f.p.Set(t.Context(), f.vm, m); err == nil || err.(msg.M).Names() != "git_protect_on_needs_helper" { //nolint:errorlint,forcetypeassert // a message
 			t.Errorf("%s on linux: %v", m, err)
 		}
 	}
@@ -897,7 +956,7 @@ func TestSetLinuxAndNoGit(t *testing.T) {
 // environment's HOME.
 func TestNewHome(t *testing.T) {
 	t.Setenv("HOME", "/elsewhere")
-	p := New("/p", "/h", nil)
+	p := New(t.Context(), "/p", "/h", platform.Locker{}, nil)
 	for in, want := range map[string]string{"~": "/h", "~/x": "/h/x", "~x/y": "~x/y", "/a": "/a"} {
 		if got := expandHome(p.Home, in); got != want {
 			t.Errorf("expandHome(%q) = %q, want %q", in, got, want)

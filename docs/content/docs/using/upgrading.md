@@ -39,10 +39,12 @@ If you installed `devvm-rc`, Homebrew's formula for prereleases, run `brew upgra
 curl -fsSL https://github.com/devvmhq/devvm/releases/latest/download/install.sh | bash
 ```
 
-Running the install script again installs the newest release.
+Running the install script again installs the newest release. When the release's devvm-immutable, which [locks `.git`](../safety/git-protection.md#linux-hosts) on Linux, differs from the one you installed, the script offers to install it too, asking first, because that needs sudo.
 
 {{< /os-tab >}}
 {{< /os-tabs >}}
+
+`devvm upgrade` and `brew upgrade` leave the devvm-immutable you installed as it is. It keeps working with newer releases until one needs a newer devvm-immutable, and then `devvm doctor` says it doesn't work and prints the commands that install the new one ([installing devvm-immutable](../safety/git-protection.md#installing-devvm-immutable)).
 
 Your images and VMs stay, because they live in `~/.local/share/devvm`, and your settings and layers stay in `~/.config/devvm`, apart from devvm itself.
 
@@ -173,6 +175,13 @@ After it installs devvm, the script warns when another devvm comes before `~/.lo
 
    ```sh
    rm -rf ~/.local/lib/devvm ~/.local/bin/devvm
+   ```
+
+   If you installed devvm with Homebrew, run `brew uninstall devvm`, or `brew uninstall devvm-rc`, instead. Then, if you installed devvm-immutable, which [locks `.git`](../safety/git-protection.md#removing-devvm-immutable), remove it too. Step 1 has already unlocked every VM's `.git`, because `devvm rm` unlocks it with devvm-immutable, so remove it only after that step:
+
+   ```sh
+   sudo rm /usr/local/libexec/devvm/devvm-immutable
+   sudo rmdir /usr/local/libexec/devvm
    ```
 
    {{< /os-tab >}}

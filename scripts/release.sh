@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build a release's files in dist/ with GoReleaser (.goreleaser.yaml), from git (only what's committed):
-#   devvm-<version>-<os>-<arch>.tar.gz  the binary and the files it reads, for darwin and linux, arm64 and amd64
+#   devvm-<version>-<os>-<arch>.tar.gz  the binary and the files it reads, for darwin and linux, arm64 and amd64;
+#                                       Linux's have devvm-immutable too, .git protection's helper there
 #   devvm-<version>.tar.gz              the source, for whoever builds devvm themselves
 #   SHA256SUMS                          their checksums and install.sh's, which install.sh checks
 #   SHA256SUMS.minisig                  SHA256SUMS signed with the release key (minisign), which install.sh checks
@@ -160,6 +161,19 @@ for bin in "$out"/devvm*_"${os}_$arch"*/devvm; do
   [[ -x $bin ]] || continue
   got=$("$bin" --version) || die "$bin --version failed"
   [[ $got == "$v" ]] || die "$bin --version says '$got', not $v"
+done
+
+# Linux's archives have devvm-immutable, and macOS's don't.
+for a in "$out"/devvm-"$v"-*-*.tar.gz; do
+  [[ -f $a ]] || continue
+  n=$(basename "$a" .tar.gz)
+  list=$(tar -tzf "$a") || die "couldn't list $n.tar.gz"
+  has=false
+  [[ $'\n'$list$'\n' != *$'\n'"$n/devvm-immutable"$'\n'* ]] || has=true
+  case $n in
+    *-linux-*) $has || die "$n.tar.gz has no devvm-immutable" ;;
+    *) ! $has || die "$n.tar.gz has devvm-immutable, which is Linux's" ;;
+  esac
 done
 
 $sign || pubkey=""   # an unsigned test build: its install.sh doesn't expect a signature

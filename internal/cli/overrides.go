@@ -31,6 +31,10 @@ type Overrides struct {
 	// HistoryMax (DEVVM_HISTORY_MAX) is the most of an export of agents'
 	// history devvm keeps, in bytes (vm.Env.HistoryMax), in place of 2 GiB.
 	HistoryMax int
+	// ImmutableHelper (DEVVM_IMMUTABLE_HELPER) stands in for
+	// devvm-immutable where it's installed (platform.ImmutableHelper),
+	// on Linux: the CLI tests' stub, or a path that isn't there.
+	ImmutableHelper string
 }
 
 // ReleaseOverrides are devvm upgrade's stand-ins: a fake release server
@@ -76,6 +80,7 @@ func readOverrides(getenv func(string) string) Overrides {
 			URL: getenv("DEVVM_REPO_URL"), Key: getenv("DEVVM_RELEASE_KEY"),
 			CA: getenv("DEVVM_RELEASE_CA"), Version: getenv("DEVVM_TEST_VERSION"),
 		},
-		HistoryMax: historyMax,
+		HistoryMax:      historyMax,
+		ImmutableHelper: getenv("DEVVM_IMMUTABLE_HELPER"),
 	}
 }

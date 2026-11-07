@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend/backendtest"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/ui"
 	"github.com/devvmhq/devvm/internal/vm"
 )
@@ -109,8 +111,12 @@ func TestDoctorReport(t *testing.T) {
 		Host:     func() (vm.Host, error) { return vm.Host{CPUs: 2, MemoryGiB: 16}, nil },
 		Policies: func() []msg.M { return []msg.M{msg.PolicyNotRule("/p", "2", "a b")} },
 		Folders:  func() []msg.M { return []msg.M{msg.VMFolderStateless("/vms/0123456789abcd")} },
+		Locker:   platform.Locker{Helper: fakeHelper(t, "echo 1")},
 	}
 	r := d.report(t.Context(), msg.M.Names, []backend.Backend{b}, b)
+	if !r.GitLock {
+		t.Error("git_lock false with a helper that works")
+	}
 	fix := "brew install lima"
 	want := []problemJSON{{Key: "lima", Fix: &fix, Message: "program_missing_fix fix=brew install lima name=Lima program=limactl"}, {Key: "kvm", Message: "no_kvm"}}
 	if len(r.Problems) != 2 || r.Problems[0].Fix == nil || *r.Problems[0].Fix != fix || r.Problems[1].Fix != nil ||
@@ -183,10 +189,11 @@ func TestDoctorSmallHostWarnsOnly(t *testing.T) {
 			b.Missing = c.problems
 			u, _, errOut := testUI()
 			d := doctor{
-				Path: onPath{LookPath: notFound, Executable: os.Executable},
-				Free: func(string) (uint64, error) { return 1 << 40, nil },
-				Host: func() (vm.Host, error) { return c.host, nil },
-				Dirs: paths.FromEnv,
+				Path:   onPath{LookPath: notFound, Executable: os.Executable},
+				Free:   func(string) (uint64, error) { return 1 << 40, nil },
+				Host:   func() (vm.Host, error) { return c.host, nil },
+				Dirs:   paths.FromEnv,
+				Locker: platform.Locker{Helper: fakeHelper(t, "echo 1")},
 			}
 			err := d.run(t.Context(), u, b)
 			if err != nil && msg.IDOf(err) == "" {
@@ -203,5 +210,124 @@ func TestDoctorSmallHostWarnsOnly(t *testing.T) {
 				t.Errorf("stderr %q, want nothing", errOut.String())
 			}
 		})
+	}
+}
+
+// fakeHelper is a devvm-immutable that runs the shell script body.
+func fakeHelper(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "devvm-immutable")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil { //nolint:gosec // a test's own script
+		t.Fatal(err)
+	}
+	return path
+}
+
+// On Linux, doctor says whether devvm-immutable works, and when it
+// doesn't, why, and how to install the one that came with this devvm,
+// next to it or in Homebrew's libexec; elsewhere it says nothing of it.
+func TestDoctorImmutableHelper(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(root, "lib", "0.2.0")
+	brew := filepath.Join(root, "Cellar", "devvm", "0.2.0")
+	for _, f := range []string{
+		filepath.Join(archive, "devvm"), filepath.Join(archive, "devvm-immutable"),
+		filepath.Join(brew, "bin", "devvm"), filepath.Join(brew, "libexec", "devvm-immutable"), filepath.Join(root, "dev", "devvm"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(root, "bin", "devvm")
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(brew, "bin", "devvm"), link); err != nil {
+		t.Fatal(err)
+	}
+	for self, want := range map[string]string{
+		filepath.Join(archive, "devvm"):     filepath.Join(archive, "devvm-immutable"),
+		link:                                filepath.Join(brew, "libexec", "devvm-immutable"),
+		filepath.Join(root, "dev", "devvm"): "",
+	} {
+		if got := helperSource(func() (string, error) { return self, nil }); got != want {
+			t.Errorf("helperSource for %s = %q, want %q", self, got, want)
+		}
+	}
+	missing := filepath.Join(root, "none", "devvm-immutable")
+	for name, tc := range map[string]struct {
+		helper, self string
+		want         string // warning, then what doctor says
+	}{
+		"works": {fakeHelper(t, "echo 1"), filepath.Join(archive, "devvm"), "doctor_immutable_ok"},
+		"missing, from an archive": {
+			missing, filepath.Join(archive, "devvm"),
+			"devvm: doctor_immutable_missing\ndoctor_immutable_install helper=" + missing + " source=" + filepath.Join(archive, "devvm-immutable"),
+		},
+		"missing, from Homebrew": {
+			missing, link,
+			"devvm: doctor_immutable_missing\ndoctor_immutable_install helper=" + missing + " source=" + filepath.Join(brew, "libexec", "devvm-immutable"),
+		},
+		"missing, a build of its own": {missing, filepath.Join(root, "dev", "devvm"), "devvm: doctor_immutable_missing\ndoctor_immutable_no_source"},
+		"without the capability": {
+			fakeHelper(t, "echo \"devvm-immutable: it doesn't hold CAP_LINUX_IMMUTABLE\" >&2; exit 1"), filepath.Join(archive, "devvm"),
+			"devvm: doctor_immutable_unusable reason=it doesn't hold CAP_LINUX_IMMUTABLE\ndoctor_immutable_install",
+		},
+		"another protocol": {
+			fakeHelper(t, "echo 2"), filepath.Join(archive, "devvm"),
+			`devvm: doctor_immutable_unusable reason=it speaks protocol "2", and this devvm 1`,
+		},
+	} {
+		d := doctor{Path: onPath{Executable: func() (string, error) { return tc.self, nil }}, Locker: platform.Locker{Helper: tc.helper}}
+		u, out, errOut := testUI()
+		g := d.gitLock(t.Context())
+		if !g.ok {
+			u.Warn(g.warning)
+			u.Say(g.install)
+		} else {
+			u.Say(msg.DoctorImmutableOK())
+		}
+		got := strings.TrimSpace(errOut.String() + out.String())
+		if !platform.LocksNeedHelper {
+			if !g.ok || got != "doctor_immutable_ok" {
+				t.Errorf("%s, off Linux: %t, %q", name, g.ok, got)
+			}
+			continue
+		}
+		if !strings.Contains(got, tc.want) || g.ok != (tc.want == "doctor_immutable_ok") {
+			t.Errorf("%s: %t, %q, want %q", name, g.ok, got, tc.want)
+		}
+	}
+}
+
+// What doctor says of devvm-immutable for each way its check ends, on
+// every system: its commands with paths a shell takes as they are.
+func TestGitLockOf(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err       error
+		src, want string
+	}{
+		"works":     {nil, "/s", ""},
+		"missing":   {platform.ErrNoHelper, "/s", "doctor_immutable_missing|doctor_immutable_install helper=/h source=/s"},
+		"no source": {platform.ErrNoHelper, "", "doctor_immutable_missing|doctor_immutable_no_source"},
+		"unusable": {
+			fmt.Errorf("%w: it doesn't hold X", platform.ErrHelperUnusable), "/a b/s",
+			"doctor_immutable_unusable reason=it doesn't hold X|doctor_immutable_install helper=/h source='/a b/s'",
+		},
+	} {
+		g := gitLockOf(tc.err, "/h", tc.src)
+		got := ""
+		if !g.ok {
+			got = g.warning.Names() + "|" + g.install.Names()
+		}
+		if got != tc.want || g.ok != (tc.err == nil) {
+			t.Errorf("%s: %t, %q, want %q", name, g.ok, got, tc.want)
+		}
 	}
 }

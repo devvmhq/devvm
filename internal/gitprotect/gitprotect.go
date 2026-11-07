@@ -4,7 +4,10 @@
 // sshCommand in .git/config, and the host's next git command would run it.
 // A read-only mount wouldn't hold (root in the VM can unmount it), so on
 // macOS devvm locks those paths with the user-immutable flag (chflags uchg),
-// which the VM can't clear. Linux hosts have no unprivileged flag like it.
+// which the VM can't clear. On Linux it locks them with the immutable
+// attribute (chattr +i), which needs CAP_LINUX_IMMUTABLE, so it sets it
+// through its helper, devvm-immutable (platform.Locker); without it, devvm
+// watches those paths instead (watch.go).
 //
 // A lock can't stop the VM from swapping the whole .git, or from pointing
 // git elsewhere (commondir), so devvm reports what it finds and never
@@ -17,6 +20,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -99,26 +103,54 @@ const maxDepth = 8
 type Protector struct {
 	Dir  string // the project folder, a physical path
 	Home string // for ~ in git's paths
-	// CanLock reports whether the host has a user-immutable flag to lock
-	// with (platform.HasImmutableFlag): on and strict need it.
+	// CanLock reports whether the host can lock files in the folder with
+	// an immutable flag (platform.Locker's Usable): on and strict need it.
 	CanLock bool
+	// Unable is why it can't, when it can't: platform.ErrNoHelper,
+	// ErrHelperUnusable or ErrNoAttribute.
+	Unable error
 	// Chflags sets file flags on a path and everything under it, following
-	// no symlink (platform.Chflags).
+	// no symlink (platform.Locker's Chflags).
 	Chflags func(ctx context.Context, flags, path string) error
-	// Locked reports whether a path has the user-immutable flag, not
-	// following a symlink (platform.Immutable).
+	// Locked reports whether a path has the immutable flag, not following
+	// a symlink (platform.Immutable).
 	Locked func(path string) bool
 	// Reporter is where it warns.
 	msg.Reporter
 }
 
 // New returns the protector for the project folder dir, ~ in git's paths
-// being home (paths.Dirs.Home), warning through r.
-func New(dir, home string, r msg.Reporter) *Protector {
+// being home (paths.Dirs.Home), locking with l, warning through r.
+func New(ctx context.Context, dir, home string, l platform.Locker, r msg.Reporter) *Protector {
+	err := l.Usable(ctx, dir)
 	return &Protector{
-		Dir: dir, Home: home, CanLock: platform.HasImmutableFlag,
-		Chflags: platform.Chflags, Locked: platform.Immutable, Reporter: r,
+		Dir: dir, Home: home, CanLock: err == nil, Unable: err,
+		Chflags: l.Chflags, Locked: platform.Immutable, Reporter: r,
 	}
+}
+
+// unprotected is the launches' warning that the host can't lock .git for
+// the VM vm, saying why (a Protector's Unable).
+func unprotected(why error, vm string) msg.M {
+	switch {
+	case errors.Is(why, platform.ErrHelperUnusable):
+		return msg.GitUnprotectedHelper(vm)
+	case errors.Is(why, platform.ErrNoAttribute):
+		return msg.GitUnprotectedFs(vm)
+	}
+	return msg.GitUnprotected(vm)
+}
+
+// cantLock is devvm git-protect on's refusal on a host that can't lock
+// .git, saying why (a Protector's Unable).
+func cantLock(why error) msg.M {
+	switch {
+	case errors.Is(why, platform.ErrHelperUnusable):
+		return msg.GitProtectOnHelperUnusable()
+	case errors.Is(why, platform.ErrNoAttribute):
+		return msg.GitProtectOnNeedsFs()
+	}
+	return msg.GitProtectOnNeedsHelper()
 }
 
 // NewSection is the protection a new VM gets, recorded before its
@@ -186,7 +218,8 @@ func SetNext(ctx context.Context, vm *state.VM, mode string) error {
 // Set changes the protection of a stopped VM: on and strict lock .git as
 // it is now, as trusted, and report what a lock can't cover; strict also
 // sets diff.ignoreSubmodules=all in the locked .git/config, which on and
-// off take out again; off unlocks. On and strict need macOS. Once it's
+// off take out again; off unlocks. On and strict need a host that can
+// lock (CanLock), and are refused, saying why, elsewhere. Once it's
 // set, a mode saved for the VM's next stop (SetNext) is dropped: both
 // are recorded at once, with the mode as the user's choice (Chosen).
 func (p *Protector) Set(ctx context.Context, vm *state.VM, mode string) error {
@@ -205,7 +238,7 @@ func (p *Protector) Set(ctx context.Context, vm *state.VM, mode string) error {
 		return record(ctx, vm, func(g *InVM) { g.Mode, g.Chosen, g.Next = Off, true, "" })
 	}
 	if !p.CanLock {
-		return msg.GitProtectOnNeedsMacos()
+		return cantLock(p.Unable)
 	}
 	if mode == Strict || was == Strict {
 		if err := p.ignoreSubmodules(ctx, mode == Strict); err != nil {
@@ -275,13 +308,15 @@ func (p *Protector) warnDelegations(ds []delegation) {
 // stopped short, or devvm adopt moved it) gets it as a new VM does. On a
 // host without locks, a stopped VM's .git is watched instead, whatever
 // its mode: what a lock would cover that changed since the last check is
-// named (watch).
+// named (watch). So is that of a VM whose mode is off only because it
+// was made where devvm couldn't lock (off, not chosen), which keeps its
+// mode until the user turns it on.
 func (p *Protector) Check(ctx context.Context, vm *state.VM, running bool) error {
 	g, err := Of(vm)
 	switch {
 	case err != nil:
 		return err
-	case !p.CanLock:
+	case !p.CanLock || g.Mode == Off && !g.Chosen:
 		if running || g.Mode == Clone {
 			return nil
 		}
@@ -423,10 +458,9 @@ func hasHooks(dir string) bool {
 // off: what's to lock now, and the hooks and config of every git dir its
 // state records locking (vm; nil for none), which the VM may since have
 // dropped from its index. Like locking, it never acts through a symlink.
+// A host that can't unlock (devvm-immutable gone since it locked) names
+// what stays locked.
 func (p *Protector) Unlock(ctx context.Context, vm *state.VM) {
-	if !p.CanLock {
-		return
-	}
 	todo := p.paths(ctx, p.embedded(ctx))
 	if vm != nil {
 		g, _ := Of(vm)
@@ -435,14 +469,22 @@ func (p *Protector) Unlock(ctx context.Context, vm *state.VM) {
 		}
 	}
 	done := map[string]bool{}
+	var stuck []string
 	for _, path := range todo {
 		if done[path] {
 			continue
 		}
 		done[path] = true
-		if _, err := os.Lstat(path); err == nil && p.realInDir(path) {
+		switch _, err := os.Lstat(path); {
+		case err != nil || !p.realInDir(path):
+		case p.CanLock:
 			p.flag(ctx, "nouchg", path)
+		case p.Locked(path):
+			stuck = append(stuck, relTo(p.Dir, path))
 		}
+	}
+	if len(stuck) > 0 {
+		p.Warn(msg.GitStillLocked(strings.Join(stuck, ", ")))
 	}
 }
 
@@ -608,8 +650,8 @@ func resolvedDir(dir, p string) string {
 }
 
 // paths returns what to lock: the hooks and config of the repo and of its
-// submodules (lock creates a missing hooks folder empty, or the VM could
-// make one), config.worktree with extensions.worktreeConfig (lock creates
+// submodules (lock creates a missing hooks folder or config empty, or the
+// VM could make one, as git runs without a config), config.worktree with extensions.worktreeConfig (lock creates
 // it), and what linked worktrees elsewhere read from here (commondir,
 // config.worktree); or, in a linked worktree, its .git file.
 func (p *Protector) paths(ctx context.Context, emb embeds) []string {
@@ -619,10 +661,7 @@ func (p *Protector) paths(ctx context.Context, emb embeds) []string {
 	}
 	var out []string
 	for _, d := range p.gitDirs() {
-		out = append(out, filepath.Join(d, "hooks"))
-		if isFile(filepath.Join(d, "config")) {
-			out = append(out, filepath.Join(d, "config"))
-		}
+		out = append(out, filepath.Join(d, "hooks"), filepath.Join(d, "config"))
 		wtc := worktreeConfig(ctx, d)
 		if wtc {
 			out = append(out, filepath.Join(d, "config.worktree"))
@@ -637,10 +676,7 @@ func (p *Protector) paths(ctx context.Context, emb embeds) []string {
 		}
 	}
 	for _, d := range emb.inside {
-		out = append(out, filepath.Join(d, "hooks"))
-		if isFile(filepath.Join(d, "config")) {
-			out = append(out, filepath.Join(d, "config"))
-		}
+		out = append(out, filepath.Join(d, "hooks"), filepath.Join(d, "config"))
 	}
 	return out
 }
@@ -807,7 +843,7 @@ func (p *Protector) lock(ctx context.Context, emb embeds) {
 			// So the VM can't create it. O_EXCL and mkdir fail on any
 			// existing name, and neither follows a symlink.
 			switch filepath.Base(path) {
-			case "config.worktree":
+			case "config.worktree", "config":
 				if f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err == nil { //nolint:gosec // checked by realInDir
 					_ = f.Close()
 				}
@@ -824,14 +860,20 @@ func (p *Protector) lock(ctx context.Context, emb embeds) {
 // flag sets a flag on a path realInDir passed, then checks it again.
 // Between the check and chflags, a running VM could swap a folder above the
 // path for a symlink to somewhere else: a path that moved meanwhile is
-// unlocked again where it landed, and reported.
+// unlocked again where it landed, and reported. A lock that failed (a
+// file the user can't read, one that isn't a file or a folder) is
+// reported too, with why in the run log.
 func (p *Protector) flag(ctx context.Context, flags, path string) bool {
 	before := devIno(path)
 	if before == "" {
 		return true
 	}
-	_ = p.Chflags(ctx, flags, path)
+	err := p.Chflags(ctx, flags, path)
 	if devIno(path) == before && p.realInDir(path) {
+		if err != nil && flags == "uchg" {
+			_, _ = io.WriteString(p.LogWriter(), "locking "+path+": "+err.Error()+"\n")
+			p.Warn(msg.GitLockFailed(path))
+		}
 		return true
 	}
 	if flags == "uchg" {

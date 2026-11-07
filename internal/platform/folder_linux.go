@@ -1,8 +1,6 @@
 package platform
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -52,14 +50,3 @@ func uniqueFS(fsType int64) bool {
 	}
 	return false
 }
-
-// HasImmutableFlag reports whether this system has a user-immutable flag:
-// Linux's immutable attribute needs root.
-const HasImmutableFlag = false
-
-// Chflags sets file flags: Linux has no unprivileged immutable flag.
-func Chflags(context.Context, string, string) error { return errors.ErrUnsupported }
-
-// Immutable reports whether a path has the user-immutable flag: Linux has
-// none.
-func Immutable(string) bool { return false }

@@ -19,7 +19,8 @@ These are the things devvm can't do, everywhere, on Linux hosts and on Intel Mac
 
 ## Linux hosts
 
-- They have no `.git` protection. devvm warns about it at each launch, and it names the `.git` hooks and config that changed, but only after the fact, so use `--clone` there ([details](../safety/git-protection.md#linux-hosts)).
+- `.git` protection needs devvm-immutable, which you install once with sudo ([installing it](../safety/git-protection.md#installing-devvm-immutable)). Without it, or for a project folder on a file system without the immutable attribute, such as NFS, VMs have no `.git` protection. devvm then warns about it at each launch, and it names the `.git` hooks and config that changed, but only after the fact, so use `--clone` there ([details](../safety/git-protection.md#without-devvm-immutable)).
+- Any program can run devvm-immutable to lock or unlock its own user's files, so a program that runs as you can unlock a file you locked with sudo, and on a shared machine each user can unlock an administrator's locks on their own files ([details](../safety/git-protection.md#what-devvm-immutable-can-do)).
 - VMs mount the project folder with 9p instead of virtiofs, so file watchers in a VM also miss the VM's own changes in the folder's subfolders, and need polling there ([details](../backends/lima.md#file-watchers)).
 - Set-id bits that root in a VM sets on files in the project folder reach the host, and devvm names such files when it makes a VM and once a VM is stopped ([what to do](troubleshooting.md#devvm-names-set-id-files)).
 - devvm keeps your secrets in files under `~/.local/share/devvm/secrets/`, which only you can read, instead of the Keychain ([details](settings.md#devvms-state)).

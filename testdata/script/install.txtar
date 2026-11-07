@@ -138,6 +138,29 @@ exists prefix/bin/limactl
 exec bash deps.sh asked none.json
 cmp stdout deps-none.want
 
+# devvm-immutable, from Linux's archive: installed with sudo, its
+# capability set, once allowed.
+exec bash helper.sh yes
+stdout '^==> installed devvm-immutable: \S+/libexec/devvm/devvm-immutable$'
+cmpenv ran ran-helper.want
+exec bash helper.sh no
+stdout '^  skipped: devvm doctor says how to install devvm-immutable$'
+! exists ran
+# Already there, this release's, and working: nothing asked.
+exec bash helper.sh asked same
+! stdout .
+# Another release's, or one without its capability: asked.
+exec bash helper.sh asked other
+stdout '^asked$'
+exec bash helper.sh asked nocap
+stdout '^asked$'
+# The sudo refused: nothing installed, and doctor says how.
+exec bash helper.sh fails
+stderr '^install: devvm-immutable isn''t installed: devvm doctor says how to install it$'
+# macOS's archive has none: nothing asked.
+exec bash helper.sh asked none
+! stdout .
+
 # The whole script: options, a release, the PATH hint.
 exec bash main.sh --no-deps --version v0.1.0
 stdout '^==> installed devvm 0.1.0: \S+/prefix/bin/devvm$'
@@ -544,6 +567,35 @@ sudo apt-get install -y qemu-system-arm
 brew install lima
 -- ran-kvm.want --
 sudo usermod -aG kvm me
+-- helper.sh --
+# helper.sh ANSWER [DEST]: install_helper with a devvm-immutable in
+# $WORK/src, whose check works; the sudo in bin/ logs to $WORK/ran.
+# ANSWER: yes (--yes), no (every question answered no), asked (a question
+# prints "asked"), fails (yes, and sudo fails). DEST: what's installed
+# already, the same as $WORK/src's, another, one whose check fails
+# (nocap), or none: no source either, as on macOS.
+. "$WORK/lib.sh"
+helper_dest=$WORK/libexec/devvm/devvm-immutable
+mkdir -p "$WORK/src" "${helper_dest%/*}"
+rm -f "$helper_dest"
+printf '#!/bin/sh\necho 1\n' > "$WORK/src/devvm-immutable"
+chmod 755 "$WORK/src/devvm-immutable"
+case ${2:-} in
+  same) cp "$WORK/src/devvm-immutable" "$helper_dest" ;;
+  other) printf '#!/bin/sh\necho 1 # another release\n' > "$helper_dest"; chmod 755 "$helper_dest" ;;
+  nocap) printf '#!/bin/sh\necho 1 >/dev/null\nexit 1\n' > "$WORK/src/devvm-immutable"; cp "$WORK/src/devvm-immutable" "$helper_dest" ;;
+  none) rm "$WORK/src/devvm-immutable" ;;
+esac
+case $1 in
+  yes) yes=true ;;
+  no) ask() { return 1; } ;;
+  asked) ask() { echo asked; return 1; } ;;
+  fails) yes=true; sudo() { return 1; } ;;
+esac
+install_helper "$WORK/src/devvm-immutable"
+-- ran-helper.want --
+sudo install -D -o root -g root -m 0755 $WORK/src/devvm-immutable $WORK/libexec/devvm/devvm-immutable
+sudo setcap cap_linux_immutable+ep $WORK/libexec/devvm/devvm-immutable
 -- main.sh --
 . "$WORK/lib.sh"
 release 0.1.0

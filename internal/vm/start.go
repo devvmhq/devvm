@@ -78,7 +78,7 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 	if err := s.hostChecks(ctx, t, running, o.made); err != nil {
 		return backend.Confinement{}, err
 	}
-	s.Protector(t.f.Dir).WarnUnprotected(st)
+	s.Protector(ctx, t.f.Dir).WarnUnprotected(st)
 	need, err := startNeeds(st, in)
 	if err != nil {
 		return backend.Confinement{}, err
@@ -377,7 +377,7 @@ func (s starter) hostChecks(ctx context.Context, t *target, running, made bool) 
 	if isClone(t.st) {
 		return nil
 	}
-	p := s.Protector(t.f.Dir)
+	p := s.Protector(ctx, t.f.Dir)
 	if made {
 		if err := p.NewVM(ctx, t.st); err != nil {
 			return err

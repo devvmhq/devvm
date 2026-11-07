@@ -15,6 +15,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/platform"
 )
 
 // rm asks first in a terminal and refuses without one, unless --force;
@@ -398,8 +399,8 @@ func TestExportStartsAsLaunch(t *testing.T) {
 	gitEnv(t)
 	gitIn(t, e.Dir, "init", "-q")
 	var locks []string
-	e.Protector = func(dir string) *gitprotect.Protector {
-		p := gitprotect.New(dir, e.Dirs.Home, &msg.Fake{})
+	e.Protector = func(ctx context.Context, dir string) *gitprotect.Protector {
+		p := gitprotect.New(ctx, dir, e.Dirs.Home, platform.Locker{}, &msg.Fake{})
 		p.CanLock = true
 		p.Chflags = func(_ context.Context, flags, path string) error {
 			locks = append(locks, flags+" "+path)

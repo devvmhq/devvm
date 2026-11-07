@@ -742,6 +742,22 @@ func TestMise(t *testing.T) {
 	}
 }
 
+// devvm-immutable's stand-in: its check prints its protocol, or fails
+// without the capability; set and clear succeed, or fail when told.
+func TestDevvmImmutable(t *testing.T) {
+	s := newSandbox(t)
+	if out := s.ok("", "devvm-immutable", "check"); out != "1\n" {
+		t.Errorf("check %q", out)
+	}
+	s.ok("", "devvm-immutable", "set", "/p/.git/hooks")
+	s.ok("", "devvm-immutable", "clear", "/p/.git/hooks")
+	s.fails(2, "devvm-immutable", "get", "/p")
+	s.touch("immutable-no-cap")
+	s.fails(1, "devvm-immutable", "check")
+	s.touch("immutable-fails")
+	s.fails(1, "devvm-immutable", "set", "/p/.git/config")
+}
+
 // The host's other stand-ins: open, code, qemu-img, sw_vers, uname and
 // tmutil.
 func TestHost(t *testing.T) {

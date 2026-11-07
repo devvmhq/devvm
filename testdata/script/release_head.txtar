@@ -13,6 +13,18 @@ stdout '^\(not signed: a test build without DEVVM_MINISIGN_KEY\)$'
 ! exists repo/dist/SHA256SUMS.minisig
 grep '^release_version="1.2.3"$' repo/dist/install.sh
 grep '^minisign_key=""$' repo/dist/install.sh
+exec tar -tzf repo/dist/devvm-1.2.3-linux-amd64.tar.gz
+stdout '^devvm-1\.2\.3-linux-amd64/devvm-immutable$'
+
+# Linux's archives without devvm-immutable, or macOS's with one: refused.
+env GR_NO_HELPER=1
+! exec repo/scripts/release.sh --head
+stderr '^release: devvm-1\.2\.3-linux-amd64\.tar\.gz has no devvm-immutable$'
+env GR_NO_HELPER=
+env GR_DARWIN_HELPER=1
+! exec repo/scripts/release.sh --head
+stderr '^release: devvm-1\.2\.3-darwin-amd64\.tar\.gz has devvm-immutable, which is Linux''s$'
+env GR_DARWIN_HELPER=
 
 # With one: GoReleaser builds a snapshot with VERSION's version, SHA256SUMS
 # is signed and verifies, install.sh is set to the release and the key, and
@@ -226,6 +238,9 @@ class DevvmRc < Formula
 
   def install
     bin.install "devvm"
+    # Linux's .git lock helper, which needs root to install with its capability: devvm doctor
+    # prints the commands.
+    libexec.install "devvm-immutable" if OS.linux?
   end
 
   test do
@@ -238,7 +253,9 @@ release --clean --skip=publish --snapshot DEVVM_VERSION=1.2.3 GORELEASER_CURRENT
 #!/bin/bash
 # Logs its call and writes a dist/ like GoReleaser's: each system's and
 # processor's build, a script printing $GR_VERSION, else $DEVVM_VERSION, the
-# Linux archives, the source tarball and SHA256SUMS.
+# archives (Linux's with devvm-immutable, unless $GR_NO_HELPER is set, and
+# macOS's with one when $GR_DARWIN_HELPER is), the source tarball and
+# SHA256SUMS.
 set -eu
 echo "$* DEVVM_VERSION=$DEVVM_VERSION GORELEASER_CURRENT_TAG=${GORELEASER_CURRENT_TAG:-}" >> "$WORK/log"
 rm -rf dist
@@ -253,6 +270,9 @@ for os in darwin linux; do
   for a in arm64 amd64; do
     mkdir -p "dist/x/devvm-$DEVVM_VERSION-$os-$a"
     cp "dist/devvm_${os}_$a/devvm" "dist/x/devvm-$DEVVM_VERSION-$os-$a/devvm"
+    if [[ $os == linux && -z ${GR_NO_HELPER:-} || $os == darwin && -n ${GR_DARWIN_HELPER:-} ]]; then
+      echo helper > "dist/x/devvm-$DEVVM_VERSION-$os-$a/devvm-immutable"
+    fi
     tar -czf "dist/devvm-$DEVVM_VERSION-$os-$a.tar.gz" -C dist/x "devvm-$DEVVM_VERSION-$os-$a"
   done
 done

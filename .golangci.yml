@@ -37,6 +37,15 @@ linters:
             - $gostd
             - github.com/devvmhq/devvm/internal/proxy
             - github.com/devvmhq/devvm/internal/daemon
+        # Linux's .git lock helper, which runs with CAP_LINUX_IMMUTABLE:
+        # the standard library and golang.org/x/sys alone, none of devvm's.
+        immutable:
+          list-mode: strict
+          files:
+            - "**/cmd/devvm-immutable/**"
+          allow:
+            - $gostd
+            - golang.org/x/sys
         main:
           list-mode: strict
           files:
@@ -44,6 +53,7 @@ linters:
             - "!$test"
             - "!**/internal/proxy/**"
             - "!**/internal/daemon/**"
+            - "!**/cmd/devvm-immutable/**"
           allow:
             - $gostd
             - github.com/devvmhq/devvm
@@ -67,6 +77,7 @@ linters:
             - $test
             - "!**/internal/proxy/**"
             - "!**/internal/daemon/**"
+            - "!**/cmd/devvm-immutable/**"
           allow:
             - $gostd
             - github.com/devvmhq/devvm
@@ -125,6 +136,11 @@ linters:
       - path: ^cmd/devvm/
         linters: [forbidigo]
         text: os\.Exit|context\.(Background|TODO)
+      # devvm-immutable is a program of its own, without devvm's UI: it
+      # writes its errors to stderr and exits with its status.
+      - path: ^cmd/devvm-immutable/
+        linters: [forbidigo]
+        text: os\.(Stdout|Stderr|Exit)
       # The end-to-end runner is a test, not devvm: it prints its results,
       # TestMain exits with m.Run's code, and it stops its own checks'
       # process groups and reads whether a lock's process is alive.

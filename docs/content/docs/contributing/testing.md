@@ -15,12 +15,12 @@ The same code and tests run on macOS and Linux; what differs is behind build tag
 | Mounts | virtiofs | 9p, one mount per share per guest |
 | Project VM disks | APFS copy-on-write clones of the image's | qcow2 overlays of the image's |
 | Confined tiers | the VM's Lima process under a macOS sandbox | QEMU's `restrict=on` and a `guestfwd` to the proxy |
-| `.git` protection | locked with `chflags` | none: devvm says so ([details](../safety/git-protection.md#linux-hosts)) |
+| `.git` protection | locked with `chflags` | locked with the immutable attribute through `devvm-immutable` (`cmd/devvm-immutable`, `platform.Locker`) when it's installed, otherwise watched, and devvm says so ([details](../safety/git-protection.md#linux-hosts)) |
 | Set-id files | dropped by virtiofs | reach the host: new VMs check for them |
 | Tokens | the Keychain | files only you can read, in `~/.local/share/devvm/secrets/` |
 | The CA | kept out of Time Machine | no backup to keep it out of |
 
-The end-to-end tests check each side where they run: on Linux, the `.git` protection checks become one that it's off and devvm says so, and the Keychain check is left out.
+The end-to-end tests check each side where they run. On a Linux host with devvm-immutable installed, the `.git` protection checks are macOS's, and without it they become one that it's off and devvm says so, then the watch's, with the lock checks skipped and counted. The Keychain check is left out on Linux. The CLI tests never use the devvm-immutable a machine has installed: `DEVVM_IMMUTABLE_HELPER` points at a path that isn't there, and a script that locks on Linux sets it to `$IMMUTABLE_STUB`, the stub that sets no attribute.
 
 On macOS, the end-to-end tests also need OpenSSL as `openssl`, because its CA checks serve HTTPS with `openssl s_server`, and the LibreSSL that macOS ships as `/usr/bin/openssl` cuts the VM's OpenSSL client off mid-request. Install it with `brew install openssl@3`, then put `$(brew --prefix openssl@3)/bin` first on your `PATH`, because Homebrew doesn't link it into its own `bin`. On Linux, `openssl` is OpenSSL, and Ubuntu's images have it installed, as `ca-certificates` needs it.
 
@@ -182,7 +182,7 @@ A helper that more than one section needs goes in the harness's files, beside th
 | `limaListens(s, proto, port)`, `loopbackOnly(s, port)` | whether Lima's own processes listen on a port of this machine, and whether what listens on one listens on loopback alone, with `lsof` on macOS and `ss` on Linux | `lima_listens`, `loopback_only` |
 | `DevvmIn(s, dir, input, env, args…)`, `OwnVM(s, vm)` | runs `devvmCmd`'s command, and makes a VM that a step launched the run's, so that the cleanup deletes it | `(cd DIR && VAR=… "$D" …)` |
 | `SaidLine(out, msg)`, `FirstLine`, `LastLine`, `tailLines(text, n)`, `Trim` | whether one of output's lines is one of a message's, a message's first or last line, text's last lines, and output without its trailing newlines | `grep -qxF "$(m …)"`, `head -1`, `tail -n`, `$(…)` |
-| `Listed(s, vm)`, `Locked(s, file)`, `Procs(s)`, `Forwarders(s, vm)` | whether `limactl` lists a VM, whether a file has macOS's user immutable flag, every host process's command line, which stays out of the check's log as `WatchProcs`'s samples do, and a VM's port forwarders here | `limactl list -q`, `ls -lOd`, `ps -axww`, `pgrep -f '[_]ports -vm VM '` |
+| `Listed(s, vm)`, `Locked(s, file)`, `Procs(s)`, `Forwarders(s, vm)` | whether `limactl` lists a VM, whether a file has macOS's user immutable flag or Linux's immutable attribute (`platform.Immutable`), every host process's command line, which stays out of the check's log as `WatchProcs`'s samples do, and a VM's port forwarders here | `limactl list -q`, `ls -lOd` or `lsattr -d`, `ps -axww`, `pgrep -f '[_]ports -vm VM '` |
 | `Reaches(s, addr)`, `ReachesWithin`, `Answer(s, addr)`, `Local(port)`, `Local6(port)` | whether something takes a TCP connection on an address, at once or within a time, and what a connection reads before it closes, within 2 seconds | `nc -z`, `nc -w 2` |
 | `HostProgram(s, addr, answer)` | a program on this machine that holds a port, every IPv4 address with `:port`, and answers each connection with `host-program` or accepts none | `perl -MIO::Socket::INET` |
 | `LimaServe(s, vm, ports…)`, `VMSay(s, vm, addr, port, word)`, `LimaBoot(s, vm)` | starts servers in a VM, on every address or on one address with a word of their own, and reads the VM's boot's ID | `lima_serve`, `vm_say`, `lima_boot` |

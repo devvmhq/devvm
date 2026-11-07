@@ -17,7 +17,7 @@ Install devvm one way, with Homebrew or with the install script, but not both ([
 | --- | --- |
 | `--yes` | answer yes to every question |
 | `--version 0.1.0`, or `DEVVM_VERSION=0.1.0` | install that release |
-| `--no-deps` | install devvm only |
+| `--no-deps` | install devvm only, without what it needs or devvm-immutable |
 | `--force` | install even when Homebrew installed devvm, which leaves you with two copies |
 | `DEVVM_PREFIX=/some/dir` | install under that folder instead of `~/.local` |
 
@@ -46,6 +46,7 @@ devvm runs its VMs on [Lima](../backends/lima.md#requirements), its default [bac
 | Lima at [its minimum](../backends/lima.md#requirements) | `limactl --version` | `brew install lima`, or [Lima's install guide](https://lima-vm.io/docs/installation/) | {{< yes >}} offers it: Homebrew's when you have Homebrew, otherwise Lima's latest release into `~/.local` |
 | QEMU | `qemu-img --version` | your package manager: apt, dnf, pacman or zypper | {{< yes >}} offers it, with sudo |
 | Access to `/dev/kvm` | `ls -l /dev/kvm` | `sudo usermod -aG kvm $USER`, then log out and back in | {{< yes >}} offers it, with sudo |
+| devvm-immutable, for [`.git` protection](../safety/git-protection.md#linux-hosts) | `devvm doctor` | the two commands `devvm doctor` prints ([details](../safety/git-protection.md#installing-devvm-immutable)) | {{< yes >}} offers it, with sudo |
 | OpenSSH 8.7 or newer, for ssh and editors by name ([details](../using/ssh.md#ssh-access-by-name)) | `ssh -V` | Ubuntu 22.04's has it | {{< no >}} doesn't |
 | Docker's engine, only for `--from` with an [image only Docker has](../using/from.md#images-only-docker-has) | `docker version` | Docker's engine | {{< no >}} doesn't |
 
@@ -55,7 +56,7 @@ devvm runs its VMs on [Lima](../backends/lima.md#requirements), its default [bac
 - **A smaller machine works too.** devvm gives base fewer CPUs and less memory there ([size and ports](../using/ports-size.md#size-and-ports)).
 - **Your first VM needs 8 GiB of free disk space**, for the base image, the VM's own image and the shared tools ([free space](../using/ports-size.md#free-space)).
 - **Everything else goes inside the VMs,** including the toolchains, the coding agents and Docker for your projects ([docker layer](../using/images.md#built-in-layers)), so you don't install Claude Code, Codex or opencode on this machine ([devvm's agent store](../using/coding-agents.md#devvms-agent-store)).
-- **Linux hosts** have a few limits, such as no `.git` protection ([Known limits](../using/limits.md#linux-hosts)).
+- **On Linux, `.git` protection needs devvm-immutable,** a small program that comes with devvm and needs sudo to install. Without it, VMs can change `.git` hooks and config, which run on this machine ([Linux hosts](../safety/git-protection.md#linux-hosts)). Linux hosts have a few other limits too ([Known limits](../using/limits.md#linux-hosts)).
 
 ## Checking what devvm needs
 

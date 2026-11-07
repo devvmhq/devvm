@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/platform"
 )
 
 // sandbox is a slot's: its Lima home, state folder, Keychain service and
@@ -352,10 +354,15 @@ func (sb *sandbox) cleanup(ctx context.Context, out *output) {
 	}
 }
 
-// unlock takes .git's lock off a project folder (macOS), so it can go.
+// unlock takes .git's lock off a project folder, so it can go: on macOS
+// with chflags, on Linux with devvm-immutable, where it's installed.
 func unlock(ctx context.Context, dir string) {
 	if runtime.GOOS == "darwin" {
 		_ = exec.CommandContext(ctx, "chflags", "-R", "nouchg", dir).Run()
+		return
+	}
+	if _, err := os.Stat(dir); err == nil {
+		_ = platform.Locker{Helper: platform.ImmutableHelper}.Chflags(ctx, "nouchg", dir)
 	}
 }
 

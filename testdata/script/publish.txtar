@@ -432,7 +432,8 @@ esac
 #!/bin/bash
 # Logs its call and writes a dist/ like GoReleaser's, the same each time:
 # each system's and processor's build, a script printing $DEVVM_VERSION, an
-# archive for each (a line of text), the source tarball and SHA256SUMS.
+# archive for each (a line of text, and Linux's devvm-immutable, each file
+# dated the same), the source tarball and SHA256SUMS.
 set -eu
 echo "$*" >> "$WORK/log"
 rm -rf dist
@@ -442,8 +443,14 @@ for os in darwin linux; do
     mkdir -p "dist/devvm_${os}_$a"
     printf '#!/bin/sh\necho %s\n' "$DEVVM_VERSION" > "dist/devvm_${os}_$a/devvm"
     chmod 755 "dist/devvm_${os}_$a/devvm"
-    echo "devvm $DEVVM_VERSION $os $a" > "dist/devvm-$DEVVM_VERSION-$os-$a.tar.gz"
+    n=devvm-$DEVVM_VERSION-$os-$a
+    mkdir -p "dist/x/$n"
+    echo "devvm $DEVVM_VERSION $os $a" > "dist/x/$n/devvm"
+    [[ $os != linux ]] || echo helper > "dist/x/$n/devvm-immutable"
+    touch -t 202601010000 "dist/x/$n" "dist/x/$n"/*
+    tar -cf - -C dist/x "$n" | gzip -n > "dist/$n.tar.gz"
   done
 done
+rm -rf dist/x
 git archive --prefix="devvm-$DEVVM_VERSION/" HEAD | gzip -n > "dist/devvm-$DEVVM_VERSION.tar.gz"
 (cd dist && { sha256sum devvm-*.tar.gz 2>/dev/null || shasum -a 256 devvm-*.tar.gz; } > SHA256SUMS)

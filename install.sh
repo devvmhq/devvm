@@ -1,13 +1,15 @@
 #!/bin/bash
-# Install or upgrade devvm, then offer to install what it needs (Lima; on Linux, QEMU and KVM access).
+# Install or upgrade devvm, then offer to install what it needs (Lima; on Linux, QEMU, KVM access and
+# devvm-immutable, which locks .git for VMs).
 #   curl -fsSL https://github.com/devvmhq/devvm/releases/latest/download/install.sh | bash
 #   ... | bash -s -- --yes            answer yes to every question
 #   ... | bash -s -- --version 0.1.0  a given release, or a prerelease such as 0.2.0-rc.1 (also DEVVM_VERSION)
 #   ... | bash -s -- --no-deps        devvm only
 #   ... | bash -s -- --force          install even when Homebrew installed devvm
-# devvm (its binary, with its README, changelog and license) goes in ~/.local/lib/devvm/<version>,
-# linked from ~/.local/bin/devvm (DEVVM_PREFIX instead of ~/.local). It never needs sudo; installing
-# QEMU or joining the kvm group does, and asks first.
+# devvm (its binary, on Linux devvm-immutable, with its README, changelog and license) goes in
+# ~/.local/lib/devvm/<version>, linked from ~/.local/bin/devvm (DEVVM_PREFIX instead of ~/.local). It
+# never needs sudo; installing QEMU, joining the kvm group or installing devvm-immutable into
+# /usr/local/libexec/devvm does, and asks first.
 # Everything is in functions, so a download cut short runs nothing.
 set -euo pipefail
 
@@ -19,6 +21,10 @@ repo_url=${DEVVM_REPO_URL:-https://github.com/devvmhq/devvm}
 
 # Lima, when neither it nor Homebrew is there: its latest release, checked against its SHA256SUMS.
 lima_url=${DEVVM_LIMA_URL:-https://github.com/lima-vm/lima}
+
+# devvm-immutable, Linux's .git lock helper, from the release's archive: where devvm runs it, root's,
+# with CAP_LINUX_IMMUTABLE (tests set their own).
+helper_dest=/usr/local/libexec/devvm/devvm-immutable
 
 yes=false deps=true force=false version=${DEVVM_VERSION:-}
 # Downloads and redirects over HTTPS only (tests add file).
@@ -33,7 +39,7 @@ Install or upgrade devvm ($repo_url), then offer to install what it needs.
 usage: install.sh [--yes] [--version VERSION] [--no-deps] [--force]
   --yes        answer yes to every question
   --version    install that release, or a prerelease, instead of the latest (also DEVVM_VERSION)
-  --no-deps    install devvm only
+  --no-deps    install devvm only, without what it needs or devvm-immutable
   --force      install even when Homebrew installed devvm, leaving two copies
 devvm goes in $prefix/lib/devvm/<version>, linked from $prefix/bin/devvm (DEVVM_PREFIX changes $prefix).
 EOF
@@ -259,14 +265,40 @@ install_lima_tarball() {
   say "installed Lima $v: $prefix/bin/limactl"
 }
 
-# run_fix "COMMAND LINE": a fix devvm suggested, split into words (no globs, no shell syntax), with
-# the terminal as its input (sudo asks there).
+# run_fix "COMMAND LINE": a fix devvm suggested, split into words (no globs, no shell syntax).
 run_fix() {
   local -a a
   read -r -a a <<<"$1"
   ((${#a[@]})) || return 0
-  echo "  \$ ${a[*]}"
-  if { : </dev/tty; } 2>/dev/null; then "${a[@]}" </dev/tty; else "${a[@]}" </dev/null; fi
+  run_argv "${a[@]}"
+}
+
+# run_argv COMMAND ARG...: a command, shown first, with the terminal as its input (sudo asks there).
+run_argv() {
+  echo "  \$ $*"
+  if { : </dev/tty; } 2>/dev/null; then "$@" </dev/tty; else "$@" </dev/null; fi
+}
+
+# install_helper SRC: on Linux, devvm-immutable from this release's archive (SRC), which lets devvm
+# lock .git for VMs, into $helper_dest, root's, with CAP_LINUX_IMMUTABLE, asking first, as that
+# needs sudo. Nothing to do when the one there is this release's and works; macOS's archive has none.
+install_helper() {
+  local src=$1
+  [[ -f $src ]] || return 0
+  if [[ -x $helper_dest ]] && [[ "$(sha256 "$src")" == "$(sha256 "$helper_dest")" ]] &&
+    "$helper_dest" check >/dev/null 2>&1; then
+    return 0
+  fi
+  if ask "devvm locks .git for VMs on Linux with devvm-immutable, which needs sudo to install into ${helper_dest%/*} with CAP_LINUX_IMMUTABLE. Install it?"; then
+    if run_argv sudo install -D -o root -g root -m 0755 "$src" "$helper_dest" &&
+      run_argv sudo setcap cap_linux_immutable+ep "$helper_dest"; then
+      say "installed devvm-immutable: $helper_dest"
+    else
+      warn "devvm-immutable isn't installed: devvm doctor says how to install it"
+    fi
+  else
+    echo "  skipped: devvm doctor says how to install devvm-immutable"
+  fi
 }
 
 # doctor_fixes: the problems in devvm doctor --json's output on stdin, a "KEY<TAB>FIX<TAB>MESSAGE"
@@ -382,7 +414,10 @@ main() {
   v=$(resolve_version)
   valid_version "$v" || die "not a devvm version: '$v'"
   install_devvm "$v"
-  ! $deps || install_deps "$prefix/lib/devvm/$v/devvm"
+  if $deps; then
+    install_helper "$prefix/lib/devvm/$v/devvm-immutable"
+    install_deps "$prefix/lib/devvm/$v/devvm"
+  fi
   path_hint
 }
 

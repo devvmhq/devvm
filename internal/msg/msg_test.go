@@ -285,3 +285,27 @@ func TestFromArgs(t *testing.T) {
 		}
 	}
 }
+
+// .git protection's messages on Linux, which only a Linux host's runs
+// show: each renders whole, its values in place, and each warning and
+// refusal links to its page.
+func TestGitLockMessages(t *testing.T) {
+	for _, m := range []M{
+		GitUnprotected("vm-1"), GitUnprotectedHelper("vm-1"), GitUnprotectedFs("vm-1"), GitProtectAvailable("vm-1"),
+		GitProtectOnNeedsHelper(), GitProtectOnHelperUnusable(), GitProtectOnNeedsFs(),
+		GitLockFailed("/p/.git/config"), GitStillLocked(".git/hooks, .git/config"),
+		GitUnprotectedQuiet("vm-1"), GitChanged(".git/config", "vm-1"),
+		DoctorImmutableMissing(), DoctorImmutableUnusable("it doesn't hold CAP_LINUX_IMMUTABLE"), DoctorImmutableNoSource(),
+	} {
+		text := m.Text()
+		if strings.Contains(text, "{{") || strings.Contains(text, "<no value>") || m.DocURL() == "" {
+			t.Errorf("%s: %q, link %q", m.ID(), text, m.DocURL())
+		}
+	}
+	if text := DoctorImmutableInstall("/h", "/s").Text(); !strings.Contains(text, "-m 0755 /s /h and then sudo setcap cap_linux_immutable+ep /h ") {
+		t.Errorf("doctor_immutable_install: %q", text)
+	}
+	if text := DoctorImmutableOK().Text(); text == "" {
+		t.Error("doctor_immutable_ok is empty")
+	}
+}

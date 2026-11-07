@@ -78,6 +78,32 @@ func open(c *call) int {
 	return 0
 }
 
+// devvmImmutable stands in for devvm-immutable, Linux's .git lock helper
+// (DEVVM_IMMUTABLE_HELPER): it sets no attribute, so test folders stay
+// deletable. It logs every call to $STUB_LOG. check prints its protocol,
+// 1, or with $STUB_DIR/immutable-no-cap fails as one without its
+// capability does; set and clear succeed, or with
+// $STUB_DIR/immutable-fails fail, naming the path.
+func devvmImmutable(c *call) int {
+	c.log()
+	switch c.arg(0) {
+	case "check":
+		if c.on("immutable-no-cap") {
+			c.say("devvm-immutable: it doesn't hold CAP_LINUX_IMMUTABLE")
+			return 1
+		}
+		c.print("1\n")
+	case "set", "clear":
+		if c.on("immutable-fails") {
+			c.say("devvm-immutable: \"" + c.last() + "\": permission denied")
+			return 1
+		}
+	default:
+		return 2
+	}
+	return 0
+}
+
 // code stands in for VS Code's code command: never the real editor. It
 // logs every call to $STUB_LOG, and the SSH agent it was given
 // ($SSH_AUTH_SOCK, or "unset") to $STUB_DIR/code-agent.
