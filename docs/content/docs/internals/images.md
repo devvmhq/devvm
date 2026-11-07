@@ -1,5 +1,6 @@
 ---
 title: Images and caching
+explainer: How images and shared tools are built and cached
 weight: 3
 ---
 

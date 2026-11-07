@@ -1,5 +1,6 @@
 ---
 title: Coding agents
+explainer: Run Claude Code, Codex and opencode in a VM
 weight: 1
 description: "devvm runs Claude Code, Codex and opencode in VMs, with each agent's settings and logins from devvm's own store on this machine but never your history. This page covers which agents devvm supports, devvm's agent store and what each VM gets from it, the agents' logins and their history."
 ---

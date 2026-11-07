@@ -1,5 +1,6 @@
 ---
 title: Lima
+explainer: What Lima needs, and how devvm uses it
 weight: 1
 ---
 

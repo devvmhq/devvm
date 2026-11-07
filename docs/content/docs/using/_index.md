@@ -1,5 +1,6 @@
 ---
 title: Using devvm
+explainer: What you change in your VMs as you work
 weight: 20
 ---
 

@@ -1,6 +1,7 @@
 ---
 title: devvm history import
 weight: 20
+explainer: "Put an export of agent history into this folder's VM"
 ---
 
 Put an export of agent history into this folder's VM

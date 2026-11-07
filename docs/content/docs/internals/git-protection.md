@@ -1,5 +1,6 @@
 ---
 title: .git protection
+explainer: What devvm locks in .git, and when
 weight: 6
 ---
 

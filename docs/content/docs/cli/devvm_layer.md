@@ -1,6 +1,7 @@
 ---
 title: devvm layer
 weight: 24
+explainer: "Make image layers of your own, or change this folder's VM's layers"
 ---
 
 Make image layers of your own, or change this folder's VM's layers

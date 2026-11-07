@@ -1,5 +1,6 @@
 ---
 title: Customizing images
+explainer: Add your own layers and choose base's features
 weight: 7
 ---
 

@@ -1,6 +1,7 @@
 ---
 title: devvm upgrade
 weight: 64
+explainer: "Install devvm's newest release"
 ---
 
 Install devvm's newest release

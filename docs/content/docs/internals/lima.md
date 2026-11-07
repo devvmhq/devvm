@@ -1,5 +1,6 @@
 ---
 title: Lima
+explainer: How devvm sets up, confines and clones Lima's VMs
 weight: 9
 ---
 

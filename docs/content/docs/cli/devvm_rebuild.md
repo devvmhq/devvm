@@ -1,6 +1,7 @@
 ---
 title: devvm rebuild
 weight: 43
+explainer: "Build an image again, and delete the old one"
 ---
 
 Build an image again, and delete the old one

@@ -1,5 +1,6 @@
 ---
 title: Troubleshooting
+explainer: What to do when something fails
 weight: 17
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: Docs
+explainer: The guides, in the order you'll need them
 ---
 
 The docs are in the order you'll need them: getting devvm running, using it day to day, staying safe and choosing a backend, then every command, how devvm works and how to change it.

@@ -1,5 +1,6 @@
 ---
 title: Testing on other hosts
+explainer: Run devvm's tests on Linux, x86_64 and other hosts
 weight: 1
 ---
 

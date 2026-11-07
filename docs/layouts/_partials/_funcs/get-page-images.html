@@ -1,0 +1,5 @@
+{{- /* In place of Hugo's own, which its twitter_cards.html and schema.html call for a page's images: the
+   page's social card (og-image.html), so twitter:image and the schema's image are that card. Hextra's
+   opengraph.html reads no image once hugo.yaml names none, and custom/head-end.html writes og:image. */ -}}
+{{- $card := partialCached "og-image.html" . .RelPermalink -}}
+{{- return slice (dict "Image" $card.Image "RelPermalink" $card.Image.RelPermalink "Permalink" $card.Image.Permalink) -}}

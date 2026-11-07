@@ -1,5 +1,6 @@
 ---
 title: Links between VMs
+explainer: Let one VM reach a service in another by name
 weight: 11
 ---
 

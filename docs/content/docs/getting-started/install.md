@@ -1,5 +1,6 @@
 ---
 title: Installing
+explainer: Install devvm and check what it needs
 weight: 1
 ---
 

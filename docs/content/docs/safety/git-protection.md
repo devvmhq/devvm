@@ -1,5 +1,6 @@
 ---
 title: .git protection
+explainer: Keep code in the VM out of your .git
 weight: 2
 ---
 

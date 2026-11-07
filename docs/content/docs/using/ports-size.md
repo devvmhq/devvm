@@ -1,5 +1,6 @@
 ---
 title: Ports and size
+explainer: Forward a VM's ports and change its size
 weight: 4
 ---
 

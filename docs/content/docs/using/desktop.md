@@ -1,5 +1,6 @@
 ---
 title: A VM's desktop
+explainer: Add a desktop to a VM and open it
 weight: 12
 ---
 

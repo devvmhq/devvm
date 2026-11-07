@@ -1,0 +1,65 @@
+{{- /* A page's social card: assets/images/og-template.png (the logo, devvm.dev and the lime bar) with the
+   page's section in lime capitals, its title and its explainer (the front matter's explainer) drawn on it
+   in Departure Mono. Returns the image and its alt text, for the og: and twitter: tags
+   (custom/head-end.html, _funcs/get-page-images.html). Called through partialCached, once per page.
+
+   Departure Mono's glyphs are 7 of its pixels wide and its pixels are an eleventh of its size, so each size
+   is a multiple of 11 and every line's width is its length times 7/11 of the size. The title gets the
+   largest size that fits it in two lines and the explainer is 33px, and the text is centered in the space
+   between the logo and devvm.dev. TestExplainers (internal/cli/docgen) checks that every page's title and
+   explainer fit in two lines. */ -}}
+{{- $font := resources.Get "fonts/departure-mono/DepartureMono-Regular.otf" -}}
+{{- $template := resources.Get "images/og-template.png" -}}
+{{- $left := 88 -}}
+{{- $width := 1024 -}}
+{{- $top := 200 -}}
+{{- $bottom := 524 -}}
+
+{{- /* The section: the page's own for a page, its parent's for a section's page, none at the top. */ -}}
+{{- $section := cond .IsSection .Parent .CurrentSection -}}
+{{- $label := "" -}}
+{{- if and $section (not $section.IsHome) (ne $section .) }}{{ $label = upper $section.Title }}{{ end -}}
+{{- $title := .Params.cardTitle | default .Title -}}
+{{- $explainer := .Params.explainer | default "" -}}
+
+{{- /* Each size: the font's size, the characters a line holds and the distance from one line's top to the
+   next's. */ -}}
+{{- $titleSizes := slice
+  (dict "size" 66 "pitch" 78)
+  (dict "size" 55 "pitch" 66)
+  (dict "size" 44 "pitch" 54) -}}
+{{- $textFit := dict "size" 33 "pitch" 44 -}}
+
+{{- $titleFit := dict -}}
+{{- range $titleSizes -}}
+  {{- $lines := partial "og-wrap.html" (dict "text" $title "cols" (div $width (div (mul .size 7) 11))) -}}
+  {{- if or (le (len $lines) 2) (eq .size 44) }}{{ $titleFit = merge . (dict "lines" $lines) }}{{ break }}{{ end -}}
+{{- end -}}
+{{- $textFit = merge $textFit (dict "lines" (partial "og-wrap.html" (dict "text" $explainer "cols" (div $width (div (mul $textFit.size 7) 11))))) -}}
+
+{{- /* The block's height: the label and its gap, the title's lines, then the explainer's gap and lines. */ -}}
+{{- $labelHeight := cond (ne $label "") 36 0 -}}
+{{- $titleHeight := mul (len $titleFit.lines) $titleFit.pitch -}}
+{{- $gap := 22 -}}
+{{- $textHeight := 0 -}}
+{{- with $textFit.lines }}{{ $textHeight = add $gap (mul (len .) $textFit.pitch) }}{{ end -}}
+{{- $y := add $top (div (sub (sub $bottom $top) (add $labelHeight $titleHeight $textHeight)) 2) -}}
+
+{{- $filters := slice -}}
+{{- with $label -}}
+  {{- $filters = $filters | append (images.Text . (dict "font" $font "size" 22 "color" "#7fff00" "x" $left "y" $y "linespacing" 0)) -}}
+  {{- $y = add $y $labelHeight -}}
+{{- end -}}
+{{- range $titleFit.lines -}}
+  {{- $filters = $filters | append (images.Text . (dict "font" $font "size" $titleFit.size "color" "#eeeeee" "x" $left "y" $y "linespacing" 0)) -}}
+  {{- $y = add $y $titleFit.pitch -}}
+{{- end -}}
+{{- $y = add $y $gap -}}
+{{- range $textFit.lines -}}
+  {{- $filters = $filters | append (images.Text . (dict "font" $font "size" $textFit.size "color" "#8f93a2" "x" $left "y" $y "linespacing" 0)) -}}
+  {{- $y = add $y $textFit.pitch -}}
+{{- end -}}
+
+{{- $alt := printf "devvm docs: %s" $title -}}
+{{- with $explainer }}{{ $alt = printf "%s: %s" $alt . }}{{ end -}}
+{{- return dict "Image" ($template | images.Filter $filters) "Alt" $alt -}}

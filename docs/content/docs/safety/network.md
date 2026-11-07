@@ -1,5 +1,6 @@
 ---
 title: Network tiers
+explainer: Choose what each VM can reach on the network
 weight: 1
 ---
 

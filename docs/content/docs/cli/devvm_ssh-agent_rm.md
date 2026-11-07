@@ -1,6 +1,7 @@
 ---
 title: devvm ssh-agent rm
 weight: 57
+explainer: "Remove a key from devvm's own SSH agent"
 ---
 
 Remove a key from devvm's own SSH agent

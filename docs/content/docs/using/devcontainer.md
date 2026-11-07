@@ -1,5 +1,6 @@
 ---
 title: devcontainer.json
+explainer: Set up a VM from a project's devcontainer.json
 weight: 10
 ---
 

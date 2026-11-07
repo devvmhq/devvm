@@ -1,5 +1,6 @@
 ---
 title: Known limits
+explainer: What devvm can't do, and where
 weight: 18
 ---
 

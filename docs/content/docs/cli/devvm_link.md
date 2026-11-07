@@ -1,6 +1,7 @@
 ---
 title: devvm link
 weight: 29
+explainer: "List this folder's VM's links to your other VMs"
 ---
 
 List this folder's VM's links to your other VMs

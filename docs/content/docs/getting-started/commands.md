@@ -1,5 +1,6 @@
 ---
 title: Everyday commands
+explainer: The commands you use most, in their groups
 weight: 3
 ---
 

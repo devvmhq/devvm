@@ -1,5 +1,6 @@
 ---
 title: Settings and files
+explainer: The files you edit and the files devvm keeps
 weight: 8
 ---
 

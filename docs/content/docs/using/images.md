@@ -1,5 +1,6 @@
 ---
 title: Images and tools
+explainer: The images VMs are made from, and their tools
 weight: 6
 ---
 

@@ -46,9 +46,8 @@ menu:
 
 params:
   description: "One VM for every project: an isolated sandbox with your project's toolchain, ready for you or an agent to start coding."
-  # The social preview card, for every page's og:image and twitter:image (static/images/).
-  images:
-    - /images/social-card.png
+  # No images: each page's og:image and twitter:image is its own card, which
+  # layouts/_partials/og-image.html draws.
   navbar:
     displayTitle: false
     displayLogo: true

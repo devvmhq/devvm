@@ -1,6 +1,7 @@
 ---
 title: devvm build
 weight: 7
+explainer: "Build an image and the images under it, unless they're built"
 ---
 
 Build an image and the images under it, unless they're built

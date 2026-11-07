@@ -1,5 +1,6 @@
 ---
 title: Your first VM
+explainer: Make a project's VM and start an agent in it
 weight: 2
 ---
 

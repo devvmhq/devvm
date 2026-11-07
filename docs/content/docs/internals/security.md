@@ -1,5 +1,6 @@
 ---
 title: Security model
+explainer: What devvm protects, how, and what it doesn't
 weight: 7
 ---
 

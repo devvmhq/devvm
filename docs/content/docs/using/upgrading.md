@@ -1,5 +1,6 @@
 ---
 title: Upgrading and uninstalling
+explainer: Upgrade devvm, or remove it and what it keeps
 weight: 16
 ---
 
