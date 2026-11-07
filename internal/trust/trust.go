@@ -166,14 +166,16 @@ func (c CAs) Bundle() []byte { return bytes.Join(c, nil) }
 // bundle is the file SSL_CERT_FILE names when getenv has one, else the
 // first of hostBundles that's there, and SSL_CERT_FILE then names path.
 // Such a program reads the host's folders of CAs (hostDirs) only when
-// neither SSL_CERT_FILE nor SSL_CERT_DIR is set, so SSL_CERT_DIR names
-// them, unless getenv has one, which the program reads as before. Nothing
-// for no CAs.
+// neither SSL_CERT_FILE nor SSL_CERT_DIR is set, so then SSL_CERT_DIR
+// names them. Otherwise it reads what getenv's name, as before: an
+// SSL_CERT_DIR of getenv's stays, and an SSL_CERT_FILE alone gets no
+// folder, so it trusts nothing it didn't. Nothing for no CAs.
 func (c CAs) Host(path string, getenv func(string) string) (bundle []byte, env []string, err error) {
 	if len(c) == 0 {
 		return nil, nil, nil
 	}
 	own := getenv("SSL_CERT_FILE")
+	probe := own == "" && getenv("SSL_CERT_DIR") == ""
 	if own == "" {
 		own = firstThere(hostBundles())
 	}
@@ -188,7 +190,7 @@ func (c CAs) Host(path string, getenv func(string) string) (bundle []byte, env [
 	}
 	bundle = append(bundle, c.Bundle()...)
 	env = []string{"SSL_CERT_FILE=" + path}
-	if getenv("SSL_CERT_DIR") == "" {
+	if probe {
 		var dirs []string
 		for _, d := range hostDirs() {
 			if fi, err := os.Stat(d); err == nil && fi.IsDir() {

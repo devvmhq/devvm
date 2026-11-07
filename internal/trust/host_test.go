@@ -9,8 +9,10 @@ import (
 )
 
 // Host: the host's bundle and the user's CAs in one, which SSL_CERT_FILE
-// names; SSL_CERT_DIR names the host's folders of CAs unless the
-// environment has one; nothing for no CAs.
+// names; SSL_CERT_DIR names the host's folders of CAs only when the
+// environment has neither variable (TestHostOwnBundle), so a program
+// given its own SSL_CERT_FILE trusts no folder it didn't; nothing for no
+// CAs.
 func TestHost(t *testing.T) {
 	dir := t.TempDir()
 	own := filepath.Join(dir, "own.pem")
@@ -35,8 +37,10 @@ func TestHost(t *testing.T) {
 			wantBundle: "the host's roots\n" + string(ca), wantEnv: []string{"SSL_CERT_FILE=" + path},
 		},
 		{
+			// Its SSL_CERT_FILE alone: the program read no folder, so it
+			// reads none still.
 			name: "no SSL_CERT_DIR", env: map[string]string{"SSL_CERT_FILE": own}, cas: cas,
-			wantBundle: "the host's roots\n" + string(ca), wantEnv: []string{"SSL_CERT_FILE=" + path}, hostDirs: true,
+			wantBundle: "the host's roots\n" + string(ca), wantEnv: []string{"SSL_CERT_FILE=" + path},
 		},
 		{
 			name: "SSL_CERT_FILE missing", env: map[string]string{"SSL_CERT_FILE": filepath.Join(dir, "none"), "SSL_CERT_DIR": dir}, cas: cas,
@@ -77,16 +81,30 @@ func TestHost(t *testing.T) {
 }
 
 // Without SSL_CERT_FILE the host's bundle is the first of hostBundles
-// there; one that can't be read fails it.
+// there, and with neither variable SSL_CERT_DIR names the host's folders
+// of CAs, which the program read; a bundle that can't be read fails it.
 func TestHostOwnBundle(t *testing.T) {
 	cas, err := parse("company.pem", cert(t, "company", true))
 	if err != nil {
 		t.Fatal(err)
 	}
 	none := func(string) string { return "" }
-	bundle, _, err := cas.Host("/x/devvm-ca.pem", none)
+	bundle, env, err := cas.Host("/x/devvm-ca.pem", none)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var dirs []string
+	for _, d := range hostDirs() {
+		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+			dirs = append(dirs, d)
+		}
+	}
+	want := []string{"SSL_CERT_FILE=/x/devvm-ca.pem"}
+	if len(dirs) > 0 {
+		want = append(want, "SSL_CERT_DIR="+strings.Join(dirs, ":"))
+	}
+	if !slices.Equal(env, want) {
+		t.Errorf("env = %q, want %q", env, want)
 	}
 	if first := firstThere(hostBundles()); first != "" {
 		own, err := os.ReadFile(first) //nolint:gosec // the host's bundle
