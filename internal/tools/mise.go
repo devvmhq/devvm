@@ -243,7 +243,7 @@ func (t Versions) Resolve(ctx context.Context, out string) (Lock, error) {
 	}
 	if lock, err = t.withSDKDownloads(ctx, lock); err != nil {
 		_, _ = fmt.Fprintln(t.LogWriter(), err)
-		return Lock{}, t.resolveFailed(ctx)
+		return Lock{}, t.resolveFailed(ctx, tmp)
 	}
 	names, specs := configTools(config)
 	for _, n := range names {
