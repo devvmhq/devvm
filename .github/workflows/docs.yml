@@ -1,9 +1,13 @@
 name: Docs
 
-# Pull requests touching the docs get their lints and a build; main deploys when the docs change.
+# Two sites. devvm.dev shows the latest release's docs: a published release that isn't a
+# prerelease deploys its tag's docs to GitHub Pages, and so does a dispatch, with any release's
+# tag. next.devvm.dev shows main's: each push to main that changes the docs builds them with
+# docs/next.yaml and commits the site to devvmhq/docs-next, which Cloudflare Pages serves.
+# Pull requests touching the docs get their lints and a build, and nothing else.
 # The site is built from docs/ alone (the CLI reference included, which a help change commits
 # there), and CI's lint runs the docs checks on every code change, so other pushes skip this.
-# Both triggers take the same paths; workflow_dispatch deploys by hand.
+# A release event runs this file as its tag has it.
 on:
   push:
     branches: [main]
@@ -16,19 +20,34 @@ on:
       - ".github/workflows/docs.yml"
   pull_request:
     paths: *docs-paths
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      site:
+        description: The site to deploy
+        type: choice
+        options: [devvm.dev, next.devvm.dev]
+        default: devvm.dev
+      ref:
+        description: "devvm.dev only: the release tag whose docs it shows, such as v0.1.0 (empty: the latest release)"
+        type: string
+        required: false
 
 permissions:
   contents: read
 
-# Deploys queue one after another; a pull request's newer run replaces its last.
-concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
-  build:
+  # main's docs, or a pull request's: the lints and a build.
+  check:
+    if: >-
+      github.event_name == 'pull_request' || github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.site == 'next.devvm.dev')
     runs-on: ubuntu-latest
+    # A pull request's newer run replaces its last.
+    concurrency:
+      group: docs-check-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     env:
       # Only the docs' tools, not every tool in mise.toml.
       MISE_TASK_RUN_AUTO_INSTALL: "false"
@@ -42,18 +61,118 @@ jobs:
         with:
           version: 2026.10.18
           install_args: go hugo-extended node markdownlint-cli2 vale lychee
+          # The workflow publishes, so no job in it reads a cache another run could have written.
+          cache: false
       - run: mise run lint:docs
       # The site's address is baseURL in docs/hugo.yaml.
       - run: hugo -s docs --minify
-      - if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+
+  # next.devvm.dev: main's docs, committed to devvmhq/docs-next.
+  next:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.site == 'next.devvm.dev'))
+    needs: check
+    runs-on: ubuntu-latest
+    # One push at a time; a newer run waiting replaces an older one.
+    concurrency:
+      group: docs-next
+      cancel-in-progress: false
+    # The environment holds the deploy key, and only main can use it.
+    environment:
+      name: docs-next
+      url: https://next.devvm.dev/
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.10.18
+          install_args: go hugo-extended
+          # What's published is built from no cache.
+          cache: false
+      # docs/next.yaml over docs/hugo.yaml: next.devvm.dev's address, the banner and noindex.
+      - run: hugo -s docs --minify --config hugo.yaml,next.yaml -d "$RUNNER_TEMP/next"
+      # The key is checked out only after the build, which never sees it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: devvmhq/docs-next
+          ref: main
+          path: docs-next
+          ssh-key: ${{ secrets.DOCS_NEXT_DEPLOY_KEY }}
+          # The push below needs the key; this checkout is the only thing that uses it.
+          persist-credentials: true # zizmor: ignore[artipacked] -- the push needs the deploy key, and nothing is uploaded
+      - name: Publish
+        working-directory: docs-next
+        run: |
+          # Everything but README.md is the site's.
+          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name README.md -exec rm -rf {} +
+          cp -R "$RUNNER_TEMP/next/." .
+          git add -A
+          if git diff --cached --quiet; then
+            echo "next.devvm.dev is already this build."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Build from devvm ${GITHUB_SHA::7}"
+          git push origin HEAD:main
+
+  # devvm.dev: a release's docs, built from its tag.
+  release:
+    if: >-
+      (github.event_name == 'release' && !github.event.release.prerelease) ||
+      (github.event_name == 'workflow_dispatch' && inputs.site == 'devvm.dev')
+    runs-on: ubuntu-latest
+    steps:
+      - id: tag
+        name: The release's tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          if [ "$EVENT" = release ]; then
+            tag=$RELEASE_TAG
+          elif [ -n "$INPUT_REF" ]; then
+            tag=$INPUT_REF
+          else
+            tag=$(gh release view --repo devvmhq/devvm --json tagName --jq .tagName)
+          fi
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::A release tag is vX.Y.Z, such as v0.1.0; this is $tag."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          persist-credentials: false
+          # Full history, for each page's last updated date.
+          fetch-depth: 0
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.10.18
+          install_args: go hugo-extended
+          # What's published is built from no cache.
+          cache: false
+      # The tag's docs/hugo.yaml, whose baseURL is devvm.dev.
+      - run: hugo -s docs --minify
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: docs/public
 
   deploy:
-    if: github.event_name != 'pull_request'
-    needs: build
+    needs: release
     runs-on: ubuntu-latest
+    # Deploys queue one after another.
+    concurrency:
+      group: docs-pages
+      cancel-in-progress: false
     permissions:
       pages: write # to deploy the site
       id-token: write # to prove the deployment comes from this workflow

@@ -61,7 +61,7 @@ Run the tasks with `mise run <task>`:
 
 Before and after every change, `mise run fmt && mise run lint && mise run test` must pass.
 
-CI runs `lint` and `test` on macOS and Linux. A change that touches only the docs and Markdown files skips them: the Docs workflow runs `lint:docs` and builds the site instead, and deploys it on every push to `main`.
+CI runs `lint` and `test` on macOS and Linux. A change that touches only the docs and Markdown files skips them: the Docs workflow runs `lint:docs` and builds the site instead, and on every push to `main` it deploys next.devvm.dev ([the docs sites](maintaining.md#the-docs-sites)).
 
 ## Go lint rules
 
@@ -598,4 +598,4 @@ The tests fail when the checked-in pages are stale: `TestReferenceIsCurrent` in 
 
 ### Building the site
 
-`mise run docs` serves the site at `http://localhost:1313/` and reloads on every change. `mise exec -- hugo -s docs --minify` builds it into `docs/public/`, as the Pages workflow does on every push to `main`.
+`mise run docs` serves the site at `http://localhost:1313/` and reloads on every change. `mise exec -- hugo -s docs --minify` builds it into `docs/public/`, as the Docs workflow does for devvm.dev, and `mise exec -- hugo -s docs --minify --config hugo.yaml,next.yaml` builds the site as next.devvm.dev has it, with its banner and its noindex ([the docs sites](maintaining.md#the-docs-sites)).

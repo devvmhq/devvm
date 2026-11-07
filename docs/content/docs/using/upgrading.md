@@ -79,6 +79,8 @@ Homebrew installs only its formula's release, so with Homebrew devvm upgrade doe
 
 A prerelease is a version of devvm that you can try before its release is out, such as a release candidate, `0.2.0-rc.1`, or a beta, `0.2.0-beta.1`. devvm upgrade and the install script never pick a prerelease as the newest release, and the daily release check never announces one, so you get a prerelease only when you name it.
 
+The docs at [devvm.dev](https://devvm.dev/) are for the newest release. The docs for the next release, which a prerelease comes before, are at [next.devvm.dev](https://next.devvm.dev/), and they change as that release is written, so they can describe more than a prerelease has.
+
 To install a prerelease with the install script, run the copy of the script that comes with the prerelease, which installs that prerelease, or give its version to the newest release's script with `--version`:
 
 ```sh
