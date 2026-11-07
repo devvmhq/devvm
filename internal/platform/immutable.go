@@ -16,6 +16,9 @@ type Locker struct {
 	// Helper is devvm-immutable's path, on Linux (ImmutableHelper); ""
 	// for none.
 	Helper string
+	// Unvetted skips the check that only root can change the helper and
+	// the folders above it: a test build's stand-in, which the tests own.
+	Unvetted bool
 }
 
 // Why a Locker can't lock files (Usable).

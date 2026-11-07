@@ -160,6 +160,11 @@ stderr '^install: devvm-immutable isn''t installed: devvm doctor says how to ins
 # macOS's archive has none: nothing asked.
 exec bash helper.sh asked none
 ! stdout .
+# A folder above it that someone but root can change: nothing installed,
+# naming it, as devvm wouldn't run it there.
+exec bash helper.sh unsafe
+stderr '^install: devvm-immutable isn''t installed: \S+ isn''t only root''s to change, so devvm wouldn''t run it '
+! exists ran
 
 # The whole script: options, a release, the PATH hint.
 exec bash main.sh --no-deps --version v0.1.0
@@ -571,7 +576,8 @@ sudo usermod -aG kvm me
 # helper.sh ANSWER [DEST]: install_helper with a devvm-immutable in
 # $WORK/src, whose check works; the sudo in bin/ logs to $WORK/ran.
 # ANSWER: yes (--yes), no (every question answered no), asked (a question
-# prints "asked"), fails (yes, and sudo fails). DEST: what's installed
+# prints "asked"), fails (yes, and sudo fails), unsafe (yes, with the
+# test's own folders, which aren't root's, above it). DEST: what's installed
 # already, the same as $WORK/src's, another, one whose check fails
 # (nocap), or none: no source either, as on macOS.
 . "$WORK/lib.sh"
@@ -586,8 +592,11 @@ case ${2:-} in
   nocap) printf '#!/bin/sh\necho 1 >/dev/null\nexit 1\n' > "$WORK/src/devvm-immutable"; cp "$WORK/src/devvm-immutable" "$helper_dest" ;;
   none) rm "$WORK/src/devvm-immutable" ;;
 esac
+# Only root's all the way up, as /usr/local/libexec is: the test's own
+# folders aren't, which the unsafe case keeps.
+[[ $1 == unsafe ]] || helper_unsafe() { :; }
 case $1 in
-  yes) yes=true ;;
+  yes | unsafe) yes=true ;;
   no) ask() { return 1; } ;;
   asked) ask() { echo asked; return 1; } ;;
   fails) yes=true; sudo() { return 1; } ;;

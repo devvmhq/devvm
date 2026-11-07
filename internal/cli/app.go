@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"cmp"
 	"os"
 
 	"github.com/devvmhq/devvm/assets"
@@ -78,7 +77,10 @@ func (a *app) host() platform.Host { return platform.NewHost(a.testOverrides().H
 // locker is how this host locks .git: on Linux, through devvm-immutable
 // where it's installed, or a test build's stand-in.
 func (a *app) locker() platform.Locker {
-	return platform.Locker{Helper: cmp.Or(a.testOverrides().ImmutableHelper, platform.ImmutableHelper)}
+	if h := a.testOverrides().ImmutableHelper; h != "" {
+		return platform.Locker{Helper: h, Unvetted: true}
+	}
+	return platform.Locker{Helper: platform.ImmutableHelper}
 }
 
 // secrets is devvm's secrets store, warning through the run's UI.

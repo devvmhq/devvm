@@ -297,6 +297,7 @@ func TestGitWatchMessages(t *testing.T) {
 		GitUnprotectedHelper("vm-1"), GitUnprotectedFs("vm-1"), GitProtectAvailable("vm-1"),
 		GitProtectOnNeedsHelper(), GitProtectOnHelperUnusable(), GitProtectOnNeedsFs(),
 		GitLockFailed("/p/.git/config"), GitStillLocked(".git/hooks, .git/config"),
+		GitProtectHelperBroken(), GitProtectHelperBrokenAsk(),
 		DoctorImmutableMissing(), DoctorImmutableUnusable("it doesn't hold CAP_LINUX_IMMUTABLE"), DoctorImmutableNoSource(),
 	} {
 		text := m.Text()
@@ -307,7 +308,7 @@ func TestGitWatchMessages(t *testing.T) {
 	if one, many := GitChangedMore(1, "a", "v").Text(), GitChangedMore(3, "a", "v").Text(); !strings.Contains(one, "1 more path ") || !strings.Contains(many, "3 more paths ") {
 		t.Errorf("plurals: %q, %q", one, many)
 	}
-	if text := DoctorImmutableInstall("/h", "/s").Text(); !strings.Contains(text, "-m 0755 /s /h and then sudo setcap cap_linux_immutable+ep /h ") {
+	if text := DoctorImmutableInstall("staff", "/h", "/s").Text(); !strings.Contains(text, "-m 0755 /s /h and then sudo setcap cap_linux_immutable+ep /h ") || !strings.Contains(text, "-g staff -m 0750") {
 		t.Errorf("doctor_immutable_install: %q", text)
 	}
 	if text := DoctorImmutableOK().Text(); text == "" {

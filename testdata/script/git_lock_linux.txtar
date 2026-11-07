@@ -38,12 +38,33 @@ stub_calls
 stdout '^devvm-immutable clear /\S*/web/\.git/config$'
 stdout '^devvm-immutable clear /\S*/web/\.git/hooks$'
 
-# A helper without its capability: the launch says why, on is refused,
-# and the VM is off, watched.
+# A helper that's installed but doesn't work: a new VM isn't made
+# without protection unless the user says so, naming --no-git-protect
+# where devvm can't ask; a no makes nothing.
 exec sh -c ': > "$STUB_DIR/immutable-no-cap"'
+project broken git
+! exec devvm --network open
+stderr '^devvm: no_input answer=--no-git-protect$'
+ttyin -stdin $WORK/no.txt
+! exec devvm --network open
+stderr 'git_protect_helper_broken_ask \[y/N\] devvm: git_protect_helper_broken$'
+! exec devvm git-protect
+stderr '^devvm: no_vm_git_protect '
+ttyin -stdin $WORK/yes.txt
+exec devvm --network open
+vm_name BROKEN broken
+vm_state $BROKEN_dir/vm.json
+stdout '^git.chosen=true$'
+
+# Made with the helper missing, then the helper doesn't work: the launch
+# says why, on is refused, and the VM is off, watched.
 project other git
+env DEVVM_IMMUTABLE_HELPER=$WORK/none/devvm-immutable
 exec devvm --network open
 vm_name OTHER other
+stderr '^devvm: git_unprotected vm=devvm-other-[0-9a-f]{14}$'
+env DEVVM_IMMUTABLE_HELPER=$IMMUTABLE_STUB
+exec devvm
 stderr '^devvm: git_unprotected_helper vm=devvm-other-[0-9a-f]{14}$'
 ! exec devvm git-protect on
 stderr '^devvm: git_protect_on_helper_unusable$'
@@ -61,3 +82,8 @@ exec devvm stop
 stderr '^devvm: git_changed paths=\.git/config vm=devvm-other-[0-9a-f]{14}$'
 exec devvm git-protect
 stdout '\Aoff\n\z'
+
+-- yes.txt --
+y
+-- no.txt --
+n

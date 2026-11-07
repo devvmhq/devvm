@@ -1094,9 +1094,9 @@ func DoctorFailed(reason string) M {
 	return M{id: "doctor_failed", vals: []val{{"reason", reason}}}
 }
 
-// DoctorImmutableInstall is [doctor_immutable_install]: "Run sudo install -D -o root -g root -m 0755 {{.source}} {{.helper}} and then sudo setcap cap_linux_immutable+ep {{.helper}} to install it."
-func DoctorImmutableInstall(helper string, source string) M {
-	return M{id: "doctor_immutable_install", vals: []val{{"helper", helper}, {"source", source}}}
+// DoctorImmutableInstall is [doctor_immutable_install]: "Run sudo install -D -o root -g root -m 0755 {{.source}} {{.helper}} and then sudo setcap cap_linux_immutable+ep {{.helper}} to install it. On a machine others share, -g {{.group}} -m 0750 lets only the group {{.group}} run it."
+func DoctorImmutableInstall(group string, helper string, source string) M {
+	return M{id: "doctor_immutable_install", vals: []val{{"group", group}, {"helper", helper}, {"source", source}}}
 }
 
 // DoctorImmutableMissing is [doctor_immutable_missing]: ".git protection on Linux needs devvm-immutable, which isn't installed, so devvm can't lock .git for VMs on this machine."
@@ -1489,7 +1489,7 @@ func GitNotLocked(path string) M {
 	return M{id: "git_not_locked", vals: []val{{"path", path}}}
 }
 
-// GitProtectAvailable is [git_protect_available]: ".git protection works on this machine now, and {{.vm}} has it off, as it was made before it did. Run devvm git-protect on to lock its .git, or devvm git-protect off to stop this warning."
+// GitProtectAvailable is [git_protect_available]: ".git protection is off for {{.vm}}, though devvm can lock .git on this machine. Run devvm git-protect on to lock its .git, or devvm git-protect off to stop this warning."
 func GitProtectAvailable(vm string) M {
 	return M{id: "git_protect_available", vals: []val{{"vm", vm}}}
 }
@@ -1502,6 +1502,16 @@ func GitProtectClone(vm string) M {
 // GitProtectFailed is [git_protect_failed]: "Showing or changing .git protection failed: {{.reason}}."
 func GitProtectFailed(reason string) M {
 	return M{id: "git_protect_failed", vals: []val{{"reason", reason}}}
+}
+
+// GitProtectHelperBroken is [git_protect_helper_broken]: "The VM wasn't made, as devvm-immutable doesn't work. Run devvm doctor to see why, or devvm --no-git-protect to make the VM without .git protection."
+func GitProtectHelperBroken() M {
+	return M{id: "git_protect_helper_broken"}
+}
+
+// GitProtectHelperBrokenAsk is [git_protect_helper_broken_ask]: "devvm-immutable is installed but doesn't work, so devvm can't lock .git for this VM, and the VM could change the hooks and config that git on this machine runs. Make the VM without .git protection?"
+func GitProtectHelperBrokenAsk() M {
+	return M{id: "git_protect_helper_broken_ask"}
 }
 
 // GitProtectNextStop is [git_protect_next_stop]: "{{.vm}} is running, so devvm turns its .git protection {{.mode}} when the VM next stops. Run devvm stop or devvm restart to apply it now."
@@ -4299,7 +4309,7 @@ var specs = map[string]spec{
 	"docker_missing":                 {},
 	"docker_only":                    {fields: []string{"from"}},
 	"doctor_failed":                  {fields: []string{"reason"}},
-	"doctor_immutable_install":       {fields: []string{"helper", "source"}},
+	"doctor_immutable_install":       {fields: []string{"group", "helper", "source"}},
 	"doctor_immutable_missing":       {},
 	"doctor_immutable_no_source":     {},
 	"doctor_immutable_ok":            {},
@@ -4381,6 +4391,8 @@ var specs = map[string]spec{
 	"git_protect_available":          {fields: []string{"vm"}},
 	"git_protect_clone":              {fields: []string{"vm"}},
 	"git_protect_failed":             {fields: []string{"reason"}},
+	"git_protect_helper_broken":      {},
+	"git_protect_helper_broken_ask":  {},
 	"git_protect_next_stop":          {fields: []string{"mode", "vm"}},
 	"git_protect_on_helper_unusable": {},
 	"git_protect_on_needs_fs":        {},

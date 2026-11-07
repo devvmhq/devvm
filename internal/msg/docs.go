@@ -223,6 +223,8 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"git_unprotected_fs":             "safety/git-protection#without-devvm-immutable",
 	"git_unprotected_quiet":          "safety/git-protection#the-warning-at-each-launch",
 	"git_protect_available":          "safety/git-protection#vms-made-without-it",
+	"git_protect_helper_broken_ask":  "safety/git-protection#installing-devvm-immutable",
+	"git_protect_helper_broken":      "safety/git-protection#installing-devvm-immutable",
 	"git_changed":                    "safety/git-protection#when-devvm-names-a-change",
 	"git_changed_more":               "safety/git-protection#when-devvm-names-a-change",
 	"git_watch_blind":                "safety/git-protection#what-the-watch-cant-see",

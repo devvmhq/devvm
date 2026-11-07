@@ -191,8 +191,8 @@ description = "reason is why devvm-immutable's check failed, in English"
 other = ".git protection on Linux needs devvm-immutable, which doesn't work here, so devvm can't lock .git for VMs on this machine. Its check says {{.reason}}."
 
 [doctor_immutable_install]
-description = "source is the devvm-immutable that came with this devvm, helper where it's installed"
-other = "Run sudo install -D -o root -g root -m 0755 {{.source}} {{.helper}} and then sudo setcap cap_linux_immutable+ep {{.helper}} to install it."
+description = "source is the devvm-immutable that came with this devvm, helper where it's installed, group the user's own group"
+other = "Run sudo install -D -o root -g root -m 0755 {{.source}} {{.helper}} and then sudo setcap cap_linux_immutable+ep {{.helper}} to install it. On a machine others share, -g {{.group}} -m 0750 lets only the group {{.group}} run it."
 
 [doctor_immutable_no_source]
 other = "This devvm came without devvm-immutable, so install devvm's release archive or its Homebrew formula, which have it, and run devvm doctor again."
@@ -2061,7 +2061,13 @@ other = ".git protection on Linux needs devvm-immutable, which doesn't work here
 other = "The project folder's file system has no immutable attribute to lock .git with, so {{.vm}} can change the hooks and config in .git, which run on this machine. Use devvm --clone to keep a VM out of .git, or run devvm git-protect off to stop this warning."
 
 [git_protect_available]
-other = ".git protection works on this machine now, and {{.vm}} has it off, as it was made before it did. Run devvm git-protect on to lock its .git, or devvm git-protect off to stop this warning."
+other = ".git protection is off for {{.vm}}, though devvm can lock .git on this machine. Run devvm git-protect on to lock its .git, or devvm git-protect off to stop this warning."
+
+[git_protect_helper_broken_ask]
+other = "devvm-immutable is installed but doesn't work, so devvm can't lock .git for this VM, and the VM could change the hooks and config that git on this machine runs. Make the VM without .git protection?"
+
+[git_protect_helper_broken]
+other = "The VM wasn't made, as devvm-immutable doesn't work. Run devvm doctor to see why, or devvm --no-git-protect to make the VM without .git protection."
 
 [git_unprotected_quiet]
 other = "devvm stops warning about .git at each launch of {{.vm}}, and it still names the hooks and config in .git that change."

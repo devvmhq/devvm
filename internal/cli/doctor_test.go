@@ -111,7 +111,7 @@ func TestDoctorReport(t *testing.T) {
 		Host:     func() (vm.Host, error) { return vm.Host{CPUs: 2, MemoryGiB: 16}, nil },
 		Policies: func() []msg.M { return []msg.M{msg.PolicyNotRule("/p", "2", "a b")} },
 		Folders:  func() []msg.M { return []msg.M{msg.VMFolderStateless("/vms/0123456789abcd")} },
-		Locker:   platform.Locker{Helper: fakeHelper(t, "echo 1")},
+		Locker:   platform.Locker{Helper: fakeHelper(t, "echo 1"), Unvetted: true},
 	}
 	r := d.report(t.Context(), msg.M.Names, []backend.Backend{b}, b)
 	if !r.GitLock {
@@ -193,7 +193,7 @@ func TestDoctorSmallHostWarnsOnly(t *testing.T) {
 				Free:   func(string) (uint64, error) { return 1 << 40, nil },
 				Host:   func() (vm.Host, error) { return c.host, nil },
 				Dirs:   paths.FromEnv,
-				Locker: platform.Locker{Helper: fakeHelper(t, "echo 1")},
+				Locker: platform.Locker{Helper: fakeHelper(t, "echo 1"), Unvetted: true},
 			}
 			err := d.run(t.Context(), u, b)
 			if err != nil && msg.IDOf(err) == "" {
@@ -268,11 +268,11 @@ func TestDoctorImmutableHelper(t *testing.T) {
 		"works": {fakeHelper(t, "echo 1"), filepath.Join(archive, "devvm"), "doctor_immutable_ok"},
 		"missing, from an archive": {
 			missing, filepath.Join(archive, "devvm"),
-			"devvm: doctor_immutable_missing\ndoctor_immutable_install helper=" + missing + " source=" + filepath.Join(archive, "devvm-immutable"),
+			"devvm: doctor_immutable_missing\ndoctor_immutable_install group=" + ownGroup() + " helper=" + missing + " source=" + filepath.Join(archive, "devvm-immutable"),
 		},
 		"missing, from Homebrew": {
 			missing, link,
-			"devvm: doctor_immutable_missing\ndoctor_immutable_install helper=" + missing + " source=" + filepath.Join(brew, "libexec", "devvm-immutable"),
+			"devvm: doctor_immutable_missing\ndoctor_immutable_install group=" + ownGroup() + " helper=" + missing + " source=" + filepath.Join(brew, "libexec", "devvm-immutable"),
 		},
 		"missing, a build of its own": {missing, filepath.Join(root, "dev", "devvm"), "devvm: doctor_immutable_missing\ndoctor_immutable_no_source"},
 		"without the capability": {
@@ -284,7 +284,7 @@ func TestDoctorImmutableHelper(t *testing.T) {
 			`devvm: doctor_immutable_unusable reason=it speaks protocol "2", and this devvm 1`,
 		},
 	} {
-		d := doctor{Path: onPath{Executable: func() (string, error) { return tc.self, nil }}, Locker: platform.Locker{Helper: tc.helper}}
+		d := doctor{Path: onPath{Executable: func() (string, error) { return tc.self, nil }}, Locker: platform.Locker{Helper: tc.helper, Unvetted: true}}
 		u, out, errOut := testUI()
 		g := d.gitLock(t.Context())
 		if !g.ok {
@@ -314,14 +314,14 @@ func TestGitLockOf(t *testing.T) {
 		src, want string
 	}{
 		"works":     {nil, "/s", ""},
-		"missing":   {platform.ErrNoHelper, "/s", "doctor_immutable_missing|doctor_immutable_install helper=/h source=/s"},
+		"missing":   {platform.ErrNoHelper, "/s", "doctor_immutable_missing|doctor_immutable_install group=staff helper=/h source=/s"},
 		"no source": {platform.ErrNoHelper, "", "doctor_immutable_missing|doctor_immutable_no_source"},
 		"unusable": {
 			fmt.Errorf("%w: it doesn't hold X", platform.ErrHelperUnusable), "/a b/s",
-			"doctor_immutable_unusable reason=it doesn't hold X|doctor_immutable_install helper=/h source='/a b/s'",
+			"doctor_immutable_unusable reason=it doesn't hold X|doctor_immutable_install group=staff helper=/h source='/a b/s'",
 		},
 	} {
-		g := gitLockOf(tc.err, "/h", tc.src)
+		g := gitLockOf(tc.err, "/h", tc.src, "staff")
 		got := ""
 		if !g.ok {
 			got = g.warning.Names() + "|" + g.install.Names()

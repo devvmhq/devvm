@@ -403,13 +403,35 @@ func (e creation) firstRun(o Options, size Size, b *build.Env) (settings.Default
 	return settings.Read(e.Dirs)
 }
 
+// unlockedAnyway asks, before a new VM is made without .git protection
+// because devvm-immutable is installed but doesn't work (no capability in
+// a sandbox with no_new_privs, a check that timed out), whether to make it
+// so: a yes is the user's choice of off (g's Chosen), a no fails, and
+// where devvm can't ask it refuses, naming --no-git-protect. A helper
+// that isn't installed, or a file system without the attribute, is the
+// documented fallback, which only warns.
+func unlockedAnyway(r msg.Reporter, p *gitprotect.Protector, g *gitprotect.InVM) error {
+	if g.Mode != gitprotect.Off || g.Chosen || !errors.Is(p.Unable, platform.ErrHelperUnusable) {
+		return nil
+	}
+	yes, err := r.Ask(msg.GitProtectHelperBrokenAsk().AnsweredBy("--no-git-protect"))
+	switch {
+	case err != nil:
+		return err
+	case !yes:
+		return msg.GitProtectHelperBroken()
+	}
+	g.Chosen = true
+	return nil
+}
+
 // plan checks and chooses what a new VM gets, all before the build,
 // which can take minutes: devvm's first run's questions (firstRun), then
 // its image, size, ports and network tier, shown in its summary and
-// customized when the user says so (choose), its SSH agent and the
-// backend features it needs, with what the folder's devcontainer.json
-// says (its From and its plan, which the new VM keeps: o stays as it
-// was asked for).
+// customized when the user says so (choose), its SSH agent, its .git
+// protection (unlockedAnyway) and the backend features it needs, with
+// what the folder's devcontainer.json says (its From and its plan, which
+// the new VM keeps: o stays as it was asked for).
 func (e creation) plan(ctx context.Context, o Options, f project.Folder, b backend.Backend) (newVM, error) {
 	vm := f.Name
 	size, err := o.Size.Parse()
@@ -460,7 +482,11 @@ func (e creation) plan(ctx context.Context, o Options, f project.Folder, b backe
 	if o.Clone {
 		n.clone, n.git = true, gitprotect.InVM{Mode: gitprotect.Clone}
 	} else {
-		n.git = e.Protector(ctx, f.Dir).NewSection(o.NoGitProtect)
+		p := e.Protector(ctx, f.Dir)
+		n.git = p.NewSection(o.NoGitProtect)
+		if err := unlockedAnyway(e.Reporter, p, &n.git); err != nil {
+			return newVM{}, err
+		}
 	}
 	// Its ports, which devvm's forwarder forwards from the backend's ssh,
 	// and a clone, copied in and fetched over ssh.

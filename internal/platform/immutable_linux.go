@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -42,11 +43,12 @@ func (l Locker) Usable(ctx context.Context, dir string) error {
 }
 
 // HelperUsable reports why devvm-immutable can't lock files, nil when it
-// can: it isn't there (ErrNoHelper), or its check fails, as it doesn't
-// hold CAP_LINUX_IMMUTABLE, or it speaks another protocol
-// (ErrHelperUnusable, with its reason). The check runs it, so it finds
-// what reading its file capability wouldn't: a file system mounted
-// nosuid, or a devvm run with no_new_privs, gives it none.
+// can: it isn't there (ErrNoHelper), someone but root can change it
+// (vetHelper), or its check fails, as it doesn't hold
+// CAP_LINUX_IMMUTABLE, or it speaks another protocol (ErrHelperUnusable,
+// with its reason). The check runs it, so it finds what reading its file
+// capability wouldn't: a file system mounted nosuid, or a devvm run with
+// no_new_privs, gives it none.
 func (l Locker) HelperUsable(ctx context.Context) error {
 	if l.Helper == "" {
 		return ErrNoHelper
@@ -55,6 +57,11 @@ func (l Locker) HelperUsable(ctx context.Context) error {
 		return ErrNoHelper
 	} else if err != nil {
 		return fmt.Errorf("%w: %w", ErrHelperUnusable, err)
+	}
+	if !l.Unvetted {
+		if err := vetHelper(l.Helper); err != nil {
+			return fmt.Errorf("%w: %w", ErrHelperUnusable, err)
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, helperWait)
 	defer cancel()
@@ -68,6 +75,36 @@ func (l Locker) HelperUsable(ctx context.Context) error {
 	}
 	if got := strings.TrimSpace(string(out)); got != helperProtocol {
 		return fmt.Errorf("%w: it speaks protocol %q, and this devvm %s", ErrHelperUnusable, got, helperProtocol)
+	}
+	return nil
+}
+
+// vetHelper checks that only root can change the helper devvm runs: the
+// file, every folder above it up to /, and, where the path goes through a
+// symlink, the link and what it leads to, are root's, and none of the
+// file and folders is writable by its group or others. Otherwise someone
+// else could put a program of theirs in its place, and devvm would run it.
+func vetHelper(path string) error {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	for _, p := range []string{filepath.Clean(path), resolved} {
+		for ; ; p = filepath.Dir(p) {
+			var st unix.Stat_t
+			if err := unix.Lstat(p, &st); err != nil {
+				return err
+			}
+			switch {
+			case st.Uid != 0:
+				return fmt.Errorf("%s isn't root's", p)
+			case st.Mode&unix.S_IFMT != unix.S_IFLNK && st.Mode&0o022 != 0:
+				return fmt.Errorf("%s is writable by others than root", p)
+			}
+			if p == "/" {
+				break
+			}
+		}
 	}
 	return nil
 }

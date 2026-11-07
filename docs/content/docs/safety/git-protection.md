@@ -57,6 +57,9 @@ Every launch of an existing VM, and `devvm stop`, check `.git` again, and devvm 
 - **A submodule whose git folder isn't one.** The VM can name any folder in the project as a submodule's git folder, such as your `src`, so devvm locks nothing in a folder that doesn't look like a git folder, and names the submodule instead.
 - **A path that's a symlink or under one.** devvm never locks anything through a symlink, because the VM could point one at a file elsewhere on this machine, so it leaves that path unlocked.
 - **A path that moved while devvm locked it.** devvm leaves it unlocked and takes the lock off wherever it landed, so check `.git`.
+- **A path that devvm couldn't lock,** at every lock until it can. That's a config that isn't a regular file, or hooks that aren't a folder, and on Linux also a file with hard links, which a lock would lock under its other names too, a file you can't read, which Linux has to open to lock, and a hooks folder past devvm-immutable's bounds. devvm never rewrites such a file to lock it, so check it and replace it yourself, for example with a copy of it.
+
+When the VM renames `.git` and makes another in its place, devvm names the new one as replaced. The old `.git` keeps its locks where it went, and `devvm git-protect off` or `devvm rm` takes them off when it's at the top of the project folder, such as `.git-old`. Elsewhere, unlock it yourself: `chflags -R nouchg PATH` on macOS, or `/usr/local/libexec/devvm/devvm-immutable clear PATH` on Linux.
 
 [How it works › .git protection](../internals/git-protection.md#on-each-launch) lists every check.
 
@@ -84,7 +87,11 @@ sudo setcap cap_linux_immutable+ep /usr/local/libexec/devvm/devvm-immutable
 
 The first command copies it into `/usr/local/libexec/devvm`, owned by root, so that only root can replace it, and the second gives it its capability. `setcap` comes with libcap, which Debian and Ubuntu package as `libcap2-bin`. Homebrew installs devvm-immutable with devvm, in the formula's `libexec` folder, but Homebrew can't give it a capability, so run the commands that `devvm doctor` prints, which copy Homebrew's. When an upgrade brings a devvm-immutable that devvm needs, `devvm doctor` says it doesn't work and prints the commands again, and the install script offers to install it again.
 
-When devvm-immutable is installed but doesn't work, `devvm doctor` says why. It has no capability when `setcap` didn't run, when the file system that holds it is mounted with `nosuid`, or when devvm runs in a sandbox that sets `no_new_privs`, which drops file capabilities.
+On a machine that others share, you can let only your own group run it: give `install` `-g GROUP -m 0750` in place of `-g root -m 0755`, as `devvm doctor` shows with your group's name. Then other users' programs, a service's account included, can't run it to lock or unlock their own files ([what it can do](#what-devvm-immutable-can-do)).
+
+devvm runs devvm-immutable only when root alone can change it: the file and every folder above it must be root's, and none of them writable by its group or others. Otherwise someone else could put a program of theirs in its place. Some Debian systems make `/usr/local` writable by the `staff` group (`root:staff 2775`), and there devvm refuses devvm-immutable, `devvm doctor` names the folder, and the install script doesn't install it. Members of `staff` can already change what runs from `/usr/local/bin`, so to use devvm-immutable there, take the group's write off the folders above it (`sudo chmod g-w /usr/local /usr/local/libexec`), if nothing on the machine needs it.
+
+When devvm-immutable is installed but doesn't work, `devvm doctor` says why. It has no capability when `setcap` didn't run, when the file system that holds it is mounted with `nosuid`, or when devvm runs in a sandbox that sets `no_new_privs`, which drops file capabilities. A new VM that devvm would then make without `.git` protection isn't made until you agree to that: in a terminal, devvm asks first, and elsewhere it stops and names `--no-git-protect`, which makes the VM without protection.
 
 ### What devvm-immutable can do
 

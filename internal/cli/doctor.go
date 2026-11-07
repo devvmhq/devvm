@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -220,12 +221,23 @@ func (d doctor) gitLock(ctx context.Context) gitLock {
 	if !platform.LocksNeedHelper {
 		return gitLock{ok: true}
 	}
-	return gitLockOf(d.Locker.HelperUsable(ctx), cmp.Or(d.Locker.Helper, platform.ImmutableHelper), helperSource(d.Path.Executable))
+	return gitLockOf(d.Locker.HelperUsable(ctx), cmp.Or(d.Locker.Helper, platform.ImmutableHelper), helperSource(d.Path.Executable), ownGroup())
+}
+
+// ownGroup is the name of the user's own group, or its number.
+func ownGroup() string {
+	gid := strconv.Itoa(os.Getgid())
+	if g, err := user.LookupGroupId(gid); err == nil {
+		return g.Name
+	}
+	return gid
 }
 
 // gitLockOf is what doctor says of devvm-immutable at helper, whose check
-// returned err, src being the one that came with this devvm ("" for none).
-func gitLockOf(err error, helper, src string) gitLock {
+// returned err, src being the one that came with this devvm ("" for none),
+// and group the user's own, which a shared machine's install can limit it
+// to.
+func gitLockOf(err error, helper, src, group string) gitLock {
 	if err == nil {
 		return gitLock{ok: true}
 	}
@@ -235,7 +247,7 @@ func gitLockOf(err error, helper, src string) gitLock {
 		g.warning = msg.DoctorImmutableUnusable(why)
 	}
 	if src != "" {
-		g.install = msg.DoctorImmutableInstall(shell.Word(helper), shell.Word(src))
+		g.install = msg.DoctorImmutableInstall(shell.Word(group), shell.Word(helper), shell.Word(src))
 	}
 	return g
 }

@@ -279,12 +279,38 @@ run_argv() {
   if { : </dev/tty; } 2>/dev/null; then "$@" </dev/tty; else "$@" </dev/null; fi
 }
 
+# helper_unsafe PATH: the first of PATH and the folders above it, those there, that isn't root's
+# or that its group or others can write, as devvm refuses to run devvm-immutable then; nothing
+# when they're all only root's.
+helper_unsafe() {
+  local p=$1 u m
+  while :; do
+    if [[ -e $p || -L $p ]]; then
+      # GNU stat, else BSD's.
+      read -r u m < <(stat -c '%u %a' "$p" 2>/dev/null || stat -f '%u %Lp' "$p")
+      if [[ $u != 0 ]] || { [[ ! -L $p ]] && (((8#$m & 8#022) != 0)); }; then
+        echo "$p"
+        return 0
+      fi
+    fi
+    [[ $p != / ]] || return 0
+    p=$(dirname -- "$p")
+  done
+}
+
 # install_helper SRC: on Linux, devvm-immutable from this release's archive (SRC), which lets devvm
 # lock .git for VMs, into $helper_dest, root's, with CAP_LINUX_IMMUTABLE, asking first, as that
 # needs sudo. Nothing to do when the one there is this release's and works; macOS's archive has none.
+# A folder above it that someone but root can change (Debian's /usr/local can be root:staff 2775)
+# would let them replace it, so the script installs nothing then and says which.
 install_helper() {
-  local src=$1
+  local src=$1 bad
   [[ -f $src ]] || return 0
+  bad=$(helper_unsafe "$helper_dest")
+  if [[ -n $bad ]]; then
+    warn "devvm-immutable isn't installed: $bad isn't only root's to change, so devvm wouldn't run it (see https://devvm.dev/docs/safety/git-protection/#installing-devvm-immutable)"
+    return 0
+  fi
   if [[ -x $helper_dest ]] && [[ "$(sha256 "$src")" == "$(sha256 "$helper_dest")" ]] &&
     "$helper_dest" check >/dev/null 2>&1; then
     return 0

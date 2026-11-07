@@ -908,6 +908,64 @@ func projectGitProtect(s *S, w *webVM) {
 		}
 		return nil
 	})
+	if runtime.GOOS == "linux" {
+		projectGitWatchUnlocked(s, w)
+	}
+}
+
+// projectGitWatchUnlocked: on a Linux host whose devvm-immutable works,
+// the same VM's .git watched as devvm watches it without one (a test
+// build's DEVVM_IMMUTABLE_HELPER naming none): the guest pointing git at a
+// config of its own through .git/commondir is reported and named at the
+// next stop, and a file past what devvm hashes is named when the guest
+// changes it, its size and times kept, as the change time it can't set
+// moves. Then the VM's .git is locked again.
+func projectGitWatchUnlocked(s *S, w *webVM) {
+	p, vm := w.p, w.vm
+	none := []string{"DEVVM_IMMUTABLE_HELPER=" + filepath.Join(s.sb.work, "no-devvm-immutable")}
+	stop := func() (Res, error) { return DevvmIn(s, p, "", none, "stop") }
+	_, _ = s.Devvm(p, "stop")
+	_, _ = s.Devvm(p, "git-protect", "off")
+	_, _ = DevvmIn(s, p, "exit\n", none) // the watch's first hashes
+	s.Check("without a lock, .git/commondir the VM points at a config of its own is reported and named", func() error {
+		if _, err := s.InVM(vm, "cd "+p+` && mkdir -p evil && ln -sfn ../.git/objects evil/objects && ln -sfn ../.git/refs evil/refs &&
+      printf '[core]\n\tfsmonitor = ./pwn\n' > evil/config && echo ../evil > .git/commondir &&
+      truncate -s 17M .git/hooks/big && sync`); err != nil {
+			return err
+		}
+		r, err := stop()
+		if err != nil {
+			return err
+		}
+		if !grepF(r.Out, FirstLine(s.Msg("git_commondir", "git="+p+"/.git", "target=../evil"))) ||
+			!grepF(r.Out, s.Msg("git_changed", "paths=.git/commondir, .git/hooks/big", "vm="+vm)) ||
+			!grepF(r.Out, s.Msg("git_watch_blind", "paths=.git/hooks/big")) {
+			return errors.New("devvm stop:\n" + r.Out)
+		}
+		return nil
+	})
+	s.Check("without a lock, a 17 MiB hook the VM changes, its size and times kept, is named", func() error {
+		if _, err := DevvmIn(s, p, "exit\n", none); err != nil {
+			return err
+		}
+		if _, err := s.InVM(vm, "cd "+p+` && touch -r .git/hooks/big /tmp/e2e-ref && rm .git/commondir &&
+      printf x | dd of=.git/hooks/big bs=1 seek=100 conv=notrunc status=none && touch -r /tmp/e2e-ref .git/hooks/big && sync`); err != nil {
+			return err
+		}
+		r, err := stop()
+		if err != nil {
+			return err
+		}
+		if !grepF(r.Out, s.Msg("git_changed", "paths=.git/commondir, .git/hooks/big", "vm="+vm)) {
+			return errors.New("devvm stop:\n" + r.Out)
+		}
+		return nil
+	})
+	_ = os.RemoveAll(filepath.Join(p, "evil"))
+	_ = os.Remove(filepath.Join(p, ".git", "hooks", "big"))
+	_ = os.Remove(filepath.Join(p, ".git", "commondir"))
+	_, _ = s.Devvm(p, "git-protect", "on")
+	_, _ = DevvmIn(s, p, "exit\n", nil)
 }
 
 // projectGitWatch: on Linux, .git/config that the VM changes is named

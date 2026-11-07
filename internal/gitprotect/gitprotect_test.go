@@ -546,6 +546,52 @@ func TestUnlock(t *testing.T) {
 	}
 }
 
+// A .git the VM moved aside in the project folder, with another made in
+// its place, keeps its locks where it went until Unlock finds it there
+// and takes them off too.
+func TestUnlockMovedGit(t *testing.T) {
+	needGit(t)
+	f := newFixture(t, "p")
+	f.git(f.root, "init", "-q", f.dir)
+	if err := f.newVM(false); err != nil || f.section().Made.GitID == "" {
+		t.Fatalf("new VM: %v, %+v", err, f.section().Made)
+	}
+	if err := os.Rename(f.path(".git"), f.path(".git-old")); err != nil {
+		t.Fatal(err)
+	}
+	f.git(f.dir, "init", "-q")
+	f.flags = nil
+	f.p.Unlock(t.Context(), f.vm)
+	for _, p := range []string{".git-old/hooks", ".git-old/config", ".git/hooks"} {
+		if !slices.Contains(f.flags, "nouchg "+f.path(p)) {
+			t.Errorf("%s not unlocked: %q", p, f.flags)
+		}
+	}
+	if got := movedGit(f.dir, ""); got != "" {
+		t.Errorf("no record: %q", got)
+	}
+}
+
+// A config that isn't a regular file, or hooks that aren't a folder, are
+// never locked, and named: a FIFO or folder the VM left in its place.
+func TestLockOnlyWhatGitReads(t *testing.T) {
+	f := newFixture(t, "p")
+	mkdirs(t, f.path(".git/config"), f.path(".git/modules/s/objects"), f.path(".git/modules/s/refs"))
+	write(t, f.path(".git/modules/s/HEAD"), "")
+	write(t, f.path(".git/modules/s/hooks"), "")
+	if err := f.newVM(false); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{".git/config", ".git/modules/s/hooks"} {
+		if f.locked(f.path(p)) || !f.warned("git_lock_failed path="+f.path(p)) {
+			t.Errorf("%s: locks %q, warnings %q", p, f.flags, f.warns.Names())
+		}
+	}
+	if !f.locked(f.path(".git/hooks")) || !f.locked(f.path(".git/modules/s/config")) {
+		t.Errorf("the rest: locks %q", f.flags)
+	}
+}
+
 // A lock that fails is named, and why goes to the run log; one undone by
 // a race is named as that alone; unlocking warns of nothing.
 func TestLockFailed(t *testing.T) {

@@ -493,6 +493,15 @@ func (p *Protector) Unlock(ctx context.Context, vm *state.VM) {
 		for _, d := range p.abs(g.Made.GitDirs) {
 			todo = append(todo, filepath.Join(d, "hooks"), filepath.Join(d, "config"))
 		}
+		// A .git the VM moved aside keeps its locks where it went.
+		if old := movedGit(p.Dir, g.Made.GitID); old != "" {
+			todo = append(todo, filepath.Join(old, "hooks"), filepath.Join(old, "config"))
+			for _, d := range g.Made.GitDirs {
+				if rest, ok := strings.CutPrefix(d, ".git/"); ok {
+					todo = append(todo, filepath.Join(old, rest, "hooks"), filepath.Join(old, rest, "config"))
+				}
+			}
+		}
 	}
 	done := map[string]bool{}
 	var stuck []string
@@ -903,10 +912,52 @@ func (p *Protector) lock(ctx context.Context, emb embeds) {
 				_ = os.Mkdir(path, 0o700)
 			}
 		}
-		if _, err := os.Lstat(path); err == nil {
+		fi, err := os.Lstat(path)
+		switch {
+		case err != nil:
+		case !lockable(path, fi):
+			// A FIFO for a config, a file for hooks: the VM's doing, never
+			// locked, as a lock wouldn't hold what git reads.
+			p.Warn(msg.GitLockFailed(path))
+		default:
 			p.flag(ctx, "uchg", path)
 		}
 	}
+}
+
+// maxMovedLook is how many entries of the project folder movedGit looks
+// through.
+const maxMovedLook = 1000
+
+// movedGit is where, in the project folder dir's top, the .git devvm
+// last locked (its FolderID, id) is now, when it's no longer .git, as when
+// the VM renames .git and makes another: "" when it's .git still, or
+// isn't there.
+func movedGit(dir, id string) string {
+	if id == "" || folderID(filepath.Join(dir, ".git")) == id {
+		return ""
+	}
+	f, err := os.Open(dir) //nolint:gosec // the project folder
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+	entries, _ := f.ReadDir(maxMovedLook)
+	for _, e := range entries {
+		if path := filepath.Join(dir, e.Name()); e.IsDir() && folderID(path) == id {
+			return path
+		}
+	}
+	return ""
+}
+
+// lockable reports whether what's at path, which realInDir passed, is
+// what git reads there: a folder of hooks, a regular file for the rest.
+func lockable(path string, fi fs.FileInfo) bool {
+	if filepath.Base(path) == "hooks" {
+		return fi.IsDir()
+	}
+	return fi.Mode().IsRegular()
 }
 
 // flag sets a flag on a path realInDir passed, then checks it again.

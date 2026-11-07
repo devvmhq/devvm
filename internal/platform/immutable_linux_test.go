@@ -34,17 +34,38 @@ func TestHelperUsable(t *testing.T) {
 		"another one":  {helperScript(t, "echo 2"), ErrHelperUnusable, `protocol "2"`},
 		"not runnable": {t.TempDir(), ErrHelperUnusable, "permission denied"},
 	} {
-		err := Locker{Helper: tc.helper}.HelperUsable(t.Context())
+		err := Locker{Helper: tc.helper, Unvetted: true}.HelperUsable(t.Context())
 		if !errors.Is(err, tc.want) || tc.want == nil && err != nil || tc.why != "" && !strings.Contains(err.Error(), tc.why) {
 			t.Errorf("%s: %v, want %v (%s)", name, err, tc.want, tc.why)
 		}
 	}
 }
 
+// Only a helper that root alone can change is run: one the user owns, or
+// in a folder the user owns, or through a link the user owns, is refused,
+// saying which; one root owns all the way up passes.
+func TestVetHelper(t *testing.T) {
+	mine := helperScript(t, "echo 1")
+	if err := (Locker{Helper: mine}).HelperUsable(t.Context()); !errors.Is(err, ErrHelperUnusable) || !strings.Contains(err.Error(), mine+" isn't root's") {
+		t.Errorf("the user's: %v", err)
+	}
+	sys := "/usr/bin/true"
+	if err := vetHelper(sys); err != nil {
+		t.Skipf("%s isn't root's all the way up here: %v", sys, err)
+	}
+	link := filepath.Join(t.TempDir(), "devvm-immutable")
+	if err := os.Symlink(sys, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := vetHelper(link); err == nil || !strings.Contains(err.Error(), "isn't root's") {
+		t.Errorf("a link of the user's: %v", err)
+	}
+}
+
 // Usable needs the helper first, then a file system with the attribute:
 // procfs has none.
 func TestUsable(t *testing.T) {
-	ok := Locker{Helper: helperScript(t, "echo 1")}
+	ok := Locker{Helper: helperScript(t, "echo 1"), Unvetted: true}
 	if err := (Locker{}).Usable(t.Context(), t.TempDir()); !errors.Is(err, ErrNoHelper) {
 		t.Errorf("no helper: %v", err)
 	}
@@ -63,7 +84,7 @@ func TestUsable(t *testing.T) {
 // path, and its error has what the helper said.
 func TestChflagsRunsTheHelper(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "log")
-	l := Locker{Helper: helperScript(t, `echo "$*" >> `+log+`; [ "$1" = set ] || { echo "devvm-immutable: no" >&2; exit 1; }`)}
+	l := Locker{Helper: helperScript(t, `echo "$*" >> `+log+`; [ "$1" = set ] || { echo "devvm-immutable: no" >&2; exit 1; }`), Unvetted: true}
 	if err := l.Chflags(t.Context(), "uchg", "/p/.git/hooks"); err != nil {
 		t.Fatal(err)
 	}
