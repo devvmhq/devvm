@@ -1,17 +1,21 @@
 name: Docs
 
-# Pull requests touching the docs get their lints and a build; main deploys.
+# Pull requests touching the docs get their lints and a build; main deploys when the docs change.
+# The site is built from docs/ alone (the CLI reference included, which a help change commits
+# there), and CI's lint runs the docs checks on every code change, so other pushes skip this.
+# Both triggers take the same paths; workflow_dispatch deploys by hand.
 on:
   push:
     branches: [main]
-  pull_request:
-    paths:
+    paths: &docs-paths
       - "docs/**"
       - "**.md"
       - ".vale.ini"
       - ".vale/**"
       - ".markdownlint-cli2.yaml"
       - ".github/workflows/docs.yml"
+  pull_request:
+    paths: *docs-paths
   workflow_dispatch:
 
 permissions:

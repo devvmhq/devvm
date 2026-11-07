@@ -3,6 +3,7 @@ package tools
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
@@ -66,5 +67,54 @@ func TestE2ELockPins(t *testing.T) {
 		if !lock.HasDownload(tool, platforms) {
 			t.Errorf("tests/e2e-mise.lock has no download of %s for every one of %q", tool, platforms)
 		}
+	}
+}
+
+// TestToolBackendsNamed checks that shared-tools/mise.toml's [tool_alias]
+// names the backend of every shared tool that isn't one of mise's own
+// (core:), and that it's the one tests/e2e-mise.lock resolved: mise's
+// registry picks a tool's backend otherwise, and a mise release can move
+// its pick (opencode 2's to npm, which has no download per platform).
+func TestToolBackendsNamed(t *testing.T) {
+	config := read(t, repo(t, "assets", "shared-tools", "mise.toml"))
+	aliases, err := configAliases(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock := parsed(t, read(t, repo(t, "tests", "e2e-mise.lock")))
+	names, _ := configTools(config)
+	for _, tool := range names {
+		got, named := aliases[tool]
+		switch b := lock.Backend(tool); {
+		case b == "core:"+tool && !named:
+		case !named:
+			t.Errorf("mise.toml doesn't name %s's backend (the lock's is %s): add it to [tool_alias]", tool, b)
+		case got != b:
+			t.Errorf("mise.toml names %s's backend %s, tests/e2e-mise.lock has %s: run scripts/bump.sh e2e-tools", tool, got, b)
+		}
+	}
+	for tool := range aliases {
+		if !slices.Contains(names, tool) {
+			t.Errorf("mise.toml's [tool_alias] names %s, which isn't one of its [tools]", tool)
+		}
+	}
+}
+
+// Aliases gives a VM's mise the [tool_alias] table, a tool a line.
+func TestAliases(t *testing.T) {
+	got, err := Aliases(os.DirFS(repo(t, "assets")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := configAliases(read(t, repo(t, "assets", "shared-tools", "mise.toml")))
+	back, err := configAliases(got)
+	if err != nil || !maps.Equal(back, want) || len(want) == 0 {
+		t.Errorf("Aliases = %q (%v), want %q", got, err, want)
+	}
+	if !strings.HasPrefix(string(got), "[tool_alias]\nclaude = \"aqua:anthropics/claude-code\"\n") {
+		t.Errorf("Aliases = %q", got)
+	}
+	if _, err := Aliases(os.DirFS(t.TempDir())); err == nil {
+		t.Error("no mise.toml, no error")
 	}
 }

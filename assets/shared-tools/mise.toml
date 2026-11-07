@@ -1,6 +1,17 @@
 # The shared tools (the docs' images page, "Shared tools"). devvm resolves each, per user, to upstream's newest
 # release matching its version here, into ~/.local/share/devvm/mise.lock with each download's checksum
 # per platform. A version here is a hold (node = "24"); nothing is pinned.
+
+# Where each tool that isn't one of mise's own (core:) comes from, named here so that mise's registry
+# can't move it to another source: its first choice can change between mise releases (opencode 2
+# moved to npm, which has no download per platform). VMs' mise gets the same list.
+[tool_alias]
+claude = "aqua:anthropics/claude-code"
+codex = "aqua:openai/codex"
+opencode = "github:anomalyco/opencode"   # its GitHub releases: a musl build of its own, attested
+pnpm = "aqua:pnpm/pnpm"
+uv = "aqua:astral-sh/uv"
+
 [tools]
 node = "24"            # Node 25+ drops corepack
 pnpm = "latest"
