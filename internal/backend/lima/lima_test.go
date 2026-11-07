@@ -336,13 +336,13 @@ func TestStartRefusesGlobalConfigsAndNetworks(t *testing.T) {
 }
 
 // Lima keeps a VM's ssh socket in its folder, OpenSSH adds 17 characters
-// while making it, and a socket path has at most 104: the name gets what's
-// left.
+// while making it, and Lima refuses a socket path of paths.SocketMax
+// characters or more: the name gets what's left.
 func TestNameMax(t *testing.T) {
 	l, f, _ := testLima(t, "darwin")
 	n := l.NameMax()
-	if len(l.Dirs.Lima)+1+n+len("/ssh.sock")+17 != 104 {
-		t.Errorf("NameMax %d for a Lima home of %d characters", n, len(l.Dirs.Lima))
+	if sock := len(l.Dirs.Lima) + 1 + n + len("/ssh.sock") + 17; sock != paths.SocketMax-1 {
+		t.Errorf("NameMax %d gives a socket path of %d characters for a Lima home of %d", n, sock, len(l.Dirs.Lima))
 	}
 	long := "devvm-" + strings.Repeat("x", n) + "-0123456789abcd"
 	err := l.CreateVM(t.Context(), "k", backend.VMSpec{Name: long})

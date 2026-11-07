@@ -69,7 +69,7 @@ Set the variables in the VM's shell or in your project's scripts, before the too
 
 ## Limits
 
-- **Folder names in VM names are cut short.** Lima keeps each VM's ssh socket in the VM's folder in its home, and a socket path has at most 104 characters. A long Lima home leaves less room for the name, so set `DEVVM_LIMA_HOME` to a shorter folder if devvm says the home is too long, or that a VM's name leaves no room for the folder's name ([VM names](../internals/backends.md#vm-names)).
+- **Folder names in VM names are cut short.** Lima keeps each VM's ssh socket in the VM's folder in its home, and a socket path has fewer than 104 characters. A long Lima home leaves less room for the name, so set `DEVVM_LIMA_HOME` to a shorter folder if devvm says the home is too long, or that a VM's name leaves no room for the folder's name ([VM names](../internals/backends.md#vm-names)).
 - **Paths can't contain commas.** Lima and QEMU split mount options on commas, so devvm refuses to mount a project folder whose path has one, and it leaves out an agent's folder whose path has one, with a warning.
 - **Disks can grow but not shrink.**
 - **Mounts on Linux are 9p.** A 9p share mounts once per guest, and file watchers in the VM miss changes in its subfolders ([file watchers](#file-watchers)).
