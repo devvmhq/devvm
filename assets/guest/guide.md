@@ -30,7 +30,7 @@ The VM doesn't record its tier, and the user sees it with devvm network on the h
 
 ## Tools and installs
 
-- The toolchains (node, python, rust, go) and the coding agents are shared tools, mounted read-only from images that every VM shares. They can't update themselves, and global installs go into your home: `npm i -g` installs into `~/.npm-global`, and Python's packages go into a virtual environment or `~/.local/bin`.
+- The toolchains, such as node ([the list](https://devvm.dev/docs/using/toolchains/)), and the coding agents are shared tools, mounted read-only from images that every VM shares. They can't update themselves, and global installs go into your home: `npm i -g` installs into `~/.npm-global`, Python's packages go into a virtual environment or `~/.local/bin`, and `dotnet tool install -g` installs into `~/.dotnet/tools`.
 - mise runs the shared tools. A project that asks for another version, in `.tool-versions`, `mise.toml` or its own toolchain file, gets it from mise, which installs it in your home on first use.
 - `sudo` needs no password, and `apt install` (`apk add` on Alpine) goes through the proxy, whose allowlist for every VM has Ubuntu's, Debian's and Alpine's package hosts. What it installs is lost when the VM is made again.
 - `devvm-fetch URL SHA256 OUT` downloads a file and fails when its checksum doesn't match.

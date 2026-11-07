@@ -207,8 +207,18 @@ func (t Share) buildOne(ctx context.Context, b backend.Backend, base string, tg 
 	if err != nil {
 		return err
 	}
+	args := []string{tool, version, file}
+	if image.OwnDownload(tool) {
+		// build.sh fetches it itself, from the lock's download for this
+		// VM's platform, checked against the lock's checksum.
+		url, sum := lock.Download(tool, t.platform(tg.Libc))
+		if !strings.HasPrefix(url, "https://") || !strings.HasPrefix(sum, "sha512:") {
+			return msg.ToolUnbuilt(tool, version)
+		}
+		args = append(args, url, strings.TrimPrefix(sum, "sha512:"))
+	}
 	spec := backend.ToolsSpec{
-		Name: Label([]string{file}), Base: base, Out: out, OutAt: ShareAt, Args: []string{tool, version, file}, Format: tg.Format,
+		Name: Label([]string{file}), Base: base, Out: out, OutAt: ShareAt, Args: args, Format: tg.Format,
 		Net: backend.NetInternet, Script: backend.Script{Name: "build.sh", Data: script}, Trust: ca,
 	}
 	if err := b.BuildTools(ctx, spec); err != nil {

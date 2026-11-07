@@ -20,6 +20,7 @@ python = "latest"
 uv = "latest"
 go = "latest"
 rust = "latest"        # installed with the rustup pinned in build.sh; rustup checks the toolchain
+dotnet = "latest"      # the SDK; devvm adds its downloads and their SHA-512 from Microsoft's releases
 claude = "latest"
 codex = "latest"
 opencode = "2"         # upstream marks its 1.x releases as GitHub's latest, which "latest" resolves to

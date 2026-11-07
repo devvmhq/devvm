@@ -92,13 +92,16 @@ experimental = true
 shared_install_dirs = ["/opt/devvm/tools"]
 # A project's version files choose versions, as their own tools would; a version that isn't shared
 # installs into the VM on first use. Not go: go.mod's go line is a minimum, and Go's own GOTOOLCHAIN
-# reads its toolchain line.
-idiomatic_version_file_enable_tools = ["node", "python", "bun", "pnpm"]
+# reads its toolchain line. dotnet's is global.json's sdk.version, which mise installs as it is.
+idiomatic_version_file_enable_tools = ["node", "python", "bun", "pnpm", "dotnet"]
 auto_install = true
 not_found_auto_install = true
 python.compile = false
 # mise points GOBIN into Go's install, which is read-only: go install goes to ~/go/bin.
 go_set_gobin = false
+# Each .NET SDK in a folder of its own, the shared one's its image: mise would otherwise run every SDK
+# from one folder of the VM's, which the shared one isn't in.
+dotnet.isolated = true
 # The project folder is the user's own: trust its mise.toml without asking.
 trusted_config_paths = ["/"]
 T
@@ -123,6 +126,17 @@ fi
 go=$(awk '$2 == "go" { print $3 }' "$s/tools")
 if [[ -n $go && "$(cat ~/.config/go/telemetry/mode 2>/dev/null)" != off* ]]; then
   /opt/devvm/tools/go/"$go"/bin/go telemetry off
+fi
+# .NET's global tools (~/.dotnet/tools) find the shared runtime in every shell through
+# /etc/dotnet/install_location, where .NET's programs look for an installed one: mise sets
+# DOTNET_ROOT only in the shells it activates.
+dotnet=$(awk '$2 == "dotnet" { print $3 }' "$s/tools")
+loc=$(cat /etc/dotnet/install_location 2>/dev/null || true)
+if [[ -n $dotnet && $loc != "/opt/devvm/tools/dotnet/$dotnet" ]]; then
+  sudo mkdir -p /etc/dotnet
+  echo "/opt/devvm/tools/dotnet/$dotnet" | sudo tee /etc/dotnet/install_location >/dev/null
+elif [[ -z $dotnet && $loc == /opt/devvm/tools/* ]]; then
+  sudo rm -f /etc/dotnet/install_location
 fi
 # Claude Code checks for itself at ~/.local/bin/claude.
 claude=$(awk '$2 == "claude" { print $3 }' "$s/tools")

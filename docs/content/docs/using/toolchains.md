@@ -3,7 +3,17 @@ title: Toolchains
 weight: 2
 ---
 
-devvm has four toolchains: node, python, rust and go. A new VM gets the ones its folder's files call for, which the summary of the new VM shows, unless you customize the VM and check others in the list or give others with `--tools`, as in `devvm --tools node,python` ([what a new VM gets](images.md#what-a-new-vm-gets)). Each section below says what the toolchain brings and which files make devvm choose it. A project that gets its toolchain from Nix uses the `nix` layer, which [Nix projects](#nix-projects) covers.
+devvm has these toolchains:
+
+| Toolchain | What it brings |
+| --- | --- |
+| [node](#node) | Node 24, with npm, pnpm, yarn and bun |
+| [python](#python) | CPython, with pip and uv |
+| [rust](#rust) | rustup, cargo and the stable toolchain |
+| [go](#go) | Go |
+| [dotnet](#dotnet) | the .NET SDK and its runtimes |
+
+A new VM gets the ones its folder's files call for, which the summary of the new VM shows, unless you customize the VM and check others in the list or give others with `--tools`, as in `devvm --tools node,python` ([what a new VM gets](images.md#what-a-new-vm-gets)). Each section below says what the toolchain brings and which files make devvm choose it. A project that gets its toolchain from Nix uses the `nix` layer, which [Nix projects](#nix-projects) covers.
 
 ## node
 
@@ -40,6 +50,15 @@ go brings the newest Go release, and devvm turns Go's telemetry off in the VM.
 - **Versions.** The `toolchain` line in a project's `go.mod` picks its Go version, and Go itself downloads that version into the VM the first time it's used.
 - **Global installs.** `go install` installs into `~/go/bin` in the VM, which is on the `PATH`.
 - **Allowlist.** On the allowlist tier, the VM can reach Go's module proxy, its checksum database and Go's downloads, which are `proxy.golang.org`, `sum.golang.org`, `go.dev` and `dl.google.com`.
+
+## dotnet
+
+dotnet brings the newest release of the .NET SDK, with the .NET and ASP.NET Core runtimes that come with it, and devvm turns off .NET's telemetry and its first-run banner in the VM.
+
+- **Files.** devvm chooses dotnet for a folder with a solution (`*.sln` or `*.slnx`), a C# or F# project (`*.csproj` or `*.fsproj`) or `global.json` at its top level.
+- **Versions.** The `sdk.version` in a project's `global.json` picks its SDK, which installs into the VM the first time it's used. mise installs exactly that version and doesn't follow `rollForward`, so a `global.json` that allows a newer SDK still gets the one it names, and a `global.json` without an SDK version keeps the shared one. mise installs that SDK with Microsoft's install script, which checks only the download's size, while devvm checks the shared SDK against the SHA-512 that Microsoft publishes for it.
+- **Global installs.** `dotnet tool install -g` installs into `~/.dotnet/tools` in the VM, which is on the `PATH`, and NuGet keeps its packages in `~/.nuget/packages`. The shared SDK is read-only, so `dotnet workload install` installs workloads into `~/.dotnet` in the VM instead of the SDK's folder.
+- **Allowlist.** On the allowlist tier, the VM can reach NuGet, the revocation lists that NuGet checks packages' signatures against, and the SDK downloads that a `global.json` asks for, which are `api.nuget.org`, `crl3.digicert.com` on port 80, `dot.net` and `builds.dotnet.microsoft.com`. Microsoft's telemetry isn't on the allowlist.
 
 ## Nix projects
 
@@ -89,13 +108,13 @@ What this doesn't cover:
 
 ## How toolchains are shared and updated
 
-The toolchains are [shared tools](images.md#shared-tools), like the [coding agents](coding-agents.md#supported-agents), so they aren't part of any image. devvm builds each version once and mounts it read-only into every VM that has it, and [mise](https://mise.jdx.dev) runs it, so `node`, `python`, `cargo` and `go` work from any shell in the VM, including `bash -c` from agents and from editors over SSH. Because the shared copy is read-only, a toolchain can't update itself, and anything you install globally goes into your home in the VM, as each section above says.
+The toolchains are [shared tools](images.md#shared-tools), like the [coding agents](coding-agents.md#supported-agents), so they aren't part of any image. devvm builds each version once and mounts it read-only into every VM that has it, and [mise](https://mise.jdx.dev) runs it, so `node`, `python`, `cargo`, `go` and `dotnet` work from any shell in the VM, including `bash -c` from agents and from editors over SSH. Because the shared copy is read-only, a toolchain can't update itself, and anything you install globally goes into your home in the VM, as each section above says.
 
 devvm follows each toolchain's newest release, and Node 24 for node. [Which bases they run on](#which-bases-they-run-on) says what each one needs from a VM's base. [Adding and removing tools](#adding-and-removing-tools) explains how `devvm update` and `devvm tools update` move a VM to newer versions, how `devvm tools add` adds a toolchain to an existing VM, and how `devvm tools rm` takes one out. [What a new VM gets](images.md#what-a-new-vm-gets) explains what happens when a folder calls for more than one toolchain.
 
 ## Which bases they run on
 
-Every toolchain runs on `base` from Ubuntu's own image, and on an Alpine-based image with [`--from`](from.md), which gets musl builds of the tools. On a Debian- or Ubuntu-based image, each tool needs at least the glibc version that its prebuilt release was built against. devvm measures that version from the tool's files whenever it builds a new version, and it refuses a tool whose version is newer than the image's glibc ([shared tools and glibc](from.md#shared-tools-and-glibc)). Today the shared tools need these glibc versions, so Debian 10 and Ubuntu 20.04 and newer images run all of them:
+Every toolchain runs on `base` from Ubuntu's own image, and on an Alpine-based image with [`--from`](from.md), which gets musl builds of the tools. dotnet also needs ICU, the Unicode library that .NET's globalization uses, so devvm installs ICU in `base`, whether it's made from Ubuntu's image or `--from` a container image. On a Debian- or Ubuntu-based image, each tool needs at least the glibc version that its prebuilt release was built against. devvm measures that version from the tool's files whenever it builds a new version, and it refuses a tool whose version is newer than the image's glibc ([shared tools and glibc](from.md#shared-tools-and-glibc)). Today the shared tools need these glibc versions, so Debian 10 and Ubuntu 20.04 and newer images run all of them:
 
 | Shared tool | arm64 | amd64 |
 | --- | --- | --- |
@@ -105,6 +124,7 @@ Every toolchain runs on `base` from Ubuntu's own image, and on an Alpine-based i
 | uv, with python | 2.28 | 2.17 |
 | rust, with rustup | 2.17 | 2.17 |
 | go | none, because its programs need no glibc | none |
+| dotnet | 2.27 | 2.27 |
 | claude and opencode | 2.17 | 2.17 |
 | codex | 2.28, for its voice helper | 2.28 |
 

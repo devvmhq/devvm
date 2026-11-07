@@ -3,6 +3,7 @@ package vm
 import (
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -60,14 +61,9 @@ type detected struct{ Name, File string }
 // default parts (defaults) start from them.
 func detectFiles(dir string) []detected {
 	var found []detected
+	f := folder{dir: dir}
 	for _, m := range markers() {
-		file := ""
-		for _, f := range m.files {
-			if _, err := os.Lstat(filepath.Join(dir, f)); err == nil {
-				file = f
-				break
-			}
-		}
+		file := f.first(m.files)
 		if file == "" && m.part == image.NixLayer && nixShell(dir) {
 			file = "default.nix"
 		}
@@ -76,4 +72,39 @@ func detectFiles(dir string) []detected {
 		}
 	}
 	return found
+}
+
+// folder is a project folder's top level, as detectFiles looks in it:
+// its names are read once, for the first pattern that needs them.
+type folder struct {
+	dir   string
+	names []string
+	read  bool
+}
+
+// first is the first of a marker's files in the folder: a name that's
+// there, or the first name a pattern matches (path.Match's), in name
+// order; "" when none is.
+func (f *folder) first(files []string) string {
+	for _, file := range files {
+		if !strings.Contains(file, "*") {
+			if _, err := os.Lstat(filepath.Join(f.dir, file)); err == nil {
+				return file
+			}
+			continue
+		}
+		if !f.read {
+			entries, _ := os.ReadDir(f.dir) // sorted by name; none when it can't be read
+			for _, e := range entries {
+				f.names = append(f.names, e.Name())
+			}
+			f.read = true
+		}
+		for _, n := range f.names {
+			if ok, _ := path.Match(file, n); ok {
+				return n
+			}
+		}
+	}
+	return ""
 }

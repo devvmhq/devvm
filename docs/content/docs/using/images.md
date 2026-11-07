@@ -103,12 +103,12 @@ The VM keeps what [a VM made again keeps](#what-a-vm-made-again-keeps), its home
 
 ## Shared tools
 
-The toolchains and coding agents are shared tools, not image layers. A VM of any image can have them, in any mix, such as node, python and Claude Code on base, or go and Codex on `foo`. A VM's state lists its shared tools apart from its image. [Toolchains](toolchains.md) lists node, python, rust and go, with what each brings, and [supported agents](coding-agents.md#supported-agents) lists claude, codex and opencode.
+The toolchains and coding agents are shared tools, not image layers. A VM of any image can have them, in any mix, such as node and Claude Code on base, or go and Codex on `foo`. A VM's state lists its shared tools apart from its image. [Toolchains](toolchains.md) lists the toolchains, with what each brings, and [supported agents](coding-agents.md#supported-agents) lists claude, codex and opencode.
 
 devvm builds each tool version once and mounts it read-only into every VM that has it, so any mix of tools works without building anything new, and ten VMs with node share one copy of it. The builds are in `~/.local/share/devvm/tools`. Each C library gets a build of its own, so when an Alpine VM and an Ubuntu VM both have node 24, `devvm images` lists two builds of that version ([what devvm keeps](space.md#shared-tools)). An Alpine VM's builds are only ever shared with VMs on the same container image, as [shared tools and glibc](from.md#shared-tools-and-glibc) explains. [mise](https://mise.jdx.dev) runs the tools:
 
-- **They work as usual.** `node`, `npm i -g` (into `~/.npm-global`), `pnpm`, `yarn`, `pip` and `uv`, `go install` (into `~/go/bin`) and `cargo` work from any shell, including `bash -c` from agents and from editors over SSH.
-- **A project's own version files win.** `.nvmrc`, `.node-version`, `.python-version`, `rust-toolchain.toml` and the `toolchain` line in `go.mod` pick their version, which installs into the VM the first time it's used. mise also reads a `mise.toml` in the project folder, and devvm trusts it without asking, because the folder is yours.
+- **They work as usual.** Each toolchain's commands, such as `npm i -g` (into `~/.npm-global`) or `go install` (into `~/go/bin`), work from any shell, including `bash -c` from agents and from editors over SSH. Global installs go into your home, as [each toolchain's section](toolchains.md) says.
+- **A project's own version files win.** `.nvmrc`, `.node-version`, `.python-version`, `rust-toolchain.toml`, the `toolchain` line in `go.mod` and the SDK version in `global.json` pick their version, which installs into the VM the first time it's used. mise also reads a `mise.toml` in the project folder, and devvm trusts it without asking, because the folder is yours.
 - **They're read-only.** A VM can't change the shared tools, even as root. The tools can't update themselves, and `rustup component add` can't change the shared toolchain.
 - **They're mounted, or the launch stops.** When one of a VM's tools is missing or the VM can't mount it, devvm stops the launch and names the tool, and the VM never downloads its own copy in its place ([a shared tool doesn't mount](troubleshooting.md#a-shared-tool-doesnt-mount)). Only the versions that a project's own version files pick install into the VM.
 
@@ -244,7 +244,7 @@ The second table lists the [shared tools](#shared-tools) that devvm has built, b
 
 | Column | |
 | --- | --- |
-| `NAME` | `node`, `python`, `rust`, `go`, `claude`, `codex` or `opencode` |
+| `NAME` | a [toolchain](toolchains.md)'s name, such as `node`, or an agent's, such as `claude` |
 | `TOOL`, `VERSION` | the tool and its version |
 | `LIBC` | the C library (`gnu`, or `musl` for an Alpine base) that this build is for, because each gets a build of its own, or `-` when devvm can't tell |
 | `SIZE` | the disk it takes |

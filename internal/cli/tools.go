@@ -100,7 +100,7 @@ func newToolsAddCmd(a *app) *cobra.Command {
 		Use:   "add TOOL...",
 		Short: "Add shared tools to this folder's VM, then open a shell in it",
 		Long: "Add shared tools to this folder's VM, then open a shell in it. " +
-			"TOOL is node, python, rust, go, claude, codex or opencode, each a separate word. " +
+			"TOOL is a toolchain, such as node, or a coding agent, such as claude, each a separate word. " +
 			"devvm builds any of them that aren't built, and for a new agent in a running VM it asks before restarting the VM.",
 		Example: examples(
 			"devvm tools add claude", "add Claude Code to the VM",

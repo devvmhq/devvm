@@ -158,6 +158,8 @@ func newEnv(t *testing.T) env {
 	tl.Arch = "arm64"
 	tl.Getenv = func(string) string { return "" }
 	tl.Mise = stubtest.Command(t, "mise")
+	// Never Microsoft's: a test that needs dotnet's releases serves them.
+	tl.dotnetURL = "http://127.0.0.1:0/%s/releases.json"
 	tl.ShareNote = time.Millisecond
 	tl.RetryDelay = time.Millisecond
 	tl.FreeSpace = func(string) (uint64, error) { return 1 << 40, nil }
@@ -1231,6 +1233,7 @@ func TestList(t *testing.T) {
 		"go go 1.27.2 true 0 current",
 		"go go 1.20.0 true 2 in use",
 		"go go 1.9.0 true 0 unused",
+		"dotnet   false 0 not installed",
 		"claude claude 2.1.295 true 1 current",
 		"codex   false 0 not installed",
 		"opencode   false 0 not installed",

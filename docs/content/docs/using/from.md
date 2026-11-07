@@ -41,7 +41,7 @@ If the image's tag moves to another image while devvm builds, for example becaus
 - **Alpine** uses OpenRC and musl, so its VMs get musl builds of the shared tools, built on that image and kept apart for it. Its base also gets GNU `tar` from Alpine's packages in place of busybox's, because devvm sends the VM's setup and [imports agents' history](coding-agents.md#importing-history) with it.
 - **Unpinned packages.** While `base` builds, its packages come from the container image's own sources as they are then, apt's or Alpine's, and so do the [desktop layer](images.md#desktop)'s, the [docker layer](images.md#docker)'s on Alpine and the [nix layer](images.md#nix)'s. devvm keeps no copy of them, unlike base from Ubuntu's image, so building the same base again installs the sources' packages of that day, and it needs the network for them.
 - **A glibc new enough for your shared tools.** A Debian or Ubuntu image's glibc must be at least as new as each shared tool needs, which [shared tools and glibc](#shared-tools-and-glibc) covers.
-- **Tested.** The end-to-end tests make VMs from `node:24` (Debian 12, with node, python, claude and the docker and nix layers) and `alpine:3` (with node and the docker, nix and desktop layers), and build `base` from `ubuntu:26.04`.
+- **Tested.** The end-to-end tests make VMs from `node:24` (Debian 12, with node, python, claude and the docker and nix layers) and `alpine:3` (with node, dotnet and the docker, nix and desktop layers), and build `base` from `ubuntu:26.04`.
 
 ## Shared tools and glibc
 

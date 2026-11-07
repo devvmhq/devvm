@@ -258,6 +258,7 @@ func fromDebianRuns(s *S, vm string) {
 func fromAlpineVM(s *S, nd []string) {
 	al, _ := s.NewProject("fromalpine")
 	_ = os.WriteFile(filepath.Join(al, "package.json"), []byte("{}\n"), 0o644) //nolint:gosec // a project's file, as a user's
+	_ = os.WriteFile(filepath.Join(al, "global.json"), []byte("{}\n"), 0o644)  //nolint:gosec // a project's file, as a user's
 	vm, launched, _ := launchWith(s, al, nd, "--from", fromAlpine, "--network", "open", "--layers", "docker,nix,desktop")
 	s.Check("an Alpine VM runs node from musl tool images", func() error {
 		if vm == "" || s.Paths.State(vm)["tools.made.libc"] != "musl" || s.Paths.Record(fromRecord(s.Paths, fromAlpine), "libc") != "musl" {
@@ -286,6 +287,8 @@ func fromAlpineVM(s *S, nd []string) {
 	})
 	inVMCheck(s, "and node, pnpm work there", vm,
 		"grep -q '^ID=alpine' /etc/os-release && [[ $(node -v) == v"+s.Paths.ToolVersion("node")+` ]] && node -e 'require("os")' && pnpm -v`)
+	inVMCheck(s, "and dotnet, its global.json's: the musl SDK, with ICU, makes and runs a console project", vm,
+		"[[ $(dotnet --version) == "+s.Paths.ToolVersion("dotnet")+" ]] && cd /tmp && dotnet new console -o hello >/dev/null && [[ $(dotnet run --project hello) == 'Hello, World!' ]]")
 	inVMCheck(s, "the docker layer's Docker runs in it (OpenRC)", vm, `sudo docker run --rm hello-world | grep -q Hello`, Needs(backend.FeatureDockerLayer))
 	inVMCheck(s, "the desktop layer's programs are in it (Alpine's packages)", vm,
 		`command -v Xvnc && command -v startxfce4 && command -v vncconfig && [[ -x /usr/local/bin/devvm-desktop ]]`)

@@ -112,9 +112,9 @@ func (l Lock) Entry(tool string) ([]byte, error) {
 }
 
 // HasDownload reports whether a tool's first entry has a download (a URL
-// and its checksum, which mise checks it against, not a build from
-// source) for every one of the platforms. A tool whose
-// installer isn't mise needs none (image.NoDownload): rustup installs rust.
+// and its checksum, which mise or build.sh checks it against, not a build
+// from source) for every one of the platforms. A tool whose installer
+// fetches it needs none (image.NoDownload): rustup installs rust.
 func (l Lock) HasDownload(tool string, platforms []string) bool {
 	if image.NoDownload(tool) {
 		return true
@@ -146,15 +146,28 @@ func (l Lock) versionEntry(tool, version string) lockEntry {
 	return nil
 }
 
+// Download returns the URL and checksum of a tool's first entry's
+// download for a platform: "" for none.
+func (l Lock) Download(tool, platform string) (url, checksum string) {
+	table, _ := l.first(tool)["platforms."+platform].(map[string]any)
+	return str(table, "url"), str(table, "checksum")
+}
+
 // withEntry returns the lock with a tool's entries replaced by e alone,
 // written again as TOML.
 func (l Lock) withEntry(tool string, e lockEntry) (Lock, error) {
+	return l.withEntries(tool, []lockEntry{e})
+}
+
+// withEntries returns the lock with a tool's entries replaced by es,
+// written again as TOML.
+func (l Lock) withEntries(tool string, es []lockEntry) (Lock, error) {
 	doc, ts := map[string]any{}, map[string]any{}
 	maps.Copy(doc, l.doc)
 	if old, ok := l.doc["tools"].(map[string]any); ok {
 		maps.Copy(ts, old)
 	}
-	ts[tool] = []map[string]any{e}
+	ts[tool] = es
 	doc["tools"] = ts
 	var b bytes.Buffer
 	if err := toml.NewEncoder(&b).Encode(doc); err != nil {

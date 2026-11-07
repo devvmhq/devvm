@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/devvmhq/devvm/internal/tools"
 )
 
 // toolsSection: what a user gets, upstream's newest versions of the shared
@@ -18,7 +20,8 @@ import (
 // by devvm's pinned mise, downloaded and checked on the first run. This
 // section alone uses them: the pinned lock goes back at its end. A node
 // VM mounts them read-only from the share, at boot too; a tool missing
-// from the share stops the launch; devvm tools and devvm update.
+// from the share stops the launch; devvm tools and devvm update; a .NET
+// project's VM.
 func toolsSection(s *S) {
 	s.Section("shared tool versions")
 	s.Check("the shared tools resolve to upstream's newest, with checksums", func() error {
@@ -32,23 +35,32 @@ func toolsSection(s *S) {
 	toolsShare(s, vm, t)
 	toolsMissing(s, vm, t)
 	toolsCommands(s)
+	toolsDotnet(s)
 	if err := s.sb.pinLock(); err != nil {
 		s.r.out.line("  e2e: couldn't put the pinned tool lock back")
 	}
 }
 
 // newestLock fails unless the lock has every shared tool, each with a
-// SHA-256 for this machine's Linux but rust, which rustup checks.
+// SHA-256 for this machine's Linux but rust, which rustup checks, and
+// dotnet, which has the SHA-512 devvm added from Microsoft's releases.
 func newestLock(s *S) error {
 	toml, err := os.ReadFile(filepath.Join(s.sb.root, "assets", "shared-tools", "mise.toml"))
 	if err != nil {
 		return err
 	}
-	lock, err := os.ReadFile(s.Paths.ToolLock)
+	data, err := os.ReadFile(s.Paths.ToolLock)
 	if err != nil {
 		return err
 	}
-	ntools, in := 0, false
+	// devvm writes the lock again as TOML of its own when it adds dotnet's
+	// downloads, so it's read as TOML.
+	lock, err := tools.ParseLock(data)
+	if err != nil {
+		return err
+	}
+	var names []string
+	in := false
 	for line := range strings.Lines(string(toml)) {
 		line = strings.TrimSpace(line)
 		switch {
@@ -57,25 +69,27 @@ func newestLock(s *S) error {
 		case strings.HasPrefix(line, "["):
 			in = false
 		case in && strings.Count(line, "=") == 1:
-			ntools++
+			name, _, _ := strings.Cut(line, "=")
+			names = append(names, strings.TrimSpace(name))
 		}
 	}
-	march := "arm64" // the lock's platform: mise's name for the arch
-	if runtime.GOARCH == "amd64" {
-		march = "x64"
-	}
-	lines := strings.Split(string(lock), "\n")
-	entries, sums := 0, 0
-	for i, l := range lines {
-		if strings.HasPrefix(l, "[[tools.") {
-			entries++
+	platform := "linux-" + tools.MiseArch(runtime.GOARCH)
+	var bad []string
+	for _, n := range names {
+		_, sum := lock.Download(n, platform)
+		want := `^sha256:[0-9a-f]{64}$`
+		switch n {
+		case "rust":
+			want = `^$`
+		case "dotnet":
+			want = `^sha512:[0-9a-f]{128}$`
 		}
-		if strings.Contains(l, `"platforms.linux-`+march+`"]`) && i+1 < len(lines) && strings.HasPrefix(lines[i+1], `checksum = "sha256:`) {
-			sums++
+		if !lock.Has(n) || !Matches(sum, want) {
+			bad = append(bad, n)
 		}
 	}
-	if entries != ntools || sums != ntools-1 {
-		return fmt.Errorf("the lock has %d tools and %d checksums for linux-%s; mise.toml has %d tools", entries, sums, march, ntools)
+	if len(names) == 0 || len(bad) > 0 {
+		return fmt.Errorf("the lock lacks %q, or their checksums for %s; mise.toml has %q", bad, platform, names)
 	}
 	return nil
 }
@@ -414,4 +428,75 @@ func toolsRmAdd(s *S, vm, t2 string) {
 		}
 		return nil
 	})
+	_, _ = s.Limactl("stop", vm) // before the dotnet VM: two VMs at once starve a nested Linux host
+}
+
+// dotnetOther is the SDK a global.json in toolsDotnet asks for, which
+// isn't the shared one: mise installs it into the VM.
+const dotnetOther = "8.0.427"
+
+// toolsDotnet: a .NET project's VM on the allowlist tier, its file calling
+// for dotnet: the shared SDK runs from the share; a console project
+// restores a package from NuGet, builds and runs; a global tool installs
+// into ~/.dotnet/tools and runs from a non-login shell; a workload
+// installs into ~/.dotnet, the SDK's folder being read-only; nothing it
+// reached was blocked; and a global.json's SDK installs into the VM.
+func toolsDotnet(s *S) {
+	var vm string
+	t, err := s.NewProject("dotnet")
+	if err == nil {
+		err = os.WriteFile(filepath.Join(t, "Shop.slnx"), []byte("<Solution />\n"), 0o600)
+	}
+	if err == nil {
+		vm, _, _ = s.Launch(t, "exit", "--network", "allowlist", "--no-git-protect")
+	}
+	v := s.Paths.ToolVersion("dotnet")
+	st := func() map[string]string { return s.Paths.State(vm) }
+	inVM := func(script string) func() error {
+		return func() error { _, err := s.InVM(vm, script); return err }
+	}
+	s.Check("a .NET project's VM: dotnet's tool image, at the lock's version, in its state", func() error {
+		switch {
+		case vm == "" || s.Status(vm) != "Running":
+			return errors.New("the dotnet VM isn't running")
+		case st()["tools.names"] != "dotnet" || !Matches("files="+st()["tools.made.files"], `^files=dotnet-`+regexp.QuoteMeta(v)+`-[0-9a-f]{12}\.erofs$`):
+			return errors.New("its tools aren't dotnet's at the lock's version")
+		}
+		return nil
+	})
+	for _, f := range strings.Fields(st()["tools.made.files"]) {
+		b, _ := os.ReadFile(filepath.Join(s.Paths.Share, f+".json"))
+		s.r.out.line("        glibc: %s needs %s", f, CaptureLine(string(b), `^  "glibc": "(.*)",?$`))
+	}
+	s.Check("dotnet runs the shared SDK from the share, read-only, with telemetry off", inVM(
+		`[[ $(dotnet --version) == `+v+` && $DOTNET_CLI_TELEMETRY_OPTOUT == 1 ]] && p=$(readlink -f "$(mise which dotnet)") &&
+		[[ $p == /opt/devvm/tools/dotnet/`+v+`/dotnet ]] && ! touch /opt/devvm/tools/dotnet/`+v+`/x 2>/dev/null`))
+	s.Check("a console project restores a package from NuGet, builds and runs", inVM(
+		"cd "+t+" && dotnet new console -o hello >/dev/null && cd hello && dotnet add package Newtonsoft.Json --version 13.0.3 >/dev/null &&"+
+			" dotnet restore >/dev/null && dotnet build >/dev/null && [[ $(dotnet run) == 'Hello, World!' ]]"))
+	s.Check("dotnet tool install -g installs into ~/.dotnet/tools, on the PATH", inVM(
+		"dotnet tool install -g dotnetsay --version 3.0.3 >/dev/null && [[ $(command -v dotnetsay) == $HOME/.dotnet/tools/dotnetsay ]]"))
+	s.Check("the global tool runs from a non-login shell", func() error {
+		_, err := s.Run(Cmd{Args: []string{"ssh", "-F", filepath.Join(s.sb.lima, vm, "ssh.config"), "lima-" + vm, "dotnetsay hi"}})
+		return err
+	})
+	s.Check("a workload installs into ~/.dotnet", inVM(
+		"dotnet workload install wasi-experimental >/dev/null && dotnet workload list | grep -q '^wasi-experimental ' && [[ -d ~/.dotnet/packs ]]"))
+	s.Check("the project's restore, tool and workload reached nothing the allowlist blocks", func() error {
+		r, err := s.Devvm(t, "network", "log", "-n", "100000")
+		switch {
+		case err != nil:
+			return err
+		case !Matches(r.Out, `  allowed  api\.nuget\.org:443  `):
+			return errors.New("devvm network log doesn't show NuGet\n" + r.Out)
+		case strings.Contains(r.Out, "  BLOCKED  "):
+			return errors.New("the proxy blocked a host\n" + r.Out)
+		}
+		return nil
+	})
+	s.Check("a global.json's SDK installs into the VM, and the shared one runs again without it", inVM(
+		"cd "+t+` && echo '{ "sdk": { "version": "`+dotnetOther+`" } }' > global.json && [[ $(dotnet --version 2>/dev/null) == `+dotnetOther+` ]] &&
+		[[ $(readlink -f "$(mise which dotnet)") == $HOME/.local/share/mise/installs/dotnet/`+dotnetOther+`/dotnet ]]; r=$?; rm global.json
+		[[ $r == 0 && $(dotnet --version) == `+v+` ]]`))
+	_, _ = s.Limactl("stop", vm) // two VMs at once starve a nested Linux host
 }

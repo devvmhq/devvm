@@ -263,18 +263,46 @@ bump_omb() {
 lock_version() {
   awk -v t="[[tools.$2]]" '$0 == t { f = 1; next } f && /^version = / { gsub(/"/, "", $3); print $3; exit }' "$1" 2>/dev/null || true
 }
-# lock_checksum LOCK TOOL PLATFORM: the tool's download for PLATFORM has a SHA-256 in the lock.
+# lock_checksum LOCK TOOL PLATFORM: the tool's download for PLATFORM has a SHA-256 in the lock, or
+# for dotnet the SHA-512 Microsoft publishes.
 lock_checksum() {
   awk -v h="[tools.$2.\"platforms.$3\"]" '
     $0 == h { f = 1; next }
-    f { ok = $0 ~ /^checksum = "sha256:[0-9a-f]+"$/ && length($0) == 84; exit }
+    f { ok = ($0 ~ /^checksum = "sha256:[0-9a-f]+"$/ && length($0) == 84) || ($0 ~ /^checksum = "sha512:[0-9a-f]+"$/ && length($0) == 148); exit }
     END { exit !ok }' "$1"
+}
+# dotnet_downloads LOCK PLATFORM...: the lock's dotnet entry, which mise locks without a download,
+# gets Microsoft's SDK archive for each platform and its SHA-512, from the channel's releases.json,
+# as devvm adds them when it resolves the lock (internal/tools/dotnet.go). Exits when Microsoft has
+# none for a platform yet.
+dotnet_downloads() {
+  local lock=$1 v ch p rid url hash tables=""
+  shift
+  v=$(lock_version "$lock" dotnet)
+  [[ $v =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { printf 'bump: mise locked dotnet at an unexpected version: %q\n' "$v" >&2; exit 1; }
+  ch=${v%.*}
+  fetch -o "$tmp/dotnet-releases.json" "https://builds.dotnet.microsoft.com/dotnet/release-metadata/$ch/releases.json"
+  for p in "$@"; do
+    case $p in *-musl) rid=${p%-musl}; rid=linux-musl-${rid#linux-} ;; *) rid=$p ;; esac
+    read -r url hash < <(jq -r --arg v "$v" --arg rid "$rid" '[.releases[] | (.sdk // empty), (.sdks // [])[]
+      | select(.version == $v) | .files[] | select(.rid == $rid and .name == "dotnet-sdk-\($rid).tar.gz")][0]
+      | "\(.url) \(.hash)"' "$tmp/dotnet-releases.json")
+    hash=$(tr 'A-F' 'a-f' <<<"$hash")
+    if [[ $url != https://builds.dotnet.microsoft.com/dotnet/*.tar.gz || ! $hash =~ ^[0-9a-f]{128}$ ]]; then
+      echo "bump: dotnet $v has no SDK archive with a SHA-512 for $p yet: try again later" >&2; exit 1
+    fi
+    tables+=$'\n'"[tools.dotnet.\"platforms.$p\"]"$'\n'"checksum = \"sha512:$hash\""$'\n'"url = \"$url\""$'\n'
+  done
+  T=$tables awk '{ print } $0 == "[[tools.dotnet]]" { f = 1 } f && /^specifiers = / { printf "%s", ENVIRON["T"]; f = 0 }' \
+    "$lock" > "$tmp/dotnet.lock"
+  cat "$tmp/dotnet.lock" > "$lock"
 }
 
 # The shared tools' versions every e2e section but tools uses (tests/e2e-mise.lock): upstream's newest,
 # resolved as devvm resolves them (its pinned host mise, mise lock on assets/shared-tools/mise.toml), for
-# both architectures' glibc and musl VMs. Every tool must be in it, and each one's downloads but rust's
-# (rustup checks its own) need a SHA-256 on every platform, or this exits: a release without its files
+# both architectures' glibc and musl VMs, with dotnet's downloads added as devvm adds them. Every tool
+# must be in it, and each one's downloads but rust's (rustup checks its own) need a SHA-256 (dotnet's a
+# SHA-512) on every platform, or this exits: a release without its files
 # yet, to try again later. Its first line is the SHA-256 of the mise.toml it was resolved from, which
 # e2e checks before it runs.
 e2e_lock=""
@@ -297,6 +325,8 @@ bump_e2e-tools() {
       "$tmp/mise" lock --platform "$(tr ' ' ',' <<<"$platforms")") >"$tmp/mise-lock.log" 2>&1; then
     cat "$tmp/mise-lock.log" >&2; echo "bump: mise lock failed" >&2; exit 1
   fi
+  # shellcheck disable=SC2086  # the platforms, a word each
+  dotnet_downloads "$d/mise.lock" $platforms
   while read -r tool; do
     new=$(lock_version "$d/mise.lock" "$tool")
     valid "${tool}_version" "$new"

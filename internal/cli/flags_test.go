@@ -182,7 +182,7 @@ func TestPartFlags(t *testing.T) {
 		{"tools", "none", ""},
 		{"tools", "claude", "part_other_flag flag=--tools given=claude other=--agents"},
 		{"tools", "node,mine", "part_other_flag flag=--tools given=mine other=--layers"},
-		{"tools", "java", "unknown_part flag=--tools given=java names=node python rust go"},
+		{"tools", "java", "unknown_part flag=--tools given=java names=node python rust go dotnet"},
 		{"tools", "pyhton", "unknown_part_like flag=--tools given=pyhton like=python"},
 		{"tools", "node,none", "part_none_alone flag=--tools"},
 		{"tools", ",", "part_none_alone flag=--tools"},

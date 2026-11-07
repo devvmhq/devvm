@@ -111,7 +111,7 @@ stderr '^devvm: arg_missing args=TOOL\.\.\. command=devvm tools add$'
 ! exec devvm tools add python+claude
 stderr '^devvm: tools_joined cmd=add given=python\+claude$'
 ! exec devvm tools add docker
-stderr '^devvm: unknown_tool tool=docker tools=node python rust go claude codex opencode$'
+stderr '^devvm: unknown_tool tool=docker tools=node python rust go dotnet claude codex opencode$'
 exec devvm tools add node claude
 stdout '^==> has_tools tools=node vm=devvm-web-[0-9a-f]{14}$'
 stdout '^==> vm_tools_now tools=node claude vm=devvm-web-[0-9a-f]{14}$'

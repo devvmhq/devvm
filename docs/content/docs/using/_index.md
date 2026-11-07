@@ -6,7 +6,7 @@ weight: 20
 These pages cover what you change as you work, such as the images VMs are made from, their ports and size, your coding agents, and the editors you connect with.
 
 - [Coding agents](coding-agents.md): the supported agents, which are Claude Code, Codex and opencode, the config they get in a VM, their logins, and their history.
-- [Toolchains](toolchains.md): node, python, rust and go, with what each brings, the files that choose it, its version files, its global installs and its allowlist.
+- [Toolchains](toolchains.md): the list of toolchains, with what each brings, the files that choose it, its version files, its global installs and its allowlist.
 - [SSH and editors](ssh.md): reaching VMs by name from ssh and VS Code, and forwarding your SSH agent.
 - [Ports and size](ports-size.md): the ports a VM forwards to your machine, and its CPUs, memory and disk.
 - [Managing VMs](vms.md): restarting, stopping, deleting and listing VMs, and what devvm does in a subfolder or when a project folder is made again, moved, deleted or on a disk that isn't connected.
