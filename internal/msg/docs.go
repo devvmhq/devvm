@@ -247,6 +247,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"git_include_inside":             "safety/git-protection#not-covered",
 	"git_hook_link_inside":           "safety/git-protection#not-covered",
 	"git_gitdir_outside":             "safety/git-protection#not-covered",
+	"git_gitdir_not_git":             "safety/git-protection#when-devvm-reports-git",
 	"ssh_remote_hint":                "using/ssh#agent-forwarding",
 	"agent_on_risk":                  "using/ssh#agent-forwarding",
 	"agent_devvm_risk":               "using/ssh#devvms-own-agent",

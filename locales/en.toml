@@ -2165,6 +2165,9 @@ other = "WARNING: Hooks appeared in {{.hooks}}, a folder devvm hadn't locked, si
 [git_gitdir_outside]
 other = "The submodule {{.sub}} keeps its git folder outside the project, at {{.git}}, so devvm can't lock it. git status on this machine still reads its config."
 
+[git_gitdir_not_git]
+other = "WARNING: The submodule {{.sub}} names {{.git}} as its git folder, but that isn't a git folder, so devvm locked nothing in it. If you didn't add this submodule, check it before you run git here."
+
 [downloading_mise]
 other = "downloading mise {{.version}}"
 

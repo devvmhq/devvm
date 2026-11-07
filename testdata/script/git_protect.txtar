@@ -134,6 +134,22 @@ exec devvm rm --force --no-export
 stub_calls
 stdout '^chflags -R -P nouchg /\S*/web/\.git/config$'
 
+# A gitlink the VM added whose .git file names the project's own src, which
+# isn't a git dir: the launch names it and locks nothing in src.
+project evil git
+exec devvm --network open
+vm_name EVIL evil
+exec limactl stop $EVIL
+exec git update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,sub
+stub_reset
+exec devvm
+stderr '^devvm: git_gitdir_not_git git=\S*/evil/src sub=\S*/evil/sub$'
+! stderr git_embedded_new
+stub_calls
+stdout '^chflags -R -P uchg /\S*/evil/\.git/config$'
+! stdout '/evil/src'
+exec devvm rm --force --no-export
+
 # Without a .git yet: locked when one appears.
 project nogit
 exec devvm --network open
@@ -148,3 +164,10 @@ exec devvm git-protect
 stdout '\Aclone\n\z'
 ! exec devvm git-protect on
 stderr '^devvm: git_protect_clone vm=devvm-nogit-[0-9a-f]{14}$'
+
+-- evil/sub/.git --
+gitdir: ../src
+-- evil/src/hooks/useThing.ts --
+export {}
+-- evil/src/config --
+x

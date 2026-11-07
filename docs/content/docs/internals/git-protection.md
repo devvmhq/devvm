@@ -12,8 +12,8 @@ On macOS devvm locks with the user-immutable flag (`chflags uchg`), which even r
 
 devvm locks these paths:
 
-- `.git/hooks` and `.git/config`. A repo without a `hooks` folder gets an empty one, locked, so the VM can't make one, and a git folder without a `config` gets an empty one, locked, because git runs without one, so the VM could add one later.
-- The same paths for each submodule devvm finds, submodules of submodules included. Those are the git folders under `.git/modules`, and those in the working tree, which are `sub/.git` or the folder that a `sub/.git` file points to. devvm finds the submodules from the index, which it reads with `core.fsmonitor` off.
+- `.git/hooks` and `.git/config`. A repo without a `hooks` folder gets an empty one, locked, so the VM can't make one, and a git folder without a `config` gets an empty one, locked, because git runs without one, so the VM could add one later. A `config` that's there but isn't a regular file, such as a FIFO or a folder, isn't locked, and devvm reports it (`git_lock_failed`).
+- The same paths for each submodule devvm finds, submodules of submodules included. Those are the git folders under `.git/modules`, and those in the working tree, which are `sub/.git` or the folder that a `sub/.git` file points to. devvm finds the submodules from the index, which it reads with `core.fsmonitor` off. It takes a folder for a git folder only when it has what git looks for in one, which is a `HEAD` next to `objects` and `refs` folders. The VM can point a `sub/.git` file at any folder in the project, such as `src`, and locking that folder's `hooks` and `config` would lock your own files, so devvm locks and creates nothing in a folder that fails the check and reports it instead.
 - `.git/config.worktree`, when `extensions.worktreeConfig` is on. devvm creates it empty if it's missing.
 - What linked worktrees elsewhere on your machine read from here, which is `.git/worktrees/<name>/commondir` and `config.worktree`.
 - The project folder's `.git` file, if the project folder is itself a linked worktree. The repo it points to is outside the VM.
@@ -39,11 +39,12 @@ Every launch of an existing VM, every export of its agents' history, and `devvm 
 - A submodule git folder that appeared, in the working tree or under `.git/modules` (`git_embedded_new`), which devvm then locks. devvm compares with the git folders it recorded last time, so `devvm git-protect on` after a VM was made without protection names none: it locks `.git` as it is then, as trusted.
 - Hooks in a hooks folder that wasn't locked, because it wasn't there to lock or belongs to a new submodule (`git_hooks_unlocked`).
 
-devvm also reports these, the first two on every launch and the last when they change:
+devvm also reports these, the first two on every launch and the last two when they change:
 
 - A `commondir` (`git_commondir`).
 - Linked worktrees whose `commondir` leads elsewhere (`git_worktree_stray`).
 - Includes and hook links into the project folder (`git_include_inside`, `git_hook_link_inside`), which [not covered](../safety/git-protection.md#not-covered) describes.
+- Submodules whose git folder, in the working tree, isn't a git folder (`git_gitdir_not_git`), which devvm doesn't lock.
 
 ## On Linux hosts
 

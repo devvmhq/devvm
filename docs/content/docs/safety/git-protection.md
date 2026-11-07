@@ -54,6 +54,7 @@ Every launch of an existing VM, and `devvm stop`, check `.git` again, and devvm 
 
 - **A repo that appeared** in the folder after its VM was made. devvm locks it from then on, but if you didn't make it, check its hooks and config.
 - **Hooks in a folder devvm hadn't locked,** because the folder wasn't there to lock or belongs to a new submodule.
+- **A submodule whose git folder isn't one.** The VM can name any folder in the project as a submodule's git folder, such as your `src`, so devvm locks nothing in a folder that doesn't look like a git folder, and names the submodule instead.
 - **A path that's a symlink or under one.** devvm never locks anything through a symlink, because the VM could point one at a file elsewhere on this machine, so it leaves that path unlocked.
 - **A path that moved while devvm locked it.** devvm leaves it unlocked and takes the lock off wherever it landed, so check `.git`.
 

@@ -1429,6 +1429,11 @@ func GitEmbeddedNew(git string) M {
 	return M{id: "git_embedded_new", vals: []val{{"git", git}}}
 }
 
+// GitGitdirNotGit is [git_gitdir_not_git]: "WARNING: The submodule {{.sub}} names {{.git}} as its git folder, but that isn't a git folder, so devvm locked nothing in it. If you didn't add this submodule, check it before you run git here."
+func GitGitdirNotGit(git string, sub string) M {
+	return M{id: "git_gitdir_not_git", vals: []val{{"git", git}, {"sub", sub}}}
+}
+
 // GitGitdirOutside is [git_gitdir_outside]: "The submodule {{.sub}} keeps its git folder outside the project, at {{.git}}, so devvm can't lock it. git status on this machine still reads its config."
 func GitGitdirOutside(git string, sub string) M {
 	return M{id: "git_gitdir_outside", vals: []val{{"git", git}, {"sub", sub}}}
@@ -4361,6 +4366,7 @@ var specs = map[string]spec{
 	"git_commondir":                  {fields: []string{"git", "target"}},
 	"git_config_failed":              {fields: []string{"config"}},
 	"git_embedded_new":               {fields: []string{"git"}},
+	"git_gitdir_not_git":             {fields: []string{"git", "sub"}},
 	"git_gitdir_outside":             {fields: []string{"git", "sub"}},
 	"git_hook_link_inside":           {fields: []string{"hook", "target"}},
 	"git_hooks_path":                 {fields: []string{"path"}},

@@ -293,6 +293,8 @@ func (p *Protector) warnDelegations(ds []delegation) {
 			p.Warn(msg.GitHookLinkInside(d.where, d.target))
 		case "outside":
 			p.Warn(msg.GitGitdirOutside(d.target, d.where))
+		case "notgit":
+			p.Warn(msg.GitGitdirNotGit(d.target, d.where))
 		}
 	}
 }
@@ -548,8 +550,7 @@ func worktreeConfig(ctx context.Context, gitDir string) bool {
 }
 
 // gitDirs returns the repo's git dirs: .git and its submodules', anything
-// under .git/modules that git would take for one: a HEAD (a file, or a
-// symlink, which git still accepts) next to objects and refs.
+// under .git/modules that git would take for one (isGitDir).
 func (p *Protector) gitDirs() []string {
 	g := p.git()
 	if !isDir(g) {
@@ -557,15 +558,27 @@ func (p *Protector) gitDirs() []string {
 	}
 	dirs := []string{g}
 	_ = filepath.WalkDir(filepath.Join(g, "modules"), func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.Name() != "HEAD" || !d.Type().IsRegular() && d.Type()&fs.ModeSymlink == 0 {
+		if err != nil || d.Name() != "HEAD" {
 			return nil //nolint:nilerr // unreadable: skipped, like find
 		}
-		if dir := filepath.Dir(path); isDir(filepath.Join(dir, "objects")) && isDir(filepath.Join(dir, "refs")) {
+		if dir := filepath.Dir(path); isGitDir(dir) {
 			dirs = append(dirs, dir)
 		}
 		return nil
 	})
 	return dirs
+}
+
+// isGitDir reports whether dir is what git would take for a git dir: a
+// HEAD (a file, or a symlink, which git still accepts) next to objects
+// and refs folders. A submodule's .git file can name any folder, so only
+// one that passes has its hooks and config locked.
+func isGitDir(dir string) bool {
+	fi, err := os.Lstat(filepath.Join(dir, "HEAD"))
+	if err != nil || !fi.Mode().IsRegular() && fi.Mode()&fs.ModeSymlink == 0 {
+		return false
+	}
+	return isDir(filepath.Join(dir, "objects")) && isDir(filepath.Join(dir, "refs"))
 }
 
 // worktrees returns a git dir's linked worktrees' folders, as the glob
@@ -584,10 +597,13 @@ func worktrees(gitDir string) []string {
 }
 
 // embeds are the submodule git dirs of the repo's working tree: inside
-// the project folder, or (with the submodule's folder) outside it.
+// the project folder, or (with the submodule's folder) outside it; and
+// the folders inside it that a submodule names as its git dir but that
+// aren't one (isGitDir), which nothing locks.
 type embeds struct {
 	inside  []string
 	outside [][2]string // the submodule's folder, its git dir
+	notGit  [][2]string // the submodule's folder, the folder it names
 }
 
 // embedded finds the submodules whose git dir is in the working tree: a
@@ -635,6 +651,13 @@ func (p *Protector) embeddedIn(ctx context.Context, e *embeds, gitDir, worktree 
 		if !paths.Below(t, p.Dir) {
 			// Nothing to lock here: delegations names it.
 			e.outside = append(e.outside, [2]string{w, t})
+			continue
+		}
+		if !isGitDir(t) {
+			// The VM can point a .git file, or make a .git folder, at
+			// any folder in the project: locking its hooks would lock
+			// the project's own files.
+			e.notGit = append(e.notGit, [2]string{w, t})
 			continue
 		}
 		if !paths.Below(t, filepath.Join(p.Dir, ".git", "modules")) { // gitDirs has those
@@ -760,9 +783,9 @@ func expandHome(home, path string) string {
 }
 
 // delegation is something the locked files hand over to a file the VM can
-// edit, or a git dir devvm can't lock.
+// edit, a git dir devvm can't lock, or a folder named as one that isn't.
 type delegation struct {
-	kind   string // include, hook or outside
+	kind   string // include, hook, outside or notgit
 	where  string // the config, the hook, or the submodule's folder
 	target string // the include's path or the hook's link as written, or the git dir
 	path   string // what an include leads to, absolute, for the watch
@@ -773,7 +796,8 @@ type delegation struct {
 // project folder (relative to the config's folder, as git reads them), and
 // hooks that are symlinks into it; and the submodules whose git dir is
 // outside the project, which devvm can't lock (another project's VM may
-// write it).
+// write it), or a folder inside it that isn't a git dir, which devvm
+// doesn't lock.
 func (p *Protector) delegations(ctx context.Context, emb embeds) []delegation {
 	var out []delegation
 	for _, d := range append(p.gitDirs(), emb.inside...) {
@@ -812,6 +836,9 @@ func (p *Protector) delegations(ctx context.Context, emb embeds) []delegation {
 	}
 	for _, o := range emb.outside {
 		out = append(out, delegation{"outside", o[0], o[1], ""})
+	}
+	for _, n := range emb.notGit {
+		out = append(out, delegation{"notgit", n[0], n[1], ""})
 	}
 	return out
 }
