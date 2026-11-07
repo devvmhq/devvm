@@ -3804,7 +3804,7 @@ func UpgradeNoLatest(url string) M {
 	return M{id: "upgrade_no_latest", vals: []val{{"url", url}}}
 }
 
-// UpgradeNotVersion is [upgrade_not_version]: "--to takes a release's version, such as 0.2.0, not {{.value}}."
+// UpgradeNotVersion is [upgrade_not_version]: "--to takes a release's version, such as 0.2.0 or 0.2.0-rc.1, not {{.value}}."
 func UpgradeNotVersion(value string) M {
 	return M{id: "upgrade_not_version", vals: []val{{"value", value}}}
 }
@@ -3817,6 +3817,11 @@ func UpgradeNothingInstalled() M {
 // UpgradeOtherInstall is [upgrade_other_install]: "This devvm, {{.path}}, wasn't installed by Homebrew or the install script, so devvm upgrade can't upgrade it. Upgrade it the way you installed it."
 func UpgradeOtherInstall(path string) M {
 	return M{id: "upgrade_other_install", vals: []val{{"path", path}}}
+}
+
+// UpgradePrereleaseAhead is [upgrade_prerelease_ahead]: "This is devvm {{.current}}, a prerelease newer than the newest release, devvm {{.latest}}, so nothing was installed. To go back to that release, run devvm upgrade --to {{.latest}}."
+func UpgradePrereleaseAhead(current string, latest string) M {
+	return M{id: "upgrade_prerelease_ahead", vals: []val{{"current", current}, {"latest", latest}}}
 }
 
 // UpgradeRollbackFailed is [upgrade_rollback_failed]: "The new devvm didn't run, and {{.link}} couldn't be put back, so it points at the new one. Run ln -sfn {{.old}} {{.link}} to put it back."
@@ -4739,6 +4744,7 @@ var specs = map[string]spec{
 	"upgrade_not_version":            {fields: []string{"value"}},
 	"upgrade_nothing_installed":      {},
 	"upgrade_other_install":          {fields: []string{"path"}},
+	"upgrade_prerelease_ahead":       {fields: []string{"current", "latest"}},
 	"upgrade_rollback_failed":        {fields: []string{"link", "old"}},
 	"upstream_proxy_gone":            {fields: []string{"file", "vm_name"}},
 	"upstream_proxy_invalid":         {fields: []string{"setting"}},

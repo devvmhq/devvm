@@ -9,6 +9,9 @@
 # the source tarball, SHA256SUMS, SHA256SUMS.minisig and install.sh, its notes CHANGELOG.md's entry, then
 # commits dist/devvm.rb to the tap's Formula/devvm.rb and pushes the tap. Each step skips what's already
 # done, so after a failure, fix it and run it again.
+# A prerelease (VERSION x.y.z-rc.N, such as 0.2.0-rc.1) gets a GitHub release marked as a prerelease, which
+# GitHub's latest release, and so install.sh's default and devvm upgrade, skips, and no tap commit: the tap,
+# and so Homebrew, stays on the last release, and no tap checkout is needed.
 # DEVVM_TAP_DIR: the checkout of devvmhq/homebrew-tap, clean and on main (default ../homebrew-tap, next to
 # this repo). DEVVM_MINISIGN_KEY: the release key (scripts/release.sh's).
 # Needs gh, logged in (gh auth login), and release.sh's goreleaser and minisign: mise exec -- scripts/publish.sh.
@@ -30,6 +33,9 @@ done
 
 v=$(tr -d '[:space:]' < VERSION)
 tag=v$v
+# A prerelease's version has a -suffix (release.sh checks its form): its release is marked as one.
+pre=false pre_flag=()
+if [[ $v == *-* ]]; then pre=true pre_flag=(--prerelease); fi
 # remote_ref DIR REF: the object REF names on DIR's origin, "" when it has none.
 remote_ref() {
   local out
@@ -63,31 +69,40 @@ for os in darwin linux; do
 done
 files+=("devvm-$v.tar.gz" SHA256SUMS SHA256SUMS.minisig install.sh)
 # The release: none yet, a draft (a run that stopped while uploading: its files are replaced), or
-# published (a run that stopped later: it needs every file).
+# published (a run that stopped later: it needs every file, and to be a prerelease just when this is one).
 release=none
-if out=$(gh release view "$tag" --repo "$repo" --json isDraft,assets --jq '(.isDraft | tostring), .assets[].name' 2>&1); then
+if out=$(gh release view "$tag" --repo "$repo" --json isDraft,isPrerelease,assets --jq '(.isDraft | tostring), (.isPrerelease | tostring), .assets[].name' 2>&1); then
   release=published
   [[ $(head -n1 <<<"$out") != true ]] || release=draft
   if [[ $release == published ]]; then
     for f in "${files[@]}"; do
-      tail -n +2 <<<"$out" | grep -qxF "$f" ||
+      tail -n +3 <<<"$out" | grep -qxF "$f" ||
         die "devvm $tag already has a GitHub release, without $f: finish it or delete it by hand (gh release view $tag --repo $repo)"
     done
+    marked=$(sed -n 2p <<<"$out")
+    if $pre && [[ $marked != true ]]; then
+      die "devvm $tag is a prerelease, but its GitHub release isn't marked as one: mark it by hand (gh release edit $tag --repo $repo --prerelease)"
+    elif ! $pre && [[ $marked == true ]]; then
+      die "devvm $tag's GitHub release is marked as a prerelease: unmark it by hand (gh release edit $tag --repo $repo --prerelease=false)"
+    fi
   fi
 elif ! grep -qi 'not found' <<<"$out"; then
   die "can't read the GitHub release $tag (gh release view): $out"
 fi
 
+# The tap, which a prerelease leaves alone.
 tap=${DEVVM_TAP_DIR:-$(dirname "$root")/homebrew-tap}
-[[ -d $tap ]] && top=$(git -C "$tap" rev-parse --show-toplevel 2>/dev/null) && [[ $top == "$(cd "$tap" && pwd -P)" ]] ||
-  die "no tap checkout at $tap: clone devvmhq/homebrew-tap there, or set DEVVM_TAP_DIR"
-[[ $(git -C "$tap" symbolic-ref -q --short HEAD) == main ]] || die "the tap at $tap isn't on main"
-[[ -z $(git -C "$tap" status --porcelain) ]] || die "the tap at $tap isn't clean: commit or remove what git status lists"
-tap_origin=$(remote_ref "$tap" refs/heads/main) || die "can't read the tap's origin (git -C $tap ls-remote origin)"
-tap_head=$(git -C "$tap" rev-parse HEAD)
-if [[ -n $tap_origin && $tap_origin != "$tap_head" ]]; then
-  git -C "$tap" merge-base --is-ancestor "$tap_origin" "$tap_head" 2>/dev/null ||
-    die "the tap's origin has commits its main lacks: git -C $tap pull"
+if ! $pre; then
+  [[ -d $tap ]] && top=$(git -C "$tap" rev-parse --show-toplevel 2>/dev/null) && [[ $top == "$(cd "$tap" && pwd -P)" ]] ||
+    die "no tap checkout at $tap: clone devvmhq/homebrew-tap there, or set DEVVM_TAP_DIR"
+  [[ $(git -C "$tap" symbolic-ref -q --short HEAD) == main ]] || die "the tap at $tap isn't on main"
+  [[ -z $(git -C "$tap" status --porcelain) ]] || die "the tap at $tap isn't clean: commit or remove what git status lists"
+  tap_origin=$(remote_ref "$tap" refs/heads/main) || die "can't read the tap's origin (git -C $tap ls-remote origin)"
+  tap_head=$(git -C "$tap" rev-parse HEAD)
+  if [[ -n $tap_origin && $tap_origin != "$tap_head" ]]; then
+    git -C "$tap" merge-base --is-ancestor "$tap_origin" "$tap_head" 2>/dev/null ||
+      die "the tap's origin has commits its main lacks: git -C $tap pull"
+  fi
 fi
 
 # The build, from the tag. minisign asks for the password.
@@ -114,37 +129,52 @@ done_main=false done_tag=false done_release=false done_tap=false
 [[ $origin_main != "$commit" ]] || done_main=true
 [[ $origin_tag != "$tagobj" ]] || done_tag=true
 [[ $release != published ]] || done_release=true
-if cmp -s "$tap/Formula/devvm.rb" dist/devvm.rb && [[ $tap_origin == "$tap_head" ]]; then done_tap=true; fi
+if $pre || { cmp -s "$tap/Formula/devvm.rb" dist/devvm.rb && [[ $tap_origin == "$tap_head" ]]; }; then done_tap=true; fi
 state() { if $1; then echo "done"; else echo "$2"; fi; }
 
 echo
 echo "==> devvm $v, to publish"
-echo "Version: $v"
+kind=release
+$pre && kind=prerelease
+if $pre; then echo "Version: $v, a prerelease"; else echo "Version: $v"; fi
 echo "Tag:     $tag, signed, at commit $commit"
 echo
-echo "Files, from dist/, for the GitHub release $repo $tag:"
+echo "Files, from dist/, for the GitHub $kind $repo $tag:"
 for f in "${files[@]}"; do printf '  %-34s %10s bytes  %s\n' "$f" "$(wc -c < "dist/$f" | tr -d ' ')" "$(sha256 "dist/$f")"; done
 echo
 echo "Release notes, CHANGELOG.md's ## $v:"
 sed 's/^/  /' "$notes"
 echo
-echo "Tap, $tap, Formula/devvm.rb:"
-old=$tap/Formula/devvm.rb
-[[ -f $old ]] || old=/dev/null
-git -C "$tap" diff --no-index -- "$old" "$root/dist/devvm.rb" || true
-cmp -s "$old" dist/devvm.rb && echo "  (already this release's)"
+if $pre; then
+  echo "Tap: skipped, as this is a prerelease: Homebrew stays on the last release."
+else
+  echo "Tap, $tap, Formula/devvm.rb:"
+  old=$tap/Formula/devvm.rb
+  [[ -f $old ]] || old=/dev/null
+  git -C "$tap" diff --no-index -- "$old" "$root/dist/devvm.rb" || true
+  cmp -s "$old" dist/devvm.rb && echo "  (already this release's)"
+fi
 echo
 echo "Steps:"
 echo "  1. git push origin main: $(state $done_main "to do")"
 echo "  2. git push origin $tag: $(state $done_tag "to do")"
 todo="to do"
 [[ $release != draft ]] || todo="to do, the draft's files replaced"
-echo "  3. the GitHub release $tag: $(state $done_release "$todo")"
-echo "  4. the tap's commit, devvm $v, and git push: $(state $done_tap "to do")"
+$pre && todo="$todo, marked as a prerelease"
+echo "  3. the GitHub $kind $tag: $(state $done_release "$todo")"
+if $pre; then
+  echo "  4. the tap: skipped (a prerelease)"
+else
+  echo "  4. the tap's commit, devvm $v, and git push: $(state $done_tap "to do")"
+fi
 echo
 
 check() {
-  echo "Check it with Homebrew, brew update && brew upgrade devvm (or brew trust --formula devvmhq/tap/devvm, then brew install devvmhq/tap/devvm), or the install script:"
+  if $pre; then
+    echo "Check it with the install script, or devvm upgrade --to $v:"
+  else
+    echo "Check it with Homebrew, brew update && brew upgrade devvm (or brew trust --formula devvmhq/tap/devvm, then brew install devvmhq/tap/devvm), or the install script:"
+  fi
   echo "  curl -fsSL https://github.com/devvmhq/devvm/releases/download/$tag/install.sh | bash"
 }
 if $done_main && $done_tag && $done_release && $done_tap; then
@@ -176,9 +206,10 @@ step_release() {
   if [[ $release == draft ]]; then
     gh release upload "$tag" --repo "$repo" --clobber "${paths[@]}" || return 1
   else
-    gh release create "$tag" --repo "$repo" --title "devvm $v" --notes-file "$notes" --verify-tag --draft "${paths[@]}" || return 1
+    gh release create "$tag" --repo "$repo" --title "devvm $v" --notes-file "$notes" --verify-tag --draft \
+      ${pre_flag[@]+"${pre_flag[@]}"} "${paths[@]}" || return 1
   fi
-  gh release edit "$tag" --repo "$repo" --title "devvm $v" --notes-file "$notes" --draft=false
+  gh release edit "$tag" --repo "$repo" --title "devvm $v" --notes-file "$notes" --draft=false ${pre_flag[@]+"${pre_flag[@]}"}
 }
 step_tap() {
   $done_tap && { echo "the tap is already at devvm $v"; return 0; }
@@ -190,6 +221,10 @@ step_tap() {
 }
 names=(main tag release tap)
 labels=("main on origin" "the tag $tag on origin" "the GitHub release $tag" "the tap's Formula/devvm.rb")
+if $pre; then
+  names=(main tag release)
+  labels=("main on origin" "the tag $tag on origin" "the GitHub prerelease $tag")
+fi
 for i in "${!names[@]}"; do
   echo "==> ${labels[$i]}"
   if ! "step_${names[$i]}"; then

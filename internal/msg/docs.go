@@ -25,6 +25,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"upgrade_no_latest":              "using/upgrading#upgrading",
 	"upgrade_latest_older":           "using/upgrading#an-older-release",
 	"upgrade_brew_version":           "using/upgrading#an-older-release",
+	"upgrade_prerelease_ahead":       "using/upgrading#trying-a-prerelease",
 	"upgrade_checkout_build":         "using/upgrading#how-devvm-upgrade-upgrades",
 	"upgrade_go_install":             "using/upgrading#how-devvm-upgrade-upgrades",
 	"upgrade_other_install":          "using/upgrading#how-devvm-upgrade-upgrades",

@@ -35,6 +35,7 @@ func newUpgradeCmd(a *app) *cobra.Command {
 			"devvm upgrade --check", "say whether a newer release is out",
 			"devvm upgrade --force", "install it without asking, as a script must",
 			"devvm upgrade --to 0.1.0", "install that release, even an older one",
+			"devvm upgrade --to 0.2.0-rc.1", "install a prerelease, which only --to installs",
 		),
 		Args:              noArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
@@ -52,7 +53,7 @@ func newUpgradeCmd(a *app) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.BoolVar(&o.check, "check", false, "say whether a newer release is out, and install nothing")
-	f.StringVar(&o.Version, "to", "", "install the release `VERSION` instead of the newest, even one older than this devvm")
+	f.StringVar(&o.Version, "to", "", "install the release `VERSION` instead of the newest, even an older one or a prerelease")
 	addForceFlag(f, &o.Force)
 	jsonFlag(cmd, &o.asJSON)
 	exclusive(cmd, "check", "force")
@@ -127,6 +128,8 @@ func showUpgrade(ctx context.Context, a *app, up upgrade.Upgrader, asJSON bool) 
 		u.Info(msg.UpgradeAvailable(av.Current, av.Latest))
 	case av.Latest == av.Current:
 		u.Info(msg.UpgradeAlreadyLatest(av.Current))
+	case upgrade.Prerelease(av.Current):
+		u.Info(msg.UpgradePrereleaseAhead(av.Current, av.Latest))
 	default:
 		u.Info(msg.UpgradeLatestOlder(av.Current, av.Latest))
 	}

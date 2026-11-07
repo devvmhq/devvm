@@ -64,9 +64,11 @@ type Options struct {
 }
 
 // Upgrade installs the newest release, or o.Version, over this devvm, as
-// it was installed, once it's asked. It refuses a newest release older
-// than this devvm, as a server sending an old release would, unless
-// o.Version names it.
+// it was installed, once it's asked. The newest release is never a
+// prerelease (Latest), so only o.Version installs one. It refuses a
+// newest release older than this devvm, as a server sending an old
+// release would, unless o.Version names it; for a prerelease of a
+// release not yet out, that's no failure, only said.
 func (u Upgrader) Upgrade(ctx context.Context, o Options) error {
 	if u.Install.Kind == Other || !Valid(u.Current) {
 		return u.NotInstalled()
@@ -91,6 +93,10 @@ func (u Upgrader) Upgrade(ctx context.Context, o Options) error {
 		return nil
 	case c == 0:
 		u.Info(msg.UpgradeAlreadyLatest(u.Current))
+		return nil
+	case c < 0 && o.Version == "" && Prerelease(u.Current):
+		// A prerelease of the next release, before that release is out.
+		u.Info(msg.UpgradePrereleaseAhead(u.Current, target))
 		return nil
 	case c < 0 && o.Version == "":
 		return msg.UpgradeLatestOlder(u.Current, target)
