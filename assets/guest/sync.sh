@@ -17,6 +17,8 @@
 #                and DEVVM_LOCAL_PROXY (ADDRESS:PORT on the VM's loopback, where devvm-local-proxy
 #                listens; empty without a proxy)
 #   tools        the VM's shared tool images, "FILE TOOL VERSION" lines; tools.sh mounts them
+#   tool-alias.toml  the [tool_alias] table of devvm's shared-tools/mise.toml: the backend each
+#                tool's image was built from, which mise's registry might not give its name
 #   opencode-import.json  the store's opencode logins as opencode auth import reads them, with
 #                placeholders (none: no opencode login in the store); opencode.sh imports them
 #   hosts        the VM's links (devvm checked them): a line per target, "ADDRESS NAME
@@ -72,12 +74,15 @@ if [[ -n "$DEVVM_LANG" ]] && command -v locale-gen >/dev/null && ! locale -a | g
 fi
 
 # Shared tools: mount this VM's images (at boot too, by devvm-tools.service), then tell mise which
-# versions to use. /etc/mise is mise's system config: the user's own (~/.config/mise) comes first.
+# versions to use, and each one's backend. /etc/mise is mise's system config: the user's own
+# (~/.config/mise) comes first.
 cmp -s "$s/tools.sh" /usr/local/sbin/devvm-tools 2>/dev/null || sudo install -D -m 755 "$s/tools.sh" /usr/local/sbin/devvm-tools
 cmp -s "$s/tools" /etc/devvm/tools 2>/dev/null || sudo install -D -m 644 "$s/tools" /etc/devvm/tools
 # A tool it can't mount fails the setup, and devvm names it from /run/devvm/tools-unmounted.
 sudo /usr/local/sbin/devvm-tools
 {
+  cat "$s/tool-alias.toml"
+  echo
   echo '[tools]'
   while read -r _ tool version; do [[ -z $tool || $tool == rust ]] || echo "$tool = \"$version\""; done < "$s/tools"
   cat <<'T'

@@ -165,8 +165,26 @@ func (t *Env) platform(libc string) string {
 	return p
 }
 
+// configFile is devvm's mise.toml of the shared tools, in its assets.
+const configFile = "shared-tools/mise.toml"
+
 // config is devvm's shared-tools/mise.toml.
-func (t *Env) config() ([]byte, error) { return fs.ReadFile(t.Assets, "shared-tools/mise.toml") }
+func (t *Env) config() ([]byte, error) { return fs.ReadFile(t.Assets, configFile) }
+
+// Aliases is the [tool_alias] table of devvm's shared-tools/mise.toml,
+// each tool's backend, for a VM's mise config: the VM's mise then takes
+// each tool from where its image's came from, whatever its registry says.
+func Aliases(assets fs.FS) ([]byte, error) {
+	data, err := fs.ReadFile(assets, configFile)
+	if err != nil {
+		return nil, err
+	}
+	aliases, err := configAliases(data)
+	if err != nil {
+		return nil, err
+	}
+	return aliasTable(aliases), nil
+}
 
 // Lock returns the tools lock, resolving it first when there's none yet,
 // it isn't TOML, or shared-tools/mise.toml changed since (a devvm

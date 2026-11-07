@@ -142,6 +142,53 @@ stdout '^devvm 1\.2\.3 is already published: nothing to do\.$'
 grep '^gh release download v1\.2\.3 ' calls
 ! grep 'push|create|edit' calls
 
+# A prerelease, 1.3.0-rc.1: its GitHub release is marked as one, and it
+# needs no tap checkout and leaves the tap alone.
+exec bash prerelease.sh
+rm gh/release
+rm gh/notes
+rm calls
+env DEVVM_TAP_DIR=$WORK/nowhere
+exec repo/scripts/publish.sh --dry-run
+stdout '^Version: 1\.3\.0-rc\.1, a prerelease$'
+stdout '^Tap: skipped, as this is a prerelease: Homebrew stays on the last release\.$'
+stdout '^  3\. the GitHub prerelease v1\.3\.0-rc\.1: to do, marked as a prerelease$'
+stdout '^  4\. the tap: skipped \(a prerelease\)$'
+stdout '^  - \*\*New:\*\* another thing\.$'
+! stdout 'Released today'
+rm calls
+ttyin -stdin yes.txt
+exec repo/scripts/publish.sh
+stdout '^==> devvm 1\.3\.0-rc\.1 is published$'
+stdout '^Check it with the install script, or devvm upgrade --to 1\.3\.0-rc\.1:$'
+cmp calls calls.pre
+exists gh/prerelease
+cmp gh/notes notes.pre
+exec git -C tap.git log -1 --format=%s main
+stdout '^devvm 1\.2\.3$'
+
+# Run again: everything's done.
+rm calls
+exec repo/scripts/publish.sh
+stdout '^devvm 1\.3\.0-rc\.1 is already published: nothing to do\.$'
+! grep 'push|create|edit' calls
+
+# A published prerelease that GitHub doesn't mark as one: refused.
+rm gh/prerelease
+! exec repo/scripts/publish.sh --dry-run
+stderr '^publish: devvm v1\.3\.0-rc\.1 is a prerelease, but its GitHub release isn''t marked as one'
+
+-- calls.pre --
+gh auth status
+gh release view v1.3.0-rc.1 --repo devvmhq/devvm --json isDraft,isPrerelease,assets --jq (.isDraft | tostring), (.isPrerelease | tostring), .assets[].name
+push origin.git refs/heads/main
+push origin.git refs/tags/v1.3.0-rc.1
+gh release create v1.3.0-rc.1 --repo devvmhq/devvm --title devvm 1.3.0-rc.1 --notes-file notes.md --verify-tag --draft --prerelease devvm-1.3.0-rc.1-darwin-arm64.tar.gz devvm-1.3.0-rc.1-darwin-amd64.tar.gz devvm-1.3.0-rc.1-linux-arm64.tar.gz devvm-1.3.0-rc.1-linux-amd64.tar.gz devvm-1.3.0-rc.1.tar.gz SHA256SUMS SHA256SUMS.minisig install.sh
+gh release edit v1.3.0-rc.1 --repo devvmhq/devvm --title devvm 1.3.0-rc.1 --notes-file notes.md --draft=false --prerelease
+-- notes.pre --
+A release candidate.
+
+- **New:** another thing.
 -- no.txt --
 n
 -- yes.txt --
@@ -188,10 +235,18 @@ git -C tap remote add origin "$PWD/tap.git"
 git -C tap push -q origin main
 rm -f calls
 -- tag.sh --
-# Tag v1.2.3 (again), signed with key $1.
+# Tag $2, v1.2.3 without it, (again), signed with key $1.
 set -eu
-git -C repo tag -d v1.2.3 >/dev/null 2>&1 || true
-git -C repo -c user.signingkey="$PWD/keys/$1" tag -s v1.2.3 -m v1.2.3
+t=${2:-v1.2.3}
+git -C repo tag -d "$t" >/dev/null 2>&1 || true
+git -C repo -c user.signingkey="$PWD/keys/$1" tag -s "$t" -m "$t"
+-- prerelease.sh --
+# VERSION 1.3.0-rc.1 and its changelog entry, committed on main and tagged.
+set -eu
+echo 1.3.0-rc.1 > repo/VERSION
+printf '# Changelog\n\n## 1.3.0-rc.1\n\nA release candidate.\n\n- **New:** another thing.\n\n## 1.2.3\n\nReleased today.\n' > repo/CHANGELOG.md
+git -C repo commit -qam 'release 1.3.0-rc.1'
+bash tag.sh good v1.3.0-rc.1
 -- refs.sh --
 # What origin and the tap hold: main's commit message, the tag, the tap's
 # last commit, and whether it has the formula.
@@ -210,19 +265,19 @@ devvm 1.2.3
 formula
 -- calls.view --
 gh auth status
-gh release view v1.2.3 --repo devvmhq/devvm --json isDraft,assets --jq (.isDraft | tostring), .assets[].name
+gh release view v1.2.3 --repo devvmhq/devvm --json isDraft,isPrerelease,assets --jq (.isDraft | tostring), (.isPrerelease | tostring), .assets[].name
 -- calls.want --
 gh auth status
-gh release view v1.2.3 --repo devvmhq/devvm --json isDraft,assets --jq (.isDraft | tostring), .assets[].name
+gh release view v1.2.3 --repo devvmhq/devvm --json isDraft,isPrerelease,assets --jq (.isDraft | tostring), (.isPrerelease | tostring), .assets[].name
 push origin.git refs/heads/main
 push origin.git refs/tags/v1.2.3
 gh release create v1.2.3 --repo devvmhq/devvm --title devvm 1.2.3 --notes-file notes.md --verify-tag --draft devvm-1.2.3-darwin-arm64.tar.gz devvm-1.2.3-darwin-amd64.tar.gz devvm-1.2.3-linux-arm64.tar.gz devvm-1.2.3-linux-amd64.tar.gz devvm-1.2.3.tar.gz SHA256SUMS SHA256SUMS.minisig install.sh
 gh auth status
-gh release view v1.2.3 --repo devvmhq/devvm --json isDraft,assets --jq (.isDraft | tostring), .assets[].name
+gh release view v1.2.3 --repo devvmhq/devvm --json isDraft,isPrerelease,assets --jq (.isDraft | tostring), (.isPrerelease | tostring), .assets[].name
 gh release create v1.2.3 --repo devvmhq/devvm --title devvm 1.2.3 --notes-file notes.md --verify-tag --draft devvm-1.2.3-darwin-arm64.tar.gz devvm-1.2.3-darwin-amd64.tar.gz devvm-1.2.3-linux-arm64.tar.gz devvm-1.2.3-linux-amd64.tar.gz devvm-1.2.3.tar.gz SHA256SUMS SHA256SUMS.minisig install.sh
 gh release edit v1.2.3 --repo devvmhq/devvm --title devvm 1.2.3 --notes-file notes.md --draft=false
 gh auth status
-gh release view v1.2.3 --repo devvmhq/devvm --json isDraft,assets --jq (.isDraft | tostring), .assets[].name
+gh release view v1.2.3 --repo devvmhq/devvm --json isDraft,isPrerelease,assets --jq (.isDraft | tostring), (.isPrerelease | tostring), .assets[].name
 gh release upload v1.2.3 --repo devvmhq/devvm --clobber devvm-1.2.3-darwin-arm64.tar.gz devvm-1.2.3-darwin-amd64.tar.gz devvm-1.2.3-linux-arm64.tar.gz devvm-1.2.3-linux-amd64.tar.gz devvm-1.2.3.tar.gz SHA256SUMS SHA256SUMS.minisig install.sh
 gh release edit v1.2.3 --repo devvmhq/devvm --title devvm 1.2.3 --notes-file notes.md --draft=false
 push tap.git refs/heads/main
@@ -243,7 +298,8 @@ Released today.
 #!/bin/bash
 # A gh that logs each call to $WORK/calls (paths as their base names) and
 # keeps one release in $WORK/gh: release/ its files, draft while it's a
-# draft, notes its notes. Switches: gh/no-auth fails gh auth status,
+# draft, prerelease once it's marked as one, notes its notes. Switches:
+# gh/no-auth fails gh auth status,
 # gh/fail-create gh release create, gh/fail-edit gh release edit.
 set -eu
 s=$WORK/gh
@@ -262,6 +318,7 @@ files() {
       --repo | --title | --pattern | --dir | --json | --jq) shift 2 ;;
       --draft) touch "$s/draft"; shift ;;
       --draft=false) rm -f "$s/draft"; shift ;;
+      --prerelease) touch "$s/prerelease"; shift ;;
       --*) shift ;;
       *) cp "$1" "$s/release/"; shift ;;
     esac
@@ -272,6 +329,7 @@ case "$1 $2" in
   "release view")
     [[ -d $s/release ]] || { echo "release not found" >&2; exit 1; }
     if [[ -e $s/draft ]]; then echo true; else echo false; fi
+    if [[ -e $s/prerelease ]]; then echo true; else echo false; fi
     ls "$s/release" ;;
   "release create")
     [[ ! -e $s/fail-create ]] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }

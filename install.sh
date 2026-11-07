@@ -2,7 +2,7 @@
 # Install or upgrade devvm, then offer to install what it needs (Lima; on Linux, QEMU and KVM access).
 #   curl -fsSL https://github.com/devvmhq/devvm/releases/latest/download/install.sh | bash
 #   ... | bash -s -- --yes            answer yes to every question
-#   ... | bash -s -- --version 0.1.0  a given release (also DEVVM_VERSION)
+#   ... | bash -s -- --version 0.1.0  a given release, or a prerelease such as 0.2.0-rc.1 (also DEVVM_VERSION)
 #   ... | bash -s -- --no-deps        devvm only
 #   ... | bash -s -- --force          install even when Homebrew installed devvm
 # devvm (its binary, with its README, changelog and license) goes in ~/.local/lib/devvm/<version>,
@@ -32,7 +32,7 @@ usage() {
 Install or upgrade devvm ($repo_url), then offer to install what it needs.
 usage: install.sh [--yes] [--version VERSION] [--no-deps] [--force]
   --yes        answer yes to every question
-  --version    install that release instead of the latest (also DEVVM_VERSION)
+  --version    install that release, or a prerelease, instead of the latest (also DEVVM_VERSION)
   --no-deps    install devvm only
   --force      install even when Homebrew installed devvm, leaving two copies
 devvm goes in $prefix/lib/devvm/<version>, linked from $prefix/bin/devvm (DEVVM_PREFIX changes $prefix).
@@ -113,17 +113,19 @@ check_brew() {
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -c1-64; }
 
 # latest_release REPO_URL: the version of a GitHub repo's latest release, from where releases/latest
-# redirects (no API, so no rate limit).
+# redirects (no API, so no rate limit). GitHub's latest release is never a prerelease, and one there
+# anyway is refused: only --version installs a prerelease.
 latest_release() {
   local url
   url=$(fetch -I -o /dev/null -w '%{url_effective}' "$1/releases/latest") ||
     die "couldn't find the latest release at $1/releases"
   [[ $url == */tag/v* ]] || die "no release found at $1/releases"
   valid_version "${url##*/tag/v}" || die "$1's latest release has an odd version: '${url##*/tag/v}'"
+  [[ ${url##*/tag/v} != *-* ]] || die "$1's latest release is a prerelease: '${url##*/tag/v}'"
   echo "${url##*/tag/v}"
 }
 
-# It goes into URLs and paths: digits and dots, and maybe a -suffix.
+# It goes into URLs and paths: digits and dots, and maybe a -suffix, as a prerelease's 0.2.0-rc.1 has.
 valid_version() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; }
 
 # The release to install: --version, DEVVM_VERSION, this script's own release, else the latest.

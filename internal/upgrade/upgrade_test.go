@@ -524,19 +524,80 @@ func TestCompare(t *testing.T) {
 		{"1.0.0-1", "1.0.0-alpha", -1},
 		{"1.0.0-alpha", "1.0.0-alpha.1", -1},
 		{"1.0.0-beta", "1.0.0-alpha", 1},
+		{"0.2.0-beta.3", "0.2.0-rc.1", -1},
+		{"0.2.0-alpha.1", "0.2.0-beta.1", -1},
+		{"0.2.0-rc.2", "0.2.0-rc.1", 1},
+		{"0.2.0-rc.1", "0.1.0", 1},
+		{"0.2.0-rc.1", "0.2.1-alpha.1", -1},
+		{"0.2.0-rc.1", "0.2.0-rc.1", 0},
 		{"99999999999999999999.0.0", "18446744073709551615.0.0", 1},
 		{"01.0.0", "1.0.0", 0},
 	} {
 		if got := upgrade.Compare(tc.a, tc.b); got != tc.want {
 			t.Errorf("Compare(%s, %s) = %d", tc.a, tc.b, got)
 		}
+		if got := upgrade.Compare(tc.b, tc.a); got != -tc.want {
+			t.Errorf("Compare(%s, %s) = %d", tc.b, tc.a, got)
+		}
 	}
 	for v, valid := range map[string]bool{
-		"0.1.0": true, "1.2.3-rc.1": true, "v0.1.0": false, "0.1": false, "0.1.0/../x": false, "": false, "(devel)": false,
+		"0.1.0": true, "1.2.3-rc.1": true, "0.2.0-beta.2": true, "v0.1.0": false, "0.1": false, "0.1.0/../x": false,
+		"": false, "(devel)": false, "0.1.0-rc/1": false,
 	} {
 		if upgrade.Valid(v) != valid {
 			t.Errorf("Valid(%q) = %v", v, !valid)
 		}
+	}
+	for v, pre := range map[string]bool{
+		"0.2.0": false, "0.2.0-rc.1": true, "0.2.0-beta.3": true, "0.2.0-alpha.1": true, "": false, "(devel)": false,
+		"0.0.0-20261106-abcdef": false,
+	} {
+		if upgrade.Prerelease(v) != pre {
+			t.Errorf("Prerelease(%q) = %v", v, !pre)
+		}
+	}
+}
+
+// A prerelease is never the newest release: one at releases/latest is
+// refused, so only --to installs one.
+func TestLatestIsNoPrerelease(t *testing.T) {
+	f := newFixture(t, "0.1.0")
+	f.release("0.2.0-rc.1", true)
+	if _, err := f.upgrader().Source.Latest(t.Context()); msg.IDOf(err) != "upgrade_no_latest" {
+		t.Errorf("Latest = %v", err)
+	}
+	if err := f.upgrader().Upgrade(t.Context(), upgrade.Options{Force: true}); msg.IDOf(err) != "upgrade_no_latest" {
+		t.Errorf("Upgrade = %v", err)
+	}
+	f.unchanged()
+	if err := f.upgrader().Upgrade(t.Context(), upgrade.Options{Version: "0.2.0-rc.1", Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.linked(); got != "0.2.0-rc.1" {
+		t.Errorf("the link points at %s", got)
+	}
+}
+
+// On a prerelease of a release that isn't out, the older newest release
+// is said, not a failure, and nothing is installed; once the release is
+// out, it's installed over the prerelease.
+func TestUpgradeFromPrerelease(t *testing.T) {
+	f := newFixture(t, "0.2.0-rc.1")
+	f.release("0.1.0", true)
+	if err := f.upgrader().Upgrade(t.Context(), upgrade.Options{Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	f.unchanged()
+	if got := f.infos.Names(); !slices.Equal(got, []string{"upgrade_prerelease_ahead current=0.2.0-rc.1 latest=0.1.0"}) {
+		t.Errorf("said %q", got)
+	}
+	f.release("0.2.0-rc.2", false)
+	f.release("0.2.0", true)
+	if err := f.upgrader().Upgrade(t.Context(), upgrade.Options{Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.linked(); got != "0.2.0" {
+		t.Errorf("the link points at %s", got)
 	}
 }
 

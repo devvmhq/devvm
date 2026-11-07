@@ -10,10 +10,11 @@ This page covers upgrading devvm, switching between Homebrew and the install scr
 To upgrade devvm, run `devvm upgrade`, which installs the newest release the way you installed devvm:
 
 ```sh
-devvm upgrade            # install the newest release, asking first
-devvm upgrade --check    # say whether a newer release is out, and install nothing
-devvm upgrade --force    # install it without asking, as a script must
-devvm upgrade --to 0.1.0 # install that release, even one older than the devvm you have
+devvm upgrade                 # install the newest release, asking first
+devvm upgrade --check         # say whether a newer release is out, and install nothing
+devvm upgrade --force         # install it without asking, as a script must
+devvm upgrade --to 0.1.0      # install that release, even one older than the devvm you have
+devvm upgrade --to 0.2.0-rc.1 # install a prerelease, which only --to installs
 ```
 
 It says which release it will install in place of the devvm you have, and asks first, so without a terminal or with `--no-input` it needs `--force`.
@@ -70,16 +71,33 @@ When a check fails, devvm upgrade installs nothing, and the devvm you have stays
 
 ### An older release
 
-When the newest release is older than the devvm you have, devvm upgrade refuses to install it, even with `--force`. A server that offers an old release in place of the newest could bring back problems that a newer release fixed, so devvm upgrade never goes back a version unless you name it. `devvm upgrade --to VERSION` installs the release you name, newer or older, and it asks first, saying when the release is older than the devvm you have.
+When the newest release is older than the devvm you have, devvm upgrade refuses to install it, even with `--force`. A server that offers an old release in place of the newest could bring back problems that a newer release fixed, so devvm upgrade never goes back a version unless you name it. `devvm upgrade --to VERSION` installs the release you name, newer or older, and it asks first, saying when the release is older than the devvm you have. When the devvm you have is a prerelease of a release that isn't out yet, the newest release is older too, and devvm upgrade says so and installs nothing, without failing ([trying a prerelease](#trying-a-prerelease)).
 
 Homebrew installs only its formula's release, so with Homebrew devvm upgrade doesn't take `--to`.
+
+### Trying a prerelease
+
+A prerelease is a version of devvm that you can try before its release is out, such as a release candidate, `0.2.0-rc.1`, or a beta, `0.2.0-beta.1`. devvm upgrade and the install script never pick a prerelease as the newest release, and the daily release check never announces one, so you get a prerelease only when you name it.
+
+To install a prerelease with the install script, run the copy of the script that comes with the prerelease, which installs that prerelease, or give its version to the newest release's script with `--version`:
+
+```sh
+curl -fsSL https://github.com/devvmhq/devvm/releases/download/v0.2.0-rc.1/install.sh | bash
+curl -fsSL https://github.com/devvmhq/devvm/releases/latest/download/install.sh | bash -s -- --version 0.2.0-rc.1
+```
+
+When the install script installed the devvm you have, `devvm upgrade --to 0.2.0-rc.1` installs the prerelease too. Both check a prerelease's signature and checksum as they check a release's. Homebrew's formula always names the newest release, so to try a prerelease on a Homebrew install, switch to the install script first, as [one devvm](#one-devvm) describes.
+
+Versions go in this order: a prerelease comes before its release, a beta before a release candidate, and the numbers in order, so `0.2.0-beta.3` comes before `0.2.0-rc.1`, then `0.2.0-rc.2`, then `0.2.0`. While you run a prerelease, devvm upgrade offers the release it comes before once that release is out, and the daily check says so. It never offers a newer prerelease, such as `0.2.0-rc.2`, so install one with `devvm upgrade --to 0.2.0-rc.2`.
+
+To go back to the newest release before the prerelease's own release is out, name the newest release's version, such as `devvm upgrade --to 0.1.0`. devvm upgrade asks first, because that release is older than the prerelease you have.
 
 ### devvm upgrade --json
 
 `devvm upgrade --json` prints what `devvm upgrade --check` says as one JSON object, for scripts, as [output for scripts](command-line.md#output-for-scripts) describes, and installs nothing:
 
 - `current` is the version of the devvm you ran.
-- `latest` is the newest release's version.
+- `latest` is the newest release's version, which is never a prerelease's.
 - `newer` says whether that's newer than `current`.
 - `install` is how devvm was installed, `install.sh`, `homebrew` or `other`.
 - `path` is where the devvm you ran is, its links followed.

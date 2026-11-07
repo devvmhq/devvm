@@ -497,8 +497,15 @@ func TestRefreshStepsBack(t *testing.T) {
 	e.locked(t, fixture(t))
 	newer := newerLock(t)
 	e.stubLocks(t, newer, olderLock(t), "24.19.0 24.20.0 24.20.1 24.21.0.1 24.22.0")
+	config := filepath.Join(t.TempDir(), "older.toml")
+	t.Setenv("MISE_STUB_OLDER_CONFIG", config)
 	if err := e.Refresh(t.Context()); err != nil {
 		t.Fatal(msg.NamesOf(err))
+	}
+	// The older versions come from the backend the newest came from, which
+	// mise's registry might not give the tool's name.
+	if got, want := string(read(t, config)), "[tool_alias]\nnode = \"core:node\"\n\n[tools]\nnode = [\"24.20.1\",\"24.20.0\",\"24.19.0\"]\n"; got != want {
+		t.Errorf("the step back's mise.toml = %q, want %q", got, want)
 	}
 	if !slices.Contains(*e.said, "devvm: tool_stepped_back older=24.20.0 tool=node version=24.21.0.1") {
 		t.Errorf("said %q", *e.said)

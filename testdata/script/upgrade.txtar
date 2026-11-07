@@ -108,6 +108,51 @@ stdout '^==> upgrade_done link=\S+/pfx/bin/devvm version=0.1.0\n'
 exec pfx/bin/devvm --version
 stdout '^0.1.0$'
 
+# Prereleases: the newest release is never one, so from 0.2.0 there's
+# nothing newer, and only --to installs 0.3.0-rc.1.
+env DEVVM_TEST_VERSION=0.2.0
+cp_exe $DEVVM_BIN/devvm pfx/lib/devvm/0.1.0/devvm
+release_server 0.2.0 0.3.0-rc.1
+exec pfx/bin/devvm upgrade --check
+stdout '^==> upgrade_already_latest version=0.2.0\n\z'
+env DEVVM_PIPED_ANSWERS=1
+stdin yes.txt
+exec pfx/bin/devvm upgrade --to v0.3.0-rc.1
+env DEVVM_PIPED_ANSWERS=
+stdout '^==> upgrade_done link=\S+/pfx/bin/devvm version=0.3.0-rc.1\n'
+exec pfx/bin/devvm --version
+stdout '^0.3.0-rc.1$'
+
+# On 0.3.0-rc.1 before 0.3.0 is out, the newest release is older: said,
+# and nothing installed, without a failure.
+env DEVVM_TEST_VERSION=0.3.0-rc.1
+cp_exe $DEVVM_BIN/devvm pfx/lib/devvm/0.3.0-rc.1/devvm
+exec pfx/bin/devvm upgrade --force
+stdout '^==> upgrade_prerelease_ahead current=0.3.0-rc.1 latest=0.2.0\n\z'
+exec pfx/bin/devvm upgrade --check
+stdout '^==> upgrade_prerelease_ahead current=0.3.0-rc.1 latest=0.2.0\n\z'
+exec pfx/bin/devvm upgrade --json
+stdout '"newer": false'
+
+# Once 0.3.0 is out it's offered, never the newer prerelease 0.3.0-rc.2,
+# and it replaces the prerelease.
+release_server 0.3.0 0.3.0-rc.2
+exec pfx/bin/devvm upgrade --check
+stdout '^==> upgrade_available current=0.3.0-rc.1 latest=0.3.0\n\z'
+exec pfx/bin/devvm upgrade --force
+stdout '^==> upgrade_done link=\S+/pfx/bin/devvm version=0.3.0\n'
+exec pfx/bin/devvm --version
+stdout '^0.3.0$'
+
+# A prerelease where only a release belongs, at releases/latest, is
+# refused.
+env DEVVM_TEST_VERSION=0.3.0
+cp_exe $DEVVM_BIN/devvm pfx/lib/devvm/0.3.0/devvm
+release_server 0.4.0-rc.1
+! exec pfx/bin/devvm upgrade --force
+stderr '^devvm: upgrade_no_latest url=\S+$'
+! exists pfx/lib/devvm/0.4.0-rc.1
+
 # Homebrew's: brew upgrade devvm, asked first, and never --to.
 env DEVVM_TEST_VERSION=0.1.0
 release_server 0.2.0

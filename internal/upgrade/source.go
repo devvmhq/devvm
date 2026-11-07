@@ -50,7 +50,9 @@ func NewSource(url, key string) Source {
 
 // Latest returns the newest release's version, from where the
 // repository's releases/latest goes, as install.sh reads it: no API, so
-// no rate limit.
+// no rate limit. GitHub's releases/latest skips prereleases, and a
+// prerelease there anyway is refused, so it's never installed or
+// announced as the newest release.
 func (s Source) Latest(ctx context.Context) (string, error) {
 	end, err := fetch.Resolve(ctx, s.Client, s.URL+"/releases/latest")
 	if err != nil {
@@ -59,6 +61,9 @@ func (s Source) Latest(ctx context.Context) (string, error) {
 	_, v, ok := strings.Cut(end, "/releases/tag/v")
 	if !ok || !Valid(v) {
 		return "", msg.UpgradeNoLatest(s.URL)
+	}
+	if Prerelease(v) {
+		return "", msg.UpgradeNoLatest(s.URL).Because(errors.New("releases/latest is the prerelease " + v))
 	}
 	return v, nil
 }

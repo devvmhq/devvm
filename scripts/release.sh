@@ -6,8 +6,9 @@
 #   SHA256SUMS.minisig                  SHA256SUMS signed with the release key (minisign), which install.sh checks
 #   install.sh                          the install script, set to install this release and to trust the key
 #   devvm.rb                            the Homebrew formula for devvmhq/homebrew-tap: each platform's archive
-# Nothing is published. The version is VERSION's. The public key is packaging/minisign.pub (committed); the
-# secret key is the maintainer's, at DEVVM_MINISIGN_KEY (default ~/.minisign/devvm.key), never in the repo.
+# Nothing is published. The version is VERSION's: x.y.z, or a prerelease's x.y.z-rc.N (any lowercase word,
+# such as beta or alpha, then a number). The public key is packaging/minisign.pub (committed); the secret key
+# is the maintainer's, at DEVVM_MINISIGN_KEY (default ~/.minisign/devvm.key), never in the repo.
 #   scripts/release.sh          from the tag v<version>, which must exist and be signed (git tag -s)
 #   scripts/release.sh --head   from HEAD, for testing (DEVVM_RELEASE_URL: where the archives will be;
 #                               DEVVM_MINISIGN_KEY: a test key, else nothing is signed;
@@ -24,7 +25,8 @@ cd "$root"
 die() { echo "release: $*" >&2; exit 1; }
 
 v=$(tr -d '[:space:]' < VERSION)
-[[ $v =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "VERSION isn't x.y.z: '$v'"
+# A release, x.y.z, or a prerelease of one, x.y.z-<word>.N (such as 0.2.0-rc.1 or 0.2.0-beta.2).
+[[ $v =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+)?$ ]] || die "VERSION isn't x.y.z or x.y.z-rc.N: '$v'"
 ref=v$v
 check=false
 
@@ -158,4 +160,8 @@ fi
 echo "==> dist/ for devvm $v (from $ref):"
 (cd "$out" && ls -l devvm-*.tar.gz SHA256SUMS* install.sh devvm.rb 2>/dev/null) || true
 $sign || echo "(not signed: a test build without DEVVM_MINISIGN_KEY)"
-echo "scripts/publish.sh publishes them: the archives, SHA256SUMS, SHA256SUMS.minisig and install.sh to the GitHub release v$v, devvm.rb to devvmhq/homebrew-tap's Formula/."
+if [[ $v == *-* ]]; then
+  echo "scripts/publish.sh publishes them: the archives, SHA256SUMS, SHA256SUMS.minisig and install.sh to the GitHub prerelease v$v; devvm.rb stays out of the tap, which keeps the last release."
+else
+  echo "scripts/publish.sh publishes them: the archives, SHA256SUMS, SHA256SUMS.minisig and install.sh to the GitHub release v$v, devvm.rb to devvmhq/homebrew-tap's Formula/."
+fi

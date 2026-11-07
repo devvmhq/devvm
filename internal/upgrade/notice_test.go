@@ -36,6 +36,8 @@ func TestKnown(t *testing.T) {
 		{"0.2.0", "0.3.0", false},
 		{"", "0.1.0", false},
 		{"0.2.0", "", false},
+		{"0.2.0", "0.2.0-rc.1", true},
+		{"0.1.0", "0.2.0-rc.1", false},
 	} {
 		if got := (upgrade.Known{Latest: c.latest}).Newer(c.current); got != c.newer {
 			t.Errorf("%q over %q: %v", c.latest, c.current, got)
@@ -70,7 +72,7 @@ func TestRefresh(t *testing.T) {
 	if k := upgrade.ReadKnown(path); k.Latest != "0.2.0" || !k.Checked.Equal(first) || !k.Tried.Equal(next) {
 		t.Fatalf("offline: %+v", k)
 	}
-	for _, bad := range []string{"{", `{"latest":"v1; rm"}`} {
+	for _, bad := range []string{"{", `{"latest":"v1; rm"}`, `{"latest":"0.3.0-rc.1"}`} {
 		if err := os.WriteFile(path, []byte(bad), 0o600); err != nil {
 			t.Fatal(err)
 		}

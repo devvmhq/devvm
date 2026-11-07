@@ -14,6 +14,12 @@ var releaseVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)
 // Valid reports whether v is a release's version.
 func Valid(v string) bool { return releaseVersion.MatchString(v) }
 
+// Prerelease reports whether v is a prerelease's version, such as
+// 0.2.0-rc.1: one with a -suffix, which GitHub marks as a prerelease, so
+// its releases/latest skips it, as the newest release's lookup and the
+// daily check do too. Only devvm upgrade --to installs one.
+func Prerelease(v string) bool { return Valid(v) && strings.Contains(v, "-") }
+
 // Compare compares two release versions (Valid) as semver orders them:
 // numbers as numbers, a version with a -suffix before the same one
 // without, and suffixes part by part, numbers below words (rc.9 before

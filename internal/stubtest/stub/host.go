@@ -13,7 +13,8 @@ import (
 // mise stands in for the host's mise (DEVVM_HOST_MISE). It logs every
 // call to $STUB_LOG, when that's set. mise lock writes $MISE_STUB_LOCK as
 // ./mise.lock, or $MISE_STUB_OLDER_LOCK for a mise.toml listing versions
-// (the step back's); with MISE_STUB_FAIL set, it fails like mise
+// (the step back's), whose mise.toml it copies to $MISE_STUB_OLDER_CONFIG
+// when that's set; with MISE_STUB_FAIL set, it fails like mise
 // offline, or, set to untrusted, like mise refusing a server's
 // certificate, which it logs to $MISE_LOG_FILE too. mise lock copies the
 // bundles $MISE_EXTRA_CA_CERTS and $SSL_CERT_FILE name, when they're set,
@@ -54,6 +55,11 @@ func mise(c *call) int {
 	lock := c.getenv("MISE_STUB_LOCK")
 	if toml, err := readFile("mise.toml"); err == nil && bytes.Contains(toml, []byte("= [")) {
 		lock = c.getenv("MISE_STUB_OLDER_LOCK")
+		if keep := c.getenv("MISE_STUB_OLDER_CONFIG"); keep != "" {
+			if err := writeFile(keep, toml); err != nil {
+				return c.status(err)
+			}
+		}
 	}
 	b, err := readFile(lock)
 	if err != nil {

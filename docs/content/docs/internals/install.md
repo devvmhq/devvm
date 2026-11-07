@@ -7,7 +7,7 @@ This page explains what devvm's install script downloads and checks, what `devvm
 
 ## The install script
 
-The script installs the release it comes with, or the one that `--version` names. Before it downloads anything, it checks whether Homebrew installed devvm, which it does when `brew` is on `PATH`. The check never runs `brew`, because Homebrew can download its own Ruby when it runs. Instead, the script looks for a version folder in `Cellar/devvm` in each place Homebrew keeps its Cellar: the folder next to the `brew` it found on `PATH` (`<brew's folder>/../Cellar`), `HOMEBREW_CELLAR` and `HOMEBREW_PREFIX/Cellar` when they're set, and the Cellar in `/opt/homebrew`, `/usr/local` and `/home/linuxbrew/.linuxbrew`. When Homebrew has devvm, the script stops with an error that says to run `brew upgrade devvm`, or `brew uninstall devvm` first, and exits with status 1, in a terminal or without one. `--force` skips this check. Then it installs in four steps:
+The script installs the release it comes with, or the one that `--version` names, which may be a prerelease, such as `0.2.0-rc.1`. Without either, it installs the latest release, never a prerelease. Before it downloads anything, it checks whether Homebrew installed devvm, which it does when `brew` is on `PATH`. The check never runs `brew`, because Homebrew can download its own Ruby when it runs. Instead, the script looks for a version folder in `Cellar/devvm` in each place Homebrew keeps its Cellar: the folder next to the `brew` it found on `PATH` (`<brew's folder>/../Cellar`), `HOMEBREW_CELLAR` and `HOMEBREW_PREFIX/Cellar` when they're set, and the Cellar in `/opt/homebrew`, `/usr/local` and `/home/linuxbrew/.linuxbrew`. When Homebrew has devvm, the script stops with an error that says to run `brew upgrade devvm`, or `brew uninstall devvm` first, and exits with status 1, in a terminal or without one. `--force` skips this check. Then it installs in four steps:
 
 1. It downloads the archive for this machine and the release's `SHA256SUMS`, over HTTPS only. The archive is `devvm-<version>-<os>-<arch>.tar.gz`, where the OS is `darwin` or `linux` and the processor is `arm64` or `amd64`. On Apple silicon, the script picks `arm64` even when it runs under Rosetta.
 2. It checks the signature of `SHA256SUMS`, then the archive's checksum, as [the signature](#the-signature-and-what-it-trusts) describes. When either check fails, it installs nothing.
@@ -136,6 +136,8 @@ When the script installs a new version, it removes the older versions in `~/.loc
 
 `devvm upgrade` installs a release in Go, with the same files and checks as the install script, and it never runs the script. It reads the newest release's version from where GitHub's `releases/latest` redirects, `releases/tag/v<version>`, as the script does, so it needs no API and has no rate limit. Every request goes over HTTPS, and a redirect to anything else is refused.
 
+GitHub's `releases/latest` skips the releases marked as prereleases, which are the versions with a suffix, such as `0.2.0-rc.1`. devvm upgrade, the daily release check and the install script also refuse a prerelease there, so none of them installs or announces one as the newest release, and a prerelease is installed only when `--to` or the script's `--version` names it. A record of the daily check that names a prerelease counts as no record, and the next check replaces it. Versions compare as semver orders them: the numbers as numbers, a prerelease before its release, and a prerelease's suffix part by part, a number below a word and numbers as numbers, so `0.2.0-rc.9` comes before `0.2.0-rc.10`.
+
 ### How it tells how devvm was installed
 
 It follows the links of the running binary's path, and it reads only that path, never running anything:
@@ -154,7 +156,7 @@ The archive is unpacked into `<prefix>/lib/devvm/.<version>.new.<pid>`, beside t
 
 ### Rollbacks
 
-A server, or someone in the way of one, can offer an older release that's still properly signed. devvm upgrade refuses a newest release older than the running devvm, whatever the flags, and installs an older one only when `--to` names it, after a question that says it's older. It can't tell a server that keeps offering the release you already have from one with nothing newer, which is a limit of reading the newest release from the server.
+A server, or someone in the way of one, can offer an older release that's still properly signed. devvm upgrade refuses a newest release older than the running devvm, whatever the flags, and installs an older one only when `--to` names it, after a question that says it's older. When the running devvm is a prerelease, an older newest release is what's expected before the prerelease's own release is out, so devvm upgrade says so and installs nothing, without failing. It can't tell a server that keeps offering the release you already have from one with nothing newer, which is a limit of reading the newest release from the server.
 
 ### Switching the link
 

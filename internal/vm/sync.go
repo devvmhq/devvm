@@ -269,6 +269,11 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 		s.put("ca/"+trust.Name(i), 0o644, c)
 	}
 	s.put("tools", 0o644, tools.Mounts(files))
+	aliases, err := tools.Aliases(e.Assets)
+	if err != nil {
+		return nil, err
+	}
+	s.put("tool-alias.toml", 0o644, aliases)
 
 	// The host's settings, for every VM.
 	lang := e.Getenv("LC_ALL")
