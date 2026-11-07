@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1-rc.1
+
+A release candidate for 0.1.1, for trying the changes below before the release. Install it with `devvm upgrade --to 0.1.1-rc.1`, or with the install script's `--version 0.1.1-rc.1`. Homebrew stays on 0.1.0.
+
+- **A dotnet toolchain:** the .NET SDK is a shared toolchain, chosen by a folder's `*.sln`, `*.slnx`, `*.csproj`, `*.fsproj` or `global.json`, and a `global.json`'s `sdk.version` picks the SDK. devvm downloads Microsoft's archive for each platform and checks its SHA-512, global tools and workloads go to the VM's home folder, and the .NET CLI's telemetry is off ([toolchains](https://next.devvm.dev/docs/using/toolchains/)).
+- **A network that inspects TLS:** devvm's own mise, which looks up the shared tools' versions on this machine, now trusts the CAs in `~/.config/devvm/ca` as well as the system's, so resolving works behind a proxy that re-signs HTTPS. When a certificate isn't trusted, devvm says so and points to the docs instead of saying to check the connection. On macOS, the CA also has to be trusted in the Keychain.
+- **Release candidates:** devvm can ship prereleases, such as this one. `devvm upgrade --to` installs one, and devvm upgrade, the release check and the install script's default never pick one on their own.
+- **Lima 2.2 or newer:** devvm needs Lima 2.2 at least, and it's tested with Lima 2.3. `devvm doctor` says when Lima is older.
+- **Updated pins:** base's docker is 29.9.3, mise 2026.11.3, rustup 1.29.3, and tealdeer 1.9.1, with a newer oh-my-bash. The shared tools' backends are named, so mise's registry can't switch opencode to a source with no downloads. base installs ICU, which .NET needs, so base and every image built on it are built again once.
+
 ## 0.1.0
 
 Released 2026-11-06.
