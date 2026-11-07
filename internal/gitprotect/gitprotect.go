@@ -177,11 +177,11 @@ func (p *Protector) NewVM(ctx context.Context, vm *state.VM) error {
 	case err != nil:
 		return err
 	case !p.CanLock && g.Mode != Clone:
-		return watcher{p}.watch(ctx, vm, Watched{})
+		return watcher{p}.check(ctx, vm, g)
 	case g.Mode != On && g.Mode != Strict || !p.CanLock:
 		return nil
 	}
-	made, err := p.protect(ctx, g, whyNew, false)
+	made, err := p.protect(ctx, g, whyNew, lockNow)
 	if err != nil {
 		return err
 	}
@@ -250,7 +250,7 @@ func (p *Protector) Set(ctx context.Context, vm *state.VM, mode string) error {
 		}
 	}
 	g.Mode = mode
-	made, err := p.protect(ctx, g, whyOn, false)
+	made, err := p.protect(ctx, g, whyOn, lockNow)
 	if err != nil {
 		return err
 	}
@@ -307,10 +307,11 @@ func (p *Protector) warnDelegations(ds []delegation) {
 // its next start. A VM whose protection was never set up (its creation
 // stopped short, or devvm adopt moved it) gets it as a new VM does. On a
 // host without locks, a stopped VM's .git is watched instead, whatever
-// its mode: what a lock would cover that changed since the last check is
-// named (watch). So is that of a VM whose mode is off only because it
-// was made where devvm couldn't lock (off, not chosen), which keeps its
-// mode until the user turns it on.
+// its mode: what a lock can't stop is reported all the same, and what a
+// lock would cover that changed since the last check is named
+// (watcher.check). So is that of a VM whose mode is off but wasn't
+// chosen, as devvm makes where it can't lock, which keeps its mode until
+// the user chooses one.
 func (p *Protector) Check(ctx context.Context, vm *state.VM, running bool) error {
 	g, err := Of(vm)
 	switch {
@@ -320,7 +321,7 @@ func (p *Protector) Check(ctx context.Context, vm *state.VM, running bool) error
 		if running || g.Mode == Clone {
 			return nil
 		}
-		return watcher{p}.watch(ctx, vm, g.Watched)
+		return watcher{p}.check(ctx, vm, g)
 	case g.Mode != On && g.Mode != Strict:
 		return nil
 	case !g.Made.Protected:
@@ -329,7 +330,11 @@ func (p *Protector) Check(ctx context.Context, vm *state.VM, running bool) error
 		}
 		return p.NewVM(ctx, vm)
 	}
-	made, err := p.protect(ctx, g, whyCheck, running)
+	h := lockNow
+	if running {
+		h = later
+	}
+	made, err := p.protect(ctx, g, whyCheck, h)
 	if err != nil {
 		return err
 	}
@@ -345,12 +350,23 @@ const (
 	whyCheck            // a launch of an existing VM
 )
 
-// protect locks .git, unless running, and reports what a lock can't stop;
-// it returns what it found (g's Made, as it is now), for the caller to
+// how protect treats the locks.
+type how int
+
+const (
+	lockNow  how = iota // a stopped VM's: lock
+	later               // a running VM's: report, and lock at its next stop
+	watching            // a host without locks: report, record .git's identity, lock nothing
+)
+
+// protect locks .git, as h says, and reports what a lock can't stop; it
+// returns what it found (g's Made, as it is now), for the caller to
 // record with the mode it set. A new VM's git dirs are recorded, not
 // reported; a check reports what changed since the last one, and the
-// hooks path and delegations only when they change.
-func (p *Protector) protect(ctx context.Context, rec InVM, w why, running bool) (Made, error) {
+// hooks path and delegations only when they change. Watching, nothing is
+// locked, so the hooks in folders a lock would cover aren't news: the
+// watch names their changes.
+func (p *Protector) protect(ctx context.Context, rec InVM, w why, h how) (Made, error) {
 	g := p.git()
 	was := rec.Made
 	if !exists(g) {
@@ -358,6 +374,10 @@ func (p *Protector) protect(ctx context.Context, rec InVM, w why, running bool) 
 	}
 	if w == whyCheck && was.GitID != "" && was.GitID != folderID(g) {
 		p.Warn(msg.GitReplaced(g))
+		if h == watching {
+			// Nothing to lock again: the next check compares with this one.
+			was.GitID = folderID(g)
+		}
 		return was, nil
 	}
 	if isDir(g) && exists(filepath.Join(g, "commondir")) {
@@ -384,16 +404,20 @@ func (p *Protector) protect(ctx context.Context, rec InVM, w why, running bool) 
 	// Hooks in a hooks folder that isn't locked appeared since the last
 	// lock (there was no folder to lock, or it's a new submodule's), so the
 	// VM may have made them.
-	if w == whyCheck {
+	if w == whyCheck && h != watching {
 		for _, path := range p.paths(ctx, emb) {
 			if filepath.Base(path) == "hooks" && isDir(path) && !isLink(path) && !p.Locked(path) && hasHooks(path) {
 				p.Warn(msg.GitHooksUnlocked(path))
 			}
 		}
 	}
-	if !running {
+	switch h {
+	case lockNow:
 		p.lock(ctx, emb)
 		made.GitID = folderID(g)
+	case watching:
+		made.GitID = folderID(g)
+	case later:
 	}
 	if w != whyCheck {
 		if hp := gitConfig(ctx, filepath.Join(g, "config"), "core.hooksPath"); hp != "" && p.hooksPathInside(hp) {
@@ -741,6 +765,7 @@ type delegation struct {
 	kind   string // include, hook or outside
 	where  string // the config, the hook, or the submodule's folder
 	target string // the include's path or the hook's link as written, or the git dir
+	path   string // what an include leads to, absolute, for the watch
 }
 
 // delegations finds what the locked config and hooks hand over to files
@@ -764,7 +789,7 @@ func (p *Protector) delegations(ctx context.Context, emb embeds) []delegation {
 				path = filepath.Join(d, path)
 			}
 			if p.into(path) {
-				out = append(out, delegation{"include", cfg, string(v)})
+				out = append(out, delegation{"include", cfg, string(v), filepath.Clean(path)})
 			}
 		}
 		_ = filepath.WalkDir(filepath.Join(d, "hooks"), func(path string, e fs.DirEntry, err error) error {
@@ -780,13 +805,13 @@ func (p *Protector) delegations(ctx context.Context, emb embeds) []delegation {
 				target = filepath.Join(filepath.Dir(path), target)
 			}
 			if p.into(target) {
-				out = append(out, delegation{"hook", path, link})
+				out = append(out, delegation{"hook", path, link, ""})
 			}
 			return nil
 		})
 	}
 	for _, o := range emb.outside {
-		out = append(out, delegation{"outside", o[0], o[1]})
+		out = append(out, delegation{"outside", o[0], o[1], ""})
 	}
 	return out
 }

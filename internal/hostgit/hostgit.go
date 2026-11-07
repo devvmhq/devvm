@@ -24,9 +24,10 @@ import (
 	"strings"
 )
 
-// hooks are the events git runs hooks for (githooks(5)), each turned off
-// for the hooks a config names for it (hook.EVENT.enabled).
-func hooks() []string {
+// HookEvents are the events git runs hooks for (githooks(5)), each turned
+// off for the hooks a config names for it (hook.EVENT.enabled), and the
+// names git runs in a hooks folder.
+func HookEvents() []string {
 	return []string{
 		"applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit",
 		"prepare-commit-msg", "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge",
@@ -48,7 +49,7 @@ func hardened() [][2]string {
 		{"maintenance.auto", "false"},
 		{"gc.auto", "0"},
 	}
-	for _, h := range hooks() {
+	for _, h := range HookEvents() {
 		kv = append(kv, [2]string{"hook." + h + ".enabled", "false"})
 	}
 	return kv

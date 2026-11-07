@@ -1,5 +1,6 @@
 ---
 title: How it works
+explainer: How devvm works, for reviewers and contributors
 weight: 95
 ---
 

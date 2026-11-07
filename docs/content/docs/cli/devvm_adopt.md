@@ -1,6 +1,7 @@
 ---
 title: devvm adopt
 weight: 2
+explainer: "Give this folder the VM made for an earlier folder or path"
 ---
 
 Give this folder the VM made for an earlier folder or path

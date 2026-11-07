@@ -1,6 +1,7 @@
 ---
 title: CLI reference
 weight: 90
+explainer: Every devvm command, with its arguments and flags
 ---
 
 Every devvm command, with its arguments and flags. `devvm <command> --help` prints the same.

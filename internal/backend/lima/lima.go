@@ -323,17 +323,14 @@ func (l *Lima) Caps() backend.Caps {
 	}
 }
 
-// socketMax is the longest unix socket path macOS takes (Linux takes 108).
 // sshSocketExtra is what OpenSSH adds to the socket's name while making it.
-const (
-	socketMax      = 104
-	sshSocketExtra = 17
-)
+const sshSocketExtra = 17
 
 // NameMax is the longest VM name whose ssh socket fits: Lima keeps it in
-// the VM's folder (<Lima home>/<vm>/ssh.sock).
+// the VM's folder (<Lima home>/<vm>/ssh.sock) and refuses a path of
+// paths.SocketMax characters or more, as the last byte is the NUL.
 func (l *host) NameMax() int {
-	return max(0, socketMax-sshSocketExtra-len(l.Dirs.Lima)-len("/")-len("/ssh.sock"))
+	return max(0, paths.SocketMax-1-sshSocketExtra-len(l.Dirs.Lima)-len("/")-len("/ssh.sock"))
 }
 
 // imageKey returns the key of an image's instance, and whether it is one.

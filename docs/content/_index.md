@@ -1,5 +1,8 @@
 ---
 title: devvm
+# The social card's title (layouts/_partials/og-image.html): the hero's headline, as the logo says devvm.
+cardTitle: One VM for every project
+explainer: An isolated sandbox for you or a coding agent
 layout: hextra-home
 # Mostly shortcodes: no Copy page menu (hugo.yaml gives the home page no Markdown copy).
 contextMenu: false

@@ -1,0 +1,17 @@
+{{- /* Wraps .text into lines of at most .cols characters, breaking at spaces, and returns them. The card's
+   font is monospaced, so a line's width is its length. A word longer than .cols gets a line of its own. */ -}}
+{{- $lines := slice -}}
+{{- $line := "" -}}
+{{- range split (trim .text " ") " " -}}
+  {{- if not . }}{{ continue }}{{ end -}}
+  {{- if not $line -}}
+    {{- $line = . -}}
+  {{- else if le (add (strings.RuneCount $line) 1 (strings.RuneCount .)) $.cols -}}
+    {{- $line = printf "%s %s" $line . -}}
+  {{- else -}}
+    {{- $lines = $lines | append $line -}}
+    {{- $line = . -}}
+  {{- end -}}
+{{- end -}}
+{{- with $line }}{{ $lines = $lines | append . }}{{ end -}}
+{{- return $lines -}}

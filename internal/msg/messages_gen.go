@@ -1409,6 +1409,11 @@ func GitChanged(paths string, vm string) M {
 	return M{id: "git_changed", vals: []val{{"paths", paths}, {"vm", vm}}}
 }
 
+// GitChangedMore is [git_changed_more]: "WARNING: {{.paths}} and {{.count}} more paths changed since devvm last checked, perhaps by {{.vm}}, and git on this machine runs what they hold. devvm can tell you only after the fact, so if you didn't change them, check them before you run git here."
+func GitChangedMore(count int, paths string, vm string) M {
+	return M{id: "git_changed_more", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"paths", paths}, {"vm", vm}}}
+}
+
 // GitCommondir is [git_commondir]: "WARNING: If you didn't make {{.git}}/commondir, check it before you run git here. It makes git read config from {{.target}}."
 func GitCommondir(git string, target string) M {
 	return M{id: "git_commondir", vals: []val{{"git", git}, {"target", target}}}
@@ -1547,6 +1552,16 @@ func GitUnprotectedHelper(vm string) M {
 // GitUnprotectedQuiet is [git_unprotected_quiet]: "devvm stops warning about .git at each launch of {{.vm}}, and it still names the hooks and config in .git that change."
 func GitUnprotectedQuiet(vm string) M {
 	return M{id: "git_unprotected_quiet", vals: []val{{"vm", vm}}}
+}
+
+// GitWatchBlind is [git_watch_blind]: "WARNING: Each of {{.paths}} is a symlink, under one, or past what devvm reads, so the VM can change what git on this machine runs from it without devvm naming the change. Check them before you run git here, or use devvm --clone."
+func GitWatchBlind(paths string) M {
+	return M{id: "git_watch_blind", vals: []val{{"paths", paths}}}
+}
+
+// GitWatchBlindMore is [git_watch_blind_more]: "WARNING: Each of {{.paths}} and {{.count}} more paths is a symlink, under one, or past what devvm reads, so the VM can change what git on this machine runs from it without devvm naming the change. Check them before you run git here, or use devvm --clone."
+func GitWatchBlindMore(count int, paths string) M {
+	return M{id: "git_watch_blind_more", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"paths", paths}}}
 }
 
 // GitWorktreeStray is [git_worktree_stray]: "WARNING: If you didn't change {{.wt}}/commondir, check it before you run git in that linked worktree. It doesn't lead back to this repo, so git there reads config and hooks from somewhere else."
@@ -4342,6 +4357,7 @@ var specs = map[string]spec{
 	"gc_unfinished":                  {fields: []string{"key"}},
 	"git_appeared":                   {},
 	"git_changed":                    {fields: []string{"paths", "vm"}},
+	"git_changed_more":               {plural: true, fields: []string{"count", "paths", "vm"}},
 	"git_commondir":                  {fields: []string{"git", "target"}},
 	"git_config_failed":              {fields: []string{"config"}},
 	"git_embedded_new":               {fields: []string{"git"}},
@@ -4370,6 +4386,8 @@ var specs = map[string]spec{
 	"git_unprotected_fs":             {fields: []string{"vm"}},
 	"git_unprotected_helper":         {fields: []string{"vm"}},
 	"git_unprotected_quiet":          {fields: []string{"vm"}},
+	"git_watch_blind":                {fields: []string{"paths"}},
+	"git_watch_blind_more":           {plural: true, fields: []string{"count", "paths"}},
 	"git_worktree_stray":             {fields: []string{"wt"}},
 	"github_token_howto":             {},
 	"group_already":                  {fields: []string{"group", "vm"}},

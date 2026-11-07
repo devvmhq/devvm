@@ -1,5 +1,6 @@
 ---
 title: Managing VMs
+explainer: Open, stop, delete and list your VMs
 weight: 5
 ---
 

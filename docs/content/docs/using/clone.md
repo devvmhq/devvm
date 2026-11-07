@@ -1,5 +1,6 @@
 ---
 title: Working on a clone
+explainer: Give a VM its own clone of the repo
 weight: 9
 ---
 

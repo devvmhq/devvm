@@ -1,6 +1,7 @@
 ---
 title: devvm link add
 weight: 30
+explainer: "Link this folder's VM to a port of another VM"
 ---
 
 Link this folder's VM to a port of another VM

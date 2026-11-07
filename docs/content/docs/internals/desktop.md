@@ -1,5 +1,6 @@
 ---
 title: The desktop
+explainer: How devvm desktop serves a VM's desktop
 weight: 4
 ---
 

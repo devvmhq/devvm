@@ -1,6 +1,7 @@
 ---
 title: devvm agent login
 weight: 5
+explainer: "Log an agent in, in this folder's VM, and save the login in devvm's store"
 ---
 
 Log an agent in, in this folder's VM, and save the login in devvm's store

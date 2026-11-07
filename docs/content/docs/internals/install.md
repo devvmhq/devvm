@@ -1,5 +1,6 @@
 ---
 title: Installing and updating
+explainer: What the install script and devvm doctor check
 weight: 2
 ---
 

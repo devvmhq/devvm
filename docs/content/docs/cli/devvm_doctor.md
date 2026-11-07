@@ -1,6 +1,7 @@
 ---
 title: devvm doctor
 weight: 12
+explainer: "Check what devvm needs on this machine"
 ---
 
 Check what devvm needs on this machine

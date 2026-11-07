@@ -1,5 +1,6 @@
 ---
 title: Branding
+explainer: devvm's logo, icons, colors and fonts
 layout: branding
 description: "devvm's logo, icons, social card, colors and fonts, to download and use when you write about devvm."
 sidebar:
@@ -46,7 +47,7 @@ The app icon at any size, and the icons the site uses for browser tabs and home 
 
 ## The social card
 
-The image that sites and chat apps show with a link to devvm.dev:
+The image to show with a link to devvm. Sites and chat apps show each page of devvm.dev with a card of its own in the same style, which has the page's section, its title and a line on what it covers.
 
 {{< brand-assets wide="true" >}}
 {{< brand-asset title="Social card, 1200 by 630" src="images/social-card.png" bg="dark" alt="The devvm social card: the logo, One VM for every project, and the tagline" files="images/social-card.png" >}}

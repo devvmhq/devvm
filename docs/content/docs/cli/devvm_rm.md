@@ -1,6 +1,7 @@
 ---
 title: devvm rm
 weight: 46
+explainer: "Delete this folder's VM, or a VM whose folder is gone"
 ---
 
 Delete this folder's VM, or a VM whose folder is gone

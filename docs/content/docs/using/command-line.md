@@ -1,5 +1,6 @@
 ---
 title: The command line
+explainer: Help, flags, questions, JSON output and completion
 weight: 15
 ---
 

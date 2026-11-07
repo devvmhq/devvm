@@ -1,6 +1,7 @@
 ---
 title: devvm layer rm
 weight: 27
+explainer: "Make this folder's VM again without some of its layers, then open a shell in it"
 ---
 
 Make this folder's VM again without some of its layers, then open a shell in it

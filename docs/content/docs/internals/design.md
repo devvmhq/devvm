@@ -1,5 +1,6 @@
 ---
 title: Design notes
+explainer: Why devvm is built this way, and what's open
 weight: 12
 ---
 

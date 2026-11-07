@@ -1,5 +1,6 @@
 ---
 title: What devvm keeps on this machine
+explainer: Each file devvm keeps, and how it's cleaned up
 weight: 14
 ---
 

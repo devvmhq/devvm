@@ -1,5 +1,6 @@
 ---
 title: Attack vectors
+explainer: Common attacks, and what devvm does about each
 weight: 3
 ---
 

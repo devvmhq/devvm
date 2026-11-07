@@ -1,6 +1,7 @@
 ---
 title: devvm tools add
 weight: 60
+explainer: "Add shared tools to this folder's VM, then open a shell in it"
 ---
 
 Add shared tools to this folder's VM, then open a shell in it

@@ -1,5 +1,6 @@
 ---
 title: Staying safe
+explainer: How devvm keeps untrusted code off your machine
 weight: 30
 ---
 

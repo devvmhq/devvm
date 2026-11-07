@@ -1,6 +1,7 @@
 ---
 title: devvm agent
 weight: 3
+explainer: "Fill devvm's store of the agents' settings and logins that every VM gets"
 ---
 
 Fill devvm's store of the agents' settings and logins that every VM gets

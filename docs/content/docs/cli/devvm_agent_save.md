@@ -1,6 +1,7 @@
 ---
 title: devvm agent save
 weight: 6
+explainer: "Copy the agents' settings from this folder's VM into devvm's store"
 ---
 
 Copy the agents' settings from this folder's VM into devvm's store

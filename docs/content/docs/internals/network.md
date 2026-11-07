@@ -1,5 +1,6 @@
 ---
 title: Network tiers
+explainer: How the proxy confines VMs and keeps your secrets
 weight: 5
 ---
 

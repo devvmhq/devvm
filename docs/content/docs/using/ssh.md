@@ -1,5 +1,6 @@
 ---
 title: SSH and editors
+explainer: Reach VMs by name from ssh and VS Code
 weight: 3
 ---
 

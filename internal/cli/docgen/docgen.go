@@ -44,11 +44,12 @@ func write(root *cobra.Command, dir string) error {
 // generate returns the reference's files by name: _index.md, and a page
 // for root and each command under it users can run. Hidden commands and
 // Cobra's help command are left out, as Cobra's own tree generator does.
+// Each page's front matter has its explainer, which TestExplainers checks.
 func generate(root *cobra.Command) (map[string][]byte, error) {
 	cmds := available(root)
 	files := make(map[string][]byte, len(cmds)+1)
 	var index bytes.Buffer
-	index.WriteString("---\ntitle: CLI reference\nweight: 90\n---\n\n" +
+	index.WriteString("---\ntitle: CLI reference\nweight: 90\nexplainer: Every devvm command, with its arguments and flags\n---\n\n" +
 		"Every devvm command, with its arguments and flags. `devvm <command> --help` prints the same.\n\n")
 	for i, c := range cmds {
 		c.DisableAutoGenTag = true
@@ -57,7 +58,8 @@ func generate(root *cobra.Command) (map[string][]byte, error) {
 			return nil, err
 		}
 		body := withDocs(tidy(md.String()), c.CommandPath(), msg.CommandDoc(c.CommandPath()))
-		page := fmt.Sprintf("---\ntitle: %s\nweight: %d\n---\n\n%s", c.CommandPath(), i+1, body)
+		// The command's Short is its page's explainer, the line under its title on the social card.
+		page := fmt.Sprintf("---\ntitle: %s\nweight: %d\nexplainer: %q\n---\n\n%s", c.CommandPath(), i+1, c.Short, body)
 		files[fileName(c)] = []byte(page)
 		fmt.Fprintf(&index, "- [%s](%s): %s\n", c.CommandPath(), fileName(c), c.Short)
 	}

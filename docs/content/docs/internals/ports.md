@@ -1,5 +1,6 @@
 ---
 title: Port forwarding
+explainer: How devvm forwards a VM's ports to this machine
 weight: 4
 ---
 

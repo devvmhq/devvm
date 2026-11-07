@@ -1,3 +1,13 @@
+{{- /* The page's social card (og-image.html). Hugo's twitter_cards.html writes twitter:card and twitter:image
+   from the same card, through _funcs/get-page-images.html. */ -}}
+{{- with partialCached "og-image.html" . .RelPermalink }}
+<meta property="og:image" content="{{ .Image.Permalink }}">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="{{ .Image.Width }}">
+<meta property="og:image:height" content="{{ .Image.Height }}">
+<meta property="og:image:alt" content="{{ .Alt }}">
+<meta name="twitter:image:alt" content="{{ .Alt }}">
+{{- end }}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">

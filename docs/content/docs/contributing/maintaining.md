@@ -1,5 +1,6 @@
 ---
 title: Maintaining
+explainer: Bump pinned versions, release devvm and run the docs sites
 weight: 2
 ---
 

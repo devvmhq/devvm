@@ -2070,6 +2070,20 @@ other = "devvm stops warning about .git at each launch of {{.vm}}, and it still 
 description = "paths is a comma-separated list of paths relative to the project folder"
 other = "WARNING: {{.paths}} changed since devvm last checked, perhaps by {{.vm}}, and git on this machine runs what they hold. devvm can tell you only after the fact, so if you didn't change them, check them before you run git here."
 
+[git_changed_more]
+description = "paths is a comma-separated list of paths relative to the project folder; count is how many more changed"
+one = "WARNING: {{.paths}} and 1 more path changed since devvm last checked, perhaps by {{.vm}}, and git on this machine runs what they hold. devvm can tell you only after the fact, so if you didn't change them, check them before you run git here."
+other = "WARNING: {{.paths}} and {{.count}} more paths changed since devvm last checked, perhaps by {{.vm}}, and git on this machine runs what they hold. devvm can tell you only after the fact, so if you didn't change them, check them before you run git here."
+
+[git_watch_blind]
+description = "paths is a comma-separated list of paths relative to the project folder"
+other = "WARNING: Each of {{.paths}} is a symlink, under one, or past what devvm reads, so the VM can change what git on this machine runs from it without devvm naming the change. Check them before you run git here, or use devvm --clone."
+
+[git_watch_blind_more]
+description = "paths is a comma-separated list of paths relative to the project folder; count is how many more there are"
+one = "WARNING: Each of {{.paths}} and 1 more path is a symlink, under one, or past what devvm reads, so the VM can change what git on this machine runs from it without devvm naming the change. Check them before you run git here, or use devvm --clone."
+other = "WARNING: Each of {{.paths}} and {{.count}} more paths is a symlink, under one, or past what devvm reads, so the VM can change what git on this machine runs from it without devvm naming the change. Check them before you run git here, or use devvm --clone."
+
 [no_vm_git_protect]
 other = "There's no VM for {{.dir}}. Run devvm to make one, or devvm --no-git-protect to make one without .git protection."
 
