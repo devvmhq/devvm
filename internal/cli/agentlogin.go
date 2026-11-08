@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/vm"
 )
@@ -26,17 +27,19 @@ func newAgentLoginCmd(a *app) *cobra.Command {
 		Long: "Log AGENT in inside this folder's VM, and keep the login in devvm's store for every VM with the agent, which gets only placeholders. " +
 			"claude logs in to your Claude subscription in a browser on any machine, whose code you paste back, " +
 			"or gets a long-lived Claude Code token with --setup-token. " +
-			"codex and opencode log in to ChatGPT in a browser on this machine, or with a code with --device-code, " +
-			"or save an API key with --api-key.",
+			andList(agents.Select(func(d agents.Def) bool { return d.ChatGPT })) +
+			" log in to ChatGPT in a browser on this machine, or with a code with --device-code, " +
+			"or save an API key with --api-key, which is " + andList(possessive(agents.Select(agents.Def.KeysOnly))) + " only login.",
 		Example: examples(
 			"devvm agent login claude", "log Claude Code in to your Claude subscription",
 			"devvm agent login claude --setup-token", "get a Claude Code token with claude setup-token instead",
 			"devvm agent login codex", "log Codex in to ChatGPT in a browser on this machine",
 			"devvm agent login codex --device-code", "log in with a code, in a browser on any machine",
 			"devvm agent login opencode --api-key --provider anthropic", "save opencode's Anthropic API key, asking for it",
+			"devvm agent login pi --api-key --provider openai", "save pi's OpenAI API key, asking for it",
 		),
 		Args:      cobra.MatchAll(exactArgs(1), func(_ *cobra.Command, args []string) error { return o.check(args[0]) }),
-		ValidArgs: vm.LoginAgents(),
+		ValidArgs: agents.LoginAgents(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			lo := vm.AgentLoginOptions{Agent: args[0], Device: o.device, SetupToken: o.setupToken, Provider: o.provider}
 			if o.apiKey {
@@ -55,7 +58,8 @@ func newAgentLoginCmd(a *app) *cobra.Command {
 	f := cmd.Flags()
 	f.BoolVar(&o.device, "device-code", false, "log in with a code to type into a browser on any machine, so nothing is forwarded")
 	f.BoolVar(&o.apiKey, "api-key", false, "save an API key instead, asking for it")
-	f.StringVar(&o.provider, "provider", "", "with opencode's --api-key, the `PROVIDER` it's for: anthropic, openai or openrouter")
+	keyed := agents.Select(func(d agents.Def) bool { return d.Keys == agents.ProviderKeys })
+	f.StringVar(&o.provider, "provider", "", "with "+orList(possessive(keyed))+" --api-key, the `PROVIDER` it's for: "+orList(agentlogin.KeyProviders(keyed[0])))
 	f.BoolVar(&o.stdin, "stdin", false, "read the secret from a line of input, without asking")
 	f.BoolVar(&o.setupToken, "setup-token", false, "with claude, get a long-lived Claude Code token with claude setup-token instead")
 	exclusive(cmd, "device-code", "api-key")
@@ -64,26 +68,31 @@ func newAgentLoginCmd(a *app) *cobra.Command {
 }
 
 // check refuses flags that don't go with agent's login: --setup-token
-// only with claude, which takes neither --device-code nor --api-key,
-// --provider only with opencode's --api-key, which needs it, and --stdin
-// only with --api-key.
+// only with claude, which takes neither --device-code nor --api-key, an
+// agent with API keys alone (pi) only with --api-key, --provider only
+// with the --api-key of an agent with a key for each provider, which
+// needs it, and --stdin only with --api-key.
 func (o agentLoginOpts) check(agent string) error {
-	providers := agentlogin.KeyProviders(agentlogin.Opencode)
+	providers := agentlogin.KeyProviders(agent)
+	d, _ := agents.Get(agent)
 	switch {
-	case o.setupToken && agent != agentlogin.Claude:
+	case o.setupToken && agent != agents.Claude:
 		return msg.AgentLoginSetupTokenAlone()
-	case agent == agentlogin.Claude && o.device:
+	case agent == agents.Claude && o.device:
 		return msg.AgentLoginClaudeFlag("--device-code")
-	case agent == agentlogin.Claude && o.apiKey:
+	case agent == agents.Claude && o.apiKey:
 		return msg.AgentLoginClaudeFlag("--api-key")
-	case agent == agentlogin.Claude && o.stdin:
+	case agent == agents.Claude && o.stdin:
 		return msg.AgentLoginClaudeFlag("--stdin")
+	case d.KeysOnly() && !o.apiKey:
+		return msg.AgentLoginKeyOnly(agent)
 	case o.stdin && !o.apiKey:
 		return msg.AgentLoginStdinAlone(agent)
-	case o.provider != "" && (!o.apiKey || agent != agentlogin.Opencode):
-		return msg.AgentLoginProviderAlone()
-	case o.apiKey && agent == agentlogin.Opencode && o.provider == "":
-		return msg.AgentLoginProviderNeeded(strings.Join(providers, ", "))
+	case o.provider != "" && (!o.apiKey || len(providers) == 0):
+		keyed := agents.Select(func(d agents.Def) bool { return d.Keys == agents.ProviderKeys })
+		return msg.AgentLoginProviderAlone(strings.Join(keyed, ", "))
+	case o.apiKey && len(providers) > 0 && o.provider == "":
+		return msg.AgentLoginProviderNeeded(agent, strings.Join(providers, ", "))
 	case o.provider != "" && !slices.Contains(providers, o.provider):
 		return msg.ArgNotChoice(strings.Join(providers, ", "), "--provider", o.provider)
 	}

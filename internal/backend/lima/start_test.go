@@ -213,6 +213,20 @@ func testStartBuildSSHPort(t *testing.T, goos string) {
 	if err := l.start(t.Context(), "v", nil, backend.Confinement{Net: backend.NetInternet}); err == nil || slices.Contains(f.lines(), "limactl start --tty=false v") {
 		t.Errorf("started without a port: %v, %q", err, f.lines())
 	}
+	// A clone keeps its image's port: never chosen again, so the start
+	// always edits a new one in (each time, of the two ports left, the one
+	// the config doesn't have).
+	f.out["limactl list --json"] = `{"name":"v","status":"Stopped","config":{"ssh":{"forwardAgent":true,"localPort":20001}}}`
+	l.Ports.Range = platform.PortRange{Lo: 20000, Hi: 20002}
+	for range 10 {
+		f.calls = nil
+		if err := l.start(t.Context(), "v", nil, backend.Confinement{Net: backend.NetInternet}); err != nil {
+			t.Fatal(err)
+		}
+		if edits := editSets(f); !slices.Contains(edits, ".ssh.localPort=20002") {
+			t.Fatalf("edits %q, want the port neither a VM nor the clone has", edits)
+		}
+	}
 }
 
 // A start turns Lima's own forwards off where the VM's rules, as limactl

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/backend/backendtest"
 	"github.com/devvmhq/devvm/internal/msg"
@@ -179,9 +180,41 @@ func TestWithheld(t *testing.T) {
 		".config/opencode/opencode.json": false,
 		".codex/AGENTS.md":               false,
 		".claude/CLAUDE.md":              false,
+		".pi/agent/models.json":          false,
+		".pi/agent/keybindings.json":     false,
 	} {
 		if got := withheld(rel); got != want {
 			t.Errorf("withheld(%s) = %v, want %v", rel, got, want)
+		}
+	}
+}
+
+// pi's settings files that can hold a key are redacted as JSON, and its
+// keybindings and Markdown go as they are; every one of pi's files is
+// one of its settings.
+func TestPiSettingsFormat(t *testing.T) {
+	for rel, want := range map[string]string{
+		".pi/agent/settings.json":    "json",
+		".pi/agent/models.json":      "json",
+		".pi/agent/mcp.json":         "json",
+		".pi/agent/keybindings.json": "",
+		".pi/agent/AGENTS.md":        "",
+		".pi/agent/auth.json":        "",
+		".pi/agent/trust.json":       "",
+		".pi/settings.json":          "",
+	} {
+		if got, _ := settingsFormat(rel); got != want {
+			t.Errorf("settingsFormat(%s) = %q, want %q", rel, got, want)
+		}
+	}
+	for _, rel := range []string{".pi/agent/settings.json", ".pi/agent/models.json", ".pi/agent/mcp.json"} {
+		if !slices.Contains(agentFiles(t.TempDir(), "pi"), rel) {
+			t.Errorf("%s isn't among pi's settings files", rel)
+		}
+	}
+	for _, d := range agents.Of("pi").Dirs {
+		if strings.HasPrefix(d, piSessions) || !strings.HasPrefix(d, piDir+"/") {
+			t.Errorf("pi's settings folder %s", d)
 		}
 	}
 }

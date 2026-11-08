@@ -3,6 +3,7 @@
 cmd/devvm 100.0
 cmd/devvm-immutable 76.2
 internal/agentlogin 94.8
+internal/agents 100.0
 internal/backend 97.1
 internal/backend/backendtest 74.4
 internal/backend/lima 90.4

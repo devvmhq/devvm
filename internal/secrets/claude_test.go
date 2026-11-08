@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
@@ -20,7 +21,7 @@ import (
 func writeClaudeOAuth(t *testing.T, s *Store, access string) {
 	t.Helper()
 	exp := strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10)
-	writeLogin(t, s, agentlogin.ClaudeOAuth, `{"claudeAiOauth":{"accessToken":"`+access+`","refreshToken":"sk-ant-ort01-r","expiresAt":`+exp+`,"scopes":["user:inference"]}}`)
+	writeLogin(t, s, agents.ClaudeOAuth, `{"claudeAiOauth":{"accessToken":"`+access+`","refreshToken":"sk-ant-ort01-r","expiresAt":`+exp+`,"scopes":["user:inference"]}}`)
 }
 
 func bindingNames(t *testing.T, s *Store, st *state.VM) []string {
@@ -50,7 +51,7 @@ func TestOneClaudeLogin(t *testing.T) {
 		[]byte(`{"access_token":"sk-ant-oat01-oauth","refresh_token":"sk-ant-ort01-r","scope":"user:inference user:profile"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if l, err := ClaudeOf(s).Login(ctx); l != "oauth" || err != nil || !s.HasLogin(agentlogin.ClaudeOAuth) {
+	if l, err := ClaudeOf(s).Login(ctx); l != "oauth" || err != nil || !s.HasLogin(agents.ClaudeOAuth) {
 		t.Errorf("after the OAuth login: %q, %v", l, err)
 	}
 	oauth, token, err := ClaudeOf(s).Sums(ctx)
@@ -62,8 +63,8 @@ func TestOneClaudeLogin(t *testing.T) {
 	if err != nil || !strings.Contains(string(out), `"sk-ant-oat01-devvm-proxy-managed-s417"`) || strings.Contains(string(out), "setup") {
 		t.Fatalf("setup-token's capture = %s, %v", out, err)
 	}
-	if kc["devvm/claude"] != "sk-ant-oat01-setup" || s.HasLogin(agentlogin.ClaudeOAuth) {
-		t.Errorf("after setup-token: %q, OAuth login kept %v", kc["devvm/claude"], s.HasLogin(agentlogin.ClaudeOAuth))
+	if kc["devvm/claude"] != "sk-ant-oat01-setup" || s.HasLogin(agents.ClaudeOAuth) {
+		t.Errorf("after setup-token: %q, OAuth login kept %v", kc["devvm/claude"], s.HasLogin(agents.ClaudeOAuth))
 	}
 	if l, _ := ClaudeOf(s).Login(ctx); l != "token" {
 		t.Errorf("after setup-token: %q", l)
@@ -87,8 +88,8 @@ func TestOneClaudeLogin(t *testing.T) {
 		t.Error("the saved token stayed")
 	}
 	// devvm secret set claude: the OAuth login goes.
-	if err := s.Save(ctx, "claude", "sk-ant-oat01-pasted"); err != nil || s.HasLogin(agentlogin.ClaudeOAuth) {
-		t.Errorf("Save: %v, OAuth login kept %v", err, s.HasLogin(agentlogin.ClaudeOAuth))
+	if err := s.Save(ctx, "claude", "sk-ant-oat01-pasted"); err != nil || s.HasLogin(agents.ClaudeOAuth) {
+		t.Errorf("Save: %v, OAuth login kept %v", err, s.HasLogin(agents.ClaudeOAuth))
 	}
 	// The environment's token wins, but the sums are the saved ones'.
 	writeClaudeOAuth(t, s, "sk-ant-oat01-oauth3")
@@ -105,7 +106,7 @@ func TestOneClaudeLogin(t *testing.T) {
 		t.Errorf("Logins with the environment's token = %q", got)
 	}
 	delete(env, "CLAUDE_CODE_OAUTH_TOKEN")
-	if got := s.Logins(ctx, []string{"claude"}); !slices.Equal(got, []string{agentlogin.ClaudeOAuth}) {
+	if got := s.Logins(ctx, []string{"claude"}); !slices.Equal(got, []string{agents.ClaudeOAuth}) {
 		t.Errorf("Logins with the OAuth login = %q", got)
 	}
 	// The saved token can't be deleted: the login is saved still, the VM gets its reply, and
@@ -140,7 +141,7 @@ func TestClaudeBindings(t *testing.T) {
 	if got := bindingNames(t, s, st); !slices.Equal(got, []string{"claude", agentlogin.ClaudeOAuthName}) {
 		t.Errorf("the OAuth login: %q", got)
 	}
-	for _, b := range []proxy.Binding{secretOf("claude"), loginOf(agentlogin.ClaudeOAuth, agentlogin.ClaudeOAuthName)} {
+	for _, b := range []proxy.Binding{secretOf("claude"), loginOf(agents.ClaudeOAuth, agentlogin.ClaudeOAuthName)} {
 		if v, err := s.Get(ctx, b); v != "sk-ant-oat01-oauth" || err != nil {
 			t.Errorf("Get(%s) with the OAuth login = %q, %v", b.Name, v, err)
 		}
@@ -154,22 +155,22 @@ func TestClaudeBindings(t *testing.T) {
 	if got := bindingNames(t, s, st); !slices.Equal(got, []string{"claude", agentlogin.ClaudeOAuthName}) {
 		t.Errorf("the token: %q", got)
 	}
-	for _, b := range []proxy.Binding{secretOf("claude"), loginOf(agentlogin.ClaudeOAuth, agentlogin.ClaudeOAuthName)} {
+	for _, b := range []proxy.Binding{secretOf("claude"), loginOf(agents.ClaudeOAuth, agentlogin.ClaudeOAuthName)} {
 		if v, err := s.Get(ctx, b); v != "sk-ant-oat01-token" || err != nil {
 			t.Errorf("Get(%s) with the token = %q, %v", b.Name, v, err)
 		}
 	}
 	delete(kc, "devvm/claude")
-	if _, err := s.Get(ctx, loginOf(agentlogin.ClaudeOAuth, agentlogin.ClaudeOAuthName)); msg.IDOf(err) != "claude_no_login" {
+	if _, err := s.Get(ctx, loginOf(agents.ClaudeOAuth, agentlogin.ClaudeOAuthName)); msg.IDOf(err) != "claude_no_login" {
 		t.Errorf("no login: %v", msg.NamesOf(err))
 	}
 	// A login file that can't be read says so.
-	writeLogin(t, s, agentlogin.ClaudeOAuth, "{")
+	writeLogin(t, s, agents.ClaudeOAuth, "{")
 	if _, err := s.Get(ctx, secretOf("claude")); msg.IDOf(err) != "login_read_failed" {
 		t.Errorf("a broken login file: %v", msg.NamesOf(err))
 	}
-	if _, err := os.Stat(LoginFile(s.Dirs, agentlogin.ClaudeOAuth)); err != nil || !strings.HasSuffix(LoginFile(s.Dirs, agentlogin.ClaudeOAuth), "/logins/claude/.claude/.credentials.json") {
-		t.Errorf("the OAuth login's file: %s, %v", LoginFile(s.Dirs, agentlogin.ClaudeOAuth), err)
+	if _, err := os.Stat(LoginFile(s.Dirs, agents.ClaudeOAuth)); err != nil || !strings.HasSuffix(LoginFile(s.Dirs, agents.ClaudeOAuth), "/logins/claude/.claude/.credentials.json") {
+		t.Errorf("the OAuth login's file: %s, %v", LoginFile(s.Dirs, agents.ClaudeOAuth), err)
 	}
 	if _, err := ClaudeOf(s).Login(ctx); err == nil {
 		t.Error("ClaudeLogin read a broken file")
@@ -183,12 +184,12 @@ func TestClaudeBindings(t *testing.T) {
 func TestClaudeOAuthVMCopy(t *testing.T) {
 	s, _ := testStore(t, false, nil)
 	writeClaudeOAuth(t, s, "sk-ant-oat01-secret")
-	data, err := s.VMLogin(agentlogin.ClaudeOAuth, "s417")
+	data, err := s.VMLogin(agents.ClaudeOAuth, "s417")
 	if err != nil || strings.Contains(string(data), "secret") || strings.Contains(string(data), "ort01") ||
 		!strings.Contains(string(data), "sk-ant-oat01-devvm-proxy-managed-oauth-s417") {
 		t.Errorf("VMLogin = %s, %v", data, err)
 	}
-	if LoginRel(agentlogin.ClaudeOAuth) != ".claude/.credentials.json" {
-		t.Errorf("LoginRel = %q", LoginRel(agentlogin.ClaudeOAuth))
+	if LoginRel(agents.ClaudeOAuth) != ".claude/.credentials.json" {
+		t.Errorf("LoginRel = %q", LoginRel(agents.ClaudeOAuth))
 	}
 }

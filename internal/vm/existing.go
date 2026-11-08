@@ -181,11 +181,15 @@ func (e Launch) buildTarget(ctx context.Context, builder *build.Env, b backend.B
 }
 
 // buildTools builds the tool images the share lacks of files, then checks
-// that each runs on tg's base (tools.Share.Runs). They build in a base as
+// that each runs on tg's base (tools.Share.Runs), refusing first a tool
+// that has no build for its C library (tools.HasBuilds). They build in a base as
 // it is now, built first if it isn't: for gnu, devvm's own Ubuntu base on
 // builder's backend, whatever builder's base starts from, as any VM may
 // mount them, and for musl builder's own, as their keys hash its digest.
 func (e Launch) buildTools(ctx context.Context, builder *build.Env, tg tools.Target, files []string) error {
+	if err := tools.HasBuilds(files, tg); err != nil {
+		return err
+	}
 	share := tools.Share{Env: e.Tools}
 	if slices.ContainsFunc(files, func(f string) bool { return !share.Built(f) }) {
 		if tg.Libc != "musl" && builder.From != "" {

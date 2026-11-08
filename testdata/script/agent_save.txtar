@@ -8,7 +8,7 @@ env COPYFILE_DISABLE=1
 
 # Its arguments are agents; without a VM there's nothing to save from.
 ! exec devvm agent save nope
-stderr '^devvm: arg_not_choice choices=claude, codex, opencode command=devvm agent save given=nope$'
+stderr '^devvm: arg_not_choice choices=claude, codex, opencode, pi(, [a-z0-9-]+)* command=devvm agent save given=nope$'
 project agent
 ! exec devvm agent save
 stderr '^devvm: no_vm dir=\S*/agent$'

@@ -1,0 +1,99 @@
+# devvm agent import pi: pi's settings in ~/.pi/agent, its folders and
+# its files, and its login, auth.json, go into devvm's store, never its
+# sessions, its trust decisions or the tools it downloaded. A VM with pi
+# then gets the store's: its folders linked to their mounts, its settings
+# files copied with their keys taken out, and its login's copy with a
+# placeholder for each key the proxy puts in, never a key.
+
+mkdir $HOME/.pi/agent/skills/s $HOME/.pi/agent/sessions/--p-- $HOME/.pi/agent/bin
+cp $WORK/skill.md $HOME/.pi/agent/skills/s/SKILL.md
+cp $WORK/settings.json $HOME/.pi/agent/settings.json
+cp $WORK/models.json $HOME/.pi/agent/models.json
+cp $WORK/keybindings.json $HOME/.pi/agent/keybindings.json
+cp $WORK/agents.md $HOME/.pi/agent/AGENTS.md
+cp $WORK/auth.json $HOME/.pi/agent/auth.json
+cp $WORK/session.jsonl $HOME/.pi/agent/sessions/--p--/s.jsonl
+cp $WORK/agents.md $HOME/.pi/agent/trust.json
+cp $WORK/agents.md $HOME/.pi/agent/bin/fd
+exec devvm agent import pi
+stdout '^==> agent_settings_imported agent=pi dir=\S*/config/devvm/agents/pi$'
+stdout '^==> agent_login_imported agent=pi file=\S*/data/devvm/logins/pi/\.pi/agent/auth\.json$'
+cmp $CFG/agents/pi/.pi/agent/settings.json $WORK/settings.json
+cmp $CFG/agents/pi/.pi/agent/skills/s/SKILL.md $WORK/skill.md
+cmp $CFG/agents/pi/.pi/agent/AGENTS.md $WORK/agents.md
+cmp $DATA/logins/pi/.pi/agent/auth.json $WORK/auth.json
+! exists $CFG/agents/pi/.pi/agent/sessions
+! exists $CFG/agents/pi/.pi/agent/auth.json
+! exists $CFG/agents/pi/.pi/agent/trust.json
+! exists $CFG/agents/pi/.pi/agent/bin
+[!darwin] exec sh -c 'stat -c %a "$DATA/logins/pi" "$DATA/logins/pi/.pi/agent/auth.json"'
+[darwin] exec sh -c 'stat -f %Lp "$DATA/logins/pi" "$DATA/logins/pi/.pi/agent/auth.json"'
+stdout '^700\n600\n$'
+
+# A VM with pi: the store's skills are linked to their mount, the
+# settings files copied without their keys, settings.json also without
+# its proxy, session folder and update command, the keybindings and
+# Markdown as they are, and the login's copy holds placeholders; the
+# proxy binds the Anthropic key, and the VM gets the other provider's
+# key and the OAuth login without their key or tokens, warned.
+project p
+stub_reset
+exec devvm --network open --no-git-protect --agents pi
+vm_name P p
+stderr '^devvm: login_withheld agent=pi name=pi providers=groq, openai-codex$'
+! stderr login_passed
+stderr '^pi_settings_dropped keys=httpProxy selfUpdateCommand sessionDir vm=devvm-p-[0-9a-f]{14}$'
+stderr '^devvm: pi_trusts_all vm=devvm-p-[0-9a-f]{14}$'
+exec tar -xOf $STUB_DIR/sync.tar links
+stdout '^\.pi/agent/skills\n\S*/config/devvm/agents/pi/\.pi/agent/skills$'
+exec tar -xOf $STUB_DIR/sync.tar home/.pi/agent/settings.json
+stdout '"defaultProvider": "anthropic"'
+! stdout 'httpProxy|proxy\.example|sessionDir|selfUpdateCommand|testfake'
+exec tar -xOf $STUB_DIR/sync.tar home/.pi/agent/models.json
+stdout '"apiKey": "devvm-redacted"'
+! stdout testfake
+exec tar -xOf $STUB_DIR/sync.tar home/.pi/agent/keybindings.json
+cmp stdout $WORK/keybindings.json
+exec tar -xOf $STUB_DIR/sync.tar home/.pi/agent/auth.json
+stdout '"key": "devvm-proxy-managed-pi-anthropic-[0-9a-f]{32}"'
+! stdout 'gsk-local|"access"|"refresh"|testfake'
+exec tar -tf $STUB_DIR/sync.tar
+! stdout 'sessions|trust\.json|bin/fd'
+grep '"name":"pi-anthropic"' $P_dir/run/secrets.json
+
+# config.toml's [pass-keys] gives the VM groq's key as it is, noted.
+cp $WORK/pass.toml $CFG/config.toml
+exec devvm host
+stderr '^login_passed agent=pi providers=groq$'
+stderr '^devvm: login_withheld agent=pi name=pi providers=openai-codex$'
+exec tar -xOf $STUB_DIR/sync.tar home/.pi/agent/auth.json
+stdout '"key": "gsk-local"'
+! stdout testfake
+# One devvm can't read fails the launch, naming its line.
+cp $WORK/badpass.toml $CFG/config.toml
+! exec devvm host
+stderr 'config\.toml'
+rm $CFG/config.toml
+
+-- skill.md --
+# a skill
+-- agents.md --
+Write tests.
+-- pass.toml --
+features = []
+[pass-keys]
+pi = ["groq"]
+-- badpass.toml --
+features = []
+[pass-keys]
+pi = ["Groq"]
+-- settings.json --
+{"defaultProvider":"anthropic","httpProxy":"http://user:testfake-pass@proxy.example:8080","sessionDir":"/tmp/s","selfUpdateCommand":["sh","-c","testfake"],"defaultProjectTrust":"always"}
+-- models.json --
+{"providers":{"local":{"baseUrl":"http://localhost:11434/v1","apiKey":"testfake-model-key","models":[{"id":"m"}]}}}
+-- keybindings.json --
+{"app.session.new": "ctrl+shift+n"}
+-- auth.json --
+{"anthropic":{"type":"api_key","key":"sk-ant-testfake"},"groq":{"type":"api_key","key":"gsk-local"},"openai-codex":{"type":"oauth","access":"testfake-access","refresh":"testfake-refresh","expires":1}}
+-- session.jsonl --
+{"type":"session","cwd":"/p","prompt":"testfake-history"}

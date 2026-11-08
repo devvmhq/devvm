@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf16"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
@@ -19,50 +20,25 @@ import (
 	"github.com/devvmhq/devvm/internal/tools"
 )
 
-// Each agent's settings, as paths relative to the home folder, which
-// devvm's store of the agent's settings (agentStore) keeps at the same
-// paths below it. Folders are mounted read-only at their path in the
-// store and linked into the VM's home; files are copied in on every
-// launch. An agent's logins are in the store of its logins
-// (secrets.LoginFile). History (transcripts, sessions, databases) is in
-// neither.
-var (
-	agentDirsOf = map[string][]string{
-		"claude": {".claude/skills", ".claude/agents", ".claude/commands", ".claude/output-styles", ".claude/plugins"},
-		"codex":  {".codex/prompts", ".codex/skills"},
-	}
-	agentFilesOf = map[string][]string{
-		"claude": {".claude/settings.json", ".claude/CLAUDE.md"},
-		"codex":  {".codex/config.toml", ".codex/AGENTS.md"},
-	}
-	// agentFolderOf is the folder of the home folder each agent's
-	// settings are in, which devvm agent import copies them from,
-	// following no link out of it.
-	agentFolderOf = map[string]string{"claude": ".claude", "codex": ".codex", "opencode": opencodeDir}
-)
+// Each agent's settings (agents.Def's Dirs, Files and Folder) are paths
+// relative to the home folder, which devvm's store of the agent's
+// settings (agentStore) keeps at the same paths below it. Folders are
+// mounted read-only at their path in the store and linked into the VM's
+// home; files are copied in on every launch. An agent's logins are in the
+// store of its logins (secrets.LoginFile). History (transcripts,
+// sessions, databases) is in neither.
 
 // agentStore is devvm's store of an agent's settings, laid out as they
 // are in the home folder: the one place devvm reads them from for VMs,
 // never the home folder.
 func agentStore(d paths.Dirs, agent string) string { return d.AgentSettings(agent) }
 
-// The agents' history in a VM, relative to its home: what devvm rm
-// exports, without their logins.
-var (
-	historyPaths    = []string{".claude", ".claude.json", ".codex", ".local/share/opencode", ".local/state/opencode"}
-	historyExcludes = []string{
-		".claude/.credentials.json", ".codex/auth.json",
-		".local/share/opencode/auth.json", ".local/share/opencode/account.json", ".local/share/opencode/mcp-auth.json",
-		".local/share/opencode/bin",
-	}
-)
-
 // opencodeData is opencode's data folder. opencode 2 keeps its sessions
 // and its logins in one SQLite database there, opencode.db (or
 // opencode-<channel>.db for another channel's build), in WAL mode, so
 // the database's -wal file holds the pages it changed last, its logins'
 // among them, until opencode checkpoints it.
-const opencodeData = ".local/share/opencode"
+const opencodeData = agents.OpencodeData
 
 // opencodeDBs are the names of opencode's databases and their WAL,
 // shared-memory and rollback journal files in opencodeData, as globs.
@@ -105,10 +81,15 @@ const opencodeWellknown = `key LIKE 'wellknown:config:%'`
 // deletes the kv rows opencodeWellknown picks and takes
 // opencodeAuthImport's record out, then turns WAL off and rebuilds the
 // file (secure_delete and VACUUM), so no page of it keeps a deleted row.
-// It fails when the VM has no sqlite3, when any step fails or when a
-// table it emptied or kv has a row it should have deleted, and the caller then
-// leaves the database out. The schema's own functions stay off
-// (trusted_schema), as an imported database is the export's.
+// It fails when the VM has no sqlite3, when any step fails, when the
+// copy has fewer tables than DB or none, or unless each count of rows
+// left (the triggers, each table it emptied, kv's rows it deleted)
+// prints 0, so a sqlite3 that runs nothing and prints nothing fails too;
+// the caller then leaves the database out. The schema's own functions stay off
+// (trusted_schema), as an imported database is the export's: each
+// sqlite3 gets that pragma first in its own input, never in -cmd, as
+// sqlite3 3.54 with -bail stops after an SQL -cmd and runs nothing
+// else, exiting 0.
 func opencodeClean() string {
 	// opencodeWellknown in an SQL string literal, its quotes doubled.
 	wellknown := strings.ReplaceAll(opencodeWellknown, "'", "''")
@@ -120,17 +101,29 @@ func opencodeClean() string {
 	check := `SELECT 'SELECT count(*) FROM sqlite_master WHERE type = ''trigger'';';` + "\n" +
 		`SELECT printf('SELECT count(*) FROM "%w";', name) FROM sqlite_master WHERE ` + opencodeLogins + ";\n" +
 		`SELECT 'SELECT count(*) FROM kv WHERE ` + wellknown + `;' FROM sqlite_master WHERE type = 'table' AND name = 'kv';`
-	sql := "sqlite3 -bail -cmd 'PRAGMA trusted_schema = OFF'"
+	const untrusted = "PRAGMA trusted_schema = OFF;"
+	tables := shell.Quote("SELECT count(*) FROM sqlite_master WHERE type = 'table';")
+	// sql runs sqlite3 on clean.db with untrusted first, then its
+	// arguments, or its stdin when it has none.
+	sql := "sqlite3 -bail clean.db '" + untrusted + "'"
 	return strings.Join([]string{
 		"devvm_opencode_clean() {",
-		"  local s c left",
+		"  local t s c left",
 		"  rm -f clean.db clean.db-journal clean.db-wal clean.db-shm &&",
-		`  ` + sql + ` -cmd '.timeout 10000' "$1" "VACUUM INTO 'clean.db'" >/dev/null &&`,
-		"  s=$(" + sql + " clean.db " + shell.Quote(gen) + ") &&",
-		`  printf 'PRAGMA journal_mode = DELETE;\nPRAGMA secure_delete = ON;\n%s\nVACUUM;\n' "$s" | ` + sql + " clean.db >/dev/null &&",
-		"  c=$(" + sql + " clean.db " + shell.Quote(check) + ") &&",
-		`  left=$(printf '%s\n' "$c" | ` + sql + " clean.db) || return 1",
-		`  case $left in *[!0[:space:]]*) return 1 ;; esac`,
+		// The copy, then the original's count of tables, which the copy
+		// must have too: a copy that isn't made, or is empty, fails.
+		`  t=$(sqlite3 -bail "$1" '.timeout 10000' '` + untrusted + `' "VACUUM INTO 'clean.db'" ` + tables + `) || return 1`,
+		`  case $t in '' | 0 | *[!0-9]*) return 1 ;; esac`,
+		`  [ "$(` + sql + " " + tables + `)" = "$t" ] &&`,
+		"  s=$(" + sql + " " + shell.Quote(gen) + ") &&",
+		`  printf '` + untrusted + `\nPRAGMA journal_mode = DELETE;\nPRAGMA secure_delete = ON;\n%s\nVACUUM;\n' "$s" | sqlite3 -bail clean.db >/dev/null &&`,
+		// check's first statement, the triggers' count, is always there,
+		// and each of its statements must print one 0: no output, or
+		// less, fails too.
+		"  c=$(" + sql + " " + shell.Quote(check) + ") && [ -n \"$c\" ] &&",
+		`  left=$(printf '` + untrusted + `\n%s\n' "$c" | sqlite3 -bail clean.db) && [ -n "$left" ] &&`,
+		`  [ "$(printf '%s\n' "$left" | grep -cx 0)" = "$(printf '%s\n' "$c" | grep -c '')" ] &&`,
+		`  ! printf '%s\n' "$left" | grep -qvx 0 || return 1`,
 		"  [ ! -e clean.db-wal ] && [ ! -e clean.db-journal ]",
 		"}",
 	}, "\n")
@@ -157,14 +150,15 @@ func opencodeCleanAll(dir, then, otherwise string) string {
 }
 
 // historyExport is the script that writes an export of the VM's agents'
-// history to its stdout, a gzipped tar of what there is of historyPaths,
-// run in the VM as its user: without historyExcludes, and with each of
-// opencode's databases as its copy without its logins (opencodeClean),
+// history to its stdout, a gzipped tar of what there is of their History,
+// run in the VM as its user: without their HistoryExcludes, and with each
+// of opencode's databases as its copy without its logins (opencodeClean),
 // made in a folder of its own and put at the database's path
 // (--transform, which leaves links' targets as they are), never the
 // database or its WAL and journal files as they are (opencodeDBs, each
 // matched within its folder).
 func historyExport() string {
+	historyExcludes := agents.HistoryExcludes()
 	excludes := make([]string, 0, len(historyExcludes)+len(opencodeDBs)+1)
 	for _, p := range historyExcludes {
 		excludes = append(excludes, "--exclude="+p)
@@ -184,7 +178,7 @@ func historyExport() string {
 		opencodeCleanAll(`"$HOME"/`+shell.Quote(opencodeData),
 			`mv clean.db "devvm-clean/$n" && add=(${add[@]+"${add[@]}"} "devvm-clean/$n")`, ":"),
 		`[ "${#add[@]}" -eq 0 ] || add=(-C "$t" "${add[@]}")`,
-		"cd ~ && ls -d " + strings.Join(historyPaths, " ") + " 2>/dev/null | tar -czf - " + shell.QuoteJoin(excludes) +
+		"cd ~ && ls -d " + strings.Join(agents.History(), " ") + " 2>/dev/null | tar -czf - " + shell.QuoteJoin(excludes) +
 			" " + shell.Quote("--transform=flags=r;s,^devvm-clean/,"+opencodeData+"/,") + ` -T - ${add[@]+"${add[@]}"}`,
 	}, "\n")
 }
@@ -195,14 +189,21 @@ const historyUnsafe = "devvm-history-unsafe"
 
 // importSkips are the paths in an export of agents' history, relative to
 // the home folder, that an import leaves out, because devvm's setup
-// writes them: the agents' logins (historyExcludes), ~/.claude.json,
-// whose copy holds the old VM's placeholders, and every agent's folders
-// linked to their mounts and files copied from the host. Sorted.
+// writes them: what an export leaves out (HistoryExcludes), every login
+// file in the agents' history, such as ~/.claude.json, whose copy holds
+// the old VM's placeholders, and every agent's folders linked to their
+// mounts and files copied from the host. Sorted.
 func importSkips() []string {
-	skips := append(slices.Clone(historyExcludes), ".claude.json")
-	for _, of := range []map[string][]string{agentDirsOf, agentFilesOf} {
-		for _, paths := range of {
-			skips = append(skips, paths...)
+	skips := agents.HistoryExcludes()
+	for _, d := range agents.Defs {
+		for _, l := range d.Logins {
+			if slices.ContainsFunc(d.History, func(h string) bool { return l.Rel == h || strings.HasPrefix(l.Rel, h+"/") }) {
+				skips = append(skips, l.Rel)
+			}
+		}
+		skips = append(skips, d.Dirs...)
+		for _, f := range d.Files {
+			skips = append(skips, f.Rel)
 		}
 	}
 	slices.Sort(skips)
@@ -215,7 +216,7 @@ func importSkips() []string {
 // own and lists its paths as they are in it (--absolute-names, which
 // only the listing takes: tar would list them with their leading / and
 // .. parts taken off), each on one line (GNU tar's escape quoting). It
-// imports nothing when one is outside historyPaths, absolute or has a
+// imports nothing when one is outside the agents' History, absolute or has a
 // .. part, printing historyUnsafe instead. Every tar here is GNU tar,
 // which Debian and Ubuntu have and base's Alpine branch installs over
 // busybox's (TestHistoryImportHasGNUTarOnAlpine). GNU tar unpacks it
@@ -227,10 +228,11 @@ func importSkips() []string {
 // databases that isn't a regular file, are taken out, and each database
 // becomes its copy without its logins (opencodeClean), or is taken out
 // when there's none, so an export made without it, which holds them,
-// never gives them to a VM; then what's left of historyPaths goes into the home folder,
+// never gives them to a VM; then what's left of their History goes into the home folder,
 // without replacing a file or folder the VM has (--skip-old-files,
 // which implies --no-overwrite-dir).
 func historyImport() string {
+	historyPaths := agents.History()
 	allowed := make([]string, len(historyPaths))
 	for i, p := range historyPaths {
 		allowed[i] = regexp.QuoteMeta(p)
@@ -262,47 +264,49 @@ func historyImport() string {
 	}, "\n")
 }
 
-// opencodeDir is opencode's config folder, whose subfolders are mounted
-// and whose files are copied.
-const opencodeDir = ".config/opencode"
-
 // agentDirs returns an agent's settings folders, relative to home, a home
-// folder or the agent's store (agentStore). For opencode, its config
-// folder's subfolders there as they are now.
+// folder or the agent's store (agentStore): its Dirs, and for a
+// WholeFolder agent (opencode) its folder's subfolders there as they are
+// now.
 func agentDirs(home, agent string) []string {
-	if agent != "opencode" {
-		return agentDirsOf[agent]
+	d := agents.Of(agent)
+	dirs := slices.Clone(d.Dirs)
+	if !d.WholeFolder {
+		return dirs
 	}
-	var dirs []string
-	for _, e := range readDir(filepath.Join(home, opencodeDir)) {
-		if e.IsDir() && opencodeFolder(e.Name()) {
-			dirs = append(dirs, opencodeDir+"/"+e.Name())
+	for _, e := range readDir(filepath.Join(home, d.Folder)) {
+		if e.IsDir() && folderSetting(e.Name()) {
+			dirs = append(dirs, d.Folder+"/"+e.Name())
 		}
 	}
 	return dirs
 }
 
-// opencodeFolder reports whether a folder of opencode's config folder,
+// folderSetting reports whether a folder of a WholeFolder agent's folder,
 // by its name, is among its settings: all but node_modules.
-func opencodeFolder(name string) bool { return name != "node_modules" }
+func folderSetting(name string) bool { return name != "node_modules" }
 
-// opencodeFile reports whether a file of opencode's config folder, by its
-// name, is among its settings: all but lock files and the like.
-func opencodeFile(name string) bool {
+// fileSetting reports whether a file of a WholeFolder agent's folder, by
+// its name, is among its settings: all but lock files and the like.
+func fileSetting(name string) bool {
 	return !strings.HasSuffix(name, ".lock") && name != "package-lock.json" && name != ".gitignore" && name != ".DS_Store"
 }
 
 // agentFiles returns an agent's settings files, relative to home, a home
-// folder or the agent's store (agentStore). For opencode, its config
-// folder's files there, but lock files.
+// folder or the agent's store (agentStore): its Files, and for a
+// WholeFolder agent (opencode) its folder's files there, but lock files.
 func agentFiles(home, agent string) []string {
-	files := slices.Clone(agentFilesOf[agent])
-	if agent != "opencode" {
+	d := agents.Of(agent)
+	var files []string
+	for _, f := range d.Files {
+		files = append(files, f.Rel)
+	}
+	if !d.WholeFolder {
 		return files
 	}
-	for _, e := range readDir(filepath.Join(home, opencodeDir)) {
-		if e.Type().IsRegular() && opencodeFile(e.Name()) {
-			files = append(files, opencodeDir+"/"+e.Name())
+	for _, e := range readDir(filepath.Join(home, d.Folder)) {
+		if e.Type().IsRegular() && fileSetting(e.Name()) {
+			files = append(files, d.Folder+"/"+e.Name())
 		}
 	}
 	return files

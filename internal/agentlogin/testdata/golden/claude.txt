@@ -1,0 +1,48 @@
+binding {"name":"claude-mcp-4192ba186e64","kind":"login","agent":"claude","hosts":["mcp.example.com"],"header":"Authorization","placeholder":"devvm-proxy-managed-claude-mcp-4192ba186e64-s4lt"}
+kept 
+withheld 
+providers 
+chatgpt  no
+vm copy
+{
+  "mcpServers": {
+    "local": {
+      "args": [
+        "--api-key",
+        "devvm-redacted",
+        "srv"
+      ],
+      "command": "npx srv --token devvm-redacted",
+      "env": {
+        "API_KEY": "devvm-redacted"
+      }
+    },
+    "oauth": {
+      "oauth": {
+        "callbackPort": 1,
+        "clientId": "c"
+      },
+      "type": "http",
+      "url": "https://o.example.com/"
+    },
+    "plain": {
+      "headers": {
+        "X-Key": "devvm-redacted"
+      },
+      "type": "http",
+      "url": "http://mcp.example.net/"
+    },
+    "remote": {
+      "headers": {
+        "Authorization": "devvm-proxy-managed-claude-mcp-4192ba186e64-s4lt"
+      },
+      "type": "http",
+      "url": "https://mcp.example.com/mcp?key=devvm-redacted"
+    }
+  },
+  "oauthAccount": {
+    "emailAddress": "a@b"
+  },
+  "theme": "dark"
+}
+set key : no API key devvm puts in for that provider

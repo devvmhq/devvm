@@ -1235,8 +1235,9 @@ func TestList(t *testing.T) {
 		"go go 1.9.0 true 0 unused",
 		"dotnet   false 0 not installed",
 		"claude claude 2.1.295 true 1 current",
-		"codex   false 0 not installed",
-		"opencode   false 0 not installed",
+	}
+	for _, a := range image.Agents[1:] {
+		want = append(want, a+"   false 0 not installed")
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("List:\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

@@ -108,8 +108,8 @@ func linkEntry(dir, addr string, port int, hosts ...string) LinkEntry {
 	}
 }
 
-// linkProxy is a proxy for linkVM with the list in a short folder (sockets' paths are at most 104
-// characters), a policy that allows nothing, and its events in a buffer, and the address it
+// linkProxy is a proxy for linkVM with the list in a short folder (sockets' paths have fewer than
+// 104 characters), a policy that allows nothing, and its events in a buffer, and the address it
 // listens on.
 func linkProxy(t *testing.T) (s *server, dir string, events *syncBuffer, addr string) {
 	t.Helper()

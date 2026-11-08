@@ -159,6 +159,7 @@ Coding agents, which you start in the VM's shell
   [x] claude     from devvm setup
   [ ] codex
   [ ] opencode
+  [ ] pi
 Layers: extra software built into the VM's image, such as docker, nix or desktop
   [ ] desktop    an Xfce desktop, which devvm desktop opens
   [ ] docker     Docker's engine, CLI, BuildKit and Compose

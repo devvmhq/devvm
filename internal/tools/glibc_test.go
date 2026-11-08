@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -125,6 +126,32 @@ func TestRuns(t *testing.T) {
 	}
 	if err := e.Runs([]string{e.files(t, "go")[0]}, Target{Libc: "gnu", Glibc: "2.36"}); err == nil {
 		t.Error("Runs of an image with no record: no error")
+	}
+}
+
+// A musl base refuses a tool with builds for glibc alone (pi), whose lock
+// entry there is the glibc download, before anything is built, naming it;
+// a gnu base takes it, and a musl one every other tool.
+func TestHasBuilds(t *testing.T) {
+	e := newEnv(t)
+	e.locked(t, fixture(t))
+	pi, others := e.files(t, "pi"), e.files(t, "node", "claude", "opencode")
+	for _, c := range []struct {
+		files []string
+		tg    Target
+		want  string
+	}{
+		{append(slices.Clone(others), pi...), Target{Libc: "musl", Base: "sha256:x"}, "tool_glibc_only tool=pi"},
+		{others, Target{Libc: "musl", Base: "sha256:x"}, ""},
+		{pi, Target{Libc: "gnu"}, ""},
+		{pi, Target{Libc: "gnu", Glibc: "2.17"}, ""},
+	} {
+		if got := msg.NamesOf(HasBuilds(c.files, c.tg)); got != c.want {
+			t.Errorf("HasBuilds(%v, %+v) = %q, want %q", c.files, c.tg, got, c.want)
+		}
+	}
+	if !image.GlibcOnly("pi") || image.GlibcOnly("opencode") || image.GlibcOnly("bun") {
+		t.Error("GlibcOnly isn't pi's alone")
 	}
 }
 

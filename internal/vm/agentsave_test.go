@@ -112,8 +112,11 @@ func TestAgentSaveScriptRuns(t *testing.T) {
 		".config/opencode/opencode.json":           `{}`,
 		".config/opencode/node_modules/x/index.js": "x",
 		".codex/auth.json":                         "testfake-auth",
+		".pi/agent/models.json":                    `{}`,
+		".pi/agent/auth.json":                      "testfake-pi-auth",
+		".pi/agent/sessions/--p--/s.jsonl":         "testfake-pi-history",
 	})
-	cmd := exec.CommandContext(t.Context(), "bash", "-c", agentSaveScript([]string{"claude", "codex", "opencode"})) //nolint:gosec // devvm's own script
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", agentSaveScript([]string{"claude", "codex", "opencode", "pi"})) //nolint:gosec // devvm's own script
 	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "COPYFILE_DISABLE=1"}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -121,7 +124,7 @@ func TestAgentSaveScriptRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v: %s", err, stderr.String())
 	}
-	s, err := readSent(bytes.NewReader(out), "vm", []string{"claude", "codex", "opencode"})
+	s, err := readSent(bytes.NewReader(out), "vm", []string{"claude", "codex", "opencode", "pi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +133,10 @@ func TestAgentSaveScriptRuns(t *testing.T) {
 		names = append(names, n)
 	}
 	slices.Sort(names)
-	want := []string{".claude/settings.json", ".claude/skills", ".claude/skills/s", ".claude/skills/s/SKILL.md", ".config/opencode/opencode.json"}
+	want := []string{
+		".claude/settings.json", ".claude/skills", ".claude/skills/s", ".claude/skills/s/SKILL.md", ".config/opencode/opencode.json",
+		".pi/agent/models.json",
+	}
 	if !slices.Equal(names, want) {
 		t.Errorf("entries = %v, want %v", names, want)
 	}
@@ -227,7 +233,7 @@ func TestReadSent(t *testing.T) {
 // The listed paths: each agent's files and folders, and opencode's
 // config folder's entries but lock files and node_modules.
 func TestListedPath(t *testing.T) {
-	all := []string{"claude", "codex", "opencode"}
+	all := []string{"claude", "codex", "opencode", "pi"}
 	for _, tc := range []struct {
 		name   string
 		dir    bool
@@ -246,6 +252,11 @@ func TestListedPath(t *testing.T) {
 		{".claude/settings.json.bak", false, "", false},
 		{".claude/skillsx", true, "", false},
 		{".claude.json", false, "", false},
+		{".pi/agent/settings.json", false, ".pi/agent/settings.json", false},
+		{".pi/agent/extensions/e/index.ts", false, ".pi/agent/extensions", true},
+		{".pi/agent/auth.json", false, "", false},
+		{".pi/agent/sessions/--p--/s.jsonl", false, "", false},
+		{".pi/agent/trust.json", false, "", false},
 	} {
 		_, top, folder, ok := listedPath(all, tc.name, tc.dir)
 		if top != tc.top || folder != tc.folder || ok != (tc.top != "") {

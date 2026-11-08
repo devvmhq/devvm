@@ -1,0 +1,4 @@
+# pi: its model catalog. Its version check and install report go to the same host, and every VM turns
+# them off (PI_SKIP_VERSION_CHECK, PI_TELEMETRY). Add your model provider's API host
+# (e.g. api.anthropic.com, api.openai.com) with `devvm network allow`.
+pi.dev

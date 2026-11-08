@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
@@ -134,5 +135,16 @@ func TestLoginArgv(t *testing.T) {
 		if got := loginArgv(c.o); !slices.Equal(got, c.want) {
 			t.Errorf("loginArgv(%+v) = %q, want %q", c.o, got, c.want)
 		}
+	}
+}
+
+// pi has no login of its own here: without an API key, Run refuses
+// before it finds or starts a VM.
+func TestAgentLoginPiKeyOnly(t *testing.T) {
+	if err := (AgentLogin{}).Run(t.Context(), AgentLoginOptions{Agent: "pi", Device: true}); msg.NamesOf(err) != "agent_login_key_only agent=pi" {
+		t.Errorf("Run(pi) = %v", msg.NamesOf(err))
+	}
+	if !slices.Contains(agents.LoginAgents(), "pi") {
+		t.Error("LoginAgents lacks pi")
 	}
 }

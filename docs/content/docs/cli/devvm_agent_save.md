@@ -8,7 +8,7 @@ Copy the agents' settings from this folder's VM into devvm's store
 
 ## Synopsis
 
-Copy the settings of AGENT, claude, codex or opencode, or of every agent this folder's VM has, from the VM into devvm's store, so every VM with the agent gets them, never its logins or history. It shows what changed and asks first, so it runs only in a terminal without --no-input, and devvm starts a stopped VM for it.
+Copy the settings of AGENT, claude, codex, opencode or pi, or of every agent this folder's VM has, from the VM into devvm's store, so every VM with the agent gets them, never its logins or history. It shows what changed and asks first, so it runs only in a terminal without --no-input, and devvm starts a stopped VM for it.
 
 ```text
 devvm agent save [AGENT...] [flags]

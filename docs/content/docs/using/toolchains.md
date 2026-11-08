@@ -126,7 +126,7 @@ Every toolchain runs on `base` from Ubuntu's own image, and on an Alpine-based i
 | rust, with rustup | 2.17 | 2.17 |
 | go | none, because its programs need no glibc | none |
 | dotnet | 2.27 | 2.27 |
-| claude and opencode | 2.17 | 2.17 |
+| claude, opencode and pi | 2.17 | 2.17 |
 | codex | 2.28, for its voice helper | 2.28 |
 
 ## Adding and removing tools

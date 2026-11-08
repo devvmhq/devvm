@@ -53,6 +53,17 @@ func TestUp(t *testing.T) {
 	if want, err := tools.Aliases(e.Assets); err != nil || got["tool-alias.toml"] != string(want) || !strings.HasPrefix(string(want), "[tool_alias]\n") {
 		t.Errorf("staged tool-alias.toml = %q, want %q (%v)", got["tool-alias.toml"], want, err)
 	}
+	// Every agent's environment, whichever the VM has: what base's
+	// devvm-tools.sh and devvm-telemetry.sh set before the agents'
+	// registry did, among them.
+	if !strings.HasPrefix(got["agent-env"], "export DISABLE_AUTOUPDATER='1'\nexport DISABLE_TELEMETRY='1'\nexport DISABLE_ERROR_REPORTING='1'\n") {
+		t.Errorf("staged agent-env = %q", got["agent-env"])
+	}
+	for _, line := range []string{"export OPENCODE_DISABLE_AUTOUPDATE='1'\n", "export PI_SKIP_VERSION_CHECK='1'\n", "export PI_TELEMETRY='0'\n"} {
+		if !strings.Contains(got["agent-env"], line) {
+			t.Errorf("staged agent-env lacks %q", line)
+		}
+	}
 	if len(*execs) != 1 || (*execs)[0].Path != "/bin/shell" {
 		t.Errorf("exec = %+v", *execs)
 	}

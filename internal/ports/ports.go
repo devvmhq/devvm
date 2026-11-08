@@ -217,14 +217,16 @@ func (a Allocator) SSH(ctx context.Context, st *state.VM, running bool) (int, er
 // where Used reads it, until release, once its backend has bound the port
 // (Listening sees it then) or failed to. This process holds the record's
 // file lock until release, or until it ends, killed or not, so a record
-// whose lock no one holds is stale (clearStale).
-func (a Allocator) Build(ctx context.Context, vm string) (int, func(), error) {
+// whose lock no one holds is stale (clearStale). It's never was, the port
+// the VM's config has from the image it's a clone of, so its start always
+// sets the new one and a build's numbered steps are the same every time.
+func (a Allocator) Build(ctx context.Context, vm string, was int) (int, func(), error) {
 	rec := filepath.Join(a.Dirs.BuildPorts(), vm)
 	var n int
 	var unlock func()
 	err := state.Claims(ctx, a.Dirs, func() error {
 		var err error
-		if n, err = a.free(ctx); err != nil {
+		if n, err = a.free(ctx, was); err != nil {
 			return err
 		}
 		if err := state.WriteFile(rec, []byte(strconv.Itoa(n)+"\n")); err != nil {
@@ -269,12 +271,16 @@ func clearStale(d paths.Dirs) {
 
 // free returns a loopback port of Range (below the host's ephemeral
 // range) no program has (Listening) and no VM has, once the build ports'
-// stale records are gone (clearStale). Its callers hold the claims lock.
-func (a Allocator) free(ctx context.Context) (int, error) {
+// stale records are gone (clearStale), nor any of also. Its callers hold
+// the claims lock.
+func (a Allocator) free(ctx context.Context, also ...int) (int, error) {
 	clearStale(a.Dirs)
 	used, err := Used(a.Dirs, "")
 	if err != nil {
 		return 0, err
+	}
+	for _, n := range also {
+		used[n] = true
 	}
 	r := a.Range
 	if r == (platform.PortRange{}) {

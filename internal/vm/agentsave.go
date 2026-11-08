@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
@@ -217,7 +218,7 @@ func (sv saver) plan(agent string) (agentPlan, error) {
 			sv.Warn(msg.AgentSaveKindLeftOut(n, sv.s.vm))
 		}
 	}
-	if agent == agentlogin.Claude {
+	if agent == agents.Claude {
 		sv.claudeJSON(&p)
 	}
 	return p, nil
@@ -268,7 +269,7 @@ func (sv saver) leftOut(rel string, err error) {
 // in the VM being the store's as the VM got it. Left out, with a
 // warning, when it isn't JSON or a placeholder can't be put back.
 func (sv saver) claudeJSON(p *agentPlan) {
-	const rel = ".claude.json"
+	const rel = agents.ClaudeJSON
 	if sv.s.claudeBad {
 		sv.Warn(msg.AgentSaveUnparsed(rel, sv.s.vm))
 	}
@@ -281,11 +282,11 @@ func (sv saver) claudeJSON(p *agentPlan) {
 		return
 	}
 	store := sv.Proxy.Secrets
-	file := secrets.LoginFile(sv.Dirs, agentlogin.Claude)
+	file := secrets.LoginFile(sv.Dirs, agents.Claude)
 	old, _ := readStoreFile(file)
 	var given []byte
 	if old != nil {
-		given, _ = store.VMLogin(agentlogin.Claude, sv.salt)
+		given, _ = store.VMLogin(agents.Claude, sv.salt)
 	}
 	if data, err = agentlogin.Restore("json", data, given, old); err != nil {
 		sv.leftOut(rel, err)
@@ -331,7 +332,7 @@ func (sv saver) folder(store, rel string, names []string) (planFolder, error) {
 			continue
 		}
 		data := e.data
-		if rel == ".claude/plugins" && path.Dir(n) == rel && path.Ext(n) == ".json" && sv.s.home != "" {
+		if rel == agents.ClaudePlugins && path.Dir(n) == rel && path.Ext(n) == ".json" && sv.s.home != "" {
 			data = renamePrefix(data, sv.s.home+"/"+rel, filepath.Join(store, filepath.FromSlash(rel)))
 		}
 		f.files = append(f.files, planFile{rel: n, data: data, exec: e.exec})
@@ -472,7 +473,7 @@ func (sv saver) apply(ctx context.Context, p agentPlan) error {
 		}
 	}
 	if p.claude != nil {
-		return sv.Proxy.Secrets.SaveLogin(ctx, agentlogin.Claude, p.claude)
+		return sv.Proxy.Secrets.SaveLogin(ctx, agents.Claude, p.claude)
 	}
 	return nil
 }
@@ -487,7 +488,7 @@ func showPlans(w io.Writer, vm string, plans []agentPlan) error {
 			lines = append(lines, fileDiff(filepath.Join(p.store, filepath.FromSlash(f.rel)), vm, f)...)
 		}
 		if p.claude != nil {
-			lines = append(lines, fileDiff(p.claudeFile, vm, planFile{rel: ".claude.json", data: p.claude, old: p.claudeOld})...)
+			lines = append(lines, fileDiff(p.claudeFile, vm, planFile{rel: agents.ClaudeJSON, data: p.claude, old: p.claudeOld})...)
 		}
 		for _, d := range p.folders {
 			lines = append(lines, folderDiff(p.store, vm, d)...)
@@ -555,7 +556,7 @@ func modeText(exec bool) string { return "0" + strconv.FormatUint(uint64(fileMod
 // it is.
 func shownFile(rel string, data []byte) string {
 	format, ok := settingsFormat(rel)
-	if rel == ".claude.json" {
+	if rel == agents.ClaudeJSON {
 		format, ok = "json", true
 	}
 	if !ok || data == nil {

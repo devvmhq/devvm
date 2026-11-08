@@ -3,6 +3,8 @@ package cli
 import (
 	"slices"
 	"testing"
+
+	"github.com/devvmhq/devvm/internal/image"
 )
 
 func TestJoined(t *testing.T) {
@@ -58,7 +60,7 @@ func TestCompleteToolNames(t *testing.T) {
 	}{
 		{nil, "c", []string{"claude", "codex"}},
 		{[]string{"claude"}, "c", []string{"codex"}},
-		{[]string{"node"}, "", []string{"python", "rust", "go", "dotnet", "claude", "codex", "opencode"}},
+		{[]string{"node"}, "", slices.Concat([]string{"python", "rust", "go", "dotnet"}, image.Agents)},
 		{nil, "node+", nil},
 	} {
 		if got, _ := completeToolNames(nil, tc.args, tc.in); !slices.Equal(got, tc.want) {

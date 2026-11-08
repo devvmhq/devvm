@@ -84,7 +84,7 @@ func saveSecret(cmd *cobra.Command, a *app, name string, stdin bool) error {
 	} else {
 		howto, prompt := msg.GithubTokenHowto(), msg.TokenPrompt()
 		switch name {
-		case "claude":
+		case secrets.ClaudeToken:
 			howto = msg.ClaudeTokenHowto()
 		case proxy.UpstreamSecret:
 			howto, prompt = msg.ProxyPasswordHowto(), msg.PasswordPrompt()

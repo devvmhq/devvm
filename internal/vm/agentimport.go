@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
@@ -35,7 +36,7 @@ type AgentImport struct {
 }
 
 // hostAgent is what the home folder has of an agent: the files and
-// folders of its settings, relative to its folder there (agentFolderOf),
+// folders of its settings, relative to its folder there (agents.Def's Folder),
 // and its login file, read as the store keeps it.
 type hostAgent struct {
 	agent  string
@@ -59,10 +60,10 @@ func (h *hostAgent) close() {
 // in the store, with a warning when it's named. When the store has
 // anything of an agent it imports, Run asks before replacing it, unless
 // force.
-func (im AgentImport) Run(ctx context.Context, agents []string, force bool) error {
-	named := len(agents) > 0
+func (im AgentImport) Run(ctx context.Context, names []string, force bool) error {
+	named := len(names) > 0
 	if !named {
-		agents = image.Agents
+		names = image.Agents
 	}
 	var found []*hostAgent
 	defer func() {
@@ -70,7 +71,7 @@ func (im AgentImport) Run(ctx context.Context, agents []string, force bool) erro
 			h.close()
 		}
 	}()
-	for _, a := range agents {
+	for _, a := range names {
 		h, err := im.read(ctx, a)
 		if err != nil {
 			return err
@@ -137,7 +138,7 @@ func (im AgentImport) inStore(agent string) bool {
 func (im AgentImport) read(ctx context.Context, agent string) (*hostAgent, error) {
 	h := &hostAgent{agent: agent}
 	home := im.Dirs.Home
-	folder := agentFolderOf[agent]
+	folder := agents.Of(agent).Folder
 	if fi, err := os.Stat(filepath.Join(home, folder)); err == nil && fi.IsDir() {
 		if h.root, err = os.OpenRoot(filepath.Join(home, folder)); err != nil {
 			return nil, err
@@ -147,7 +148,7 @@ func (im AgentImport) read(ctx context.Context, agent string) (*hostAgent, error
 			return nil, err
 		}
 	}
-	if agent == agentlogin.Opencode && im.opencodeMajor(ctx) >= 2 {
+	if agent == agents.Opencode && im.opencodeMajor(ctx) >= 2 {
 		if err := im.readOpencode2(ctx, h); err != nil {
 			h.close()
 			return nil, err
@@ -168,7 +169,7 @@ func (im AgentImport) read(ctx context.Context, agent string) (*hostAgent, error
 	case !fi.Mode().IsRegular():
 		return h, nil
 	}
-	if agent == agentlogin.Claude {
+	if agent == agents.Claude {
 		h.login, err = agentlogin.ClaudeCopy(login) // never its projects' history or API key
 	} else {
 		h.login, err = os.ReadFile(login) //nolint:gosec // the user's own login file, not a link
@@ -187,10 +188,10 @@ func (im AgentImport) opencode(ctx context.Context, args ...string) ([]byte, err
 	if im.Opencode != nil {
 		return im.Opencode(ctx, args...)
 	}
-	if _, err := exec.LookPath("opencode"); err != nil {
+	if _, err := exec.LookPath(agents.Opencode); err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, "opencode", args...) //nolint:gosec // devvm's own arguments: --version or auth export
+	cmd := exec.CommandContext(ctx, agents.Opencode, args...) //nolint:gosec // devvm's own arguments: --version or auth export
 	cmd.Dir = im.Dirs.Home
 	return cmd.Output()
 }
@@ -290,7 +291,7 @@ func (im AgentImport) listEntry(h *hostAgent, home, p string, d fs.DirEntry) {
 // folders. Its login replaces the store's.
 func (im AgentImport) save(ctx context.Context, h *hostAgent) error {
 	store := agentStore(im.Dirs, h.agent)
-	folder := agentFolderOf[h.agent]
+	folder := agents.Of(h.agent).Folder
 	if len(h.dirs) > 0 || len(h.files) > 0 {
 		keep := map[string]bool{}
 		for _, p := range h.dirs {
@@ -334,7 +335,7 @@ func (im AgentImport) saveFile(h *hostAgent, store, folder, p string) error {
 	if err != nil {
 		return err
 	}
-	if h.agent == agentlogin.Claude && path.Dir(p) == "plugins" && path.Ext(p) == ".json" {
+	if h.agent == agents.Claude && path.Dir(p) == "plugins" && path.Ext(p) == ".json" {
 		data = renamePrefix(data, filepath.Join(im.Dirs.Home, folder, "plugins"), filepath.Join(store, folder, "plugins"))
 	}
 	mode := fi.Mode().Perm()&0o755 | 0o600

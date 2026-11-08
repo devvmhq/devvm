@@ -1,0 +1,281 @@
+binding {"name":"pi-anthropic","kind":"login","agent":"pi","hosts":["api.anthropic.com"],"header":"x-api-key","placeholder":"devvm-proxy-managed-pi-anthropic-s4lt"}
+binding {"name":"pi-openrouter","kind":"login","agent":"pi","hosts":["openrouter.ai"],"header":"Authorization","placeholder":"devvm-proxy-managed-pi-openrouter-s4lt"}
+kept ollama
+withheld amazon-bedrock,azure,google,groq,groq-oauth,openai,openai-codex
+providers anthropic,openai,openrouter
+chatgpt  no
+vm copy
+{
+  "amazon-bedrock": {
+    "type": "api_key"
+  },
+  "anthropic": {
+    "key": "devvm-proxy-managed-pi-anthropic-s4lt",
+    "type": "api_key"
+  },
+  "azure": {
+    "type": "api_key"
+  },
+  "google": {
+    "type": "api_key"
+  },
+  "groq": {
+    "type": "api_key"
+  },
+  "groq-oauth": {
+    "type": "oauth"
+  },
+  "ollama": {
+    "env": {
+      "OLLAMA_HOST": "kept"
+    },
+    "key": "ollama-local",
+    "type": "api_key"
+  },
+  "openai": {
+    "type": "api_key"
+  },
+  "openai-codex": {
+    "accountId": "acct-1",
+    "expires": 1,
+    "scopes": [
+      "openid"
+    ],
+    "type": "oauth"
+  },
+  "openrouter": {
+    "key": "devvm-proxy-managed-pi-openrouter-s4lt",
+    "type": "api_key"
+  }
+}
+set key : no API key devvm puts in for that provider
+set key anthropic
+{
+  "amazon-bedrock": {
+    "env": {
+      "AWS_SECRET_ACCESS_KEY": "aws-e2efake"
+    },
+    "type": "api_key"
+  },
+  "anthropic": {
+    "env": {
+      "K": "sk-ant-e2efake-env"
+    },
+    "key": "sk-e2efake-saved",
+    "type": "api_key"
+  },
+  "azure": {
+    "env": {
+      "AZURE_OPENAI_API_KEY": "az-e2efake"
+    },
+    "key": "x",
+    "type": "api_key"
+  },
+  "google": {
+    "key": "!pass show e2efake",
+    "type": "api_key"
+  },
+  "groq": {
+    "key": "gsk-e2efake",
+    "type": "api_key"
+  },
+  "groq-oauth": {
+    "access": "at-e2efake-passed",
+    "refresh": "rt-e2efake-passed",
+    "type": "oauth"
+  },
+  "ollama": {
+    "env": {
+      "OLLAMA_HOST": "kept"
+    },
+    "key": "ollama-local",
+    "type": "api_key"
+  },
+  "openai": {
+    "env": {
+      "K": "sk-e2efake-template",
+      "OPENAI_API_KEY": "sk-e2efake-env"
+    },
+    "key": "$K",
+    "type": "api_key"
+  },
+  "openai-codex": {
+    "access": "at-e2efake",
+    "accountId": "acct-1",
+    "email": [
+      {
+        "t": "e2efake-in-a-list"
+      }
+    ],
+    "expires": 1,
+    "extra": {
+      "refresh": "rt-e2efake-x"
+    },
+    "idToken": "id-e2efake",
+    "refresh": "rt-e2efake",
+    "scopes": [
+      "openid"
+    ],
+    "type": "oauth"
+  },
+  "openrouter": {
+    "key": "sk-or-e2efake",
+    "type": "api_key"
+  }
+}
+set key openai
+{
+  "amazon-bedrock": {
+    "env": {
+      "AWS_SECRET_ACCESS_KEY": "aws-e2efake"
+    },
+    "type": "api_key"
+  },
+  "anthropic": {
+    "env": {
+      "K": "sk-ant-e2efake-env"
+    },
+    "key": "sk-ant-e2efake",
+    "nested": {
+      "refresh": "rt-e2efake-nested"
+    },
+    "token": "tk-e2efake",
+    "type": "api_key"
+  },
+  "azure": {
+    "env": {
+      "AZURE_OPENAI_API_KEY": "az-e2efake"
+    },
+    "key": "x",
+    "type": "api_key"
+  },
+  "google": {
+    "key": "!pass show e2efake",
+    "type": "api_key"
+  },
+  "groq": {
+    "key": "gsk-e2efake",
+    "type": "api_key"
+  },
+  "groq-oauth": {
+    "access": "at-e2efake-passed",
+    "refresh": "rt-e2efake-passed",
+    "type": "oauth"
+  },
+  "ollama": {
+    "env": {
+      "OLLAMA_HOST": "kept"
+    },
+    "key": "ollama-local",
+    "type": "api_key"
+  },
+  "openai": {
+    "env": {
+      "K": "sk-e2efake-template",
+      "OPENAI_API_KEY": "sk-e2efake-env"
+    },
+    "key": "sk-e2efake-saved",
+    "type": "api_key"
+  },
+  "openai-codex": {
+    "access": "at-e2efake",
+    "accountId": "acct-1",
+    "email": [
+      {
+        "t": "e2efake-in-a-list"
+      }
+    ],
+    "expires": 1,
+    "extra": {
+      "refresh": "rt-e2efake-x"
+    },
+    "idToken": "id-e2efake",
+    "refresh": "rt-e2efake",
+    "scopes": [
+      "openid"
+    ],
+    "type": "oauth"
+  },
+  "openrouter": {
+    "key": "sk-or-e2efake",
+    "type": "api_key"
+  }
+}
+set key openrouter
+{
+  "amazon-bedrock": {
+    "env": {
+      "AWS_SECRET_ACCESS_KEY": "aws-e2efake"
+    },
+    "type": "api_key"
+  },
+  "anthropic": {
+    "env": {
+      "K": "sk-ant-e2efake-env"
+    },
+    "key": "sk-ant-e2efake",
+    "nested": {
+      "refresh": "rt-e2efake-nested"
+    },
+    "token": "tk-e2efake",
+    "type": "api_key"
+  },
+  "azure": {
+    "env": {
+      "AZURE_OPENAI_API_KEY": "az-e2efake"
+    },
+    "key": "x",
+    "type": "api_key"
+  },
+  "google": {
+    "key": "!pass show e2efake",
+    "type": "api_key"
+  },
+  "groq": {
+    "key": "gsk-e2efake",
+    "type": "api_key"
+  },
+  "groq-oauth": {
+    "access": "at-e2efake-passed",
+    "refresh": "rt-e2efake-passed",
+    "type": "oauth"
+  },
+  "ollama": {
+    "env": {
+      "OLLAMA_HOST": "kept"
+    },
+    "key": "ollama-local",
+    "type": "api_key"
+  },
+  "openai": {
+    "env": {
+      "K": "sk-e2efake-template",
+      "OPENAI_API_KEY": "sk-e2efake-env"
+    },
+    "key": "$K",
+    "type": "api_key"
+  },
+  "openai-codex": {
+    "access": "at-e2efake",
+    "accountId": "acct-1",
+    "email": [
+      {
+        "t": "e2efake-in-a-list"
+      }
+    ],
+    "expires": 1,
+    "extra": {
+      "refresh": "rt-e2efake-x"
+    },
+    "idToken": "id-e2efake",
+    "refresh": "rt-e2efake",
+    "scopes": [
+      "openid"
+    ],
+    "type": "oauth"
+  },
+  "openrouter": {
+    "key": "sk-e2efake-saved",
+    "type": "api_key"
+  }
+}

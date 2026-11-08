@@ -25,7 +25,7 @@ Upgrading devvm keeps this folder as it is. Back it up, such as in a dotfiles re
 
 ## config.toml
 
-`~/.config/devvm/config.toml` sets the defaults that new VMs get, the retention settings, the company proxy, an Ubuntu mirror and the release check, in a file you write by hand. devvm reads it and never writes it. Every key is optional, and devvm has no `config.toml` until you write one. This example sets every key:
+`~/.config/devvm/config.toml` sets the defaults that new VMs get, the retention settings, the company proxy, an Ubuntu mirror, the release check and the API keys that VMs get as they are, in a file you write by hand. devvm reads it and never writes it. Every key is optional, and devvm has no `config.toml` until you write one. This example sets every key:
 
 ```toml
 # The network tier new VMs get: open, internet, allowlist or none.
@@ -69,11 +69,18 @@ nix-cache.size = "20G"
 https = "http://alice@proxy.example.com:8080"
 http = "http://alice@proxy.example.com:8080"
 no-proxy = "localhost,.example.com"
+
+# Providers whose API keys an agent's VMs get as they are.
+[pass-keys]
+opencode = ["ollama"]
+pi = ["ollama"]
 ```
 
 Each key takes what its command takes. `network` is a tier, `open`, `internet`, `allowlist` or `none`, as `devvm network -g` sets it ([choosing a tier](../safety/network.md#choosing-a-tier)). `ports` is `all`, `none` or a list, as `devvm ports -g` takes it ([size and ports](ports-size.md#size-and-ports)). `features` lists the [features](customizing.md#choosing-features) that base gets, `agents` the [coding agents](#coding-agents-for-new-vms) that new VMs get, and `layers` the [layers](#layers-for-new-vms) that new VMs get, bottom first. `cpus` is a whole number, and `memory` and `disk` are a number of GiB, such as `8`, `8.5` or `"8G"`, as `devvm size -g` takes them. The `[retention]` keys are the [retention settings](#retention), with a duration such as `"90d"` or a size such as `"20G"` in quotes, and a count as a number.
 
 The `[proxy]` table is the [company proxy](../safety/network.md#behind-a-company-proxy) that every VM's proxy, builds and devvm's own downloads go through when the shell you run devvm in sets neither `HTTPS_PROXY` nor `HTTP_PROXY`, whatever the VM's tier. No VM gets the company proxy's settings itself. That shell's settings win over the whole table. `https` and `http` take what `HTTPS_PROXY` and `HTTP_PROXY` take, an `http://` URL or `host:port`, and `no-proxy` takes what `NO_PROXY` takes. A URL never holds a password, and devvm refuses one that does, so put only the user in it and save the password with `devvm secret set proxy`. No command saves the proxy, so it's only ever in `config.toml`.
+
+The `[pass-keys]` table names, for an agent, the providers whose API keys its VMs get as they are, which devvm otherwise keeps on this machine because the VM's proxy can't put them in, such as a local model server's. It takes `opencode` and `pi`, each with a list of the agent's provider IDs as its `auth.json` names them, in lower case, such as `["ollama"]` ([opencode logins](coding-agents.md#codex-and-opencode-logins), [pi logins](coding-agents.md#pi-logins)). devvm refuses another agent, a name that isn't a provider's ID and a repeat (`config.toml` names the line). Every VM with the agent gets the change at its next launch. No command saves it, so it's only ever in `config.toml`.
 
 ### An Ubuntu mirror
 

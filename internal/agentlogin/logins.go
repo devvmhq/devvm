@@ -1,5 +1,6 @@
 // Package agentlogin is agents' files on the host as VMs see them. Codex
-// (~/.codex/auth.json) and opencode (~/.local/share/opencode/auth.json) keep their logins there, and
+// (~/.codex/auth.json), opencode (~/.local/share/opencode/auth.json) and pi (~/.pi/agent/auth.json,
+// pi.go) keep their logins there, and
 // Claude Code its MCP servers' secrets (~/.claude.json) and its OAuth login
 // (~/.claude/.credentials.json, claude.go). Every VM gets its own copy of each file
 // with placeholders instead of keys and tokens (File.VMCopy), and the proxy puts the real ones
@@ -37,11 +38,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/fetch"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
@@ -62,13 +65,6 @@ const (
 	farFuture = 4070908800
 )
 
-// The agents whose files a File is.
-const (
-	Codex    = "codex"
-	Opencode = "opencode"
-	Claude   = "claude"
-)
-
 // The errors of Get that logging in again with the agent on the host fixes.
 var (
 	// ErrCodexNoKey: Codex's login on the host has no API key.
@@ -77,8 +73,8 @@ var (
 	ErrCodexNoChatGPT = errors.New("codex isn't logged in with ChatGPT")
 )
 
-// RefreshError is Get's error for an OAuth login whose refresh on the host failed: Agent's (Codex,
-// Opencode or Claude), and for opencode its Provider's. Logging in again with the agent fixes it.
+// RefreshError is Get's error for an OAuth login whose refresh on the host failed: Agent's (an
+// agents.Def's Name), and for opencode its Provider's. Logging in again with the agent fixes it.
 type RefreshError struct {
 	Agent, Provider string
 	Err             error
@@ -89,7 +85,7 @@ func (e *RefreshError) Unwrap() error { return e.Err }
 
 // File is one agent's file on the host.
 type File struct {
-	Kind string // Codex, Opencode, Claude (its .claude.json) or ClaudeOAuth (its .credentials.json)
+	Kind string // an agents.Login's Kind, whose format it has (formats)
 	Path string
 	// Salt is the VM's key, which ends every placeholder, so each VM's are its own: a proxy puts a
 	// value in only for the placeholders bound for its VM. Empty: none.
@@ -97,6 +93,10 @@ type File struct {
 	// TokenURL is where OAuth tokens are refreshed: when empty, ClaudeTokenURL for ClaudeOAuth,
 	// else OpenAITokenURL.
 	TokenURL string
+	// Pass are the providers whose API-key entries the VM's copy holds as they are (opencode's
+	// or pi's, from config.toml's [pass-keys]), unless devvm binds them; any other entry devvm
+	// doesn't bind is withheld.
+	Pass []string
 }
 
 // salted: a placeholder made the VM's own.
@@ -107,8 +107,57 @@ func salted(ph, salt string) string {
 	return ph + "-" + salt
 }
 
+// withheldKeep are the fields a withheld login entry (opencode's or pi's, neither bound nor
+// passed) keeps in the VM's copy: those that name an account or how it logs in, never a key or a
+// token.
+var withheldKeep = []string{"type", "expires", "accountId", "enterpriseUrl", "projectId", "email", "scope", "scopes", "clientId"}
+
+// withheldEntry is a login entry e as the VM's copy holds it withheld: withheldKeep's fields
+// alone, each a plain value or a list of strings.
+func withheldEntry(e map[string]any) map[string]any {
+	kept := map[string]any{}
+	for _, k := range withheldKeep {
+		if v, ok := e[k]; ok && plainField(v) {
+			kept[k] = v
+		}
+	}
+	return kept
+}
+
+// plainField: a string, number, bool or null, or a list of strings.
+func plainField(v any) bool {
+	switch t := v.(type) {
+	case map[string]any:
+		return false
+	case []any:
+		for _, x := range t {
+			if _, ok := x.(string); !ok {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// splitUnbound returns the entries of m, a login file of one entry per provider, that devvm
+// doesn't bind: those passed, which the VM's copy holds as they are, and the others, which it
+// holds withheld (withheldEntry), each sorted.
+func splitUnbound(m map[string]any, bound, passed func(id string) bool) (pass, withheld []string) {
+	for _, id := range sortedKeys(m) {
+		switch {
+		case bound(id):
+		case passed(id):
+			pass = append(pass, id)
+		default:
+			withheld = append(withheld, id)
+		}
+	}
+	return pass, withheld
+}
+
 // opencode providers devvm knows: where an API key or access token goes. Logins for other providers
-// stay in the VM's copy as they are (a local model server's key, say).
+// are withheld from the VM's copy unless config.toml's [pass-keys] passes them (opencodeVM). pi's
+// API keys are bound for opencodeAPI's providers too (pi.go).
 type provider struct {
 	hosts  []string
 	header string
@@ -242,6 +291,9 @@ func openaiPlaceholder(tok, salt string) string { return fakeJWT(accountClaims(t
 
 // --- Codex ---
 
+// codexLogin is the name of Codex's ChatGPT login's binding: its agent's.
+const codexLogin = agents.Codex
+
 // codexKeyPlaceholder is the VM's in place of Codex's API key.
 func codexKeyPlaceholder(salt string) string { return salted("sk-devvm-proxy-managed-codex", salt) }
 
@@ -253,10 +305,10 @@ func login(agent, name string, hosts []string, header, placeholder string) proxy
 func codexBindings(m map[string]any, salt string) []proxy.Binding {
 	var bs []proxy.Binding
 	if str(m, "OPENAI_API_KEY") != "" {
-		bs = append(bs, login(Codex, "codex-key", []string{"api.openai.com"}, "Authorization", codexKeyPlaceholder(salt)))
+		bs = append(bs, login(agents.Codex, "codex-key", []string{"api.openai.com"}, "Authorization", codexKeyPlaceholder(salt)))
 	}
 	if t := obj(m, "tokens"); str(t, "access_token") != "" {
-		bs = append(bs, login(Codex, "codex", []string{"chatgpt.com", "api.openai.com"}, "Authorization",
+		bs = append(bs, login(agents.Codex, codexLogin, []string{"chatgpt.com", "api.openai.com"}, "Authorization",
 			openaiPlaceholder(str(t, "access_token"), salt)))
 	}
 	return bs
@@ -291,7 +343,7 @@ func codexVM(m map[string]any, salt string) map[string]any {
 		switch b.Name {
 		case "codex-key":
 			m["OPENAI_API_KEY"] = b.Placeholder
-		case "codex":
+		case codexLogin:
 			t["id_token"] = id
 			t["access_token"] = b.Placeholder
 			// Just refreshed, as far as the VM's Codex can tell: it never tries.
@@ -317,7 +369,7 @@ func (f File) codexGet(ctx context.Context, name string) (string, error) {
 			return k, nil
 		}
 		return "", ErrCodexNoKey
-	case "codex":
+	case codexLogin:
 		t := obj(m, "tokens")
 		if str(t, "access_token") == "" {
 			return "", ErrCodexNoChatGPT
@@ -329,7 +381,7 @@ func (f File) codexGet(ctx context.Context, name string) (string, error) {
 			"grant_type": "refresh_token", "client_id": openaiClientID, "refresh_token": str(t, "refresh_token"),
 		})
 		if err != nil {
-			return "", &RefreshError{Agent: Codex, Err: err}
+			return "", &RefreshError{Agent: agents.Codex, Err: err}
 		}
 		for _, k := range []string{"id_token", "access_token", "refresh_token"} {
 			if v := str(nt, k); v != "" {
@@ -370,51 +422,70 @@ func opencodeBindings(m map[string]any, salt string) []proxy.Binding {
 		if id == "openai" && str(e, "type") == "oauth" {
 			ph = openaiPlaceholder(str(e, "access"), salt) // opencode reads the account from it
 		}
-		bs = append(bs, login(Opencode, "opencode-"+id, p.hosts, p.header, ph))
+		bs = append(bs, login(agents.Opencode, "opencode-"+id, p.hosts, p.header, ph))
 	}
 	return bs
 }
 
-func opencodeVM(m map[string]any, salt string) map[string]any {
-	// An OAuth login devvm doesn't bind loses its tokens: the VM never holds a refresh token.
-	for _, id := range opencodeUnbound(m, true) {
-		e := obj(m, id)
-		for _, k := range []string{"access", "refresh"} {
-			if str(e, k) != "" {
-				e[k] = redactMark
-			}
-		}
-	}
+// opencodeVM is the VM's copy of opencode's logins m (checked against opencode's auth.json schema
+// at v1.19.5 and its import at v2.2.5: {"type":"api","key","metadata"},
+// {"type":"oauth","refresh","access","expires","accountId","enterpriseUrl"} or
+// {"type":"wellknown","key","token"}), each entry held in one of three ways:
+//   - bound: an API key's entry becomes {type, key} alone, its key the placeholder, so its
+//     metadata stays on the host; an OAuth login's keeps withheldKeep's fields, its access and
+//     refresh tokens the placeholder.
+//   - passed: an api entry of a provider pass lists (File.Pass, config.toml's [pass-keys]) that
+//     devvm doesn't bind goes as it is.
+//   - withheld: every other entry, OAuth and well-known logins included, as withheldEntry makes
+//     it, which opencode skips as it reads the file.
+func opencodeVM(m map[string]any, salt string, pass []string) map[string]any {
+	out := map[string]any{}
 	for _, b := range opencodeBindings(m, salt) {
-		e := obj(m, strings.TrimPrefix(b.Name, "opencode-"))
+		id := strings.TrimPrefix(b.Name, "opencode-")
+		e := obj(m, id)
 		if str(e, "type") == "api" {
-			e["key"] = b.Placeholder
+			out[id] = map[string]any{"type": "api", "key": b.Placeholder}
 			continue
 		}
-		e["access"] = b.Placeholder
-		e["refresh"] = b.Placeholder // Copilot sends this one; nothing else in the VM refreshes
+		v := withheldEntry(e)
+		v["access"] = b.Placeholder
+		v["refresh"] = b.Placeholder // Copilot sends this one; nothing else in the VM refreshes
 		if n, _ := e["expires"].(json.Number); n.String() != "0" {
-			e["expires"] = farFuture * 1000
+			v["expires"] = farFuture * 1000
 		}
+		out[id] = v
 	}
-	return m
+	for _, id := range sortedKeys(m) {
+		if _, done := out[id]; done {
+			continue
+		}
+		if opencodePassed(m, id, out, pass) {
+			out[id] = m[id]
+			continue
+		}
+		out[id] = withheldEntry(obj(m, id))
+	}
+	return out
 }
 
-// opencodeUnbound returns the providers whose logins devvm doesn't bind, sorted: the OAuth ones
-// (which the VM's copy holds without their tokens), or the others (which it holds as they are).
-func opencodeUnbound(m map[string]any, oauth bool) []string {
-	known := map[string]bool{}
+// opencodePassed reports whether opencode's entry for provider id goes into the VM's copy as it
+// is: an api entry of a provider in pass that devvm doesn't bind, bound holding the bound ones.
+func opencodePassed(m map[string]any, id string, bound map[string]any, pass []string) bool {
+	_, isBound := bound[id]
+	return !isBound && str(obj(m, id), "type") == "api" && slices.Contains(pass, id)
+}
+
+// opencodeSplit returns the providers of opencode's whose entries the VM's copy holds as they are
+// (passed) and those it holds without their keys and tokens (neither bound nor passed), each
+// sorted.
+func opencodeSplit(m map[string]any, pass []string) (passed, withheld []string) {
+	bound := map[string]any{}
 	for _, b := range opencodeBindings(m, "") {
-		known[strings.TrimPrefix(b.Name, "opencode-")] = true
+		bound[strings.TrimPrefix(b.Name, "opencode-")] = true
 	}
-	var out []string
-	for id := range m {
-		if !known[id] && (str(obj(m, id), "type") == "oauth") == oauth {
-			out = append(out, id)
-		}
-	}
-	sort.Strings(out)
-	return out
+	return splitUnbound(m,
+		func(id string) bool { _, ok := bound[id]; return ok },
+		func(id string) bool { return opencodePassed(m, id, bound, pass) })
 }
 
 func (f File) opencodeGet(ctx context.Context, name string) (string, error) {
@@ -445,7 +516,7 @@ func (f File) opencodeGet(ctx context.Context, name string) (string, error) {
 			"grant_type": "refresh_token", "client_id": openaiClientID, "refresh_token": str(e, "refresh"),
 		})
 		if err != nil {
-			return "", &RefreshError{Agent: Opencode, Provider: id, Err: err}
+			return "", &RefreshError{Agent: agents.Opencode, Provider: id, Err: err}
 		}
 		e["access"] = str(nt, "access_token")
 		if v := str(nt, "refresh_token"); v != "" {
@@ -466,7 +537,7 @@ func (f File) tokenURL() string {
 	switch {
 	case f.TokenURL != "":
 		return f.TokenURL
-	case f.Kind == ClaudeOAuth:
+	case f.Kind == agents.ClaudeOAuth:
 		return ClaudeTokenURL
 	}
 	return OpenAITokenURL
@@ -583,7 +654,7 @@ func claudeBindings(m map[string]any, salt string) []proxy.Binding {
 		}
 		for _, h := range sortedKeys(obj(s, "headers")) {
 			name := claudeBindingName(n, h)
-			bs = append(bs, login(Claude, name, []string{host}, h, salted("devvm-proxy-managed-"+name, salt)))
+			bs = append(bs, login(agents.Claude, name, []string{host}, h, salted("devvm-proxy-managed-"+name, salt)))
 		}
 	}
 	return bs
@@ -822,9 +893,6 @@ func (f File) claudeGet(name string) (string, error) {
 	return "", fmt.Errorf("no MCP server header %s in %s", name, f.Path)
 }
 
-// errKind is a File of no agent devvm knows.
-func (f File) errKind() error { return fmt.Errorf("unknown login kind %q", f.Kind) }
-
 // Bindings returns the login's secret bindings, of proxy.KindLogin with f.Kind their Agent, each
 // placeholder ending in f.Salt; none for a file that holds no login devvm knows.
 func (f File) Bindings() ([]proxy.Binding, error) {
@@ -832,27 +900,21 @@ func (f File) Bindings() ([]proxy.Binding, error) {
 	if err != nil {
 		return nil, err
 	}
-	switch f.Kind {
-	case Codex:
-		return codexBindings(m, f.Salt), nil
-	case Opencode:
-		return opencodeBindings(m, f.Salt), nil
-	case Claude:
-		return claudeBindings(m, f.Salt), nil
-	case ClaudeOAuth:
-		return claudeOAuthBindings(m, f.Salt), nil
+	fm, err := f.formatOf()
+	if err != nil {
+		return nil, err
 	}
-	return nil, f.errKind()
+	return fm.bindings(m, f.Salt), nil
 }
 
 // VMFile is the VM's copy of an agent's file (File.VMCopy).
 type VMFile struct {
 	Data []byte
-	// Kept: what of the file the copy holds as it is, sorted: Codex's auth.json keys or opencode's
-	// providers devvm doesn't know.
+	// Kept: what of the file the copy holds as it is, sorted: Codex's auth.json keys, or
+	// opencode's or pi's providers that File.Pass lists.
 	Kept []string
-	// Withheld: opencode's OAuth logins devvm doesn't bind, sorted, which the copy holds without
-	// their tokens.
+	// Withheld: every opencode or pi login devvm neither binds nor passes, sorted, which the
+	// copy holds without their keys and tokens.
 	Withheld []string
 }
 
@@ -863,21 +925,11 @@ func (f File) VMCopy() (VMFile, error) {
 	if err != nil {
 		return VMFile{}, err
 	}
-	var c VMFile
-	switch f.Kind {
-	case Codex:
-		c.Kept = codexOthers(m)
-		m = codexVM(m, f.Salt)
-	case Opencode:
-		c.Kept, c.Withheld = opencodeUnbound(m, false), opencodeUnbound(m, true)
-		m = opencodeVM(m, f.Salt)
-	case Claude:
-		m = claudeVM(m, f.Salt)
-	case ClaudeOAuth:
-		m = claudeOAuthVM(m, f.Salt)
-	default:
-		return VMFile{}, f.errKind()
+	fm, err := f.formatOf()
+	if err != nil {
+		return VMFile{}, err
 	}
+	m, c := fm.vmCopy(m, f)
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return VMFile{}, err
@@ -890,15 +942,9 @@ func (f File) VMCopy() (VMFile, error) {
 // Get returns the value of the binding named name: from the host's file, read each time, refreshing
 // an OAuth token there when it's due, under the file's lock.
 func (f File) Get(ctx context.Context, name string) (string, error) {
-	switch f.Kind {
-	case Codex:
-		return f.codexGet(ctx, name)
-	case Opencode:
-		return f.opencodeGet(ctx, name)
-	case Claude:
-		return f.claudeGet(name)
-	case ClaudeOAuth:
-		return f.claudeOAuthGet(ctx, name)
+	fm, err := f.formatOf()
+	if err != nil {
+		return "", err
 	}
-	return "", f.errKind()
+	return fm.get(ctx, f, name)
 }

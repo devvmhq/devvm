@@ -36,6 +36,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
 )
@@ -53,10 +54,10 @@ const (
 
 // endpoints are the agents' OAuth token endpoints, in order.
 var endpoints = []proxy.Capture{
-	{Agent: Codex, Host: "auth.openai.com", Path: "/oauth/token"},
-	{Agent: Opencode, Host: "auth.openai.com", Path: "/oauth/token"},
-	{Agent: Claude, Host: "platform.claude.com", Path: "/v1/oauth/token"},
-	{Agent: Claude, Host: "console.anthropic.com", Path: "/v1/oauth/token"},
+	{Agent: agents.Codex, Host: "auth.openai.com", Path: "/oauth/token"},
+	{Agent: agents.Opencode, Host: "auth.openai.com", Path: "/oauth/token"},
+	{Agent: agents.Claude, Host: "platform.claude.com", Path: "/v1/oauth/token"},
+	{Agent: agents.Claude, Host: "console.anthropic.com", Path: "/v1/oauth/token"},
 }
 
 // Endpoints returns the token endpoints whose replies every VM's proxy captures, whatever its
@@ -67,22 +68,22 @@ func Endpoints() []proxy.Capture { return slices.Clone(endpoints) }
 // Pick returns which of agents, the VM's whose token endpoint a request went to, it's for: the one
 // there is, or for OpenAI's, which Codex and opencode share, opencode when the request's
 // User-Agent is Bun's (opencode runs on Bun) or opencode's own, else Codex.
-func Pick(agents []string, userAgent string) string {
-	if len(agents) == 0 {
+func Pick(names []string, userAgent string) string {
+	if len(names) == 0 {
 		return ""
 	}
-	if len(agents) > 1 && slices.Contains(agents, Opencode) {
+	if len(names) > 1 && slices.Contains(names, agents.Opencode) {
 		ua := strings.ToLower(userAgent)
 		if strings.HasPrefix(ua, "bun/") || strings.HasPrefix(ua, "opencode/") {
-			return Opencode
+			return agents.Opencode
 		}
-		for _, a := range agents {
-			if a != Opencode {
+		for _, a := range names {
+			if a != agents.Opencode {
 				return a
 			}
 		}
 	}
-	return agents[0]
+	return names[0]
 }
 
 var (
@@ -170,7 +171,7 @@ func (f File) grantOK(t tokenRequest) error {
 	switch g := t.grant(); {
 	case g == grantCode || g == grantRefresh:
 		return nil
-	case f.Kind == Codex && g == grantExchange && t.form &&
+	case f.Kind == agents.Codex && g == grantExchange && t.form &&
 		t.fields.Get("requested_token") == apiKeyToken && t.fields.Get("subject_token_type") == idTokenType:
 		return nil
 	}
@@ -224,7 +225,7 @@ func (f File) CaptureRequest(ctype string, body []byte) (out, answer []byte, err
 	if refresh {
 		// opencode's VM copy holds its access token's placeholder as its refresh token too.
 		rt := t.fields.Get("refresh_token")
-		if rt == managed || f.Kind == Opencode && rt == openaiPlaceholder(str(obj(m, "openai"), "access"), f.Salt) {
+		if rt == managed || f.Kind == agents.Opencode && rt == openaiPlaceholder(str(obj(m, "openai"), "access"), f.Salt) {
 			answer, err = f.managedReply(m)
 			return nil, answer, err
 		}
@@ -241,14 +242,14 @@ func (f File) CaptureRequest(ctype string, body []byte) (out, answer []byte, err
 // managedReply is the reply to a VM's refresh of its own login, m the store's: its placeholders,
 // as the code's reply gave them.
 func (f File) managedReply(m map[string]any) ([]byte, error) {
-	if f.Kind == ClaudeOAuth {
+	if f.Kind == agents.ClaudeOAuth {
 		return claudeManagedReply(m, f.Salt)
 	}
 	vm := vmReply(map[string]any{"token_type": "Bearer"})
 	var at, id string
-	if f.Kind == Codex {
+	if f.Kind == agents.Codex {
 		at, id = str(obj(m, "tokens"), "access_token"), str(obj(m, "tokens"), "id_token")
-	} else if e := obj(m, "openai"); f.Kind == Opencode && str(e, "type") == "oauth" {
+	} else if e := obj(m, "openai"); f.Kind == agents.Opencode && str(e, "type") == "oauth" {
 		at = str(e, "access")
 	}
 	if at == "" {
@@ -280,7 +281,7 @@ func (f File) Capture(ctype string, req, reply []byte) ([]byte, error) {
 		return nil, errors.New("the reply isn't a JSON object")
 	}
 	capture := map[string]func(map[string]any, tokenRequest, map[string]any, string) (map[string]any, map[string]any, error){
-		Codex: codexCapture, Opencode: opencodeCapture, ClaudeOAuth: claudeCapture,
+		agents.Codex: codexCapture, agents.Opencode: opencodeCapture, agents.ClaudeOAuth: claudeCapture,
 	}[f.Kind]
 	if capture == nil {
 		return nil, f.errKind()

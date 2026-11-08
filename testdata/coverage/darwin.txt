@@ -2,6 +2,7 @@
 # mise run test fails when a package drops below its line; mise run coverage raises them.
 cmd/devvm 100.0
 internal/agentlogin 94.8
+internal/agents 100.0
 internal/backend 97.1
 internal/backend/backendtest 74.4
 internal/backend/lima 91.0
@@ -28,7 +29,7 @@ internal/ports 91.2
 internal/project 98.5
 internal/proxy 91.5
 internal/redact 97.7
-internal/secrets 92.6
+internal/secrets 92.8
 internal/settings 96.3
 internal/shell 100.0
 internal/sshagent 84.2
@@ -44,7 +45,7 @@ internal/ubuntu 97.3
 internal/ui 95.2
 internal/upgrade 91.9
 internal/upgrade/upgradetest 97.1
-internal/vm 88.2
+internal/vm 88.4
 internal/vmname 100.0
 internal/vmssh 90.7
 packaging 42.9

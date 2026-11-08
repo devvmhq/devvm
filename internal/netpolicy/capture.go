@@ -7,6 +7,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
 	"github.com/devvmhq/devvm/internal/image"
+	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/secrets"
@@ -25,9 +26,10 @@ type Capturer struct {
 }
 
 // vm is the VM a capture is for, by its proxy's name for it, its
-// placeholders' salt, and the agent the exchange is for: of its agents
-// whose endpoint it went to, the VM's image's, when it has any of them
-// (agentlogin.Pick).
+// placeholders' salt, and the agent the exchange is for: of the agents
+// whose endpoint it went to, one the VM's image has (agentlogin.Pick among
+// them). A capture replaces the login every VM with the agent uses, so a VM
+// whose image has none of them captures nothing (login_capture_refused).
 func (c Capturer) vm(x proxy.Exchange) (*state.VM, string, string, error) {
 	st, err := state.ReadVM(c.Dirs, x.VM)
 	if err != nil {
@@ -40,17 +42,12 @@ func (c Capturer) vm(x proxy.Exchange) (*state.VM, string, string, error) {
 	if !st.Exists() || n.Made.ProxySalt == "" {
 		return nil, "", "", errors.New("the VM has no placeholders")
 	}
-	agents, own := x.Agents, image.AgentsOf(tools.Names(st))
-	if mine := slices.DeleteFunc(slices.Clone(agents), func(a string) bool { return !slices.Contains(own, a) }); len(mine) > 0 {
-		agents = mine
+	own := image.AgentsOf(tools.Names(st))
+	mine := slices.DeleteFunc(slices.Clone(x.Agents), func(a string) bool { return !slices.Contains(own, a) })
+	if len(mine) == 0 {
+		return nil, "", "", msg.LoginCaptureRefused(agentlogin.Pick(x.Agents, x.UserAgent), st.Name())
 	}
-	agent := agentlogin.Pick(agents, x.UserAgent)
-	// Claude Code's capture replaces the login every VM with Claude Code uses, or deletes its
-	// token, so only a VM whose image has Claude Code makes one; another's gets nothing.
-	if agent == agentlogin.Claude && !slices.Contains(own, agentlogin.Claude) {
-		return nil, "", "", errors.New("the VM's image has no Claude Code")
-	}
-	return st, n.Made.ProxySalt, agent, nil
+	return st, n.Made.ProxySalt, agentlogin.Pick(mine, x.UserAgent), nil
 }
 
 // Request is the token request's body as it goes on, or the reply the VM

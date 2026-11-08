@@ -1,0 +1,27 @@
+binding {"name":"codex","kind":"login","agent":"codex","hosts":["chatgpt.com","api.openai.com"],"header":"Authorization","placeholder":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJkZXZ2bSI6InBsYWNlaG9sZGVyLXM0bHQiLCJlbWFpbCI6ImUyZWZha2VAZXhhbXBsZS5jb20iLCJleHAiOjQwNzA5MDg4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEiLCJjaGF0Z3B0X3BsYW5fdHlwZSI6InBybyJ9fQ.devvm-placeholder"}
+binding {"name":"codex-key","kind":"login","agent":"codex","hosts":["api.openai.com"],"header":"Authorization","placeholder":"sk-devvm-proxy-managed-codex-s4lt"}
+kept aa_other,zz_extra
+withheld 
+providers 
+chatgpt e2efake@example.com yes
+vm copy
+{
+  "OPENAI_API_KEY": "sk-devvm-proxy-managed-codex-s4lt",
+  "aa_other": "kept",
+  "auth_mode": "chatgpt",
+  "last_refresh": "NOW",
+  "tokens": {
+    "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJkZXZ2bSI6InBsYWNlaG9sZGVyLXM0bHQiLCJlbWFpbCI6ImUyZWZha2VAZXhhbXBsZS5jb20iLCJleHAiOjQwNzA5MDg4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEiLCJjaGF0Z3B0X3BsYW5fdHlwZSI6InBybyJ9fQ.devvm-placeholder",
+    "account_id": "acct-1",
+    "id_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJkZXZ2bSI6InBsYWNlaG9sZGVyLXM0bHQiLCJleHAiOjQwNzA5MDg4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vcHJvZmlsZSI6eyJlbWFpbCI6ImUyZWZha2VAZXhhbXBsZS5jb20ifX0.devvm-placeholder",
+    "refresh_token": "devvm-proxy-managed"
+  },
+  "zz_extra": {
+    "kept": true
+  }
+}
+set key 
+{
+  "OPENAI_API_KEY": "sk-e2efake-saved",
+  "auth_mode": "apikey"
+}

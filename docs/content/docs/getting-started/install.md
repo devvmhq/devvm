@@ -56,7 +56,7 @@ devvm runs its VMs on [Lima](../backends/lima.md#requirements), its default [bac
 
 - **A smaller machine works too.** devvm gives base fewer CPUs and less memory there ([size and ports](../using/ports-size.md#size-and-ports)).
 - **Your first VM needs 8 GiB of free disk space**, for the base image, the VM's own image and the shared tools ([free space](../using/ports-size.md#free-space)).
-- **Everything else goes inside the VMs,** including the toolchains, the coding agents and Docker for your projects ([docker layer](../using/images.md#built-in-layers)), so you don't install Claude Code, Codex or opencode on this machine ([devvm's agent store](../using/coding-agents.md#devvms-agent-store)).
+- **Everything else goes inside the VMs,** including the toolchains, the coding agents and Docker for your projects ([docker layer](../using/images.md#built-in-layers)), so you don't install any of the [supported coding agents](../using/coding-agents.md#supported-agents) on this machine ([devvm's agent store](../using/coding-agents.md#devvms-agent-store)).
 - **On Linux, `.git` protection needs devvm-immutable,** a small program that comes with devvm and needs sudo to install. Without it, VMs can change `.git` hooks and config, which run on this machine ([Linux hosts](../safety/git-protection.md#linux-hosts)). Linux hosts have a few other limits too ([Known limits](../using/limits.md#linux-hosts)).
 
 ## Checking what devvm needs

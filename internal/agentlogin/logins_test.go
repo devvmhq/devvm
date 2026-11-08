@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"syscall"
@@ -317,12 +318,9 @@ func TestOpencodeLogins(t *testing.T) {
 			t.Errorf("the VM's copy holds %q", secret)
 		}
 	}
-	if !strings.Contains(out, `"local"`) {
-		t.Errorf("an unknown provider's login should stay as it is:\n%s", out)
-	}
-	// Logins copied as they are, the note's list: wellknown ones too (they hold a token).
-	if !slices.Equal(kept, []string{"llama-cpp", "mcp"}) {
-		t.Errorf("kept = %v", kept)
+	// Nothing passes without config.toml's [pass-keys]: an unknown provider's key is withheld.
+	if strings.Contains(out, `"local"`) || kept != nil {
+		t.Errorf("an unknown provider's key reached the VM (kept %v):\n%s", kept, out)
 	}
 	if v, _ := f.Get(t.Context(), "opencode-anthropic"); v != "sk-ant-real" {
 		t.Errorf("anthropic = %q", v)
@@ -343,28 +341,56 @@ func TestOpencodeLogins(t *testing.T) {
 	}
 }
 
-// An OAuth login devvm doesn't bind (a provider it doesn't know, Copilot Enterprise) loses its
-// tokens in the VM's copy: the VM never holds a refresh token.
-func TestOpencodeUnboundOAuthWithheld(t *testing.T) {
-	f := File{Kind: Opencode, Path: writeFile(t, map[string]any{
-		"anthropic":      map[string]any{"type": "oauth", "access": "fake-access-a", "refresh": "fake-refresh-a", "expires": 1},
-		"github-copilot": map[string]any{"type": "oauth", "access": "fake-access-e", "refresh": "fake-refresh-e", "expires": 0, "enterpriseUrl": "ghe.example.com"},
-		"llama-cpp":      map[string]any{"type": "api", "key": "local"},
+// opencode's auth.json in the VM, whole, as pi's is. A bound key (Anthropic's) becomes {type, key}
+// alone, its metadata left on the host, and a bound OAuth login (OpenAI's) keeps only the fields
+// that name its account beside its placeholders. Every other entry is withheld, keeping only those
+// fields: an unknown provider's key, an OAuth login devvm doesn't bind (a provider it doesn't know,
+// Copilot Enterprise) and a well-known login, which holds a token. The api entry of a provider
+// File.Pass lists (a local model server) goes as it is, but neither an OAuth login File.Pass names
+// nor a bound provider's key File.Pass names.
+func TestOpencodeVMCopy(t *testing.T) {
+	f := File{Kind: Opencode, Salt: "s1", Pass: []string{"ollama", "groq-oauth", "anthropic", "mcp"}, Path: writeFile(t, map[string]any{
+		"anthropic": map[string]any{"type": "api", "key": "sk-ant-e2efake", "metadata": map[string]any{"account": "md-e2efake"}, "extra": "x-e2efake"},
+		"openai": map[string]any{
+			"type": "oauth", "access": jwtWith(time.Now().Add(time.Hour), map[string]any{"https://api.openai.com/auth": openaiAuth}),
+			"refresh": "rt-e2efake-openai", "expires": 1, "accountId": "acct-1", "other": "o-e2efake",
+		},
+		"ollama":         map[string]any{"type": "api", "key": "ollama-local", "metadata": map[string]any{"host": "kept"}},
+		"groq":           map[string]any{"type": "api", "key": "gsk-e2efake", "metadata": map[string]any{"m": "md-e2efake"}},
+		"groq-oauth":     map[string]any{"type": "oauth", "access": "at-e2efake-passed", "refresh": "rt-e2efake-passed", "expires": 1},
+		"github-copilot": map[string]any{"type": "oauth", "access": "at-e2efake-ghe", "refresh": "rt-e2efake-ghe", "expires": 0, "enterpriseUrl": "ghe.example.com"},
+		"mcp":            map[string]any{"type": "wellknown", "key": "k-e2efake", "token": "t-e2efake"}, //nolint:gosec // fake values
 	})}
-	out, kept := vmCopy(t, f)
-	for _, s := range []string{"fake-access-a", "fake-refresh-a", "fake-access-e", "fake-refresh-e"} {
-		if strings.Contains(out, s) {
-			t.Errorf("the VM's copy holds %q:\n%s", s, out)
-		}
+	c, err := f.VMCopy()
+	must(t, err)
+	var vm map[string]any
+	must(t, json.Unmarshal(c.Data, &vm))
+	ph := openaiPlaceholder(str(obj(vm, "openai"), "access"), "s1")
+	var wantVM map[string]any
+	must(t, json.Unmarshal([]byte(`{
+		"anthropic": {"type": "api", "key": "devvm-proxy-managed-opencode-anthropic-s1"},
+		"openai": {"type": "oauth", "access": "`+ph+`", "refresh": "`+ph+`", "expires": 4070908800000, "accountId": "acct-1"},
+		"ollama": {"type": "api", "key": "ollama-local", "metadata": {"host": "kept"}},
+		"groq": {"type": "api"},
+		"groq-oauth": {"type": "oauth", "expires": 1},
+		"github-copilot": {"type": "oauth", "expires": 0, "enterpriseUrl": "ghe.example.com"},
+		"mcp": {"type": "wellknown"}
+	}`), &wantVM))
+	if !reflect.DeepEqual(vm, wantVM) {
+		t.Errorf("the VM's copy:\n%s", c.Data)
 	}
-	if !strings.Contains(out, `"local"`) || !strings.Contains(out, `"ghe.example.com"`) {
-		t.Errorf("the VM's copy lost what isn't a token:\n%s", out)
+	if strings.Contains(string(c.Data), "e2efake") {
+		t.Errorf("the VM's copy holds a key or token:\n%s", c.Data)
 	}
-	if !slices.Equal(kept, []string{"llama-cpp"}) {
-		t.Errorf("kept = %v", kept)
+	if !slices.Equal(c.Kept, []string{"ollama"}) || !slices.Equal(c.Withheld, []string{"github-copilot", "groq", "groq-oauth", "mcp"}) {
+		t.Errorf("kept %v, withheld %v", c.Kept, c.Withheld)
 	}
-	if c, err := f.VMCopy(); err != nil || !slices.Equal(c.Withheld, []string{"anthropic", "github-copilot"}) {
-		t.Errorf("withheld = %v, %v", c.Withheld, err)
+	// opencode 2's import gets the passed key, its metadata too, beside the bound ones.
+	imp, err := OpencodeImport(c.Data)
+	must(t, err)
+	if !strings.Contains(string(imp), `"id":"cred_devvm_ollama","integrationID":"ollama","label":"devvm","value":{"key":"ollama-local","metadata":{"host":"kept"},"type":"key"}`) ||
+		strings.Contains(string(imp), "groq") || strings.Contains(string(imp), "mcp") {
+		t.Errorf("opencode's import: %s", imp)
 	}
 }
 

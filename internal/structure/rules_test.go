@@ -398,6 +398,40 @@ func separatorCases() []ruleCase {
 	}
 }
 
+// agentCases are the coding agents' names and folders, which only
+// internal/agents' literals are or hold.
+func agentCases() []ruleCase {
+	return []ruleCase{
+		{
+			name:  "an agent's name outside agents",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\nfunc f(a string) bool { return a == \"opencode\" }\n"},
+			want:  &want{ruleOwners, `is "opencode", a name internal/agents owns, so use its constant in internal/agents`},
+		},
+		{
+			name:  "an agent's name in agents",
+			files: map[string]string{"internal/agents/a.go": "package agents\n\nconst Opencode = \"opencode\"\n"},
+		},
+		{
+			name:  "an agent's name in a stub",
+			files: map[string]string{"internal/stubtest/stub/a.go": "package main\n\nvar stubs = map[string]int{\"opencode\": 1}\n"},
+			r:     rules{allowedVars: map[string]string{"internal/stubtest/stub.stubs": table}},
+		},
+		{
+			name:  "an agent's name in a test",
+			files: map[string]string{"internal/vm/a_test.go": "package vm\n\nconst agent = \"pi\"\n"},
+		},
+		{
+			name:  "an agent's name inside a longer literal",
+			files: map[string]string{"internal/cli/a.go": "package cli\n\nconst ex = \"devvm agent login codex\"\n"},
+		},
+		{
+			name:  "an agent's folder outside agents",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\nconst rel = \".codex/auth.json\"\n"},
+			want:  &want{ruleOwners, "holds .codex/: a copy of what internal/agents owns, so use an agents.Def's paths"},
+		},
+	}
+}
+
 func ownerCases() []ruleCase {
 	const platform = "package platform\n\nconst TestCPUs = \"DEVVM_TEST_CPUS\"\n"
 	listed := rules{envSettings: map[string]envSetting{"DEVVM_X": {[]string{"internal/tools/a.go"}, "x"}}}
@@ -629,7 +663,7 @@ func callerCases() []ruleCase {
 // what it allows.
 func TestRulesFail(t *testing.T) {
 	var broken []string // the layer violations' texts
-	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), separatorCases(), runnerCases(), pathCases(), callerCases()) {
+	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), agentCases(), separatorCases(), runnerCases(), pathCases(), callerCases()) {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := fstest.MapFS{"go.mod": {Data: []byte("module example.com/m\n\ngo 1.27\n")}}
 			for name, src := range tc.files {
@@ -657,6 +691,9 @@ func TestRulesFail(t *testing.T) {
 			}
 			if r.literals == nil {
 				r.literals = devvm().literals
+			}
+			if r.names == nil {
+				r.names, r.namesFree = devvm().names, devvm().namesFree
 			}
 			if r.separators == nil {
 				r.separators = devvm().separators

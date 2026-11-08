@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
@@ -21,11 +22,6 @@ import (
 	"github.com/devvmhq/devvm/internal/tools"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
-
-// LoginAgents are the agents devvm agent login logs in.
-func LoginAgents() []string {
-	return []string{agentlogin.Claude, agentlogin.Codex, agentlogin.Opencode}
-}
 
 // The ports the agents' ChatGPT logins in a browser come back to: Codex
 // and opencode listen on the first, and Codex on the second when the
@@ -37,7 +33,7 @@ const (
 
 // AgentLoginOptions is how devvm agent login logs an agent in.
 type AgentLoginOptions struct {
-	Agent string // one of LoginAgents
+	Agent string // one of agents.LoginAgents
 	// Device logs in to ChatGPT with a code to type into a browser on any
 	// machine, so nothing is forwarded.
 	Device bool
@@ -45,9 +41,11 @@ type AgentLoginOptions struct {
 	// setup-token, which devvm saves as the claude secret, instead of its
 	// subscription's login.
 	SetupToken bool
-	// Key is an API key to save in devvm's store instead, for opencode
-	// Provider's (agentlogin.KeyProviders), which the VM gets as
-	// placeholders: the agent's own login never runs.
+	// Key is an API key to save in devvm's store instead, for an agent
+	// with a key for each provider Provider's (agentlogin.KeyProviders),
+	// which the VM gets as placeholders: the agent's own login never runs.
+	// An agent with neither a login of its own nor a ChatGPT login (pi)
+	// has no other login here.
 	Key, Provider string
 }
 
@@ -66,8 +64,12 @@ type AgentLogin struct{ *Env }
 // login and its proxy the bindings at once. Claude Code's login, or its
 // claude setup-token, shows an address to open in a browser on any
 // machine, whose code you paste back, so nothing is forwarded (claude).
-// Run says what the store saved, and fails when the login saved nothing.
+// An agent with API keys alone (pi) saves one. Run says what the store
+// saved, and fails when the login saved nothing.
 func (e AgentLogin) Run(ctx context.Context, o AgentLoginOptions) error {
+	if d, _ := agents.Get(o.Agent); d.KeysOnly() && o.Key == "" {
+		return msg.AgentLoginKeyOnly(o.Agent)
+	}
 	t, conf, err := readyConf(ctx, e.launcher)
 	if err != nil {
 		return err
@@ -77,7 +79,7 @@ func (e AgentLogin) Run(ctx context.Context, o AgentLoginOptions) error {
 		return msg.AgentLoginNoAgent(o.Agent, vm)
 	}
 	store := e.Proxy.Secrets
-	if o.Agent == agentlogin.Claude {
+	if o.Agent == agents.Claude {
 		return e.claude(ctx, t, conf, o)
 	}
 	if o.Key != "" {
@@ -150,7 +152,7 @@ func (e AgentLogin) claude(ctx context.Context, t *target, conf backend.Confinem
 // forward a ChatGPT login in a browser needs while it runs.
 func (e AgentLogin) login(ctx context.Context, t *target, o AgentLoginOptions) error {
 	vm := t.f.Name
-	if !o.Device && o.Agent != agentlogin.Claude {
+	if !o.Device && agents.Of(o.Agent).ChatGPT {
 		reach, err := vmssh.Checked(ctx, e.Dirs, e.Registry.Review, t.b, vm, vmssh.PinKeys)
 		if err != nil {
 			return err
@@ -216,15 +218,15 @@ func (e AgentLogin) endLogin(ctx context.Context, t *target) {
 // Sign in with ChatGPT gets its tokens from another endpoint, whose
 // replies the proxy refuses.
 func loginArgv(o AgentLoginOptions) []string {
-	if o.Agent == agentlogin.Claude {
-		argv := []string{"env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", "claude"}
+	if o.Agent == agents.Claude {
+		argv := []string{"env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", agents.Claude}
 		if o.SetupToken {
 			return append(argv, "setup-token")
 		}
 		return append(argv, "auth", "login", "--claudeai")
 	}
-	if o.Agent == agentlogin.Codex {
-		argv := []string{"codex", "-c", `cli_auth_credentials_store="file"`, "login"}
+	if o.Agent == agents.Codex {
+		argv := []string{agents.Codex, "-c", `cli_auth_credentials_store="file"`, "login"}
 		if o.Device {
 			argv = append(argv, "--device-auth")
 		}
@@ -234,7 +236,7 @@ func loginArgv(o AgentLoginOptions) []string {
 	if o.Device {
 		method = "chatgpt-headless"
 	}
-	return []string{"opencode", "auth", "login", "openai", "--method", method}
+	return []string{agents.Opencode, "auth", "login", "openai", "--method", method}
 }
 
 // vmLoginScript writes its input to the login file at $1, below the VM's
@@ -271,7 +273,7 @@ func (e AgentLogin) saveKey(ctx context.Context, t *target, store *secrets.Store
 		}
 		return backend.Logged(msg.AgentKeyCopyFailed(o.Agent, vm))
 	}
-	if o.Agent == agentlogin.Opencode {
+	if o.Agent == agents.Opencode {
 		if err := e.importLogins(ctx, t, data); err != nil {
 			return err
 		}
@@ -297,7 +299,7 @@ const importOutMax = 1 << 20
 func (e AgentLogin) importLogins(ctx context.Context, t *target, vmCopy []byte) error {
 	data, err := agentlogin.OpencodeImport(vmCopy)
 	if err != nil {
-		return msg.LoginCopyFailed(agentlogin.Opencode, err.Error(), t.f.Name).Because(err)
+		return msg.LoginCopyFailed(agents.Opencode, err.Error(), t.f.Name).Because(err)
 	}
 	script, err := fs.ReadFile(e.Assets, "guest/"+opencodeScript)
 	if err != nil {
@@ -320,7 +322,7 @@ func (e AgentLogin) importLogins(ctx context.Context, t *target, vmCopy []byte) 
 	if failed := opencodeRefused(out.String()); len(failed) > 0 {
 		return backend.Logged(msg.OpencodeImportFailed(strings.Join(failed, ", "), t.f.Name))
 	}
-	return backend.Logged(msg.AgentKeyCopyFailed(agentlogin.Opencode, t.f.Name))
+	return backend.Logged(msg.AgentKeyCopyFailed(agents.Opencode, t.f.Name))
 }
 
 // opencodeRefused is the providers opencodeScript's output names as

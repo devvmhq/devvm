@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/shell"
 )
@@ -33,17 +34,21 @@ const (
 
 // agentSaveScript is the script that sends a VM's settings of these
 // agents as a tar stream on its stdout, run there as the VM's user: the
-// files and folders agentFilesOf and agentDirsOf name, opencode's config
-// folder's entries but node_modules, as they are (a link as a link), and
-// the save's own files (saveOwn): its home folder and, for claude, what
-// devvm's store keeps of ~/.claude.json (agentlogin.ClaudeTopKeys), so
-// its per-project entries never leave the VM. The host checks all of it
-// (readSent): the VM is trusted with nothing.
-func agentSaveScript(agents []string) string {
+// files and folders their Files and Dirs name, a WholeFolder agent's
+// (opencode's) folder's entries but node_modules, as they are (a link as
+// a link), and the save's own files (saveOwn): its home folder and, for
+// claude, what devvm's store keeps of ~/.claude.json
+// (agentlogin.ClaudeTopKeys), so its per-project entries never leave the
+// VM. The host checks all of it (readSent): the VM is trusted with
+// nothing.
+func agentSaveScript(names []string) string {
 	var paths []string
-	for _, a := range agents {
-		paths = append(paths, agentFilesOf[a]...)
-		paths = append(paths, agentDirsOf[a]...)
+	for _, a := range names {
+		d := agents.Of(a)
+		for _, f := range d.Files {
+			paths = append(paths, f.Rel)
+		}
+		paths = append(paths, d.Dirs...)
 	}
 	lines := []string{
 		"set -o pipefail",
@@ -56,18 +61,20 @@ func agentSaveScript(agents []string) string {
 	if len(paths) > 0 {
 		lines = append(lines, `for p in `+shell.QuoteJoin(paths)+`; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done`)
 	}
-	if slices.Contains(agents, agentlogin.Opencode) {
-		lines = append(lines,
-			`for p in `+opencodeDir+`/* `+opencodeDir+`/.[!.]* `+opencodeDir+`/..?*; do`,
-			`  if { [ -e "$p" ] || [ -L "$p" ]; } && [ "${p##*/}" != node_modules ]; then set -- "$@" "$p"; fi`,
-			"done")
+	for _, a := range names {
+		if d := agents.Of(a); d.WholeFolder {
+			lines = append(lines,
+				`for p in `+d.Folder+`/* `+d.Folder+`/.[!.]* `+d.Folder+`/..?*; do`,
+				`  if { [ -e "$p" ] || [ -L "$p" ]; } && [ "${p##*/}" != node_modules ]; then set -- "$@" "$p"; fi`,
+				"done")
+		}
 	}
-	if slices.Contains(agents, agentlogin.Claude) {
+	if slices.Contains(names, agents.Claude) {
 		keys, _ := json.Marshal(agentlogin.ClaudeTopKeys())
 		own := `"$t/` + saveOwn
 		lines = append(lines,
-			`if [ -f .claude.json ] && [ ! -L .claude.json ]; then`,
-			`  jq --argjson k `+shell.Quote(string(keys))+` 'with_entries(select(.key as $x | any($k[]; . == $x)))' .claude.json > `+own+`/claude.json" 2>/dev/null ||`,
+			`if [ -f `+agents.ClaudeJSON+` ] && [ ! -L `+agents.ClaudeJSON+` ]; then`,
+			`  jq --argjson k `+shell.Quote(string(keys))+` 'with_entries(select(.key as $x | any($k[]; . == $x)))' `+agents.ClaudeJSON+` > `+own+`/claude.json" 2>/dev/null ||`,
 			`    { rm -f `+own+`/claude.json"; : > `+own+`/claude-unreadable"; }`,
 			"fi")
 	}
@@ -232,28 +239,29 @@ func (s *sent) own(tr io.Reader, h *tar.Header, name string) error {
 
 // listedPath returns the agent, of these, whose settings name is, or is
 // in: the file or folder it's listed as (top), a folder when folder.
-// Those are agentFilesOf's and agentDirsOf's, and opencode's config
-// folder's entries but its lock files and node_modules (opencodeFile,
-// opencodeFolder), by whether the entry is a folder (dir).
-func listedPath(agents []string, name string, dir bool) (agent, top string, folder, ok bool) {
-	for _, a := range agents {
-		if slices.Contains(agentFilesOf[a], name) {
+// Those are their Files and Dirs, and a WholeFolder agent's (opencode's)
+// folder's entries but its lock files and node_modules (fileSetting,
+// folderSetting), by whether the entry is a folder (dir).
+func listedPath(names []string, name string, dir bool) (agent, top string, folder, ok bool) {
+	for _, a := range names {
+		d := agents.Of(a)
+		if slices.ContainsFunc(d.Files, func(f agents.File) bool { return f.Rel == name }) {
 			return a, name, false, true
 		}
-		for _, d := range agentDirsOf[a] {
-			if name == d || strings.HasPrefix(name, d+"/") {
-				return a, d, true, true
+		for _, p := range d.Dirs {
+			if name == p || strings.HasPrefix(name, p+"/") {
+				return a, p, true, true
 			}
 		}
-		rest, in := strings.CutPrefix(name, opencodeDir+"/")
-		if a != agentlogin.Opencode || !in {
+		rest, in := strings.CutPrefix(name, d.Folder+"/")
+		if !d.WholeFolder || !in {
 			continue
 		}
 		first, _, below := strings.Cut(rest, "/")
 		switch {
-		case (below || dir) && opencodeFolder(first):
-			return a, opencodeDir + "/" + first, true, true
-		case !below && !dir && opencodeFile(first):
+		case (below || dir) && folderSetting(first):
+			return a, d.Folder + "/" + first, true, true
+		case !below && !dir && fileSetting(first):
 			return a, name, false, true
 		}
 	}

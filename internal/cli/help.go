@@ -115,6 +115,29 @@ func setDocs(c *cobra.Command) {
 	}
 }
 
+// orList is a list of names in a help's prose: a, b or c.
+func orList(names []string) string { return joinLast(names, " or ") }
+
+// andList is a list of names in a help's prose: a, b and c.
+func andList(names []string) string { return joinLast(names, " and ") }
+
+// joinLast joins names with commas, last before the last of them.
+func joinLast(names []string, last string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + last + names[len(names)-1]
+}
+
+// possessive is each name with 's: pi's.
+func possessive(names []string) []string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = n + "'s"
+	}
+	return out
+}
+
 // examples is a command's Example: each pair of arguments is a command
 // line and a short comment on it, and the comments line up.
 func examples(pairs ...string) string {

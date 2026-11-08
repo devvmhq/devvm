@@ -78,8 +78,8 @@ type spec struct {
 func (f Forwards) Log(vm string) string { return f.Dirs.VM(vm).ForwarderLog() }
 
 // Control is the master's control socket: in the run folder, named by a
-// hash, as a socket's path is at most paths.SocketMax characters and ssh
-// adds 17 while it makes it.
+// hash, as a socket's path has fewer than paths.SocketMax characters and
+// ssh adds 17 while it makes it.
 func (f Forwards) Control(vm string) string {
 	sum := sha256.Sum256([]byte(vm))
 	return filepath.Join(cmp.Or(f.Run, f.Dirs.Run()), "port-"+hex.EncodeToString(sum[:])[:16]+".ctl")

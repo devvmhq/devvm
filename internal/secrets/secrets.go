@@ -1,7 +1,7 @@
 // Package secrets keeps tokens on the host for VMs: a VM holds a placeholder of its own, and its proxy puts the real value into
 // requests for the token's hosts. Values live in the macOS Keychain, or in
-// files only the user can read elsewhere. Agents' logins (Codex, opencode,
-// Claude Code's MCP servers) stay in devvm's store of them on the host
+// files only the user can read elsewhere. Agents' logins (each
+// agents.Def's Logins) stay in devvm's store of them on the host
 // (LoginFile), read with agentlogin.
 package secrets
 
@@ -11,17 +11,20 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
 )
@@ -54,7 +57,7 @@ type Secret struct {
 
 // Known are the secrets devvm keeps, by name.
 var Known = []Secret{
-	{Name: "claude", Hosts: []string{"api.anthropic.com"}, Header: "Authorization", Env: "CLAUDE_CODE_OAUTH_TOKEN", prefix: "sk-ant-oat01-devvm-proxy-managed"},
+	{Name: ClaudeToken, Hosts: []string{"api.anthropic.com"}, Header: "Authorization", Env: "CLAUDE_CODE_OAUTH_TOKEN", prefix: "sk-ant-oat01-devvm-proxy-managed"},
 	{
 		Name: "github", Hosts: []string{"api.github.com", "github.com", "codeload.github.com", "raw.githubusercontent.com"},
 		Header: "Authorization", Env: "GH_TOKEN", prefix: "devvm-proxy-managed-github",
@@ -77,32 +80,25 @@ func (s Secret) Placeholder(salt string) string { return s.prefix + "-" + salt }
 // ErrNone is Value's error for a secret with no value saved.
 var ErrNone = errors.New("no value saved")
 
-// loginKinds are the kinds of login files that stay on the host, in
-// order: the agents', and Claude Code's OAuth login (agentlogin.ClaudeOAuth).
-var loginKinds = []string{agentlogin.Codex, agentlogin.Opencode, agentlogin.Claude, agentlogin.ClaudeOAuth}
+// isLogin reports whether kind is a kind of login file that stays on the
+// host: one of an agent's (agents.LoginKinds).
+func isLogin(kind string) bool {
+	_, _, ok := agents.LoginOf(kind)
+	return ok
+}
 
-// LoginRel is a login file, relative to a home folder, where the agent
-// keeps it and where devvm's store of its logins keeps it too: Codex's and
-// opencode's auth.json, for claude .claude.json (its MCP servers'
-// secrets), and Claude Code's OAuth login's .credentials.json.
+// LoginRel is a login file of kind (agents.Login's Kind), relative to a
+// home folder, where the agent keeps it and where devvm's store of its
+// logins keeps it too: its agents.Login's Rel, "" for no agent's.
 func LoginRel(kind string) string {
-	switch kind {
-	case agentlogin.Codex:
-		return ".codex/auth.json"
-	case agentlogin.Opencode:
-		return ".local/share/opencode/auth.json"
-	case agentlogin.ClaudeOAuth:
-		return ".claude/.credentials.json"
-	}
-	return ".claude.json"
+	l, _, _ := agents.LoginOf(kind)
+	return l.Rel
 }
 
 // agentOf is the agent whose logins folder a login file of kind is in.
 func agentOf(kind string) string {
-	if kind == agentlogin.ClaudeOAuth {
-		return agentlogin.Claude
-	}
-	return kind
+	_, d, _ := agents.LoginOf(kind)
+	return d.Name
 }
 
 // LoginFile is a login file in devvm's store of the agents' logins
@@ -144,8 +140,8 @@ func loginHosts(st *state.VM) []string {
 // the agent goes in, its placeholders ending in salt: its login file, and
 // for claude its OAuth login's.
 func (s *Store) captureFile(agent, salt string) agentlogin.File {
-	if agent == agentlogin.Claude {
-		return s.login(agentlogin.ClaudeOAuth, salt)
+	if agent == agents.Claude {
+		return s.login(agents.ClaudeOAuth, salt)
 	}
 	return s.login(agent, salt)
 }
@@ -154,7 +150,7 @@ func (s *Store) captureFile(agent, salt string) agentlogin.File {
 // to, for the agent's login (proxy.Capturer's Request): its body as it
 // goes on, or the reply the VM gets instead (agentlogin.File.CaptureRequest).
 func (s *Store) CaptureRequest(agent, salt, ctype string, body []byte) (out, answer []byte, err error) {
-	if !slices.Contains(loginKinds, agent) {
+	if !isLogin(agent) {
 		return nil, nil, msg.NoSecret(agent)
 	}
 	return s.captureFile(agent, salt).CaptureRequest(ctype, body)
@@ -174,7 +170,7 @@ func (s *Store) Capture(ctx context.Context, agent, salt, ctype string, req, rep
 	if err := s.loginsDir(ctx, agent); err != nil {
 		return nil, err
 	}
-	if agent != agentlogin.Claude {
+	if agent != agents.Claude {
 		return s.captureFile(agent, salt).Capture(ctype, req, reply)
 	}
 	c := ClaudeOf(s)
@@ -184,12 +180,12 @@ func (s *Store) Capture(ctx context.Context, agent, salt, ctype string, req, rep
 	}
 	defer unlock()
 	if agentlogin.SetupToken(ctype, req) {
-		sec, _ := Lookup("claude")
+		sec, _ := Lookup(ClaudeToken)
 		tok, vm, err := agentlogin.ClaudeToken(ctype, req, reply, sec.Placeholder(salt))
 		if err != nil {
 			return nil, err
 		}
-		if tok, err = Token("claude", tok); err != nil {
+		if tok, err = Token(ClaudeToken, tok); err != nil {
 			return nil, err
 		}
 		return vm, c.saveToken(ctx, tok)
@@ -198,7 +194,7 @@ func (s *Store) Capture(ctx context.Context, agent, salt, ctype string, req, rep
 	if err != nil {
 		return nil, err
 	}
-	if err := s.Delete(ctx, "claude"); err != nil && !errors.Is(err, ErrNone) {
+	if err := s.Delete(ctx, ClaudeToken); err != nil && !errors.Is(err, ErrNone) {
 		s.Warn(msg.SecretFailed(err.Error()).Because(err))
 	}
 	return vm, nil
@@ -207,7 +203,7 @@ func (s *Store) Capture(ctx context.Context, agent, salt, ctype string, req, rep
 // loginsDir readies the agent's logins folder in devvm's store: the
 // user's alone, out of backups.
 func (s *Store) loginsDir(ctx context.Context, kind string) error {
-	if !slices.Contains(loginKinds, kind) {
+	if !isLogin(kind) {
 		return msg.NoSecret(kind)
 	}
 	dir := s.Dirs.AgentLogins(agentOf(kind))
@@ -218,7 +214,7 @@ func (s *Store) loginsDir(ctx context.Context, kind string) error {
 }
 
 // SaveKey saves an API key as the agent's login in devvm's store, for
-// opencode as provider's (agentlogin.File.SetKey), the agent's logins
+// opencode and pi as provider's (agentlogin.File.SetKey), the agent's logins
 // folder kept out of backups.
 func (s *Store) SaveKey(ctx context.Context, kind, provider, key string) error {
 	if err := s.loginsDir(ctx, kind); err != nil {
@@ -287,19 +283,28 @@ func (s *Store) login(kind, salt string) agentlogin.File {
 // VMLogin returns the VM's copy of an agent's login file: placeholders
 // ending in salt in place of its keys and tokens. It warns about what of
 // the file the copy holds as it is, and about the logins it holds without
-// their tokens.
+// their tokens. The copy of an agent that config.toml's [pass-keys] takes
+// (agents.Def's PassKeys) holds as they are the API keys of the providers
+// it lists for the agent (settings.PassKeys), which it notes, and
+// withholds every other key devvm doesn't bind.
 func (s *Store) VMLogin(kind, salt string) ([]byte, error) {
-	c, err := s.login(kind, salt).VMCopy()
-	if len(c.Kept) > 0 {
-		list := strings.Join(c.Kept, ", ")
-		if kind == agentlogin.Codex {
-			s.Warn(msg.CodexLoginKept(list))
-		} else {
-			s.Warn(msg.OpencodeLoginKept(list))
+	f := s.login(kind, salt)
+	l, d, _ := agents.LoginOf(kind)
+	if d.PassKeys {
+		pass, err := settings.PassKeys(s.Dirs, d.Name)
+		if err != nil {
+			return nil, err
 		}
+		f.Pass = pass
 	}
-	if len(c.Withheld) > 0 {
-		s.Warn(msg.OpencodeLoginWithheld(strings.Join(c.Withheld, ", ")))
+	c, err := f.VMCopy()
+	if list := strings.Join(c.Kept, ", "); list != "" && d.PassKeys {
+		s.Note(msg.LoginPassed(d.Display, list))
+	} else if list != "" {
+		s.Warn(msg.LoginKept(d.Display, path.Base(l.Rel), list))
+	}
+	if list := strings.Join(c.Withheld, ", "); list != "" {
+		s.Warn(msg.LoginWithheld(d.Display, d.Name, list))
 	}
 	return c.Data, err
 }
@@ -329,7 +334,7 @@ func (s *Store) Value(ctx context.Context, name string) (string, error) {
 	if _, ok := Lookup(name); !ok {
 		return "", ErrNone
 	}
-	if name == "claude" {
+	if name == ClaudeToken {
 		if v := ClaudeOf(s).Env(); v != "" {
 			return v, nil
 		}
@@ -394,7 +399,7 @@ func Token(name, given string) (string, error) {
 		return "", msg.NoToken()
 	case strings.ContainsFunc(v, func(r rune) bool { return r == '"' || r == '\\' || r < 0x20 || r == 0x7f }):
 		return "", msg.TokenQuotes()
-	case name == "claude" && !strings.HasPrefix(v, "sk-ant-oat01-"):
+	case name == ClaudeToken && !strings.HasPrefix(v, "sk-ant-oat01-"):
 		return "", msg.NotSetupToken()
 	}
 	return v, nil
@@ -408,7 +413,7 @@ func (s *Store) Save(ctx context.Context, name, value string) error {
 	if _, ok := Lookup(name); !ok {
 		return msg.NoSecret(name)
 	}
-	if name != "claude" {
+	if name != ClaudeToken {
 		return s.save(ctx, name, value)
 	}
 	c := ClaudeOf(s)
@@ -482,13 +487,13 @@ func (s *Store) Delete(ctx context.Context, name string) error {
 func (s *Store) Get(ctx context.Context, b proxy.Binding) (string, error) {
 	switch b.Kind {
 	case proxy.KindLogin:
-		if !slices.Contains(loginKinds, b.Agent) {
+		if !isLogin(b.Agent) {
 			return "", msg.NoSecret(b.Name)
 		}
 		f := s.login(b.Agent, "")
 		v, err := f.Get(ctx, b.Name)
 		if errors.Is(err, agentlogin.ErrClaudeNoLogin) {
-			if tok, terr := s.Value(ctx, "claude"); terr == nil {
+			if tok, terr := s.Value(ctx, ClaudeToken); terr == nil {
 				return tok, nil
 			}
 			return "", msg.ClaudeNoLogin().Because(err)
@@ -499,8 +504,8 @@ func (s *Store) Get(ctx context.Context, b proxy.Binding) (string, error) {
 		return strings.TrimSpace(v), nil
 	case proxy.KindSecret:
 		v, err := s.Value(ctx, b.Name)
-		if errors.Is(err, ErrNone) && b.Name == "claude" {
-			return s.Get(ctx, proxy.Binding{Kind: proxy.KindLogin, Agent: agentlogin.ClaudeOAuth, Name: agentlogin.ClaudeOAuthName})
+		if errors.Is(err, ErrNone) && b.Name == ClaudeToken {
+			return s.Get(ctx, proxy.Binding{Kind: proxy.KindLogin, Agent: agents.ClaudeOAuth, Name: agentlogin.ClaudeOAuthName})
 		}
 		if errors.Is(err, ErrNone) {
 			return "", msg.NoSecret(b.Name)
@@ -520,9 +525,9 @@ func loginFailed(path string, err error) msg.M {
 		return msg.CodexNoKey().Because(err)
 	case errors.Is(err, agentlogin.ErrCodexNoChatGPT):
 		return msg.CodexNoChatgpt().Because(err)
-	case errors.As(err, &re) && re.Agent == agentlogin.Codex:
+	case errors.As(err, &re) && re.Agent == agents.Codex:
 		return msg.CodexRefreshFailed(re.Err.Error()).Because(err)
-	case errors.As(err, &re) && re.Agent == agentlogin.Claude:
+	case errors.As(err, &re) && re.Agent == agents.Claude:
 		return msg.ClaudeRefreshFailed(re.Err.Error()).Because(err)
 	case errors.As(err, &re):
 		return msg.OpencodeRefreshFailed(re.Provider, re.Err.Error()).Because(err)
@@ -530,8 +535,8 @@ func loginFailed(path string, err error) msg.M {
 	return msg.LoginReadFailed(path, err.Error()).Because(err)
 }
 
-// Names returns the secrets a VM uses: those bound to it, then claude when
-// it has Claude Code.
+// Names returns the secrets a VM uses: those bound to it, then its
+// agents' (agents.Def's Secret: claude when it has Claude Code).
 // A section that can't be read (the folder's VM's is checked as it's
 // found) binds none, and a HostOnly secret is never a VM's, whatever its
 // section says: its value would reach the VM, or its proxy's bindings.
@@ -541,16 +546,24 @@ func Names(st *state.VM) []string {
 		s, ok := Lookup(n)
 		return ok && s.HostOnly
 	})
-	if FromTools(st, "claude") && !slices.Contains(names, "claude") {
-		names = append(names, "claude")
+	for _, a := range image.AgentsOf(tools.Names(st)) {
+		if sec := agents.Of(a).Secret; sec != "" && !slices.Contains(names, sec) {
+			names = append(names, sec)
+		}
 	}
 	return names
 }
 
 // FromTools reports whether a VM uses the secret because of its shared
-// tools: claude, when it has Claude Code.
+// tools: an agent's of the VM's (agents.Def's Secret), such as claude
+// when it has Claude Code.
 func FromTools(st *state.VM, name string) bool {
-	return name == "claude" && slices.Contains(tools.Names(st), "claude")
+	for _, a := range image.AgentsOf(tools.Names(st)) {
+		if name != "" && agents.Of(a).Secret == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Bind binds a secret to a VM (use), or unbinds it, in st alone: inside
@@ -567,18 +580,18 @@ func Bind(st *state.VM, name string, use bool) error {
 	return state.SetSection(st, Section, b)
 }
 
-// Logins returns the login kinds a VM with these shared tools uses: its
-// agents' (codex, opencode, claude) that have a login file in devvm's
-// store, and Claude Code's OAuth login when it's the Claude Code login VMs
-// get (ClaudeLogin), never with the Claude Code token.
+// Logins returns the login kinds a VM with these shared tools uses, in
+// agents.LoginKinds' order: its agents' that have a login file in devvm's
+// store, Claude Code's OAuth login only when it's the Claude Code login
+// VMs get (ClaudeLogin), never with the Claude Code token.
 func (s *Store) Logins(ctx context.Context, tools []string) []string {
 	as := image.AgentsOf(tools)
 	var kinds []string
-	for _, k := range loginKinds {
+	for _, k := range agents.LoginKinds() {
 		if !slices.Contains(as, agentOf(k)) || !s.HasLogin(k) {
 			continue
 		}
-		if k == agentlogin.ClaudeOAuth {
+		if k == agents.ClaudeOAuth {
 			if l, err := ClaudeOf(s).Login(ctx); err != nil || l != "oauth" {
 				continue
 			}
@@ -599,7 +612,7 @@ func (s *Store) WriteFiles(ctx context.Context, st *state.VM, salt string) error
 	names := tools.Names(st)
 	// A login that can't be read has no bindings.
 	for _, kind := range s.Logins(ctx, names) {
-		if kind == agentlogin.ClaudeOAuth {
+		if kind == agents.ClaudeOAuth {
 			continue
 		}
 		bs, err := s.login(kind, salt).Bindings()
@@ -608,7 +621,7 @@ func (s *Store) WriteFiles(ctx context.Context, st *state.VM, salt string) error
 		}
 		logins = append(logins, bs...)
 	}
-	if slices.Contains(image.AgentsOf(names), agentlogin.Claude) {
+	if slices.Contains(image.AgentsOf(names), agents.Claude) {
 		if l, err := ClaudeOf(s).Login(ctx); err != nil {
 			return err
 		} else if l != "" {
@@ -645,7 +658,7 @@ func (s *Store) writeFiles(ctx context.Context, st *state.VM, salt string, login
 		}
 		hosts = append(hosts, sec.Hosts...)
 		// The claude secret's binding gets the OAuth login, without a token (Get).
-		if _, err := s.Value(ctx, name); errors.Is(err, ErrNone) && (name != "claude" || !s.HasLogin(agentlogin.ClaudeOAuth)) {
+		if _, err := s.Value(ctx, name); errors.Is(err, ErrNone) && (name != ClaudeToken || !s.HasLogin(agents.ClaudeOAuth)) {
 			continue
 		} else if err != nil && !errors.Is(err, ErrNone) {
 			return err

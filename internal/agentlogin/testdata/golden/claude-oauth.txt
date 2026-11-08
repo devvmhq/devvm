@@ -1,0 +1,20 @@
+binding {"name":"claude-oauth","kind":"login","agent":"claude-oauth","hosts":["api.anthropic.com"],"header":"Authorization","placeholder":"sk-ant-oat01-devvm-proxy-managed-oauth-s4lt"}
+kept 
+withheld 
+providers 
+chatgpt  no
+vm copy
+{
+  "claudeAiOauth": {
+    "accessToken": "sk-ant-oat01-devvm-proxy-managed-oauth-s4lt",
+    "expiresAt": 4070908800000,
+    "rateLimitTier": "t",
+    "refreshToken": "devvm-proxy-managed",
+    "scopes": [
+      "user:inference",
+      "user:profile"
+    ],
+    "subscriptionType": "max"
+  }
+}
+set key : no API key devvm puts in for that provider

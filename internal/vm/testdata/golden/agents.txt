@@ -1,0 +1,232 @@
+agent claude folder .claude
+  dirs .claude/skills .claude/agents .claude/commands .claude/output-styles .claude/plugins
+  files .claude/settings.json .claude/CLAUDE.md
+  login .claude.json /d/logins/claude/.claude.json
+  save script
+set -o pipefail
+cd ~ || exit 1
+t=$(mktemp -d) || exit 1
+trap 'rm -rf "$t"' EXIT
+mkdir "$t/.devvm-save" && printf '%s\n' "$HOME" > "$t/.devvm-save/home" || exit 1
+set --
+for p in '.claude/settings.json' '.claude/CLAUDE.md' '.claude/skills' '.claude/agents' '.claude/commands' '.claude/output-styles' '.claude/plugins'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
+if [ -f .claude.json ] && [ ! -L .claude.json ]; then
+  jq --argjson k '["autoCompactEnabled","autoConnectIde","autoInstallIdeExtension","bypassPermissionsModeAccepted","diffTool","editorMode","fallbackAvailableWarningThreshold","firstStartTime","hasAcknowledgedCostThreshold","hasAvailableSubscription","hasCompletedOnboarding","hasIdeOnboardingBeenShown","hasSeenTasksHint","hasUsedBackslashReturn","isQualifiedForDataSharing","lastOnboardingVersion","lastReleaseNotesSeen","mcpServers","messageIdleNotifThresholdMs","numStartups","oauthAccount","optionAsMetaKeyInstalled","preferredNotifChannel","shiftEnterKeyBindingInstalled","showExpandedTodos","subscriptionNoticeCount","theme","tipsHistory","todoFeatureEnabled","userID","verbose"]' 'with_entries(select(.key as $x | any($k[]; . == $x)))' .claude.json > "$t/.devvm-save/claude.json" 2>/dev/null ||
+    { rm -f "$t/.devvm-save/claude.json"; : > "$t/.devvm-save/claude-unreadable"; }
+fi
+tar -cf - "$@" -C "$t" .devvm-save
+agent codex folder .codex
+  dirs .codex/prompts .codex/skills
+  files .codex/config.toml .codex/AGENTS.md
+  login .codex/auth.json /d/logins/codex/.codex/auth.json
+  save script
+set -o pipefail
+cd ~ || exit 1
+t=$(mktemp -d) || exit 1
+trap 'rm -rf "$t"' EXIT
+mkdir "$t/.devvm-save" && printf '%s\n' "$HOME" > "$t/.devvm-save/home" || exit 1
+set --
+for p in '.codex/config.toml' '.codex/AGENTS.md' '.codex/prompts' '.codex/skills'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
+tar -cf - "$@" -C "$t" .devvm-save
+agent opencode folder .config/opencode
+  dirs .config/opencode/agent .config/opencode/plugin
+  files .config/opencode/.env .config/opencode/AGENTS.md .config/opencode/notes.txt .config/opencode/opencode.json .config/opencode/tui.jsonc .config/opencode/x.toml
+  login .local/share/opencode/auth.json /d/logins/opencode/.local/share/opencode/auth.json
+  save script
+set -o pipefail
+cd ~ || exit 1
+t=$(mktemp -d) || exit 1
+trap 'rm -rf "$t"' EXIT
+mkdir "$t/.devvm-save" && printf '%s\n' "$HOME" > "$t/.devvm-save/home" || exit 1
+set --
+for p in .config/opencode/* .config/opencode/.[!.]* .config/opencode/..?*; do
+  if { [ -e "$p" ] || [ -L "$p" ]; } && [ "${p##*/}" != node_modules ]; then set -- "$@" "$p"; fi
+done
+tar -cf - "$@" -C "$t" .devvm-save
+agent pi folder .pi/agent
+  dirs .pi/agent/extensions .pi/agent/skills .pi/agent/prompts .pi/agent/themes
+  files .pi/agent/settings.json .pi/agent/keybindings.json .pi/agent/models.json .pi/agent/mcp.json .pi/agent/AGENTS.md .pi/agent/SYSTEM.md .pi/agent/APPEND_SYSTEM.md
+  login .pi/agent/auth.json /d/logins/pi/.pi/agent/auth.json
+  save script
+set -o pipefail
+cd ~ || exit 1
+t=$(mktemp -d) || exit 1
+trap 'rm -rf "$t"' EXIT
+mkdir "$t/.devvm-save" && printf '%s\n' "$HOME" > "$t/.devvm-save/home" || exit 1
+set --
+for p in '.pi/agent/settings.json' '.pi/agent/keybindings.json' '.pi/agent/models.json' '.pi/agent/mcp.json' '.pi/agent/AGENTS.md' '.pi/agent/SYSTEM.md' '.pi/agent/APPEND_SYSTEM.md' '.pi/agent/extensions' '.pi/agent/skills' '.pi/agent/prompts' '.pi/agent/themes'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
+tar -cf - "$@" -C "$t" .devvm-save
+claude-oauth login .claude/.credentials.json /d/logins/claude/.claude/.credentials.json
+file .claude/settings.json format json true withheld false
+  listed false claude .claude/settings.json false true
+  listed true claude .claude/settings.json false true
+file .claude/CLAUDE.md format  false withheld false
+  listed false claude .claude/CLAUDE.md false true
+  listed true claude .claude/CLAUDE.md false true
+file .claude/other.json format  false withheld false
+  listed false   false false
+  listed true   false false
+file .claude.json format  false withheld false
+  listed false   false false
+  listed true   false false
+file .codex/config.toml format toml true withheld false
+  listed false codex .codex/config.toml false true
+  listed true codex .codex/config.toml false true
+file .codex/AGENTS.md format  false withheld false
+  listed false codex .codex/AGENTS.md false true
+  listed true codex .codex/AGENTS.md false true
+file .codex/auth.json format  false withheld false
+  listed false   false false
+  listed true   false false
+file .config/opencode/opencode.json format json true withheld false
+  listed false opencode .config/opencode/opencode.json false true
+  listed true opencode .config/opencode/opencode.json true true
+file .config/opencode/tui.jsonc format json true withheld false
+  listed false opencode .config/opencode/tui.jsonc false true
+  listed true opencode .config/opencode/tui.jsonc true true
+file .config/opencode/x.toml format toml true withheld false
+  listed false opencode .config/opencode/x.toml false true
+  listed true opencode .config/opencode/x.toml true true
+file .config/opencode/AGENTS.md format  false withheld false
+  listed false opencode .config/opencode/AGENTS.md false true
+  listed true opencode .config/opencode/AGENTS.md true true
+file .config/opencode/.env format  false withheld true
+  listed false opencode .config/opencode/.env false true
+  listed true opencode .config/opencode/.env true true
+file .config/opencode/notes.txt format  false withheld true
+  listed false opencode .config/opencode/notes.txt false true
+  listed true opencode .config/opencode/notes.txt true true
+file .config/opencode/plugin/x.json format  false withheld false
+  listed false opencode .config/opencode/plugin true true
+  listed true opencode .config/opencode/plugin true true
+file .pi/agent/settings.json format json true withheld false
+  listed false pi .pi/agent/settings.json false true
+  listed true pi .pi/agent/settings.json false true
+file .pi/agent/models.json format json true withheld false
+  listed false pi .pi/agent/models.json false true
+  listed true pi .pi/agent/models.json false true
+file .pi/agent/mcp.json format json true withheld false
+  listed false pi .pi/agent/mcp.json false true
+  listed true pi .pi/agent/mcp.json false true
+file .pi/agent/keybindings.json format  false withheld false
+  listed false pi .pi/agent/keybindings.json false true
+  listed true pi .pi/agent/keybindings.json false true
+file .pi/agent/AGENTS.md format  false withheld false
+  listed false pi .pi/agent/AGENTS.md false true
+  listed true pi .pi/agent/AGENTS.md false true
+file .pi/agent/auth.json format  false withheld false
+  listed false   false false
+  listed true   false false
+file .pi/agent/other.json format  false withheld false
+  listed false   false false
+  listed true   false false
+listed .claude/skills/x/SKILL.md false claude .claude/skills true true
+listed .claude/skills/x/SKILL.md true claude .claude/skills true true
+listed .codex/prompts false codex .codex/prompts true true
+listed .codex/prompts true codex .codex/prompts true true
+listed .config/opencode/agent/a.md false opencode .config/opencode/agent true true
+listed .config/opencode/agent/a.md true opencode .config/opencode/agent true true
+listed .config/opencode/node_modules/x false   false false
+listed .config/opencode/node_modules/x true   false false
+listed .pi/agent/extensions/e.ts false pi .pi/agent/extensions true true
+listed .pi/agent/extensions/e.ts true pi .pi/agent/extensions true true
+listed .pi/agent/sessions/s false   false false
+listed .pi/agent/sessions/s true   false false
+history paths .claude .claude.json .codex .local/share/opencode .local/state/opencode .pi/agent/sessions
+history excludes .claude/.credentials.json .codex/auth.json .local/share/opencode/auth.json .local/share/opencode/account.json .local/share/opencode/mcp-auth.json .local/share/opencode/bin
+import skips .claude.json .claude/.credentials.json .claude/CLAUDE.md .claude/agents .claude/commands .claude/output-styles .claude/plugins .claude/settings.json .claude/skills .codex/AGENTS.md .codex/auth.json .codex/config.toml .codex/prompts .codex/skills .local/share/opencode/account.json .local/share/opencode/auth.json .local/share/opencode/bin .local/share/opencode/mcp-auth.json .pi/agent/AGENTS.md .pi/agent/APPEND_SYSTEM.md .pi/agent/SYSTEM.md .pi/agent/extensions .pi/agent/keybindings.json .pi/agent/mcp.json .pi/agent/models.json .pi/agent/prompts .pi/agent/settings.json .pi/agent/skills .pi/agent/themes
+save script, every agent
+set -o pipefail
+cd ~ || exit 1
+t=$(mktemp -d) || exit 1
+trap 'rm -rf "$t"' EXIT
+mkdir "$t/.devvm-save" && printf '%s\n' "$HOME" > "$t/.devvm-save/home" || exit 1
+set --
+for p in '.claude/settings.json' '.claude/CLAUDE.md' '.claude/skills' '.claude/agents' '.claude/commands' '.claude/output-styles' '.claude/plugins' '.codex/config.toml' '.codex/AGENTS.md' '.codex/prompts' '.codex/skills' '.pi/agent/settings.json' '.pi/agent/keybindings.json' '.pi/agent/models.json' '.pi/agent/mcp.json' '.pi/agent/AGENTS.md' '.pi/agent/SYSTEM.md' '.pi/agent/APPEND_SYSTEM.md' '.pi/agent/extensions' '.pi/agent/skills' '.pi/agent/prompts' '.pi/agent/themes'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
+for p in .config/opencode/* .config/opencode/.[!.]* .config/opencode/..?*; do
+  if { [ -e "$p" ] || [ -L "$p" ]; } && [ "${p##*/}" != node_modules ]; then set -- "$@" "$p"; fi
+done
+if [ -f .claude.json ] && [ ! -L .claude.json ]; then
+  jq --argjson k '["autoCompactEnabled","autoConnectIde","autoInstallIdeExtension","bypassPermissionsModeAccepted","diffTool","editorMode","fallbackAvailableWarningThreshold","firstStartTime","hasAcknowledgedCostThreshold","hasAvailableSubscription","hasCompletedOnboarding","hasIdeOnboardingBeenShown","hasSeenTasksHint","hasUsedBackslashReturn","isQualifiedForDataSharing","lastOnboardingVersion","lastReleaseNotesSeen","mcpServers","messageIdleNotifThresholdMs","numStartups","oauthAccount","optionAsMetaKeyInstalled","preferredNotifChannel","shiftEnterKeyBindingInstalled","showExpandedTodos","subscriptionNoticeCount","theme","tipsHistory","todoFeatureEnabled","userID","verbose"]' 'with_entries(select(.key as $x | any($k[]; . == $x)))' .claude.json > "$t/.devvm-save/claude.json" 2>/dev/null ||
+    { rm -f "$t/.devvm-save/claude.json"; : > "$t/.devvm-save/claude-unreadable"; }
+fi
+tar -cf - "$@" -C "$t" .devvm-save
+export script
+devvm_opencode_clean() {
+  local t s c left
+  rm -f clean.db clean.db-journal clean.db-wal clean.db-shm &&
+  t=$(sqlite3 -bail "$1" '.timeout 10000' 'PRAGMA trusted_schema = OFF;' "VACUUM INTO 'clean.db'" 'SELECT count(*) FROM sqlite_master WHERE type = '\''table'\'';') || return 1
+  case $t in '' | 0 | *[!0-9]*) return 1 ;; esac
+  [ "$(sqlite3 -bail clean.db 'PRAGMA trusted_schema = OFF;' 'SELECT count(*) FROM sqlite_master WHERE type = '\''table'\'';')" = "$t" ] &&
+  s=$(sqlite3 -bail clean.db 'PRAGMA trusted_schema = OFF;' 'SELECT printf('\''DROP TRIGGER IF EXISTS "%w";'\'', name) FROM sqlite_master WHERE type = '\''trigger'\'';
+SELECT printf('\''DELETE FROM "%w";'\'', name) FROM sqlite_master WHERE type = '\''table'\'' AND name NOT LIKE '\''sqlite\_%'\'' ESCAPE '\''\'\'' AND (name LIKE '\''%credential%'\'' OR name LIKE '\''%account%'\'' OR name LIKE '\''%auth%'\'' OR name LIKE '\''%secret%'\'' OR name LIKE '\''%token%'\'' OR name LIKE '\''%share%'\'' OR name IN (SELECT m.name FROM sqlite_master m JOIN pragma_table_info(m.name) c WHERE m.type = '\''table'\'' AND lower(c.name) IN ('\''secret'\'', '\''access_token'\'', '\''refresh_token'\'', '\''id_token'\'', '\''api_key'\'', '\''apikey'\'', '\''password'\'', '\''token'\'', '\''credential'\'', '\''credentials'\'')));
+SELECT '\''DELETE FROM migration WHERE id = '\'''\''20260805200742_import_legacy_credentials'\'''\'';'\'' FROM sqlite_master WHERE type = '\''table'\'' AND name = '\''migration'\'';
+SELECT '\''DELETE FROM kv WHERE key LIKE '\'''\''wellknown:config:%'\'''\'';'\'' FROM sqlite_master WHERE type = '\''table'\'' AND name = '\''kv'\'';') &&
+  printf 'PRAGMA trusted_schema = OFF;\nPRAGMA journal_mode = DELETE;\nPRAGMA secure_delete = ON;\n%s\nVACUUM;\n' "$s" | sqlite3 -bail clean.db >/dev/null &&
+  c=$(sqlite3 -bail clean.db 'PRAGMA trusted_schema = OFF;' 'SELECT '\''SELECT count(*) FROM sqlite_master WHERE type = '\'''\''trigger'\'''\'';'\'';
+SELECT printf('\''SELECT count(*) FROM "%w";'\'', name) FROM sqlite_master WHERE type = '\''table'\'' AND name NOT LIKE '\''sqlite\_%'\'' ESCAPE '\''\'\'' AND (name LIKE '\''%credential%'\'' OR name LIKE '\''%account%'\'' OR name LIKE '\''%auth%'\'' OR name LIKE '\''%secret%'\'' OR name LIKE '\''%token%'\'' OR name LIKE '\''%share%'\'' OR name IN (SELECT m.name FROM sqlite_master m JOIN pragma_table_info(m.name) c WHERE m.type = '\''table'\'' AND lower(c.name) IN ('\''secret'\'', '\''access_token'\'', '\''refresh_token'\'', '\''id_token'\'', '\''api_key'\'', '\''apikey'\'', '\''password'\'', '\''token'\'', '\''credential'\'', '\''credentials'\'')));
+SELECT '\''SELECT count(*) FROM kv WHERE key LIKE '\'''\''wellknown:config:%'\'''\'';'\'' FROM sqlite_master WHERE type = '\''table'\'' AND name = '\''kv'\'';') && [ -n "$c" ] &&
+  left=$(printf 'PRAGMA trusted_schema = OFF;\n%s\n' "$c" | sqlite3 -bail clean.db) && [ -n "$left" ] &&
+  [ "$(printf '%s\n' "$left" | grep -cx 0)" = "$(printf '%s\n' "$c" | grep -c '')" ] &&
+  ! printf '%s\n' "$left" | grep -qvx 0 || return 1
+  [ ! -e clean.db-wal ] && [ ! -e clean.db-journal ]
+}
+mkdir -p ~/.cache && t=$(mktemp -d ~/.cache/devvm-export.XXXXXX) || exit 1
+trap 'rm -rf "$t"' EXIT
+mkdir "$t/devvm-clean" && cd "$t" || exit 1
+add=()
+for db in "$HOME"/'.local/share/opencode'/opencode*.db; do
+  [ -f "$db" ] && [ ! -L "$db" ] || continue
+  n=${db##*/}
+  if ! command -v sqlite3 >/dev/null; then echo "devvm: left out $db: the VM has no sqlite3" >&2
+  elif devvm_opencode_clean "$db" && mv clean.db "devvm-clean/$n" && add=(${add[@]+"${add[@]}"} "devvm-clean/$n"); then continue
+  else echo "devvm: left out $db: its copy without opencode's logins failed" >&2
+  fi
+  :
+done
+[ "${#add[@]}" -eq 0 ] || add=(-C "$t" "${add[@]}")
+cd ~ && ls -d .claude .claude.json .codex .local/share/opencode .local/state/opencode .pi/agent/sessions 2>/dev/null | tar -czf - '--exclude=.claude/.credentials.json' '--exclude=.codex/auth.json' '--exclude=.local/share/opencode/auth.json' '--exclude=.local/share/opencode/account.json' '--exclude=.local/share/opencode/mcp-auth.json' '--exclude=.local/share/opencode/bin' '--no-wildcards-match-slash' '--exclude=.local/share/opencode/opencode*.db' '--exclude=.local/share/opencode/opencode*.db-wal' '--exclude=.local/share/opencode/opencode*.db-shm' '--exclude=.local/share/opencode/opencode*.db-journal' '--transform=flags=r;s,^devvm-clean/,.local/share/opencode/,' -T - ${add[@]+"${add[@]}"}
+import script
+set -o pipefail
+mkdir -p ~/.cache && t=$(mktemp -d ~/.cache/devvm-import.XXXXXX) || exit 1
+trap 'rm -rf "$t"' EXIT
+cat > "$t/export" && tar -tzf "$t/export" --absolute-names --quoting-style=escape > "$t/names" || exit 1
+if grep -vqE '^(\.claude|\.claude\.json|\.codex|\.local/share/opencode|\.local/state/opencode|\.pi/agent/sessions)(/|$)' "$t/names" || grep -qE '(^|/)\.\.(/|$)' "$t/names"; then echo devvm-history-unsafe; exit 1; fi
+mkdir "$t/x" && tar -xzf "$t/export" -C "$t/x" '--no-same-owner' '--no-same-permissions' '--anchored' '--exclude=.claude.json' '--exclude=.claude/.credentials.json' '--exclude=.claude/CLAUDE.md' '--exclude=.claude/agents' '--exclude=.claude/commands' '--exclude=.claude/output-styles' '--exclude=.claude/plugins' '--exclude=.claude/settings.json' '--exclude=.claude/skills' '--exclude=.codex/AGENTS.md' '--exclude=.codex/auth.json' '--exclude=.codex/config.toml' '--exclude=.codex/prompts' '--exclude=.codex/skills' '--exclude=.local/share/opencode/account.json' '--exclude=.local/share/opencode/auth.json' '--exclude=.local/share/opencode/bin' '--exclude=.local/share/opencode/mcp-auth.json' '--exclude=.pi/agent/AGENTS.md' '--exclude=.pi/agent/APPEND_SYSTEM.md' '--exclude=.pi/agent/SYSTEM.md' '--exclude=.pi/agent/extensions' '--exclude=.pi/agent/keybindings.json' '--exclude=.pi/agent/mcp.json' '--exclude=.pi/agent/models.json' '--exclude=.pi/agent/prompts' '--exclude=.pi/agent/settings.json' '--exclude=.pi/agent/skills' '--exclude=.pi/agent/themes' || exit 1
+find "$t/x" -type l -print0 | while IFS= read -r -d '' l; do
+  case $(readlink "$l") in /* | .. | ../* | */.. | */../*) echo "devvm: left out the link $l" >&2; rm -f "$l" ;; esac
+done
+devvm_opencode_clean() {
+  local t s c left
+  rm -f clean.db clean.db-journal clean.db-wal clean.db-shm &&
+  t=$(sqlite3 -bail "$1" '.timeout 10000' 'PRAGMA trusted_schema = OFF;' "VACUUM INTO 'clean.db'" 'SELECT count(*) FROM sqlite_master WHERE type = '\''table'\'';') || return 1
+  case $t in '' | 0 | *[!0-9]*) return 1 ;; esac
+  [ "$(sqlite3 -bail clean.db 'PRAGMA trusted_schema = OFF;' 'SELECT count(*) FROM sqlite_master WHERE type = '\''table'\'';')" = "$t" ] &&
+  s=$(sqlite3 -bail clean.db 'PRAGMA trusted_schema = OFF;' 'SELECT printf('\''DROP TRIGGER IF EXISTS "%w";'\'', name) FROM sqlite_master WHERE type = '\''trigger'\'';
+SELECT printf('\''DELETE FROM "%w";'\'', name) FROM sqlite_master WHERE type = '\''table'\'' AND name NOT LIKE '\''sqlite\_%'\'' ESCAPE '\''\'\'' AND (name LIKE '\''%credential%'\'' OR name LIKE '\''%account%'\'' OR name LIKE '\''%auth%'\'' OR name LIKE '\''%secret%'\'' OR name LIKE '\''%token%'\'' OR name LIKE '\''%share%'\'' OR name IN (SELECT m.name FROM sqlite_master m JOIN pragma_table_info(m.name) c WHERE m.type = '\''table'\'' AND lower(c.name) IN ('\''secret'\'', '\''access_token'\'', '\''refresh_token'\'', '\''id_token'\'', '\''api_key'\'', '\''apikey'\'', '\''password'\'', '\''token'\'', '\''credential'\'', '\''credentials'\'')));
+SELECT '\''DELETE FROM migration WHERE id = '\'''\''20260805200742_import_legacy_credentials'\'''\'';'\'' FROM sqlite_master WHERE type = '\''table'\'' AND name = '\''migration'\'';
+SELECT '\''DELETE FROM kv WHERE key LIKE '\'''\''wellknown:config:%'\'''\'';'\'' FROM sqlite_master WHERE type = '\''table'\'' AND name = '\''kv'\'';') &&
+  printf 'PRAGMA trusted_schema = OFF;\nPRAGMA journal_mode = DELETE;\nPRAGMA secure_delete = ON;\n%s\nVACUUM;\n' "$s" | sqlite3 -bail clean.db >/dev/null &&
+  c=$(sqlite3 -bail clean.db 'PRAGMA trusted_schema = OFF;' 'SELECT '\''SELECT count(*) FROM sqlite_master WHERE type = '\'''\''trigger'\'''\'';'\'';
+SELECT printf('\''SELECT count(*) FROM "%w";'\'', name) FROM sqlite_master WHERE type = '\''table'\'' AND name NOT LIKE '\''sqlite\_%'\'' ESCAPE '\''\'\'' AND (name LIKE '\''%credential%'\'' OR name LIKE '\''%account%'\'' OR name LIKE '\''%auth%'\'' OR name LIKE '\''%secret%'\'' OR name LIKE '\''%token%'\'' OR name LIKE '\''%share%'\'' OR name IN (SELECT m.name FROM sqlite_master m JOIN pragma_table_info(m.name) c WHERE m.type = '\''table'\'' AND lower(c.name) IN ('\''secret'\'', '\''access_token'\'', '\''refresh_token'\'', '\''id_token'\'', '\''api_key'\'', '\''apikey'\'', '\''password'\'', '\''token'\'', '\''credential'\'', '\''credentials'\'')));
+SELECT '\''SELECT count(*) FROM kv WHERE key LIKE '\'''\''wellknown:config:%'\'''\'';'\'' FROM sqlite_master WHERE type = '\''table'\'' AND name = '\''kv'\'';') && [ -n "$c" ] &&
+  left=$(printf 'PRAGMA trusted_schema = OFF;\n%s\n' "$c" | sqlite3 -bail clean.db) && [ -n "$left" ] &&
+  [ "$(printf '%s\n' "$left" | grep -cx 0)" = "$(printf '%s\n' "$c" | grep -c '')" ] &&
+  ! printf '%s\n' "$left" | grep -qvx 0 || return 1
+  [ ! -e clean.db-wal ] && [ ! -e clean.db-journal ]
+}
+o="$t/x/"'.local/share/opencode'
+for f in "$o"/opencode*.db-wal "$o"/opencode*.db-shm "$o"/opencode*.db-journal; do rm -rf "$f"; done
+for f in "$o"/opencode*.db; do if [ -L "$f" ] || { [ -e "$f" ] && [ ! -f "$f" ]; }; then rm -rf "$f"; fi; done
+cd "$t" || exit 1
+for db in "$o"/opencode*.db; do
+  [ -f "$db" ] && [ ! -L "$db" ] || continue
+  n=${db##*/}
+  if ! command -v sqlite3 >/dev/null; then echo "devvm: left out $db: the VM has no sqlite3" >&2
+  elif devvm_opencode_clean "$db" && mv clean.db "$db"; then continue
+  else echo "devvm: left out $db: its copy without opencode's logins failed" >&2
+  fi
+  rm -f "$db"
+done
+cd "$t/x" && set -- && for p in '.claude' '.claude.json' '.codex' '.local/share/opencode' '.local/state/opencode' '.pi/agent/sessions'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
+[ "$#" -eq 0 ] || tar -cf - "$@" | tar --extract --file=- --directory ~ --skip-old-files '--no-same-owner' '--no-same-permissions'

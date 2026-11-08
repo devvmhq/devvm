@@ -382,6 +382,53 @@ func TestWatchReportsWhatALockCantStop(t *testing.T) {
 	}
 }
 
+// On a host without locks, a gitlink whose .git file names a folder of the
+// project's own source, or one with no hooks folder, is reported as a
+// lock's check reports it, once; nothing is locked or made there, and the
+// watch doesn't sum that folder's files as a git dir's.
+func TestWatchGitdirNotGit(t *testing.T) {
+	needGit(t)
+	f := newFixture(t, "p")
+	f.git(f.dir, "init", "-q")
+	f.git(f.dir, "commit", "-q", "--allow-empty", "-m", "x")
+	f.p.CanLock = false
+	if err := f.newVM(false); err != nil {
+		t.Fatal(err)
+	}
+	mkdirs(t, f.path("src/hooks"), f.path("lib"), f.path("evil"))
+	write(t, f.path("src/hooks/useThing.ts"), "export {}\n")
+	write(t, f.path("src/config"), "x\n")
+	write(t, f.path("evil/.git"), "gitdir: ../src\n")
+	write(t, f.path("lib/.git"), "gitdir: ../lib\n")
+	head := f.git(f.dir, "rev-parse", "HEAD")
+	for _, sub := range []string{"evil", "lib"} {
+		f.git(f.dir, "update-index", "--add", "--cacheinfo", "160000,"+head+","+sub)
+	}
+	w := f.check()
+	for _, want := range []string{
+		"git_gitdir_not_git git=" + f.path("src") + " sub=" + f.path("evil"),
+		"git_gitdir_not_git git=" + f.path("lib") + " sub=" + f.path("lib"),
+	} {
+		if !slices.Contains(w, want) {
+			t.Errorf("warnings %q lack %s", w, want)
+		}
+	}
+	if len(f.flags) > 0 {
+		t.Errorf("locked: %q", f.flags)
+	}
+	if _, err := os.Lstat(f.path("lib/hooks")); err == nil {
+		t.Error("made lib/hooks")
+	}
+	for path := range f.section().Watched.Sums {
+		if strings.HasPrefix(path, "src/") || strings.HasPrefix(path, "lib/") {
+			t.Errorf("watched as a git dir's: %s", path)
+		}
+	}
+	if w := f.check(); slices.ContainsFunc(w, func(s string) bool { return strings.HasPrefix(s, "git_gitdir_not_git ") }) {
+		t.Errorf("again: %q", w)
+	}
+}
+
 // What changed is sorted, gone and added included.
 func TestChangedPaths(t *testing.T) {
 	for _, c := range []struct {

@@ -8,7 +8,7 @@ Copy the agents' settings and logins from this machine into devvm's store
 
 ## Synopsis
 
-Copy the settings and logins of AGENT, claude, codex or opencode, or of every agent, from your home folder into devvm's store, never their history. It follows no link out of an agent's folder, and it asks before replacing what the store has.
+Copy the settings and logins of AGENT, claude, codex, opencode or pi, or of every agent, from your home folder into devvm's store, never their history. It follows no link out of an agent's folder, and it asks before replacing what the store has.
 
 ```text
 devvm agent import [AGENT...] [flags]

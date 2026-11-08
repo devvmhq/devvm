@@ -8,13 +8,18 @@ import (
 	"path/filepath"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/state"
 )
+
+// ClaudeToken is the secret that is the Claude Code token, named after
+// its agent (agents.Def's Secret): claude.
+const ClaudeToken = agents.Claude
 
 // Claude is the Claude Code login devvm keeps, one of two: a Claude Code
 // token, the claude secret (devvm secret set claude, or claude
 // setup-token's, captured), or the subscription's OAuth login, captured
-// into devvm's store (agentlogin.ClaudeOAuth). The newest replaces the
+// into devvm's store (agents.ClaudeOAuth). The newest replaces the
 // other (Store.Capture, Store.Save).
 type Claude struct{ s *Store }
 
@@ -30,12 +35,12 @@ func (c Claude) Env() string { return c.s.Getenv("CLAUDE_CODE_OAUTH_TOKEN") }
 // the OAuth login in devvm's store, when there's no token; or "" for
 // none. A VM never gets both.
 func (c Claude) Login(ctx context.Context) (string, error) {
-	if _, err := c.s.Value(ctx, "claude"); err == nil {
+	if _, err := c.s.Value(ctx, ClaudeToken); err == nil {
 		return "token", nil
 	} else if !errors.Is(err, ErrNone) {
 		return "", err
 	}
-	if ok, err := c.s.login(agentlogin.ClaudeOAuth, "").ClaudeLogin(); err != nil || !ok {
+	if ok, err := c.s.login(agents.ClaudeOAuth, "").ClaudeLogin(); err != nil || !ok {
 		return "", err
 	}
 	return "oauth", nil
@@ -45,7 +50,7 @@ func (c Claude) Login(ctx context.Context) (string, error) {
 // while one Claude Code login replaces the other, and returns the unlock.
 func (c Claude) lock() (func(), error) {
 	// The folder of its .claude.json: devvm's store of Claude Code's logins.
-	dir := filepath.Dir(LoginFile(c.s.Dirs, agentlogin.Claude))
+	dir := filepath.Dir(LoginFile(c.s.Dirs, agents.Claude))
 	if err := state.PrivateDir(dir); err != nil {
 		return nil, err
 	}
@@ -55,22 +60,22 @@ func (c Claude) lock() (func(), error) {
 // saveToken saves a Claude Code token and takes the OAuth login away,
 // under lock.
 func (c Claude) saveToken(ctx context.Context, value string) error {
-	if err := c.s.save(ctx, "claude", value); err != nil {
+	if err := c.s.save(ctx, ClaudeToken, value); err != nil {
 		return err
 	}
-	return c.s.login(agentlogin.ClaudeOAuth, "").Remove()
+	return c.s.login(agents.ClaudeOAuth, "").Remove()
 }
 
 // Sums are hashes of the Claude Code logins devvm keeps, "" for one it
 // doesn't: the OAuth login's file, and the saved Claude Code token, not
 // Env's. They tell a login that changed one from one that didn't.
 func (c Claude) Sums(ctx context.Context) (oauth, token string, err error) {
-	if ok, err := c.s.login(agentlogin.ClaudeOAuth, "").ClaudeLogin(); err != nil {
+	if ok, err := c.s.login(agents.ClaudeOAuth, "").ClaudeLogin(); err != nil {
 		return "", "", err
 	} else if ok {
-		oauth = c.s.LoginSum(agentlogin.ClaudeOAuth)
+		oauth = c.s.LoginSum(agents.ClaudeOAuth)
 	}
-	v, err := c.s.saved(ctx, "claude")
+	v, err := c.s.saved(ctx, ClaudeToken)
 	if errors.Is(err, ErrNone) {
 		return oauth, "", nil
 	} else if err != nil {

@@ -117,11 +117,11 @@ func (e Net) SecretUse(ctx context.Context, name string, use bool) error {
 		return nil
 	}
 	e.Info(msg.SecretUsed(name, vm))
-	if l, err := secrets.ClaudeOf(e.Proxy.Secrets).Login(ctx); name == "claude" && err == nil && l != "" {
+	if l, err := secrets.ClaudeOf(e.Proxy.Secrets).Login(ctx); name == secrets.ClaudeToken && err == nil && l != "" {
 		return nil
 	}
 	if _, err := e.Proxy.Secrets.Value(ctx, name); errors.Is(err, secrets.ErrNone) {
-		if name == "claude" {
+		if name == secrets.ClaudeToken {
 			e.Warn(msg.NoClaudeToken(vm))
 		} else {
 			e.Warn(msg.NoGithubToken(vm))

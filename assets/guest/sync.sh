@@ -19,6 +19,8 @@
 #   tools        the VM's shared tool images, "FILE TOOL VERSION" lines; tools.sh mounts them
 #   tool-alias.toml  the [tool_alias] table of devvm's shared-tools/mise.toml: the backend each
 #                tool's image was built from, which mise's registry might not give its name
+#   agent-env    export lines of every coding agent's guest environment (its self-update, version
+#                check and telemetry off), installed as /etc/devvm/agents.sh, which devvm-tools.sh reads
 #   opencode-import.json  the store's opencode logins as opencode auth import reads them, with
 #                placeholders (none: no opencode login in the store); opencode.sh imports them
 #   hosts        the VM's links (devvm checked them): a line per target, "ADDRESS NAME
@@ -78,6 +80,9 @@ fi
 # (~/.config/mise) comes first.
 cmp -s "$s/tools.sh" /usr/local/sbin/devvm-tools 2>/dev/null || sudo install -D -m 755 "$s/tools.sh" /usr/local/sbin/devvm-tools
 cmp -s "$s/tools" /etc/devvm/tools 2>/dev/null || sudo install -D -m 644 "$s/tools" /etc/devvm/tools
+# The agents' environment (their self-updates and telemetry off), which base's devvm-tools.sh reads in
+# every shell, before anything here runs one.
+cmp -s "$s/agent-env" /etc/devvm/agents.sh 2>/dev/null || sudo install -D -m 644 "$s/agent-env" /etc/devvm/agents.sh
 # A tool it can't mount fails the setup, and devvm names it from /run/devvm/tools-unmounted.
 sudo /usr/local/sbin/devvm-tools
 {

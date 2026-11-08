@@ -48,6 +48,11 @@ type rules struct {
 	// tests: what a copy of what that package owns would hold, then the
 	// package folder and what to use.
 	literals map[string]literalOwner
+	// names are what only one package's string literals may be, whole,
+	// outside tests and namesFree's folders (and theirs below): a name
+	// that package owns, then the package folder and what to use.
+	names     map[string]literalOwner
+	namesFree []string
 	// separators are what only one package's calls to package strings
 	// split or join on, outside tests: the separator, then the package
 	// folder and what to use.
@@ -171,8 +176,8 @@ func load(fsys fs.FS) (*module, error) {
 // check runs every rule on m, the violations sorted.
 func check(m *module, r rules) []violation {
 	vs := slices.Concat(checkMethods(m, r), checkInit(m), checkVars(m, r), checkLayers(m, r), checkCommands(m, r),
-		checkExecSites(m, r), checkGuard(m, r), checkEnv(m, r), checkLiterals(m, r), checkSeparators(m, r), checkPaths(m, r),
-		checkCallers(m, r))
+		checkExecSites(m, r), checkGuard(m, r), checkEnv(m, r), checkLiterals(m, r), checkNames(m, r), checkSeparators(m, r),
+		checkPaths(m, r), checkCallers(m, r))
 	slices.SortFunc(vs, func(a, b violation) int { return strings.Compare(a.String(), b.String()) })
 	return vs
 }

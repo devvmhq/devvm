@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/hostgit"
 	"github.com/devvmhq/devvm/internal/image"
@@ -274,6 +275,7 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 		return nil, err
 	}
 	s.put("tool-alias.toml", 0o644, aliases)
+	s.put("agent-env", 0o644, agentEnv())
 
 	// The host's settings, for every VM.
 	lang := e.Getenv("LC_ALL")
@@ -329,9 +331,9 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 		v, err := store.Value(ctx, name)
 		if errors.Is(err, secrets.ErrNone) {
 			switch {
-			case name == "claude" && store.HasLogin(agentlogin.ClaudeOAuth):
+			case name == secrets.ClaudeToken && store.HasLogin(agents.ClaudeOAuth):
 				// The VM gets the OAuth login instead (stageSecrets), never both.
-			case name == "claude":
+			case name == secrets.ClaudeToken:
 				e.Warn(msg.NoClaudeToken(vm))
 			case name == "github":
 				e.Warn(msg.NoGithubToken(vm))
@@ -340,7 +342,7 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 		} else if err != nil {
 			return nil, err
 		}
-		if name == "claude" && !strings.HasPrefix(v, "sk-ant-oat01-") {
+		if name == secrets.ClaudeToken && !strings.HasPrefix(v, "sk-ant-oat01-") {
 			e.Warn(msg.ClaudeTokenInvalid())
 			continue
 		}
@@ -361,6 +363,18 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 	s.put("env", 0o600, env.Bytes())
 	s.put("links", 0o644, links)
 	return s, nil
+}
+
+// agentEnv is the setup's agent-env file: an export line for each of the
+// agents' guest environment (agents.GuestEnv), every agent's whichever
+// the VM has, which guest/sync.sh installs as /etc/devvm/agents.sh, for
+// base's devvm-tools.sh to read in every shell.
+func agentEnv() []byte {
+	var b bytes.Buffer
+	for _, v := range agents.GuestEnv() {
+		b.WriteString("export " + v.Name + "=" + shell.Quote(v.Value) + "\n")
+	}
+	return b.Bytes()
 }
 
 // stageAgents adds the agents' settings from devvm's store (agentStore)
@@ -422,11 +436,11 @@ func (e syncer) stageSecrets(ctx context.Context, s *stage, store *secrets.Store
 			return msg.LoginCopyFailed(kind, err.Error(), vm).Because(err)
 		}
 		name := "claude.json" // merged by sync.sh, not copied
-		if kind != "claude" {
+		if kind != agents.Claude {
 			name = "home/" + secrets.LoginRel(kind)
 		}
 		s.put(name, 0o600, data)
-		if kind == agentlogin.Opencode {
+		if kind == agents.Opencode {
 			imp, err := agentlogin.OpencodeImport(data)
 			if err != nil {
 				return msg.LoginCopyFailed(kind, err.Error(), vm).Because(err)
@@ -448,7 +462,13 @@ func (e syncer) stageSecrets(ctx context.Context, s *stage, store *secrets.Store
 			}
 			continue
 		}
-		out, keys, err := agentlogin.Redact(format, f.data)
+		data, err := e.piSettings(rel, f.data, vm)
+		if err != nil {
+			s.drop(f.name)
+			e.Warn(msg.ConfigNotCopied(shown, vm))
+			continue
+		}
+		out, keys, err := agentlogin.Redact(format, data)
 		if err != nil {
 			s.drop(f.name)
 			e.Warn(msg.ConfigNotCopied(shown, vm))
@@ -463,32 +483,39 @@ func (e syncer) stageSecrets(ctx context.Context, s *stage, store *secrets.Store
 	return nil
 }
 
-// settingsFormat returns the format of an agent's settings file, by its
-// path relative to the home folder: Claude Code's settings.json, Codex's
-// config.toml, opencode's JSON, JSONC and TOML files.
-func settingsFormat(rel string) (string, bool) {
-	ext := filepath.Ext(rel)
-	switch {
-	case rel == ".claude/settings.json":
-	case rel == ".codex/config.toml":
-	case filepath.Dir(rel) == opencodeDir && (ext == ".json" || ext == ".jsonc" || ext == ".toml"):
-	default:
-		return "", false
+// piSettings is pi's settings.json, at rel below the home folder, as the
+// VM's copy holds it (agentlogin.PiSettings): without the keys that undo
+// what devvm sets in the VM, which it names, with a warning when it
+// trusts every project folder. Any other file is data as it is.
+func (e syncer) piSettings(rel string, data []byte, vm string) ([]byte, error) {
+	if rel != agents.PiSettings {
+		return data, nil
 	}
-	if ext == ".toml" {
-		return "toml", true
+	out, dropped, trustsAll, err := agentlogin.PiSettings(data)
+	if err != nil {
+		return nil, err
 	}
-	return "json", true
+	if len(dropped) > 0 {
+		e.Note(msg.PiSettingsDropped(strings.Join(dropped, " "), vm))
+	}
+	if trustsAll {
+		e.Warn(msg.PiTrustsAll(vm))
+	}
+	return out, nil
 }
 
-// withheld reports whether a VM doesn't get an agent's
-// file, by its path relative to the home folder, because devvm can't take
-// secrets out of it: opencode's config folder's files but its settings
-// (settingsFormat) and its Markdown, such as AGENTS.md. A .env is one.
-func withheld(rel string) bool {
-	_, settings := settingsFormat(rel)
-	return !settings && filepath.Dir(rel) == opencodeDir && filepath.Ext(rel) != ".md"
+// settingsFormat returns the format of an agent's settings file whose
+// VM copy devvm makes from what it parsed, by its path relative to the
+// home folder (agents.SettingsFormat), as agentlogin.Redact names it.
+func settingsFormat(rel string) (string, bool) {
+	f, ok := agents.SettingsFormat(rel)
+	return string(f), ok
 }
+
+// withheld reports whether a VM doesn't get an agent's file, by its path
+// relative to the home folder, because devvm can't take secrets out of it
+// (agents.Withheld): a .env in opencode's config folder is one.
+func withheld(rel string) bool { return agents.Withheld(rel) }
 
 // hostTZ is the host's timezone: what /etc/localtime links to, else
 // /etc/timezone.

@@ -80,7 +80,7 @@ type LinkEntry struct {
 const linkListMax = 1 << 20
 
 // LinkSocket is the socket on the host of VM vm's link at addr and port in it, in dir, devvm's run
-// folder: named by a hash of the three, as a socket's path is at most 104 characters.
+// folder: named by a hash of the three, as a socket's path has fewer than 104 characters.
 func LinkSocket(dir, vm string, addr netip.Addr, port int) string {
 	return filepath.Join(dir, "link-"+LinkHash(vm, "socket", addr.String(), strconv.Itoa(port))+".sock")
 }

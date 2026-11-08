@@ -1,0 +1,197 @@
+binding {"name":"opencode-anthropic","kind":"login","agent":"opencode","hosts":["api.anthropic.com"],"header":"x-api-key","placeholder":"devvm-proxy-managed-opencode-anthropic-s4lt"}
+binding {"name":"opencode-github-copilot","kind":"login","agent":"opencode","hosts":["api.githubcopilot.com"],"header":"Authorization","placeholder":"devvm-proxy-managed-opencode-github-copilot-s4lt"}
+binding {"name":"opencode-openai","kind":"login","agent":"opencode","hosts":["chatgpt.com"],"header":"Authorization","placeholder":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJkZXZ2bSI6InBsYWNlaG9sZGVyLXM0bHQiLCJlbWFpbCI6ImUyZWZha2VAZXhhbXBsZS5jb20iLCJleHAiOjQwNzA5MDg4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEiLCJjaGF0Z3B0X3BsYW5fdHlwZSI6InBybyJ9fQ.devvm-placeholder"}
+binding {"name":"opencode-openrouter","kind":"login","agent":"opencode","hosts":["openrouter.ai"],"header":"Authorization","placeholder":"devvm-proxy-managed-opencode-openrouter-s4lt"}
+kept ollama
+withheld copilot-ghe,llama-cpp,mcp
+providers anthropic,openai,openrouter
+chatgpt e2efake@example.com yes
+vm copy
+{
+  "anthropic": {
+    "key": "devvm-proxy-managed-opencode-anthropic-s4lt",
+    "type": "api"
+  },
+  "copilot-ghe": {
+    "enterpriseUrl": "ghe.example.com",
+    "expires": 1,
+    "type": "oauth"
+  },
+  "github-copilot": {
+    "access": "devvm-proxy-managed-opencode-github-copilot-s4lt",
+    "expires": 0,
+    "refresh": "devvm-proxy-managed-opencode-github-copilot-s4lt",
+    "type": "oauth"
+  },
+  "llama-cpp": {
+    "type": "api"
+  },
+  "mcp": {
+    "type": "wellknown"
+  },
+  "ollama": {
+    "key": "ollama-local",
+    "metadata": {
+      "host": "kept"
+    },
+    "type": "api"
+  },
+  "openai": {
+    "access": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJkZXZ2bSI6InBsYWNlaG9sZGVyLXM0bHQiLCJlbWFpbCI6ImUyZWZha2VAZXhhbXBsZS5jb20iLCJleHAiOjQwNzA5MDg4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEiLCJjaGF0Z3B0X3BsYW5fdHlwZSI6InBybyJ9fQ.devvm-placeholder",
+    "accountId": "acct-1",
+    "expires": 4070908800000,
+    "refresh": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJkZXZ2bSI6InBsYWNlaG9sZGVyLXM0bHQiLCJlbWFpbCI6ImUyZWZha2VAZXhhbXBsZS5jb20iLCJleHAiOjQwNzA5MDg4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEiLCJjaGF0Z3B0X3BsYW5fdHlwZSI6InBybyJ9fQ.devvm-placeholder",
+    "type": "oauth"
+  },
+  "openrouter": {
+    "key": "devvm-proxy-managed-opencode-openrouter-s4lt",
+    "type": "api"
+  }
+}
+opencode import
+[{"active":true,"id":"cred_devvm_anthropic","integrationID":"anthropic","label":"devvm","value":{"key":"devvm-proxy-managed-opencode-anthropic-s4lt","type":"key"}},{"active":true,"id":"cred_devvm_ollama","integrationID":"ollama","label":"devvm","value":{"key":"ollama-local","metadata":{"host":"kept"},"type":"key"}},{"active":true,"id":"cred_devvm_openai","integrationID":"openai","label":"devvm","value":{"access":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJkZXZ2bSI6InBsYWNlaG9sZGVyLXM0bHQiLCJlbWFpbCI6ImUyZWZha2VAZXhhbXBsZS5jb20iLCJleHAiOjQwNzA5MDg4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEiLCJjaGF0Z3B0X3BsYW5fdHlwZSI6InBybyJ9fQ.devvm-placeholder","expires":4070908800000,"metadata":{"accountID":"acct-1"},"methodID":"chatgpt-browser","refresh":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJkZXZ2bSI6InBsYWNlaG9sZGVyLXM0bHQiLCJlbWFpbCI6ImUyZWZha2VAZXhhbXBsZS5jb20iLCJleHAiOjQwNzA5MDg4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEiLCJjaGF0Z3B0X3BsYW5fdHlwZSI6InBybyJ9fQ.devvm-placeholder","type":"oauth"}},{"active":true,"id":"cred_devvm_openrouter","integrationID":"openrouter","label":"devvm","value":{"key":"devvm-proxy-managed-opencode-openrouter-s4lt","type":"key"}}]
+set key : no API key devvm puts in for that provider
+set key anthropic
+{
+  "anthropic": {
+    "key": "sk-e2efake-saved",
+    "type": "api"
+  },
+  "copilot-ghe": {
+    "access": "at-e2efake",
+    "enterpriseUrl": "ghe.example.com",
+    "expires": 1,
+    "refresh": "rt-e2efake",
+    "type": "oauth"
+  },
+  "github-copilot": {
+    "access": "gho_e2efake",
+    "expires": 0,
+    "refresh": "gho_e2efake",
+    "type": "oauth"
+  },
+  "llama-cpp": {
+    "key": "local",
+    "type": "api"
+  },
+  "mcp": {
+    "key": "k-e2efake",
+    "token": "t-e2efake",
+    "type": "wellknown"
+  },
+  "ollama": {
+    "key": "ollama-local",
+    "metadata": {
+      "host": "kept"
+    },
+    "type": "api"
+  },
+  "openai": {
+    "access": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJlbWFpbCI6ImUyZWZha2VAZXhhbXBsZS5jb20iLCJleHAiOjQwMzkzNzI4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEiLCJjaGF0Z3B0X3BsYW5fdHlwZSI6InBybyJ9LCJvdGhlciI6ImRyb3BwZWQifQ.devvm-placeholderreal-signature",
+    "accountId": "acct-1",
+    "expires": 4039372800000,
+    "refresh": "rt-e2efake",
+    "type": "oauth"
+  },
+  "openrouter": {
+    "key": "sk-or-e2efake",
+    "type": "api"
+  }
+}
+set key openai
+{
+  "anthropic": {
+    "key": "sk-ant-e2efake",
+    "metadata": {
+      "m": "md-e2efake"
+    },
+    "type": "api"
+  },
+  "copilot-ghe": {
+    "access": "at-e2efake",
+    "enterpriseUrl": "ghe.example.com",
+    "expires": 1,
+    "refresh": "rt-e2efake",
+    "type": "oauth"
+  },
+  "github-copilot": {
+    "access": "gho_e2efake",
+    "expires": 0,
+    "refresh": "gho_e2efake",
+    "type": "oauth"
+  },
+  "llama-cpp": {
+    "key": "local",
+    "type": "api"
+  },
+  "mcp": {
+    "key": "k-e2efake",
+    "token": "t-e2efake",
+    "type": "wellknown"
+  },
+  "ollama": {
+    "key": "ollama-local",
+    "metadata": {
+      "host": "kept"
+    },
+    "type": "api"
+  },
+  "openai": {
+    "key": "sk-e2efake-saved",
+    "type": "api"
+  },
+  "openrouter": {
+    "key": "sk-or-e2efake",
+    "type": "api"
+  }
+}
+set key openrouter
+{
+  "anthropic": {
+    "key": "sk-ant-e2efake",
+    "metadata": {
+      "m": "md-e2efake"
+    },
+    "type": "api"
+  },
+  "copilot-ghe": {
+    "access": "at-e2efake",
+    "enterpriseUrl": "ghe.example.com",
+    "expires": 1,
+    "refresh": "rt-e2efake",
+    "type": "oauth"
+  },
+  "github-copilot": {
+    "access": "gho_e2efake",
+    "expires": 0,
+    "refresh": "gho_e2efake",
+    "type": "oauth"
+  },
+  "llama-cpp": {
+    "key": "local",
+    "type": "api"
+  },
+  "mcp": {
+    "key": "k-e2efake",
+    "token": "t-e2efake",
+    "type": "wellknown"
+  },
+  "ollama": {
+    "key": "ollama-local",
+    "metadata": {
+      "host": "kept"
+    },
+    "type": "api"
+  },
+  "openai": {
+    "access": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJlbWFpbCI6ImUyZWZha2VAZXhhbXBsZS5jb20iLCJleHAiOjQwMzkzNzI4MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEiLCJjaGF0Z3B0X3BsYW5fdHlwZSI6InBybyJ9LCJvdGhlciI6ImRyb3BwZWQifQ.devvm-placeholderreal-signature",
+    "accountId": "acct-1",
+    "expires": 4039372800000,
+    "refresh": "rt-e2efake",
+    "type": "oauth"
+  },
+  "openrouter": {
+    "key": "sk-e2efake-saved",
+    "type": "api"
+  }
+}

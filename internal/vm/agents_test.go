@@ -60,14 +60,17 @@ func TestAgentMounts(t *testing.T) {
 	mkdirs(t, opencode, ".config/opencode/my agents", ".config/opencode/node_modules", ".config/opencode/a\nb")
 	mkdirs(t, claude, ".claude/skills", ".claude/agents")
 	mkdirs(t, agentStore(e.Dirs, "codex"), ".codex/prompts")
-	mkdirs(t, home, ".claude/commands", ".config/opencode/yours")
+	pi := agentStore(e.Dirs, "pi")
+	mkdirs(t, pi, ".pi/agent/skills", ".pi/agent/extensions", ".pi/agent/sessions")
+	mkdirs(t, home, ".claude/commands", ".config/opencode/yours", ".pi/agent/prompts")
 	if err := os.WriteFile(filepath.Join(claude, ".claude", "commands"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
 		filepath.Join(claude, ".claude/skills"), filepath.Join(claude, ".claude/agents"), filepath.Join(opencode, ".config/opencode/my agents"),
+		filepath.Join(pi, ".pi/agent/extensions"), filepath.Join(pi, ".pi/agent/skills"),
 	}
-	if ms := (Launch{e}).AgentMounts([]string{"node", "claude", "opencode"}); !slices.Equal(ms, want) {
+	if ms := (Launch{e}).AgentMounts([]string{"node", "claude", "opencode", "pi"}); !slices.Equal(ms, want) {
 		t.Errorf("AgentMounts = %q, want %q", ms, want)
 	}
 	if ms := (Launch{e}).AgentMounts([]string{"node"}); ms != nil {
@@ -164,6 +167,7 @@ func TestHistoryImportScript(t *testing.T) {
 	for _, p := range []string{
 		".claude/.credentials.json", ".codex/auth.json", ".local/share/opencode/auth.json", ".local/share/opencode/account.json",
 		".claude.json", ".claude/settings.json", ".claude/CLAUDE.md", ".claude/skills", ".codex/config.toml", ".codex/prompts",
+		".pi/agent/settings.json", ".pi/agent/models.json", ".pi/agent/skills",
 	} {
 		if !slices.Contains(skips, p) {
 			t.Errorf("%s isn't left out", p)
@@ -178,7 +182,7 @@ func TestHistoryImportScript(t *testing.T) {
 		`grep -qE '(^|/)\.\.(/|$)'`, "echo " + historyUnsafe + "; exit 1",
 		`tar -xzf "$t/export" -C "$t/x" '--no-same-owner' '--no-same-permissions' '--anchored' '--exclude=`,
 		"'--exclude=.claude.json' ", `find "$t/x" -type l`, "/* | .. | ../* | */.. | */../*) ",
-		"for p in '.claude' '.claude.json' '.codex' '.local/share/opencode' '.local/state/opencode'; do",
+		"for p in '.claude' '.claude.json' '.codex' '.local/share/opencode' '.local/state/opencode' '.pi/agent/sessions'",
 		"tar --extract --file=- --directory ~ --skip-old-files '--no-same-owner' '--no-same-permissions'",
 	} {
 		if !strings.Contains(s, want) {
@@ -278,6 +282,8 @@ func TestHistoryImportRuns(t *testing.T) {
 		{".bashrc"},
 		{"./.claude/a"},
 		{".claudex/a"},
+		{".pi/agent/sessions/s", ".pi/agent/auth.json"},
+		{".pi/agent/sessionsx/s"},
 	} {
 		t.Run(names[len(names)-1], func(t *testing.T) {
 			home := t.TempDir()
@@ -295,20 +301,26 @@ func TestHistoryImportRuns(t *testing.T) {
 	}
 	t.Run("history", func(t *testing.T) {
 		home := t.TempDir()
-		mkdirs(t, home, ".claude/projects")
+		mkdirs(t, home, ".claude/projects", ".pi/agent")
 		newer := filepath.Join(home, ".claude/projects/kept.jsonl")
 		if err := state.WriteFile(newer, []byte("the VM's own\n")); err != nil {
+			t.Fatal(err)
+		}
+		// pi's login, which the VM's setup wrote: the import leaves it and its folder as they are.
+		if err := state.WriteFile(filepath.Join(home, ".pi/agent/auth.json"), []byte("{}\n")); err != nil {
 			t.Fatal(err)
 		}
 		export := exportOf(t, ".claude/", ".claude/projects/", ".claude/projects/p.jsonl", ".claude/projects/kept.jsonl",
 			".claude/.credentials.json", ".claude/settings.json", ".claude/skills/", ".claude/skills/x", ".claude.json",
 			".claude/link->/etc", ".claude/projects/up->../../.bashrc", ".claude/projects/in->p.jsonl", ".codex/",
-			".codex/sessions/s", ".codex/auth.json", ".local/share/opencode/auth.json", ".local/state/opencode/x")
+			".codex/sessions/s", ".codex/auth.json", ".local/share/opencode/auth.json", ".local/state/opencode/x",
+			".pi/agent/sessions/", ".pi/agent/sessions/--p--/s.jsonl")
 		if out, err := run(t, home, export); err != nil {
 			t.Fatalf("%q, %v", out, err)
 		}
 		for p, want := range map[string]bool{
 			".claude/projects/p.jsonl": true, ".codex/sessions/s": true, ".local/state/opencode/x": true, ".claude/projects/in": true,
+			".pi/agent/sessions/--p--/s.jsonl": true, ".pi/agent/auth.json": true,
 			".claude/.credentials.json": false, ".claude/settings.json": false, ".claude/skills": false, ".claude.json": false,
 			".codex/auth.json": false, ".local/share/opencode/auth.json": false, ".claude/link": false, ".claude/projects/up": false,
 		} {

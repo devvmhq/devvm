@@ -59,11 +59,11 @@ Messages use the same voice as the docs, only shorter, so the CLI reads like the
 Use these terms on every page and in every message.
 
 - **Secret** is the general term for what devvm keeps on this machine for VMs to use, as in devvm secret. The Staying safe and Network policy pages define it: "A secret is a credential devvm keeps on this machine for VMs to use: your GitHub token, Claude Code's token, an agent's login or an API key."
-- **Name the secret when the specific one matters:** "GitHub token", "Claude Code token" (from claude setup-token), "API key", "Codex login" or "opencode login". Never write a bare "token" or "tokens", because agents use "tokens" for model tokens. The one exception is right after a prompt that names the token: after "GitHub token:", "You didn't paste a token" is clear.
+- **Name the secret when the specific one matters:** "GitHub token", "Claude Code token" (from claude setup-token), "API key", "Codex login", "opencode login" or "pi's API key". Never write a bare "token" or "tokens", because agents use "tokens" for model tokens. The one exception is right after a prompt that names the token: after "GitHub token:", "You didn't paste a token" is clear.
 - **Feature** on user pages means only base image features (omb, fzf, cli-tools) and devcontainer features. Backend features, which are native, emulated or none, appear only on the How it works pages. devvm doctor prints backend features as "features", so say so where a user page compares backends.
 - **Image** means devvm's images, such as base or foo+bar. Say "container image" for the images that `--from` and a `devcontainer.json` start from.
 - **Layer** means devvm's layers. Say "Docker's image layers" when you mean Docker's.
-- **Shared tool** means node, python, rust, go, dotnet, claude, codex or opencode.
+- **Shared tool** means a toolchain or a coding agent that devvm shares read-only between VMs, such as node or claude: the toolchains page and the coding agents page's Supported agents table list them.
 
 ## Workflow
 

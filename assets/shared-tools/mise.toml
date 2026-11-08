@@ -9,6 +9,7 @@
 claude = "aqua:anthropics/claude-code"
 codex = "aqua:openai/codex"
 opencode = "github:anomalyco/opencode"   # its GitHub releases: a musl build of its own, attested
+pi = "github:earendil-works/pi"          # its GitHub releases: one Bun-built program per platform, glibc only
 pnpm = "aqua:pnpm/pnpm"
 uv = "aqua:astral-sh/uv"
 
@@ -24,6 +25,7 @@ dotnet = "latest"      # the SDK; devvm adds its downloads and their SHA-512 fro
 claude = "latest"
 codex = "latest"
 opencode = "2"         # upstream marks its 1.x releases as GitHub's latest, which "latest" resolves to
+pi = "latest"
 
 [settings]
 experimental = true

@@ -41,6 +41,59 @@ exec devvm agent import opencode
 stderr '^devvm: agent_import_opencode_skipped label=ChatGPT provider=openai$'
 stderr '^devvm: agent_import_none agent=opencode$'
 
+# A VM with opencode: the login's copy holds a placeholder for the
+# Anthropic key, without its metadata, and the VM gets the local
+# server's key, the well-known login and the Copilot Enterprise login
+# without their keys or tokens, warned.
+cp $WORK/launch.json $HOME/.local/share/opencode/auth.json
+cp $WORK/v1 $STUB_DIR/opencode-version
+exec devvm agent import --force opencode
+project p
+stub_reset
+exec devvm --network open --no-git-protect --agents opencode
+vm_name P p
+stderr '^devvm: login_withheld agent=opencode name=opencode providers=copilot-ghe, mcp, ollama$'
+! stderr 'login_passed|login_kept'
+exec tar -xOf $STUB_DIR/sync.tar home/.local/share/opencode/auth.json
+stdout '"key": "devvm-proxy-managed-opencode-anthropic-[0-9a-f]{32}"'
+! stdout 'testfake|"metadata"|"access"|"refresh"|"token"'
+exec tar -xOf $STUB_DIR/sync.tar opencode-import.json
+stdout 'cred_devvm_anthropic'
+! stdout 'ollama|testfake'
+grep '"name":"opencode-anthropic"' $P_dir/run/secrets.json
+
+# config.toml's [pass-keys] gives the VM ollama's key as it is, noted,
+# and opencode 2's import gets it too; the OAuth login it names, and the
+# Anthropic key, which devvm binds, still don't pass.
+cp $WORK/pass.toml $CFG/config.toml
+exec devvm host
+stderr '^login_passed agent=opencode providers=ollama$'
+stderr '^devvm: login_withheld agent=opencode name=opencode providers=copilot-ghe, mcp$'
+exec tar -xOf $STUB_DIR/sync.tar home/.local/share/opencode/auth.json
+stdout '"key": "ollama-local"'
+stdout '"key": "devvm-proxy-managed-opencode-anthropic-[0-9a-f]{32}"'
+! stdout 'testfake'
+exec tar -xOf $STUB_DIR/sync.tar opencode-import.json
+stdout '"id":"cred_devvm_ollama","integrationID":"ollama","label":"devvm","value":\{"key":"ollama-local","type":"key"\}'
+# One devvm can't read fails the launch, naming its line.
+cp $WORK/badpass.toml $CFG/config.toml
+! exec devvm host
+stderr 'config\.toml'
+rm $CFG/config.toml
+
+-- launch.json --
+{"anthropic":{"type":"api","key":"sk-ant-testfake","metadata":{"m":"testfake-md"}},
+ "ollama":{"type":"api","key":"ollama-local"},
+ "mcp":{"type":"wellknown","key":"testfake-wk","token":"testfake-wt"},
+ "copilot-ghe":{"type":"oauth","access":"testfake-at","refresh":"testfake-rt","expires":1,"enterpriseUrl":"ghe.example.com"}}
+-- pass.toml --
+features = []
+[pass-keys]
+opencode = ["ollama", "copilot-ghe", "anthropic"]
+-- badpass.toml --
+features = []
+[pass-keys]
+opencode = ["Ollama"]
 -- v1 --
 1.19.5
 -- v2 --

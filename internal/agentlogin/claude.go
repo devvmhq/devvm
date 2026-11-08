@@ -28,13 +28,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
 )
 
 const (
-	// ClaudeOAuth is the kind of a File that is Claude Code's OAuth login, its .credentials.json,
-	// and of its binding (proxy.Binding's Agent).
-	ClaudeOAuth = "claude-oauth"
 	// ClaudeTokenURL is Claude Code's OAuth token endpoint, and claudeClientID its public client ID.
 	ClaudeTokenURL = "https://platform.claude.com/v1/oauth/token" //nolint:gosec // a URL, not a secret
 	claudeClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"       //nolint:gosec // a public client ID, not a secret
@@ -44,8 +42,8 @@ const (
 	// claudeAPIKeyScope lets a login make an API key, at
 	// api.anthropic.com/api/oauth/claude_cli/create_api_key: devvm keeps no login that has it.
 	claudeAPIKeyScope = "org:create_api_key" //nolint:gosec // a scope's name, not a secret
-	// ClaudeOAuthName is the OAuth login's binding's name.
-	ClaudeOAuthName = "claude-oauth"
+	// ClaudeOAuthName is the OAuth login's binding's name: its file's kind's.
+	ClaudeOAuthName = agents.ClaudeOAuth
 	// claudeTokenStart is how Claude Code's access tokens and tokens from claude setup-token start.
 	claudeTokenStart = "sk-ant-oat01-" //nolint:gosec // a token's prefix, not a secret
 )
@@ -73,7 +71,7 @@ func claudeOAuthBindings(m map[string]any, salt string) []proxy.Binding {
 // ClaudeOAuthBinding is the binding of the OAuth login's placeholder ending in salt: its access
 // token goes into Authorization for api.anthropic.com.
 func ClaudeOAuthBinding(salt string) proxy.Binding {
-	return login(ClaudeOAuth, ClaudeOAuthName, []string{"api.anthropic.com"}, "Authorization", claudeOAuthPlaceholder(salt))
+	return login(agents.ClaudeOAuth, ClaudeOAuthName, []string{"api.anthropic.com"}, "Authorization", claudeOAuthPlaceholder(salt))
 }
 
 // claudeOAuthVM is the VM's .credentials.json: the login's placeholder, a refresh token that's
@@ -145,7 +143,7 @@ func (f File) claudeOAuthGet(ctx context.Context, name string) (string, error) {
 		err = claudeScopesOK(strings.Fields(str(nt, "scope")), false)
 	}
 	if err != nil {
-		return "", &RefreshError{Agent: Claude, Err: err}
+		return "", &RefreshError{Agent: agents.Claude, Err: err}
 	}
 	o["accessToken"], o["expiresAt"] = str(nt, "access_token"), expiresAt(nt)
 	if v := str(nt, "refresh_token"); v != "" {

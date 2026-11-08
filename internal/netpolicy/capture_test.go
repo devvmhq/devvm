@@ -82,12 +82,13 @@ func TestCapturer(t *testing.T) {
 	// Claude Code's login, from a VM whose image hasn't Claude Code: nothing is captured, so it
 	// can't replace the login every VM with Claude Code uses.
 	x.VM, x.Agents, x.ContentType, x.Body = st.Name(), []string{"claude"}, "application/json", []byte(`{"grant_type":"authorization_code","code":"c"}`)
-	if _, _, err := c.Request(t.Context(), x); err == nil {
-		t.Error("Claude Code's login from a VM without it went on")
+	refused := "login_capture_refused agent=claude vm=" + st.Name()
+	if _, _, err := c.Request(t.Context(), x); msg.NamesOf(err) != refused {
+		t.Errorf("Claude Code's login from a VM without it: %v", msg.NamesOf(err))
 	}
 	claudeReply := []byte(`{"access_token":"sk-ant-oat01-x","refresh_token":"r","scope":"user:inference"}`)
-	if _, _, err := c.Response(t.Context(), x, claudeReply); err == nil {
-		t.Error("Claude Code's login from a VM without it was saved")
+	if _, _, err := c.Response(t.Context(), x, claudeReply); msg.NamesOf(err) != refused {
+		t.Errorf("Claude Code's login from a VM without it was saved: %v", msg.NamesOf(err))
 	}
 	cl := newVM(t, d, "devvm-claude-0123456789abc6", "base", "claude")
 	_, err = Salt(t.Context(), cl)
@@ -96,9 +97,63 @@ func TestCapturer(t *testing.T) {
 	if _, agent, err := c.Response(t.Context(), x, claudeReply); err != nil || agent != "claude" {
 		t.Errorf("Claude Code's login from its VM: %q, %v", agent, err)
 	}
-	// An agent devvm keeps no logins of.
+	// An agent the VM's image doesn't have, such as one devvm keeps no logins of.
 	x.VM, x.Agents = st.Name(), []string{"aider"}
-	if _, _, err := c.Request(t.Context(), x); msg.NamesOf(err) != "no_secret secret=aider" {
+	if _, _, err := c.Request(t.Context(), x); msg.IDOf(err) != "login_capture_refused" {
 		t.Errorf("another agent: %v", msg.NamesOf(err))
+	}
+}
+
+// A VM captures a login only for an agent its image has, so a VM can't replace the store's
+// login of an agent it doesn't have, which every VM with that agent uses. Where the endpoint is
+// shared by both of the VM's agents, the User-Agent picks one of them.
+func TestCaptureOwnAgents(t *testing.T) {
+	d, plain := sandbox(t, "base")
+	p, _ := testProxy(t, d)
+	c := Capturer{Dirs: d, Secrets: p.Secrets}
+	opencode := newVM(t, d, "devvm-oc-0123456789abc7", "base", "opencode")
+	codex := newVM(t, d, "devvm-cx-0123456789abc8", "base", "codex")
+	both := newVM(t, d, "devvm-both-0123456789abc9", "base", "codex", "opencode")
+	for _, vm := range []*state.VM{plain, opencode, codex, both} {
+		_, err := Salt(t.Context(), vm)
+		must(t, err)
+	}
+	const codexUA, bunUA = "codex_cli_rs/0.166.0", "Bun/1.2"
+	tok := "eyJhbGciOiJub25lIn0.eyJleHAiOjF9.sig"
+	reply, _ := json.Marshal(map[string]string{"id_token": tok, "access_token": tok + "-at", "refresh_token": "rt-real"})
+	req := []byte(url.Values{"grant_type": {"authorization_code"}, "code": {"c"}}.Encode())
+	for _, tc := range []struct {
+		vm      *state.VM
+		ua      string
+		agent   string // the login saved, or "" when refused
+		refused string // the agent the refusal names
+	}{
+		{vm: plain, ua: codexUA, refused: "codex"},
+		{vm: plain, ua: bunUA, refused: "opencode"},
+		{vm: opencode, ua: codexUA, agent: "opencode"},
+		{vm: opencode, ua: bunUA, agent: "opencode"},
+		{vm: codex, ua: bunUA, agent: "codex"},
+		{vm: both, ua: bunUA, agent: "opencode"},
+		{vm: both, ua: codexUA, agent: "codex"},
+	} {
+		for _, a := range []string{"codex", "opencode"} {
+			_ = os.Remove(secrets.LoginFile(d, a))
+		}
+		x := proxy.Exchange{VM: tc.vm.Name(), Agents: []string{"codex", "opencode"}, UserAgent: tc.ua, ContentType: "application/x-www-form-urlencoded", Body: req}
+		_, _, reqErr := c.Request(t.Context(), x)
+		_, agent, err := c.Response(t.Context(), x, reply)
+		if tc.agent == "" {
+			want := "login_capture_refused agent=" + tc.refused + " vm=" + tc.vm.Name()
+			if msg.NamesOf(reqErr) != want || msg.NamesOf(err) != want {
+				t.Errorf("%s, %s: Request %v, Response %v; want %s", tc.vm.Name(), tc.ua, msg.NamesOf(reqErr), msg.NamesOf(err), want)
+			}
+		} else if reqErr != nil || err != nil || agent != tc.agent {
+			t.Errorf("%s, %s: Request %v, Response %q, %v; want %s", tc.vm.Name(), tc.ua, reqErr, agent, err, tc.agent)
+		}
+		for _, a := range []string{"codex", "opencode"} {
+			if _, err := os.Stat(secrets.LoginFile(d, a)); (err == nil) != (a == tc.agent) {
+				t.Errorf("%s, %s: the store's %s login: %v", tc.vm.Name(), tc.ua, a, err)
+			}
+		}
 	}
 }

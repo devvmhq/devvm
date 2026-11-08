@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
@@ -40,7 +41,7 @@ const homeIn = "cd ~ && tar -xzf - --skip-old-files"
 // devvm's store, the agents' logins, and caches, which are made again.
 func homeSkips(d paths.Dirs, toolNames []string) []string {
 	skips := []string{".config/devvm", ".ssh/authorized_keys", ".cache"}
-	skips = append(skips, historyExcludes...)
+	skips = append(skips, agents.HistoryExcludes()...)
 	for _, a := range image.AgentsOf(toolNames) {
 		store := agentStore(d, a)
 		skips = append(skips, agentDirs(store, a)...)

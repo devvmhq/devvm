@@ -333,6 +333,31 @@ func checkLiterals(m *module, r rules) []violation {
 	return vs
 }
 
+// checkNames: outside tests and r.namesFree's folders, a string literal
+// that is a name names lists, whole, is in its owner's package: one
+// anywhere else is code of its own for what that package owns.
+func checkNames(m *module, r rules) []violation {
+	var vs []violation
+	for _, f := range m.files {
+		if f.test || slices.ContainsFunc(r.namesFree, func(d string) bool { return f.dir == d || strings.HasPrefix(f.dir, d+"/") }) {
+			continue
+		}
+		ast.Inspect(f.ast, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok {
+				return true
+			}
+			if v, ok := literal(lit); ok {
+				if o, named := r.names[v]; named && f.dir != o.dir {
+					vs = append(vs, violation{ruleOwners, m.pos(lit), fmt.Sprintf("is %q, a name %s owns, so use %s", v, o.dir, o.use)})
+				}
+			}
+			return true
+		})
+	}
+	return vs
+}
+
 // checkSeparators: outside tests, a call to package strings with an
 // argument that separators lists, as a literal or a constant, is in its
 // owner's package: one anywhere else splits or joins what that package

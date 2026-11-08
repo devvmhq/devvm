@@ -2222,6 +2222,9 @@ other = "The shared tools' versions changed while devvm waited. Run the command 
 [tool_unbuilt]
 other = "{{.tool}} {{.version}} is a new release with no download for this VM's platform yet. Try again tomorrow."
 
+[tool_glibc_only]
+other = "{{.tool}} has no build for musl, so a VM from an Alpine-based container image can't run it. Leave {{.tool}} out, or make the VM --from a Debian- or Ubuntu-based image."
+
 [tool_needs_glibc]
 description = "needs and has are glibc versions: 2.28, 2.24"
 other = "{{.tool}} {{.version}} needs glibc {{.needs}} or newer, but this VM's container image has glibc {{.has}}. Start it from a newer container image with --from."
@@ -2298,7 +2301,7 @@ other = "These agent folders for {{.vm}} are gone from devvm's agent store: {{.d
 other = "There's nothing of {{.agent}} to import, because this machine has neither its settings nor its login."
 
 [agent_import_nothing]
-other = "There's nothing to import, because this machine has no settings or logins of claude, codex or opencode."
+other = "There's nothing to import, because this machine has no settings or logins of the coding agents devvm supports."
 
 [agent_import_replace]
 description = "agents is a space-separated list of agents"
@@ -2428,7 +2431,7 @@ other = "{{.flag}} doesn't go with devvm agent login claude, which logs in in a 
 other = "--setup-token goes with devvm agent login claude. Run devvm agent login claude --setup-token."
 
 [agent_key_saved]
-description = "provider is the API key's provider, as opencode names it: openai, anthropic or openrouter"
+description = "provider is the API key's provider, as the agent names it, such as openai"
 other = "devvm saved {{.agent}}'s {{.provider}} API key in its agent store, and {{.vm}} uses it now. Every VM with {{.agent}} gets it from its next launch."
 
 [agent_key_copy_failed]
@@ -2442,7 +2445,7 @@ other = "opencode in {{.vm}} refused devvm's login for {{.providers}}, though de
 other = "opencode in {{.vm}} printed more than devvm reads while it imported devvm's logins, so devvm stopped it. Run devvm in the VM's folder to try again."
 
 [agent_key_howto]
-description = "provider is the API key's provider, as opencode names it: openai, anthropic or openrouter"
+description = "provider is the API key's provider, as the agent names it, such as openai"
 other = "Paste the {{.provider}} API key for {{.agent}}. devvm keeps it on this machine, and VMs get a placeholder."
 
 [agent_key_prompt]
@@ -2452,11 +2455,15 @@ other = "API key:"
 other = "There's no API key to save, because the answer was empty."
 
 [agent_login_provider_needed]
-description = "providers lists the providers devvm saves opencode's API keys for, comma-separated"
-other = "devvm agent login opencode --api-key needs --provider, one of {{.providers}}."
+description = "agent is an agent devvm saves an API key for each provider for; providers lists the providers devvm saves its API keys for, comma-separated"
+other = "devvm agent login {{.agent}} --api-key needs --provider, one of {{.providers}}."
 
 [agent_login_provider_alone]
-other = "--provider goes with devvm agent login opencode --api-key. Run devvm agent login opencode --api-key --provider PROVIDER."
+description = "agents lists the agents devvm saves an API key for each provider for, comma-separated"
+other = "--provider goes with --api-key, for {{.agents}}. Run devvm agent login AGENT --api-key --provider PROVIDER."
+
+[agent_login_key_only]
+other = "devvm keeps only API keys for {{.agent}}, not a login of {{.agent}}'s own. Run devvm agent login {{.agent}} --api-key --provider PROVIDER."
 
 [agent_login_stdin_alone]
 other = "--stdin goes with --api-key. Run devvm agent login {{.agent}} --api-key --stdin."
@@ -2554,6 +2561,10 @@ other = "The Codex login in devvm's agent store has no API key any more, so the 
 [codex_no_chatgpt]
 other = "The Codex login in devvm's agent store isn't a ChatGPT login any more, so the VM's proxy has none to put in. Run devvm agent login codex in the VM's folder."
 
+[login_capture_refused]
+description = "agent is the agent whose login the VM sent, such as codex"
+other = "{{.vm}} doesn't have {{.agent}}, so devvm didn't save the {{.agent}} login it sent. Log {{.agent}} in from a VM that has it."
+
 [codex_refresh_failed]
 description = "reason is an error from the system or OpenAI's token endpoint, in English"
 other = "Refreshing the Codex login in devvm's agent store failed: {{.reason}}. Run devvm agent login codex in a VM's folder to log in again."
@@ -2625,17 +2636,24 @@ other = "{{.vm}} doesn't use the {{.secret}} secret any more."
 [secret_with_claude]
 other = "{{.vm}} has Claude Code, so the VM always uses the Claude Code token. To stop it, run devvm tools rm claude."
 
-[codex_login_kept]
-description = "keys lists auth.json's top-level keys, comma-separated"
-other = "The VM gets {{.keys}} from Codex's auth.json unchanged."
+[login_kept]
+description = "agent is the agent as people know it, such as Codex; file is its login file's name, such as auth.json; keys lists what of it devvm doesn't know, its top-level keys or its providers, comma-separated"
+other = "The VM gets {{.keys}} from {{.agent}}'s {{.file}} unchanged."
 
-[opencode_login_kept]
-description = "providers lists opencode's login providers, comma-separated"
-other = "The VM gets opencode's {{.providers}} login unchanged."
+[login_passed]
+description = "agent is the agent as people know it, such as pi; providers lists its providers that config.toml's [pass-keys] lists, comma-separated"
+other = "The VM gets {{.agent}}'s {{.providers}} login unchanged, as config.toml's [pass-keys] asks."
 
-[opencode_login_withheld]
-description = "providers lists opencode's OAuth login providers, comma-separated"
-other = "The VM gets opencode's {{.providers}} login without its OAuth tokens, because devvm keeps them on this machine. To use that provider in the VM, log in to it with an API key on this machine and run devvm agent import --force opencode."
+[pi_settings_dropped]
+description = "keys lists the keys of pi's settings.json that the VM's copy leaves out, space-separated"
+other = "The copy of pi's settings.json in {{.vm}} leaves out {{.keys}}, because devvm sets those in VMs."
+
+[pi_trusts_all]
+other = "pi's settings.json sets defaultProjectTrust to always, so pi in {{.vm}} loads a project folder's own .pi extensions and settings without asking. Set it to ask in devvm's agent store to have pi ask again."
+
+[login_withheld]
+description = "agent is the agent as people know it, such as pi, and name its name in config.toml; providers lists its login providers devvm neither binds nor passes, comma-separated"
+other = "The VM gets {{.agent}}'s {{.providers}} login without its keys or tokens. To give the VM one provider's API key as it is, such as a local model server's, list the provider under {{.name}} in config.toml's [pass-keys]."
 
 [devcontainer_flag_wins]
 description = "key is a devcontainer.json property (image, forwardPorts), flag the devvm flag given instead (from, ports)"

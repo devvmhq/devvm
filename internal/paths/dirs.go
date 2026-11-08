@@ -169,8 +169,8 @@ func (d Dirs) ReleaseCheck() string { return filepath.Join(d.Cache(), "release.j
 
 // Run holds what running VMs need that isn't one VM's, or whose path
 // must be short: the QEMU wrapper, the claims lock, the port forwarders'
-// and link sessions' sockets, named by hashes (a socket's path is at most
-// SocketMax characters), and build VMs' folders (VM).
+// and link sessions' sockets, named by hashes (a socket's path has fewer
+// than SocketMax characters), and build VMs' folders (VM).
 func (d Dirs) Run() string { return filepath.Join(d.Data, "run") }
 
 // ClaimsLock is held while a VM claims what no two VMs may have: its ssh
@@ -191,8 +191,9 @@ func (d Dirs) CreateLock(hash string) string {
 // host gives Lima as QEMU, which runs QEMU with the VM's network.
 func (d Dirs) QEMUWrapper() string { return filepath.Join(d.Run(), "qemu") }
 
-// SocketMax is the longest unix socket path macOS takes (Linux takes
-// 108). ssh adds 17 characters to a control socket's while it makes it.
+// SocketMax is the size of a unix socket's path on macOS, its NUL
+// included, so a path has fewer characters (Linux's is 108). ssh adds 17
+// characters to a control socket's while it makes it.
 const SocketMax = 104
 
 // Logs holds the logs that aren't one VM's: the runs' (RunLogs) and the

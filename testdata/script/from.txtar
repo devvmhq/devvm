@@ -98,6 +98,13 @@ stdout '^==> creating_from image=base vm=devvm-web-[0-9a-f]{14}$'
 vm_name WEB web
 vm_state $WEB_dir/vm.json
 stdout '^from=node:24@sha256:a{64}$'
+# Its base has musl, and pi's releases are for glibc alone: tools add
+# refuses pi before it builds anything.
+stub_reset
+! exec devvm tools add pi
+stderr '^devvm: tool_glibc_only tool=pi$'
+stub_calls
+! stdout 'limactl (create|clone)'
 stub_reset
 exec devvm --from debian:13
 stderr '^devvm: new_vm_flags_ignored flags=--from vm=devvm-web-[0-9a-f]{14}$'

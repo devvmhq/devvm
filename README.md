@@ -59,7 +59,7 @@ devvm
 ## What's supported
 
 - **Toolchains:** node, python, rust, go and dotnet. devvm detects them from the project's files, so a folder with `package.json` gets node ([toolchains](https://devvm.dev/docs/using/toolchains/)).
-- **Coding agents:** Claude Code, Codex and opencode run in the VM, with your settings, skills and MCP servers. devvm keeps their settings and logins in a store of its own, and `devvm agent import` copies them in from an agent you already use on your machine ([coding agents](https://devvm.dev/docs/using/coding-agents/)).
+- **Coding agents:** Claude Code, Codex, opencode and pi run in the VM, with your settings, skills and MCP servers. devvm keeps their settings and logins in a store of its own, and `devvm agent import` copies them in from an agent you already use on your machine ([coding agents](https://devvm.dev/docs/using/coding-agents/)).
 - **Layers:** the built-in `docker`, `nix` and `desktop` layers, and your own from `devvm layer new` ([layers](https://devvm.dev/docs/using/images/#layers)).
 - **Backend:** devvm runs its VMs on [Lima](https://lima-vm.io) ([backends](https://devvm.dev/docs/backends/)).
 

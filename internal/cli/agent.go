@@ -35,7 +35,7 @@ func newAgentSaveCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "save [AGENT...]",
 		Short: "Copy the agents' settings from this folder's VM into devvm's store",
-		Long: "Copy the settings of AGENT, claude, codex or opencode, or of every agent this folder's VM has, from the VM into devvm's store, " +
+		Long: "Copy the settings of AGENT, " + orList(image.Agents) + ", or of every agent this folder's VM has, from the VM into devvm's store, " +
 			"so every VM with the agent gets them, never its logins or history. " +
 			"It shows what changed and asks first, so it runs only in a terminal without --no-input, and devvm starts a stopped VM for it.",
 		Example: examples(
@@ -60,7 +60,7 @@ func newAgentImportCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import [AGENT...]",
 		Short: "Copy the agents' settings and logins from this machine into devvm's store",
-		Long: "Copy the settings and logins of AGENT, claude, codex or opencode, or of every agent, from your home folder into devvm's store, never their history. " +
+		Long: "Copy the settings and logins of AGENT, " + orList(image.Agents) + ", or of every agent, from your home folder into devvm's store, never their history. " +
 			"It follows no link out of an agent's folder, and it asks before replacing what the store has.",
 		Example: examples(
 			"devvm agent import", "copy every agent's settings and logins, asking before replacing the store's",

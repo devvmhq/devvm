@@ -67,7 +67,7 @@ Start the agent in the VM's shell, so it runs in the VM:
 (devvm) ~/some-project $ claude
 ```
 
-Run `claude`, `codex` or `opencode`, whichever the VM has ([running an agent](../using/coding-agents.md#running-an-agent)).
+Run the agent the VM has by its name, such as `claude`, which the [supported agents](../using/coding-agents.md#supported-agents) table lists ([running an agent](../using/coding-agents.md#running-an-agent)).
 
 ## What's in the VM
 

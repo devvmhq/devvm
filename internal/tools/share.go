@@ -280,6 +280,23 @@ func neededGlibc(path string) (string, error) {
 	return v, nil
 }
 
+// HasBuilds refuses tool files that have no build for tg's C library
+// before any is built: on a musl base, a tool whose project releases
+// builds for glibc alone (image.GlibcOnly) refuses (tool_glibc_only),
+// naming the first. mise's lock gives it the glibc download there too,
+// which wouldn't run.
+func HasBuilds(files []string, tg Target) error {
+	if tg.Libc != "musl" {
+		return nil
+	}
+	for _, f := range files {
+		if tool, _, _ := image.ParseToolFile(f); image.GlibcOnly(tool) {
+			return msg.ToolGlibcOnly(tool)
+		}
+	}
+	return nil
+}
+
 // Runs checks that each of these tool images, built, runs on tg's base:
 // a --from gnu base whose glibc is older than the newest one a tool image
 // needs refuses it (tool_needs_glibc), naming the tool and both versions.

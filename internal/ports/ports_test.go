@@ -241,7 +241,7 @@ func TestBuild(t *testing.T) {
 	for i, vm := range builds {
 		wg.Go(func() {
 			var err error
-			if got[i], releases[i], err = a.Build(t.Context(), vm); err != nil {
+			if got[i], releases[i], err = a.Build(t.Context(), vm, 0); err != nil {
 				t.Error(err)
 			}
 		})
@@ -278,7 +278,7 @@ func TestBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.Range = platform.PortRange{Lo: 20003, Hi: 20003}
-	if _, _, err := a.Build(t.Context(), builds[1]); err == nil {
+	if _, _, err := a.Build(t.Context(), builds[1], 0); err == nil {
 		t.Error("a build took the port a killed devvm's start may still bind")
 	}
 	old := time.Now().Add(-staleAfter - time.Minute)
@@ -288,7 +288,7 @@ func TestBuild(t *testing.T) {
 	if used, err := Used(d, ""); err != nil || !used[20003] {
 		t.Errorf("Used with a stale record = %v, %v", used, err)
 	}
-	n, release, err := a.Build(t.Context(), builds[1])
+	n, release, err := a.Build(t.Context(), builds[1], 0)
 	if err != nil || n != 20003 {
 		t.Fatalf("a build beside a stale record: %d, %v, want 20003", n, err)
 	}
@@ -303,9 +303,13 @@ func TestBuild(t *testing.T) {
 		t.Error("a VM chose the port a starting build holds")
 	}
 	release()
+	// Never the port the build VM's config has from its image.
+	if n, _, err := a.Build(t.Context(), builds[1], 20003); err == nil {
+		t.Errorf("a build chose %d, the port its clone has", n)
+	}
 	// Without a claims lock it can take, there's no port.
 	bad := Allocator{Dirs: paths.Dirs{Data: filepath.Join(d.ClaimsLock(), "x")}, Listening: a.Listening}
-	if _, _, err := bad.Build(t.Context(), builds[0]); err == nil {
+	if _, _, err := bad.Build(t.Context(), builds[0], 0); err == nil {
 		t.Error("a port without the claims lock")
 	}
 }

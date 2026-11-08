@@ -302,7 +302,7 @@ func TestAgentsChoice(t *testing.T) {
 	}
 	for given, want := range map[string]string{
 		"claud":  "unknown_part_like flag=--agents given=claud like=claude",
-		"python": "unknown_part flag=--agents given=python names=claude codex opencode",
+		"python": "unknown_part flag=--agents given=python names=" + strings.Join(image.Agents, " "),
 	} {
 		if err := c.Set([]string{given}); msg.NamesOf(err) != want {
 			t.Errorf("Set(%s) = %v", given, msg.NamesOf(err))

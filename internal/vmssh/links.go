@@ -185,7 +185,7 @@ func (l *Links) logf(format string, args ...any) {
 }
 
 // linkName is the name of one of the session's files in Dir: a hash of
-// what it's for, short, as a socket's path is at most 104 characters.
+// what it's for, short, as a socket's path has fewer than 104 characters.
 func (l *Links) linkName(ext string, parts ...string) string {
 	return filepath.Join(l.Dir, "link-"+proxy.LinkHash(l.VM, parts...)+ext)
 }

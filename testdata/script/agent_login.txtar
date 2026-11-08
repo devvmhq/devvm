@@ -9,7 +9,7 @@
 ! exec devvm agent login
 stderr '^devvm: arg_missing args=AGENT command=devvm agent login$'
 ! exec devvm agent login aider
-stderr '^devvm: arg_not_choice choices=claude, codex, opencode command=devvm agent login given=aider$'
+stderr '^devvm: arg_not_choice choices=claude, codex, opencode, pi(, [a-z0-9-]+)* command=devvm agent login given=aider$'
 ! exec devvm agent login codex --setup-token
 stderr '^devvm: agent_login_setup_token_alone$'
 ! exec devvm agent login claude --device-code
@@ -21,15 +21,26 @@ stderr '^devvm: agent_login_claude_flag flag=--stdin$'
 ! exec devvm agent login codex --stdin
 stderr '^devvm: agent_login_stdin_alone agent=codex$'
 ! exec devvm agent login codex --api-key --provider anthropic
-stderr '^devvm: agent_login_provider_alone$'
+stderr '^devvm: agent_login_provider_alone agents=opencode, pi(, [a-z0-9-]+)*$'
 ! exec devvm agent login opencode --provider anthropic
-stderr '^devvm: agent_login_provider_alone$'
+stderr '^devvm: agent_login_provider_alone agents=opencode, pi(, [a-z0-9-]+)*$'
 ! exec devvm agent login opencode --api-key
-stderr '^devvm: agent_login_provider_needed providers=anthropic, openai, openrouter$'
+stderr '^devvm: agent_login_provider_needed agent=opencode providers=anthropic, openai, openrouter$'
 ! exec devvm agent login opencode --api-key --provider groq
 stderr '^devvm: arg_not_choice choices=anthropic, openai, openrouter command=--provider given=groq$'
 ! exec devvm agent login codex --api-key --device-code
 stderr '^devvm: flags_exclusive'
+# pi: an API key alone, for a provider of the three.
+! exec devvm agent login pi
+stderr '^devvm: agent_login_key_only agent=pi$'
+! exec devvm agent login pi --device-code
+stderr '^devvm: agent_login_key_only agent=pi$'
+! exec devvm agent login pi --provider openai
+stderr '^devvm: agent_login_key_only agent=pi$'
+! exec devvm agent login pi --api-key
+stderr '^devvm: agent_login_provider_needed agent=pi providers=anthropic, openai, openrouter$'
+! exec devvm agent login pi --api-key --provider groq
+stderr '^devvm: arg_not_choice choices=anthropic, openai, openrouter command=--provider given=groq$'
 
 # No VM.
 project none
@@ -138,6 +149,36 @@ stdin $WORK/key2
 ! exec devvm agent login opencode --api-key --provider anthropic --stdin
 stderr '^devvm: agent_key_copy_failed agent=opencode vm=devvm-agents-[0-9a-f]{14}$'
 rm $STUB_DIR/shell-fails-on
+
+# pi's key, in a VM with pi: the store keeps it in pi's auth.json, the
+# VM's copy holds its placeholder, the proxy binds it for Anthropic's API,
+# and no import runs. Every launch sends the copy, never the key.
+project pi
+exec devvm --network open --no-git-protect --agents pi
+vm_name PI pi
+stdin $WORK/key2
+! exec devvm agent login opencode --api-key --provider anthropic --stdin
+stderr '^devvm: agent_login_no_agent agent=opencode vm=devvm-pi-[0-9a-f]{14}$'
+stub_reset
+stdin $WORK/key2
+exec devvm agent login pi --api-key --provider anthropic --stdin
+stdout '^==> agent_key_saved agent=pi provider=anthropic vm=devvm-pi-[0-9a-f]{14}$'
+grep '"type": "api_key"' $DATA/logins/pi/.pi/agent/auth.json
+grep '"key": "sk-ant-testfake"' $DATA/logins/pi/.pi/agent/auth.json
+[!darwin] exec sh -c 'stat -c %a "$DATA/logins/pi/.pi/agent/auth.json"'
+[darwin] exec sh -c 'stat -f %Lp "$DATA/logins/pi/.pi/agent/auth.json"'
+stdout '^600$'
+grep '"name":"pi-anthropic".*"hosts":\["api.anthropic.com"\]' $PI_dir/run/secrets.json
+stub_calls
+stdout '''sh'' ''-c'' ''f="\$HOME/\$1".*'' ''sh'' ''.pi/agent/auth.json''$'
+! stdout 'opencode\.sh'
+! stdout 'sk-ant-testfake'
+stub_reset
+exec devvm host
+exec tar -xOf $STUB_DIR/sync.tar home/.pi/agent/auth.json
+stdout '"key": "devvm-proxy-managed-pi-anthropic-[0-9a-f]{32}"'
+! stdout testfake
+cd $WORK/agents
 
 # The VM's copy can't be written: the key is saved, and devvm says so.
 exec sh -c 'echo "''.codex/auth.json''" > "$STUB_DIR/shell-fails-on"'

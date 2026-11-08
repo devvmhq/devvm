@@ -5,7 +5,10 @@ package structure
 
 import (
 	"os"
+	"slices"
 	"testing"
+
+	"github.com/devvmhq/devvm/internal/agents"
 )
 
 // root is the repo's root, from this package's folder.
@@ -40,6 +43,8 @@ func devvm() rules {
 		// finds their other interfaces.
 		guardOwner: "internal/backend/guard.go",
 		literals:   devvmLiterals(),
+		names:      devvmNames(),
+		namesFree:  []string{"internal/stubtest"}, // the stubs, named after the commands they stand in for
 		// An image's name is read once, by internal/image: its layers are
 		// split and joined there alone.
 		separators: map[string]literalOwner{"+": {"internal/image", "image.Name"}},
@@ -139,15 +144,15 @@ func devvm() rules {
 				from: []string{
 					"assets", "locales", "packaging", "internal/platform", "internal/msg/gen", "internal/testbuild", "internal/hostgit",
 					"internal/shell", "internal/vmname", "internal/daemon", "internal/fetch", "internal/jsonc",
-					"internal/redact",
+					"internal/redact", "internal/agents",
 				},
 				to: []string{"..."},
 			},
 			{
 				// Agents' logins hold their tokens: the package that reads,
 				// refreshes and writes them knows nothing of VMs or the UI.
-				name: "internal/agentlogin imports only internal/fetch, internal/jsonc, internal/proxy and internal/state",
-				from: []string{"internal/agentlogin"}, exceptTo: []string{"internal/fetch", "internal/jsonc", "internal/proxy", "internal/state"},
+				name: "internal/agentlogin imports only internal/agents, internal/fetch, internal/jsonc, internal/proxy and internal/state",
+				from: []string{"internal/agentlogin"}, exceptTo: []string{"internal/agents", "internal/fetch", "internal/jsonc", "internal/proxy", "internal/state"},
 				to: []string{"..."},
 			},
 			{
@@ -166,8 +171,8 @@ func devvm() rules {
 				to: []string{"..."},
 			},
 			{
-				name: "internal/image imports only assets, internal/msg and internal/paths",
-				from: []string{"internal/image"}, exceptTo: []string{"assets", "internal/msg", "internal/paths"},
+				name: "internal/image imports only assets, internal/agents, internal/msg and internal/paths",
+				from: []string{"internal/image"}, exceptTo: []string{"assets", "internal/agents", "internal/msg", "internal/paths"},
 				to: []string{"..."},
 			},
 			{
@@ -190,6 +195,8 @@ func devvmVars() map[string]string {
 		"internal/agentlogin.claudeServerKeys":    table,
 		"internal/agentlogin.openaiAuth":          fixture,
 		"internal/agentlogin.endpoints":           table,
+		"internal/agentlogin.withheldKeep":        table,
+		"internal/agentlogin.piVMDropped":         table,
 		"internal/cli.version":                    ldflags,
 		"internal/testbuild.testBuild":            ldflags + ", by test builds only",
 		"internal/backend.Features":               table,
@@ -215,15 +222,10 @@ func devvmVars() map[string]string {
 		"internal/proxy.nat64":                    table,
 		"internal/proxy.githubMinting":            table,
 		"internal/secrets.Known":                  table,
-		"internal/secrets.loginKinds":             table,
+		"internal/agents.Defs":                    table,
 		"internal/sshagent.Modes":                 table,
 		"internal/tools.miseSHA256":               table,
 		"internal/trust.Env":                      table,
-		"internal/vm.agentDirsOf":                 table,
-		"internal/vm.agentFilesOf":                table,
-		"internal/vm.agentFolderOf":               table,
-		"internal/vm.historyPaths":                table,
-		"internal/vm.historyExcludes":             table,
 		"internal/vm.opencodeDBs":                 table,
 		"internal/vm.defaultKeys":                 table,
 		"internal/shell.nasty":                    fixture,
@@ -278,13 +280,35 @@ func devvmExecSites() map[string]string {
 }
 
 // devvmLiterals are devvm's literals: a second shell quoter can let a value
-// run as a command in a VM or on this machine, and a second copy of the
-// VM-name grammar can read a project VM as an image, which gc deletes.
+// run as a command in a VM or on this machine, a second copy of the
+// VM-name grammar can read a project VM as an image, which gc deletes, and
+// a second copy of an agent's folders below the home folder can leave its
+// logins or history where its registry entry no longer looks.
 func devvmLiterals() map[string]literalOwner {
+	agentPaths := literalOwner{"internal/agents", "an agents.Def's paths"}
 	return map[string]literalOwner{
-		`'\''`:         {"internal/shell", "shell.Quote"},
-		`[0-9a-f]{14}`: {"internal/vmname", "vmname.IsVM"},
+		`'\''`:                  {"internal/shell", "shell.Quote"},
+		`[0-9a-f]{14}`:          {"internal/vmname", "vmname.IsVM"},
+		".claude/":              agentPaths,
+		".claude.json":          agentPaths,
+		".codex/":               agentPaths,
+		".config/opencode":      agentPaths,
+		".local/share/opencode": agentPaths,
+		".local/state/opencode": agentPaths,
+		".pi/agent":             agentPaths,
 	}
+}
+
+// devvmNames are the coding agents' names and login kinds, which only
+// internal/agents' literals are: its registry holds every agent, and code
+// of one agent's own names it by its constant there, so a new agent is a
+// Def and no copy of a list of them goes stale.
+func devvmNames() map[string]literalOwner {
+	names := map[string]literalOwner{}
+	for _, n := range slices.Concat(agents.Names(), agents.LoginKinds()) {
+		names[n] = literalOwner{"internal/agents", "its constant in internal/agents"}
+	}
+	return names
 }
 
 // The repo keeps to its rules.

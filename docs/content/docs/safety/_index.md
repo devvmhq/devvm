@@ -62,7 +62,7 @@ flowchart TB
 | The rest of your home folder, other projects | The VM doesn't mount them. |
 | Your SSH keys | Only with `devvm ssh-agent on`, and only while you're connected. With `devvm ssh-agent devvm`, the VM can use only the keys you added to devvm's own agent ([details](../using/ssh.md#agent-forwarding)). |
 | The network | On every tier but open, the VM reaches only its proxy on this machine, which lets it reach what [its tier](network.md#network-tiers) allows. On the open tier it reaches everything this machine reaches, including this machine's own services on `localhost` ([details](network.md#network-tiers)). |
-| Your secrets | Your GitHub token, Claude Code's token, Codex and opencode logins and Claude Code's MCP secrets stay on this machine on every network tier, and the proxy puts them into requests ([details](network.md#secrets)). |
+| Your secrets | Your GitHub token, Claude Code's token, the coding agents' logins and API keys and Claude Code's MCP secrets stay on this machine on every network tier, and the proxy puts them into requests ([details](network.md#secrets)). opencode's and pi's keys that the proxy can't put in, such as a local model server's, stay on this machine too, unless you pass one to VMs in `config.toml` ([opencode logins](../using/coding-agents.md#codex-and-opencode-logins), [pi logins](../using/coding-agents.md#pi-logins)). |
 
 > [!NOTE]
 > Everything here rests on the VM's boundary: the VM runs its own kernel, apart from this machine's.

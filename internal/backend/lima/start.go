@@ -76,9 +76,10 @@ func (l *machines) start(ctx context.Context, vm string, w *backend.Want, c back
 	if sshPort == 0 && c.Net != backend.NetDirect {
 		// A build VM's, chosen as a VM's are and held until its hostagent
 		// has it, so no VM's forwarder takes it first (on macOS its
-		// profile names it too).
+		// profile names it too). Never the port its clone kept from its
+		// image, so configure always edits the new one in.
 		var release func()
-		if sshPort, release, err = l.Ports.Build(ctx, vm); err != nil {
+		if sshPort, release, err = l.Ports.Build(ctx, vm, in.Config.SSH.LocalPort); err != nil {
 			return err
 		}
 		defer release()

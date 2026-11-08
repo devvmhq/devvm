@@ -94,7 +94,7 @@ func AgentImportNone(agent string) M {
 	return M{id: "agent_import_none", vals: []val{{"agent", agent}}}
 }
 
-// AgentImportNothing is [agent_import_nothing]: "There's nothing to import, because this machine has no settings or logins of claude, codex or opencode."
+// AgentImportNothing is [agent_import_nothing]: "There's nothing to import, because this machine has no settings or logins of the coding agents devvm supports."
 func AgentImportNothing() M {
 	return M{id: "agent_import_nothing"}
 }
@@ -214,6 +214,11 @@ func AgentLoginImported(agent string, file string) M {
 	return M{id: "agent_login_imported", vals: []val{{"agent", agent}, {"file", file}}}
 }
 
+// AgentLoginKeyOnly is [agent_login_key_only]: "devvm keeps only API keys for {{.agent}}, not a login of {{.agent}}'s own. Run devvm agent login {{.agent}} --api-key --provider PROVIDER."
+func AgentLoginKeyOnly(agent string) M {
+	return M{id: "agent_login_key_only", vals: []val{{"agent", agent}}}
+}
+
 // AgentLoginNoAgent is [agent_login_no_agent]: "{{.vm}} has no {{.agent}} to log in with. Run devvm tools add {{.agent}}, then devvm agent login {{.agent}}."
 func AgentLoginNoAgent(agent string, vm string) M {
 	return M{id: "agent_login_no_agent", vals: []val{{"agent", agent}, {"vm", vm}}}
@@ -229,14 +234,14 @@ func AgentLoginPortTaken(agent string, port string) M {
 	return M{id: "agent_login_port_taken", vals: []val{{"agent", agent}, {"port", port}}}
 }
 
-// AgentLoginProviderAlone is [agent_login_provider_alone]: "--provider goes with devvm agent login opencode --api-key. Run devvm agent login opencode --api-key --provider PROVIDER."
-func AgentLoginProviderAlone() M {
-	return M{id: "agent_login_provider_alone"}
+// AgentLoginProviderAlone is [agent_login_provider_alone]: "--provider goes with --api-key, for {{.agents}}. Run devvm agent login AGENT --api-key --provider PROVIDER."
+func AgentLoginProviderAlone(agents string) M {
+	return M{id: "agent_login_provider_alone", vals: []val{{"agents", agents}}}
 }
 
-// AgentLoginProviderNeeded is [agent_login_provider_needed]: "devvm agent login opencode --api-key needs --provider, one of {{.providers}}."
-func AgentLoginProviderNeeded(providers string) M {
-	return M{id: "agent_login_provider_needed", vals: []val{{"providers", providers}}}
+// AgentLoginProviderNeeded is [agent_login_provider_needed]: "devvm agent login {{.agent}} --api-key needs --provider, one of {{.providers}}."
+func AgentLoginProviderNeeded(agent string, providers string) M {
+	return M{id: "agent_login_provider_needed", vals: []val{{"agent", agent}, {"providers", providers}}}
 }
 
 // AgentLoginReadFailed is [agent_login_read_failed]: "Reading the login in {{.file}} failed: {{.reason}}."
@@ -682,11 +687,6 @@ func CloningImage(parent string) M {
 // CodeFailed is [code_failed]: "Opening this folder's VM in VS Code failed: {{.reason}}."
 func CodeFailed(reason string) M {
 	return M{id: "code_failed", vals: []val{{"reason", reason}}}
-}
-
-// CodexLoginKept is [codex_login_kept]: "The VM gets {{.keys}} from Codex's auth.json unchanged."
-func CodexLoginKept(keys string) M {
-	return M{id: "codex_login_kept", vals: []val{{"keys", keys}}}
 }
 
 // CodexNoChatgpt is [codex_no_chatgpt]: "The Codex login in devvm's agent store isn't a ChatGPT login any more, so the VM's proxy has none to put in. Run devvm agent login codex in the VM's folder."
@@ -2124,14 +2124,34 @@ func LogFailed(reason string) M {
 	return M{id: "log_failed", vals: []val{{"reason", reason}}}
 }
 
+// LoginCaptureRefused is [login_capture_refused]: "{{.vm}} doesn't have {{.agent}}, so devvm didn't save the {{.agent}} login it sent. Log {{.agent}} in from a VM that has it."
+func LoginCaptureRefused(agent string, vm string) M {
+	return M{id: "login_capture_refused", vals: []val{{"agent", agent}, {"vm", vm}}}
+}
+
 // LoginCopyFailed is [login_copy_failed]: "Making {{.vm}}'s copy of {{.agent}}'s login failed: {{.reason}}."
 func LoginCopyFailed(agent string, reason string, vm string) M {
 	return M{id: "login_copy_failed", vals: []val{{"agent", agent}, {"reason", reason}, {"vm", vm}}}
 }
 
+// LoginKept is [login_kept]: "The VM gets {{.keys}} from {{.agent}}'s {{.file}} unchanged."
+func LoginKept(agent string, file string, keys string) M {
+	return M{id: "login_kept", vals: []val{{"agent", agent}, {"file", file}, {"keys", keys}}}
+}
+
+// LoginPassed is [login_passed]: "The VM gets {{.agent}}'s {{.providers}} login unchanged, as config.toml's [pass-keys] asks."
+func LoginPassed(agent string, providers string) M {
+	return M{id: "login_passed", vals: []val{{"agent", agent}, {"providers", providers}}}
+}
+
 // LoginReadFailed is [login_read_failed]: "Reading the login in {{.file}} for the VM's proxy failed: {{.reason}}."
 func LoginReadFailed(file string, reason string) M {
 	return M{id: "login_read_failed", vals: []val{{"file", file}, {"reason", reason}}}
+}
+
+// LoginWithheld is [login_withheld]: "The VM gets {{.agent}}'s {{.providers}} login without its keys or tokens. To give the VM one provider's API key as it is, such as a local model server's, list the provider under {{.name}} in config.toml's [pass-keys]."
+func LoginWithheld(agent string, name string, providers string) M {
+	return M{id: "login_withheld", vals: []val{{"agent", agent}, {"name", name}, {"providers", providers}}}
 }
 
 // LsFailed is [ls_failed]: "Listing the VMs failed: {{.reason}}."
@@ -2669,16 +2689,6 @@ func OpencodeImportTooMuch(vm string) M {
 	return M{id: "opencode_import_too_much", vals: []val{{"vm", vm}}}
 }
 
-// OpencodeLoginKept is [opencode_login_kept]: "The VM gets opencode's {{.providers}} login unchanged."
-func OpencodeLoginKept(providers string) M {
-	return M{id: "opencode_login_kept", vals: []val{{"providers", providers}}}
-}
-
-// OpencodeLoginWithheld is [opencode_login_withheld]: "The VM gets opencode's {{.providers}} login without its OAuth tokens, because devvm keeps them on this machine. To use that provider in the VM, log in to it with an API key on this machine and run devvm agent import --force opencode."
-func OpencodeLoginWithheld(providers string) M {
-	return M{id: "opencode_login_withheld", vals: []val{{"providers", providers}}}
-}
-
 // OpencodeRefreshFailed is [opencode_refresh_failed]: "Refreshing opencode's {{.provider}} login in devvm's agent store failed: {{.reason}}. Run devvm agent login opencode in a VM's folder to log in again."
 func OpencodeRefreshFailed(provider string, reason string) M {
 	return M{id: "opencode_refresh_failed", vals: []val{{"provider", provider}, {"reason", reason}}}
@@ -2752,6 +2762,16 @@ func PartOtherFlag(flag string, given string, other string) M {
 // PasswordPrompt is [password_prompt]: "Password:"
 func PasswordPrompt() M {
 	return M{id: "password_prompt"}
+}
+
+// PiSettingsDropped is [pi_settings_dropped]: "The copy of pi's settings.json in {{.vm}} leaves out {{.keys}}, because devvm sets those in VMs."
+func PiSettingsDropped(keys string, vm string) M {
+	return M{id: "pi_settings_dropped", vals: []val{{"keys", keys}, {"vm", vm}}}
+}
+
+// PiTrustsAll is [pi_trusts_all]: "pi's settings.json sets defaultProjectTrust to always, so pi in {{.vm}} loads a project folder's own .pi extensions and settings without asking. Set it to ask in devvm's agent store to have pi ask again."
+func PiTrustsAll(vm string) M {
+	return M{id: "pi_trusts_all", vals: []val{{"vm", vm}}}
 }
 
 // PickAgents is [pick_agents]: "Coding agents, which you start in the VM's shell"
@@ -3574,6 +3594,11 @@ func ToolBadVersion(tool string, version string) M {
 	return M{id: "tool_bad_version", vals: []val{{"tool", tool}, {"version", version}}}
 }
 
+// ToolGlibcOnly is [tool_glibc_only]: "{{.tool}} has no build for musl, so a VM from an Alpine-based container image can't run it. Leave {{.tool}} out, or make the VM --from a Debian- or Ubuntu-based image."
+func ToolGlibcOnly(tool string) M {
+	return M{id: "tool_glibc_only", vals: []val{{"tool", tool}}}
+}
+
 // ToolNeedsGlibc is [tool_needs_glibc]: "{{.tool}} {{.version}} needs glibc {{.needs}} or newer, but this VM's container image has glibc {{.has}}. Start it from a newer container image with --from."
 func ToolNeedsGlibc(has string, needs string, tool string, version string) M {
 	return M{id: "tool_needs_glibc", vals: []val{{"has", has}, {"needs", needs}, {"tool", tool}, {"version", version}}}
@@ -4133,11 +4158,12 @@ var specs = map[string]spec{
 	"agent_login_failed":             {fields: []string{"reason"}},
 	"agent_login_forward":            {fields: []string{"agent", "port", "vm"}},
 	"agent_login_imported":           {fields: []string{"agent", "file"}},
+	"agent_login_key_only":           {fields: []string{"agent"}},
 	"agent_login_no_agent":           {fields: []string{"agent", "vm"}},
 	"agent_login_not_saved":          {fields: []string{"agent", "vm"}},
 	"agent_login_port_taken":         {fields: []string{"agent", "port"}},
-	"agent_login_provider_alone":     {},
-	"agent_login_provider_needed":    {fields: []string{"providers"}},
+	"agent_login_provider_alone":     {fields: []string{"agents"}},
+	"agent_login_provider_needed":    {fields: []string{"agent", "providers"}},
 	"agent_login_read_failed":        {fields: []string{"file", "reason"}},
 	"agent_login_saved":              {fields: []string{"agent", "vm"}},
 	"agent_login_saved_for":          {fields: []string{"agent", "email", "vm"}},
@@ -4227,7 +4253,6 @@ var specs = map[string]spec{
 	"cloning_for_tools":              {fields: []string{"tool"}},
 	"cloning_image":                  {fields: []string{"parent"}},
 	"code_failed":                    {fields: []string{"reason"}},
-	"codex_login_kept":               {fields: []string{"keys"}},
 	"codex_no_chatgpt":               {},
 	"codex_no_key":                   {},
 	"codex_refresh_failed":           {fields: []string{"reason"}},
@@ -4515,8 +4540,12 @@ var specs = map[string]spec{
 	"log_empty":                      {fields: []string{"vm"}},
 	"log_end":                        {fields: []string{"file"}},
 	"log_failed":                     {fields: []string{"reason"}},
+	"login_capture_refused":          {fields: []string{"agent", "vm"}},
 	"login_copy_failed":              {fields: []string{"agent", "reason", "vm"}},
+	"login_kept":                     {fields: []string{"agent", "file", "keys"}},
+	"login_passed":                   {fields: []string{"agent", "providers"}},
 	"login_read_failed":              {fields: []string{"file", "reason"}},
+	"login_withheld":                 {fields: []string{"agent", "name", "providers"}},
 	"ls_failed":                      {fields: []string{"reason"}},
 	"making_waiting":                 {},
 	"mise_checksum":                  {fields: []string{"version"}},
@@ -4624,8 +4653,6 @@ var specs = map[string]spec{
 	"oci_waiting":                    {},
 	"opencode_import_failed":         {fields: []string{"providers", "vm"}},
 	"opencode_import_too_much":       {fields: []string{"vm"}},
-	"opencode_login_kept":            {fields: []string{"providers"}},
-	"opencode_login_withheld":        {fields: []string{"providers"}},
 	"opencode_refresh_failed":        {fields: []string{"provider", "reason"}},
 	"origin_no_boot":                 {fields: []string{"origin"}},
 	"origin_pinned":                  {fields: []string{"origin"}},
@@ -4641,6 +4668,8 @@ var specs = map[string]spec{
 	"part_none_alone":                {fields: []string{"flag"}},
 	"part_other_flag":                {fields: []string{"flag", "given", "other"}},
 	"password_prompt":                {},
+	"pi_settings_dropped":            {fields: []string{"keys", "vm"}},
+	"pi_trusts_all":                  {fields: []string{"vm"}},
 	"pick_agents":                    {},
 	"pick_called_for":                {fields: []string{"file"}},
 	"pick_from_flag":                 {fields: []string{"flag"}},
@@ -4805,6 +4834,7 @@ var specs = map[string]spec{
 	"too_much_memory":                {fields: []string{"have", "max", "want"}},
 	"tool_bad_output":                {fields: []string{"file"}},
 	"tool_bad_version":               {fields: []string{"tool", "version"}},
+	"tool_glibc_only":                {fields: []string{"tool"}},
 	"tool_needs_glibc":               {fields: []string{"has", "needs", "tool", "version"}},
 	"tool_no_download":               {fields: []string{"tool", "version"}},
 	"tool_not_layer":                 {fields: []string{"tool"}},
