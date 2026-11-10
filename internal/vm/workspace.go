@@ -380,9 +380,10 @@ func (e clones) mountingVM(dir, self string) string {
 // the folder's own repo's info/exclude gets what's on stdin; then for
 // each repo its path relative to it and the branch it checks out, a new
 // repo there (the folders between the user's too) that takes pushes to
-// its checked-out branch. A repo there already with a commit, an earlier
-// copy's push landed, is left as it is (its HEAD may be the VM's work
-// now) and its path printed, a line each.
+// its checked-out branch, a shallow repo's included (receive.shallowUpdate).
+// A repo there already with a commit, an earlier copy's push landed, is
+// left as it is (its HEAD may be the VM's work now) and its path printed,
+// a line each.
 const initRepos = `ws=$1; ex=$2; shift 2
 sudo mkdir -p -- "$ws" && sudo chown -- "$(id -u):$(id -g)" "$ws" || exit 1
 while [ "$#" -ge 2 ]; do
@@ -391,7 +392,7 @@ while [ "$#" -ge 2 ]; do
     printf '%s\n' "$1"; shift 2; continue
   fi
   mkdir -p -- "$d" && git -C "$d" init -q && git -C "$d" config receive.denyCurrentBranch updateInstead &&
-    git -C "$d" symbolic-ref HEAD "refs/heads/$2" || exit 1
+    git -C "$d" config receive.shallowUpdate true && git -C "$d" symbolic-ref HEAD "refs/heads/$2" || exit 1
   shift 2
 done
 if [ "$ex" = exclude ]; then

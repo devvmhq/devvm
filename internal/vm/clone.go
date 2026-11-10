@@ -198,8 +198,11 @@ func (e clones) seedClone(ctx context.Context, t *target) error {
 	if err != nil {
 		return err
 	}
+	// receive.shallowUpdate lets a shallow repo on this machine seed:
+	// without it git refuses the push ("shallow update not allowed"),
+	// and the clone in the VM stays shallow, as the source is.
 	const initRepo = `sudo mkdir -p -- "$1" && sudo chown -- "$(id -u):$(id -g)" "$1" && cd -- "$1" &&
-git init -q && git config receive.denyCurrentBranch updateInstead && git symbolic-ref HEAD "refs/heads/$2"`
+git init -q && git config receive.denyCurrentBranch updateInstead && git config receive.shallowUpdate true && git symbolic-ref HEAD "refs/heads/$2"`
 	log := e.vmLog()
 	if err := t.exec(ctx, []string{"sh", "-c", initRepo, "sh", dir, branch}, backend.ExecOpts{Stdout: log, Stderr: log}); err != nil {
 		if ctx.Err() != nil {

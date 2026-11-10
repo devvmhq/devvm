@@ -177,6 +177,36 @@ func TestUpCloneWorktree(t *testing.T) {
 	}
 }
 
+// A --clone VM of a shallow repo: the seed push lands, and the clone
+// in the VM is shallow too.
+func TestUpCloneShallow(t *testing.T) {
+	e, _, vmfs := cloneEnv(t)
+	gitIn(t, e.Dir, "commit", "-q", "--allow-empty", "-m", "two")
+	repo := filepath.Join(filepath.Dir(e.Dir), "repo")
+	if err := os.Rename(e.Dir, repo); err != nil {
+		t.Fatal(err)
+	}
+	// The folder's repo again, as a shallow clone of it.
+	out, err := exec.CommandContext(t.Context(), "git", "clone", "-q", "--depth", "1", "file://"+repo, e.Dir).CombinedOutput() //nolint:gosec // the test's own
+	if err != nil {
+		t.Fatalf("git clone --depth 1: %v\n%s", err, out)
+	}
+	if got := gitIn(t, e.Dir, "rev-parse", "--is-shallow-repository"); got != "true" {
+		t.Fatalf("host repo shallow %q", got)
+	}
+	existingVM(t, e, Options{Network: "open", Clone: true})
+	clone := vmfs + e.Dir
+	if got := gitIn(t, clone, "branch", "--format=%(refname:short)"); got != "main" {
+		t.Errorf("clone's branches %q", got)
+	}
+	if got := gitIn(t, clone, "rev-parse", "--is-shallow-repository"); got != "true" {
+		t.Errorf("clone shallow %q", got)
+	}
+	if got := gitIn(t, clone, "log", "--format=%s", "-1"); got != "two" {
+		t.Errorf("clone's HEAD %q", got)
+	}
+}
+
 // rm on a --clone VM: branches with commits the repo lacks are offered
 // for fetching, uncommitted changes in the clone are asked about, and
 // the remote goes with the VM. A VM's answer that isn't an object name
