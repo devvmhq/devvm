@@ -21,6 +21,7 @@ import (
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/image"
+	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/stubtest"
 	"github.com/devvmhq/devvm/internal/ubuntu"
@@ -147,6 +148,36 @@ func stopLinkSessions(root string) {
 	}
 }
 
+// proxyLogLines is how much of each proxy's log logProxies shows: its end.
+const proxyLogLines = 40
+
+// logProxies logs, once a script has failed, the end of each of the
+// sandbox's VMs' proxy logs and its proxy's status file, before the
+// sandbox goes with them: a proxy that didn't start (proxy_start_failed)
+// says why there. Nothing for a script that passed, or a VM without a
+// proxy log.
+func logProxies(t testscript.T, root string) {
+	if f, ok := t.(interface{ Failed() bool }); !ok || !f.Failed() {
+		return
+	}
+	vms, _ := filepath.Glob(filepath.Join(root, "data", "devvm", "vms", "*"))
+	for _, dir := range vms {
+		v := paths.VM{Dir: dir}
+		b, err := os.ReadFile(v.ProxyLog())
+		if err != nil {
+			continue
+		}
+		lines := strings.SplitAfter(strings.TrimSuffix(string(b), "\n"), "\n")
+		lines = lines[max(0, len(lines)-proxyLogLines):]
+		status, err := os.ReadFile(v.Proxy(".status"))
+		if err != nil {
+			status = []byte("(none: " + err.Error() + ")")
+		}
+		t.Log("proxy log " + v.ProxyLog() + ", its last lines:\n" + strings.Join(lines, "") +
+			"\nproxy status " + v.Proxy(".status") + ":\n" + strings.TrimSuffix(string(status), "\n"))
+	}
+}
+
 // sandbox points every folder devvm uses into a new temporary folder, puts
 // devvm and the stubs first on PATH, and leaves out git's variables that
 // pick a repo (stubtest.GitEnv).
@@ -157,6 +188,7 @@ func sandbox(env *testscript.Env, bin, stubs string) error {
 		return err
 	}
 	env.Defer(func() {
+		logProxies(env.T(), root)
 		// VMs' proxies follow a stub hostagent that's gone before they
 		// look: stop them with the sandbox.
 		_ = exec.CommandContext(context.Background(), "pkill", "-f", "_proxy -config "+root+"/").Run() //nolint:gosec,forbidigo // the test's own folder; a cleanup, after the scripts' contexts end
