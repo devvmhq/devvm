@@ -37,10 +37,10 @@ func nixSection(s *S) {
 // Behind a company proxy, the layer's script (as a layer of the run's own,
 // so it builds each run) gets its build proxy's settings, which Nix's
 // installer would write into nix-daemon's: none is anywhere on its disk.
-// A layer of yours gets no prelude, so its copy starts with devvm's.
+// A layer of yours gets the prelude as nix.sh does.
 func nixImage(s *S) {
 	corp, cerr := StartCorp(s)
-	f, lerr := s.Layer("e2enix.sh", readText(filepath.Join(s.sb.root, "assets", "prelude.sh"))+readText(filepath.Join(s.sb.root, "assets", "layers", "nix.sh")))
+	f, lerr := s.Layer("e2enix.sh", readText(filepath.Join(s.sb.root, "assets", "layers", "nix.sh")))
 	s.Check("built behind a company proxy, the layer leaves no proxy settings for nix-daemon in its image", func() error {
 		if err := errors.Join(cerr, lerr); err != nil {
 			return err

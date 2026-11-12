@@ -254,7 +254,7 @@ func TestKeyOfMissingAndBuiltinLayers(t *testing.T) {
 // recorded; a deleted one is still missing.
 func TestUserLayerGetsThePrelude(t *testing.T) {
 	b := keyEnv(t, "")
-	if data, err := b.LayerData("foo"); err != nil || string(data) != testPrelude+"#!/bin/bash\necho foo\n" {
+	if data, err := b.LayerData("foo"); err != nil || string(data) != ran("#!/bin/bash\necho foo\n") {
 		t.Errorf("LayerData(foo) = %q, %v", data, err)
 	}
 	in, err := b.inputs()
@@ -269,11 +269,11 @@ func TestUserLayerGetsThePrelude(t *testing.T) {
 	without := foo.Input
 	without.Recipe.Steps = slices.Clone(foo.Recipe.Steps)
 	last := &without.Recipe.Steps[len(without.Recipe.Steps)-1]
-	data, ok := strings.CutPrefix(string(last.Data), testPrelude)
+	data, ok := strings.CutPrefix(string(last.Data), testPreludeLine)
 	if last.Name != "foo.sh" || !ok {
 		t.Fatalf("foo's last step %s: %q", last.Name, last.Data)
 	}
-	last.Data = []byte(data)
+	last.Data = []byte("#!/bin/bash\n" + data) // the user's file, as it was run
 	if without.Key() == foo.Key() {
 		t.Error("an image of foo built without the prelude isn't outdated")
 	}

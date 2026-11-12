@@ -117,21 +117,31 @@ func assetsDir(b *Env) string { return filepath.Join(filepath.Dir(b.Dirs.Data), 
 // with bash gets before it: devvm's own and the user's layers.
 const testPrelude = "# prelude\n"
 
-// script is a script's step as a build runs it: testPrelude, then data.
+// testPreludeLine is testPrelude as the one line a build runs it as.
+const testPreludeLine = "eval $'# prelude\\n'\n"
+
+// ran is a script as a build runs it: testPreludeLine in place of its #!
+// line.
+func ran(data string) string {
+	_, rest, _ := strings.Cut(data, "\n")
+	return testPreludeLine + rest
+}
+
+// script is a script's step as a build runs it (ran).
 func script(name, data string) image.Step {
-	return image.Step{Name: name, Data: []byte(testPrelude + data)}
+	return image.Step{Name: name, Data: []byte(ran(data))}
 }
 
 // layerSteps is a layer's steps: testEnv's apt.sh lists as root, then s.
 func layerSteps(s image.Step) []image.Step {
-	return []image.Step{{Name: "apt.sh", Data: []byte(testPrelude + "#!/bin/bash\n# apt\n"), Args: []string{"lists"}, Root: true}, s}
+	return []image.Step{{Name: "apt.sh", Data: []byte(ran("#!/bin/bash\n# apt\n")), Args: []string{"lists"}, Root: true}, s}
 }
 
 // aptSteps is base's steps around steps: testEnv's apt.sh begin, then
 // steps, then apt.sh end, both as root.
 func aptSteps(steps ...image.Step) []image.Step {
 	apt := func(arg string) image.Step {
-		return image.Step{Name: "apt.sh", Data: []byte(testPrelude + "#!/bin/bash\n# apt\n"), Args: []string{arg}, Root: true}
+		return image.Step{Name: "apt.sh", Data: []byte(ran("#!/bin/bash\n# apt\n")), Args: []string{arg}, Root: true}
 	}
 	return slices.Concat([]image.Step{apt("begin")}, steps, []image.Step{apt("end")})
 }
@@ -356,7 +366,7 @@ func TestBuildBuiltinLayer(t *testing.T) {
 	if got.Image != "foo+docker" || !sameScripts(got.Recipe.Steps, layerSteps(script("docker.sh", "#!/bin/bash\necho devvm's\n"))) {
 		t.Errorf("built %+v", got)
 	}
-	if data, err := b.LayerData("docker"); err != nil || string(data) != testPrelude+"#!/bin/bash\necho devvm's\n" {
+	if data, err := b.LayerData("docker"); err != nil || string(data) != ran("#!/bin/bash\necho devvm's\n") {
 		t.Errorf("LayerData(docker) = %q, %v", data, err)
 	}
 }

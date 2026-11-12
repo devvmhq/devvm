@@ -541,15 +541,15 @@ func TestShellWaits(t *testing.T) {
 	}
 }
 
-// A script fed to bash -s is logged by its first line, past devvm's
-// prelude.
+// A script fed to bash -s is logged by its second line, past its #! line
+// or devvm's prelude's line, with a build's exports before it or not.
 func TestShellScripts(t *testing.T) {
 	s := newSandbox(t)
-	prelude := "#!/bin/bash\n# devvm's prelude: x\nf() {\n  :\n}\n\n# the script\nmore\n"
-	s.ok(prelude, "limactl", "shell", "vm", "bash", "-s")
+	s.ok("eval $'# devvm\\'s prelude\\n'\n# the script\nmore\n", "limactl", "shell", "vm", "bash", "-s")
 	s.ok("#!/bin/bash\n# plain\n", "limactl", "shell", "vm", "sh", "-c", "cd '/' && exec 'bash' '-s'")
-	s.ok("#!/bin/bash\n# devvm's prelude, never closed\n", "limactl", "shell", "vm", "bash", "-s")
-	if got := s.read("scripts"); got != "# the script\n# plain\n\n" {
+	s.ok("export A=1; eval $'p\\n'\n# behind a proxy\n", "limactl", "shell", "vm", "bash", "-s")
+	s.ok("#!/bin/bash", "limactl", "shell", "vm", "bash", "-s")
+	if got := s.read("scripts"); got != "# the script\n# plain\n# behind a proxy\n\n" {
 		t.Errorf("scripts %q", got)
 	}
 }

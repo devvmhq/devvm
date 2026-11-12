@@ -1,9 +1,12 @@
 package image
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"slices"
+
+	"github.com/devvmhq/devvm/internal/shell"
 )
 
 // preludeFile is devvm's prelude, in its own files: $devvm_arch,
@@ -11,7 +14,7 @@ import (
 const preludeFile = "prelude.sh"
 
 // OwnScript is devvm's own script name, from own (devvm's files), as an
-// image's build runs it with bash: the prelude, then the script. Each of
+// image's build runs it with bash (WithPrelude). Each of
 // devvm's scripts that a build runs with bash is read through it (base.sh,
 // apt.sh, the built-in layers and features, shared-tools/build.sh,
 // oci/build.sh), so the recipes and keys that hold a script hold the
@@ -26,15 +29,27 @@ func OwnScript(own fs.FS, name string) ([]byte, error) {
 
 // WithPrelude is script as an image's build runs it with bash: the
 // prelude from own (devvm's files), then the script, which may be the
-// user's own layer. The prelude comes first, so whatever the script sets
-// afterwards, a devvm_ name included, is the script's.
+// user's own layer. The prelude is one line, eval $'…' (preludeLine), in
+// place of the script's #! line, so each of the script's lines keeps its
+// number in bash's errors and $LINENO; a script without one is a line
+// further down. A UTF-8 byte order mark that an editor put first goes,
+// with the #! line after it. The prelude comes first, so whatever the
+// script sets afterwards, a devvm_ name included, is the script's.
 func WithPrelude(own fs.FS, script []byte) ([]byte, error) {
 	prelude, err := fs.ReadFile(own, preludeFile)
 	if err != nil {
 		return nil, fmt.Errorf("reading devvm's %s: %w", preludeFile, err)
 	}
-	return slices.Concat(prelude, script), nil
+	script = bytes.TrimPrefix(script, []byte("\xef\xbb\xbf"))
+	if bytes.HasPrefix(script, []byte("#!")) {
+		_, script, _ = bytes.Cut(script, []byte("\n"))
+	}
+	return slices.Concat([]byte(preludeLine(prelude)), script), nil
 }
+
+// preludeLine is prelude as one line of bash that runs it: eval with the
+// prelude quoted on one line (shell.QuoteLine), and a newline.
+func preludeLine(prelude []byte) string { return "eval " + shell.QuoteLine(string(prelude)) + "\n" }
 
 // Recipe is what an image is made of, built once (internal/build): its
 // key hashes it (Input), and its backend runs it as it is

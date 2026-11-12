@@ -96,7 +96,7 @@ func ownerDocs() []ownerDoc {
 		},
 		{
 			check:     "the structure test's `owners`, shell quoting",
-			owner:     "`internal/shell`, whose `Quote` and `QuoteJoin` quote words for a POSIX shell, so a value never runs as a command",
+			owner:     "`internal/shell`, whose `Quote` and `QuoteJoin` quote words for a POSIX shell, so a value never runs as a command, and `QuoteLine` a word on one line for bash",
 			elsewhere: "tests",
 		},
 		{

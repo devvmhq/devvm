@@ -269,17 +269,18 @@ func (c CAs) Build(assets fs.FS) (backend.Trust, error) {
 	}, nil
 }
 
-// exports are the shell lines that export Env, Trust's Env, which the
+// exports are the shell commands that export Env, Trust's Env, which the
 // backend puts at the start of each of a build's scripts: a build
 // script's tools then find the CAs while it runs, and the image keeps
-// none of it. None for no CAs.
+// none of it. They end in "; ", not a newline, so they share the script's
+// first line and its lines keep their numbers. None for no CAs.
 func (c CAs) exports() []byte {
 	if len(c) == 0 {
 		return nil
 	}
 	var b bytes.Buffer
 	for _, k := range slices.Sorted(maps.Keys(Env)) {
-		b.WriteString("export " + k + "=" + Env[k] + "\n")
+		b.WriteString("export " + k + "=" + Env[k] + "; ")
 	}
 	return b.Bytes()
 }

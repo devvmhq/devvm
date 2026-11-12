@@ -797,6 +797,11 @@ func TestBuild(t *testing.T) {
 	if err := e.Build(t.Context(), backend.Review{}, f, baseKey, gnuT, all); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
+	// build.sh as the build runs it, after the prelude's line.
+	ownBuild, err := image.OwnScript(os.DirFS(e.root), "shared-tools/build.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if ms := f.Methods(); !slices.Equal(ms, []string{"BuildTools", "BuildTools", "BuildTools"}) {
 		t.Fatalf("calls = %q", ms)
 	}
@@ -807,7 +812,7 @@ func TestBuild(t *testing.T) {
 		spec, _ := f.Calls()[c].Args[0].(backend.ToolsSpec)
 		if spec.Base != baseKey || spec.OutAt != ShareAt || spec.Net != backend.NetInternet || !slices.Equal(spec.Args, []string{tool, lock.Version(tool), all[i]}) ||
 			spec.Name != Label(all[i:i+1]) || spec.Script.Name != "build.sh" ||
-			!bytes.Equal(spec.Script.Data, slices.Concat(read(t, filepath.Join(e.root, "prelude.sh")), read(t, filepath.Join(e.root, "shared-tools", "build.sh")))) {
+			!bytes.Equal(spec.Script.Data, ownBuild) {
 			t.Errorf("%s's spec = %+v", tool, spec)
 		}
 		if filepath.Dir(spec.Out) != e.Dirs.Data || !strings.HasPrefix(filepath.Base(spec.Out), "tools-build.") {

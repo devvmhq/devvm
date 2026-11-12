@@ -176,8 +176,8 @@ func devvm() rules {
 				to: []string{"..."},
 			},
 			{
-				name: "internal/image imports only assets, internal/agents, internal/msg and internal/paths",
-				from: []string{"internal/image"}, exceptTo: []string{"assets", "internal/agents", "internal/msg", "internal/paths"},
+				name: "internal/image imports only assets, internal/agents, internal/msg, internal/paths and internal/shell",
+				from: []string{"internal/image"}, exceptTo: []string{"assets", "internal/agents", "internal/msg", "internal/paths", "internal/shell"},
 				to: []string{"..."},
 			},
 			{

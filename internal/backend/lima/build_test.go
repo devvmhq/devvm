@@ -290,7 +290,7 @@ func TestBuildImageHostProxy(t *testing.T) {
 			}
 			if len(scripts) != 3 || !strings.HasPrefix(scripts[1], "limactl shell "+inst+" bash -s\nexport HTTPS_PROXY='http://devvm:") ||
 				!strings.Contains(scripts[1], "@192.168.5.2:40000' https_proxy='http://devvm:") ||
-				!strings.HasSuffix(scripts[1], "@192.168.5.2:40000' NO_PROXY='.corp' no_proxy='.corp'\n#!/bin/bash\necho foo\n") {
+				!strings.HasSuffix(scripts[1], "@192.168.5.2:40000' NO_PROXY='.corp' no_proxy='.corp'; #!/bin/bash\necho foo\n") {
 				t.Errorf("scripts:\n%s", strings.Join(scripts, "\n--\n"))
 			}
 			if want := "limactl shell --workdir / " + inst + " sudo sh -s\nprintf '%s\\n' '" + sudoKeepProxy +

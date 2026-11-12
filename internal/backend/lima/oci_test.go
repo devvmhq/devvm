@@ -116,8 +116,8 @@ func TestWriteScripts(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Errorf("cas %v: wrote %q, want %q", cas, got, want)
 		}
-		// build.sh after the prelude; the scripts it runs as they are.
-		for name, want := range map[string]string{"build.sh": "prelude\nbuild\n", "bootify.sh": "bootify\n", "kernel.sh": "kernel\n"} {
+		// build.sh after the prelude's line; the scripts it runs as they are.
+		for name, want := range map[string]string{"build.sh": "eval $'prelude\\n'\nbuild\n", "bootify.sh": "bootify\n", "kernel.sh": "kernel\n"} {
 			if b, _ := os.ReadFile(filepath.Join(oci, name)); string(b) != want { //nolint:gosec // the test's own folder
 				t.Errorf("%s = %q, want %q", name, b, want)
 			}

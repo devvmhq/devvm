@@ -315,7 +315,10 @@ type Packages struct {
 // installs them and Remove takes them out again, so the image doesn't
 // keep them; both are run as root, fed to sh. Env exports the variables
 // that point tools at them, which each of the build's steps starts with.
-// Empty for none.
+// It's commands on no line of their own, each ending in "; ", so a backend
+// puts it directly before the step's script, on its first line: a newline
+// between would put each of the script's lines a line further down than
+// its file's (image.WithPrelude). Empty for none.
 type Trust struct {
 	Add, Remove Script
 	Env         []byte

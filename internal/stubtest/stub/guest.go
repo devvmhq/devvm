@@ -17,7 +17,7 @@ import (
 // files are $STUB_DIR/vmfs (a --clone VM's repo and worktrees, its git
 // run here, on them) and $STUB_DIR/vmhome-<vm> (a VM's home folder, as a
 // remake reads it). What it's sent is kept: a script fed to bash -s has
-// its first line past devvm's prelude appended to $STUB_DIR/scripts, a
+// its second line, past its #! line or devvm's prelude, appended to $STUB_DIR/scripts, a
 // VM's setup is $STUB_DIR/sync.tar, a base build's packages
 // $STUB_DIR/packages-in.tar, what a remake puts in a new disk's home
 // $STUB_DIR/home-in.tgz, and an import of agents' history
@@ -141,30 +141,19 @@ func (g *guest) git(words []string) int {
 	return code
 }
 
-// preludeRE starts devvm's prelude, the first lines of a build script.
-var preludeRE = regexp.MustCompile(`^# devvm.s prelude`)
-
-// logScript appends a bash -s script's first line, past devvm's prelude
-// (assets/prelude.sh, which ends with its function's closing brace and a
-// blank line) when it starts with it, to $STUB_DIR/scripts. It reads the
-// whole script.
+// logScript appends a bash -s script's second line, its first past its #!
+// line, to $STUB_DIR/scripts. A build script's first line is devvm's
+// prelude, one eval line in place of its #! line (image.WithPrelude), with
+// any exports for a company proxy or the user's CAs before it on the same
+// line, so its second line is its own second line too. It reads the whole
+// script.
 func (g *guest) logScript() {
 	b, _ := io.ReadAll(g.stdin)
 	g.stdin = bytes.NewReader(nil)
 	lines := strings.Split(string(b), "\n")
-	at := 1
-	if len(lines) > 1 && preludeRE.MatchString(lines[1]) {
-		at = len(lines)
-		for i := 1; i < len(lines); i++ {
-			if lines[i] == "}" {
-				at = i + 2
-				break
-			}
-		}
-	}
 	line := ""
-	if at < len(lines) {
-		line = lines[at]
+	if len(lines) > 1 {
+		line = lines[1]
 	}
 	g.logLine(g.path("scripts"), line)
 }

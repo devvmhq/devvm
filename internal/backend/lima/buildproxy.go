@@ -95,8 +95,10 @@ func buildProxy(ctx context.Context, l *Lima, vm string, n backend.Net) (backend
 	return c, hp, done, nil
 }
 
-// proxyExports are shell lines exporting h's variables, for the start of a
-// build script: none without a proxy.
+// proxyExports is a shell command exporting h's variables, for the start
+// of a build script: none without a proxy. It ends in "; ", not a newline,
+// so it shares the script's first line and the script's lines keep their
+// numbers.
 func proxyExports(h backend.HostProxy) []byte {
 	env := h.Env()
 	if len(env) == 0 {
@@ -108,7 +110,7 @@ func proxyExports(h backend.HostProxy) []byte {
 		k, v, _ := strings.Cut(kv, "=")
 		b.WriteString(" " + k + "=" + shell.Quote(v))
 	}
-	b.WriteString("\n")
+	b.WriteString("; ")
 	return []byte(b.String())
 }
 

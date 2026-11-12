@@ -238,7 +238,9 @@ func TestBuild(t *testing.T) {
 		t.Errorf("Remove = %q", tr.Remove.Data)
 	}
 	env := string(tr.Env)
-	if !strings.HasPrefix(env, "export ") || !strings.HasSuffix(env, "\n") || !strings.Contains(env, "export NODE_EXTRA_CA_CERTS="+Bundle+"\n") {
+	// On one line, which the script's first shares.
+	if !strings.HasPrefix(env, "export ") || !strings.HasSuffix(env, "; ") || strings.Contains(env, "\n") ||
+		!strings.Contains(env, "export NODE_EXTRA_CA_CERTS="+Bundle+"; ") {
 		t.Errorf("Env = %q", env)
 	}
 }
