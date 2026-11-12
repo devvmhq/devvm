@@ -249,6 +249,40 @@ func TestKeyOfMissingAndBuiltinLayers(t *testing.T) {
 	}
 }
 
+// A user's layer runs with the prelude before it, which its step holds,
+// so its image's key differs from the one an image built without it
+// recorded; a deleted one is still missing.
+func TestUserLayerGetsThePrelude(t *testing.T) {
+	b := keyEnv(t, "")
+	if data, err := b.LayerData("foo"); err != nil || string(data) != testPrelude+"#!/bin/bash\necho foo\n" {
+		t.Errorf("LayerData(foo) = %q, %v", data, err)
+	}
+	in, err := b.inputs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plans, err := b.plan(in, "foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foo := plans[1]
+	without := foo.Input
+	without.Recipe.Steps = slices.Clone(foo.Recipe.Steps)
+	last := &without.Recipe.Steps[len(without.Recipe.Steps)-1]
+	data, ok := strings.CutPrefix(string(last.Data), testPrelude)
+	if last.Name != "foo.sh" || !ok {
+		t.Fatalf("foo's last step %s: %q", last.Name, last.Data)
+	}
+	last.Data = []byte(data)
+	if without.Key() == foo.Key() {
+		t.Error("an image of foo built without the prelude isn't outdated")
+	}
+	remove(t, filepath.Join(b.Dirs.Layers(), "foo.sh"))
+	if _, err := b.LayerData("foo"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a deleted layer: %v", err)
+	}
+}
+
 // devvm's own files, embedded, give base and every built-in layer a key.
 func TestKeyOfTheRealFiles(t *testing.T) {
 	b, _ := testEnv(t)

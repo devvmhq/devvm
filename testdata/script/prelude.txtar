@@ -29,6 +29,46 @@ env STUB_UNAME_M=x86_64
 ! stdout .
 stderr '^devvm: this script pins no crane_sha256_amd64$'
 
+# A user's layer, as a build runs it: the prelude, then the layer, on bash's standard input. Its own
+# pins pick its download, the _musl one on Alpine where it pins one, under the layer's set -u.
+env STUB_UNAME_M=aarch64
+exec bash layer.sh gnu mailpit.sh
+stdout '^mailpit arm64 gnu sum-arm64$'
+env STUB_UNAME_M=x86_64
+exec bash layer.sh gnu mailpit.sh
+stdout '^mailpit amd64 gnu sum-amd64$'
+exec bash layer.sh musl mailpit.sh
+stdout '^mailpit amd64 musl sum-amd64-musl$'
+env STUB_UNAME_M=aarch64
+exec bash layer.sh musl mailpit.sh
+stdout '^mailpit arm64 musl sum-arm64$'
+
+# A layer that sets a devvm_ name of its own keeps it: the prelude came first.
+exec bash layer.sh gnu own.sh
+stdout '^own x86_64 mine$'
+
+-- layer.sh --
+# layer.sh LIBC SCRIPT: SCRIPT as a build runs a user's layer, after the prelude on bash -s's
+# standard input. musl is Alpine's: apk on PATH.
+set -euo pipefail
+if [[ $1 == musl ]]; then
+  mkdir -p alpine; printf '#!/bin/sh\n' > alpine/apk; chmod 755 alpine/apk
+  PATH=$PWD/alpine:$PATH
+fi
+cat "$DEVVM_REPO/assets/prelude.sh" "$2" | bash -s
+-- mailpit.sh --
+#!/bin/bash
+set -euo pipefail
+mailpit_sha256_arm64=sum-arm64
+mailpit_sha256_amd64=sum-amd64
+mailpit_sha256_amd64_musl=sum-amd64-musl
+echo "mailpit $devvm_arch $devvm_libc $(devvm_sha mailpit)"
+-- own.sh --
+#!/bin/bash
+set -euo pipefail
+devvm_arch=x86_64
+devvm_sha() { echo mine; }
+echo "own $devvm_arch $(devvm_sha mailpit)"
 -- pins.sh --
 # pins.sh LIBC: for each script and download, which of its pins devvm_sha gives. musl is
 # Alpine's: apk on PATH.

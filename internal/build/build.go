@@ -194,12 +194,17 @@ func (b *Env) Layers() []string {
 }
 
 // LayerData is a layer's script as its build runs it: devvm's own for a
-// built-in layer, with the prelude before it, else the user's.
+// built-in layer, else the user's, each with the prelude before it. A
+// user's layer that's gone is an error matching fs.ErrNotExist.
 func (b *Env) LayerData(layer string) ([]byte, error) {
 	if image.IsBuiltin(layer) {
 		return image.OwnScript(b.Assets, "layers/"+layer+".sh")
 	}
-	return os.ReadFile(b.userLayer(layer))
+	data, err := os.ReadFile(b.userLayer(layer))
+	if err != nil {
+		return nil, err
+	}
+	return image.WithPrelude(b.Assets, data)
 }
 
 func (b *Env) userLayer(layer string) string {

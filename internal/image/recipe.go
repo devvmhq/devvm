@@ -15,15 +15,23 @@ const preludeFile = "prelude.sh"
 // devvm's scripts that a build runs with bash is read through it (base.sh,
 // apt.sh, the built-in layers and features, shared-tools/build.sh,
 // oci/build.sh), so the recipes and keys that hold a script hold the
-// prelude too. A user's script gets none.
+// prelude too. A user's layer gets it through WithPrelude.
 func OwnScript(own fs.FS, name string) ([]byte, error) {
-	prelude, err := fs.ReadFile(own, preludeFile)
-	if err != nil {
-		return nil, fmt.Errorf("reading devvm's %s: %w", preludeFile, err)
-	}
 	script, err := fs.ReadFile(own, name)
 	if err != nil {
 		return nil, fmt.Errorf("reading devvm's %s: %w", name, err)
+	}
+	return WithPrelude(own, script)
+}
+
+// WithPrelude is script as an image's build runs it with bash: the
+// prelude from own (devvm's files), then the script, which may be the
+// user's own layer. The prelude comes first, so whatever the script sets
+// afterwards, a devvm_ name included, is the script's.
+func WithPrelude(own fs.FS, script []byte) ([]byte, error) {
+	prelude, err := fs.ReadFile(own, preludeFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading devvm's %s: %w", preludeFile, err)
 	}
 	return slices.Concat(prelude, script), nil
 }

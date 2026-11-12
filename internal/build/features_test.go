@@ -44,7 +44,7 @@ func TestFeatures(t *testing.T) {
 	if got, want := b.Features(), []string{"fzf", "omb", "tools"}; !slices.Equal(got, want) {
 		t.Errorf("Features() = %q, want %q", got, want)
 	}
-	if got, err := b.featureStep("fzf"); err != nil || !sameScripts([]image.Step{got}, []image.Step{ownScript("fzf.sh", "#!/bin/bash\n#fuzzy search  \n")}) {
+	if got, err := b.featureStep("fzf"); err != nil || !sameScripts([]image.Step{got}, []image.Step{script("fzf.sh", "#!/bin/bash\n#fuzzy search  \n")}) {
 		t.Errorf("featureStep(fzf) = %+v, %v", got, err)
 	}
 	for _, name := range []string{"gone", "dir", "mine"} {
@@ -235,9 +235,9 @@ func TestBuildRunsFeatures(t *testing.T) {
 	}
 	want := [][]image.Step{
 		aptSteps(
-			ownScript("base.sh", "#!/bin/bash\n"),
-			ownScript("tools.sh", "#!/bin/bash\n# my tools\n"),
-			ownScript("fzf.sh", "#!/bin/bash\n#fuzzy search  \n"),
+			script("base.sh", "#!/bin/bash\n"),
+			script("tools.sh", "#!/bin/bash\n# my tools\n"),
+			script("fzf.sh", "#!/bin/bash\n#fuzzy search  \n"),
 		),
 		layerSteps(script("foo.sh", "#!/bin/bash\necho foo\n")),
 	}

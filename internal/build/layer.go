@@ -19,7 +19,8 @@ const layerScript = `#!/bin/bash
 # on top of base: devvm build NAME builds it, and a new VM gets it with --layers NAME. Editing it rebuilds that image,
 # and the ones built on it, on next use.
 # - Put PATH changes in ~/.profile.
-# - Download with devvm-fetch URL SHA256 OUT: it fails when the checksum doesn't match.
+# - Download with devvm-fetch URL SHA256 OUT: it fails when the checksum doesn't match. With
+#   TOOL_sha256_arm64 and TOOL_sha256_amd64 set, devvm_sha TOOL is this VM's; $devvm_arch is arm64 or amd64.
 # - On the allowlist tier, NAME.policy next to this file lists the hosts VMs with this layer reach.
 set -euo pipefail
 

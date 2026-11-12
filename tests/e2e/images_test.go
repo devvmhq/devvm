@@ -184,7 +184,12 @@ func imagesFixture(s *S, kb string) string {
 		_, err := s.Devvm("", "layer", "new", "e2efix")
 		return err
 	})
-	_ = AppendFile(fixture, "echo "+token+"\necho fixture | sudo tee /etc/e2e-fixture\n")
+	// The layer runs after devvm's prelude: it prints the architecture and C library the prelude
+	// found, and the pin devvm_sha picks of two fake ones, all of which the check compares.
+	_ = AppendFile(fixture, "e2efix_sha256_arm64=fake-arm64\ne2efix_sha256_amd64=fake-amd64\n"+
+		`echo "`+token+` $devvm_arch $devvm_libc $(devvm_sha e2efix)"`+"\necho fixture | sudo tee /etc/e2e-fixture\n")
+	// The VM's architecture is this machine's, which Go names as the pins do; base is Ubuntu's.
+	ran := fmt.Sprintf("%s %s gnu fake-%s", token, runtime.GOARCH, runtime.GOARCH)
 	s.Check("build the fixture layer on base", func() error {
 		_, err := s.Devvm("", "build", "e2efix")
 		return err
@@ -203,8 +208,8 @@ func imagesFixture(s *S, kb string) string {
 			return errors.New("the fixture's image isn't there, stopped")
 		case s.Paths.Record(kf, "chain") != "base="+kb+" e2efix="+kf:
 			return errors.New("the fixture's chain isn't base's and its own")
-		case !s.Paths.RunLogHas(token):
-			return errors.New("no run log has the fixture's output")
+		case !s.Paths.RunLogHas(ran):
+			return fmt.Errorf("no run log has the fixture's output, %q: the prelude's names, before it", ran)
 		}
 		return nil
 	})

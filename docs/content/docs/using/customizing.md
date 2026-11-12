@@ -22,6 +22,7 @@ A [layer](images.md#layers) is a script, `~/.config/devvm/layers/<name>.sh`, tha
 - Built-in layers go in the same image names as yours, bottom first, as in `devvm --layers docker,mailpit`, which makes the image `docker+mailpit`.
 - Put interactive shell setup in `~/.bashrc.d/<name>.sh`, which every VM's `~/.bashrc` reads, and PATH changes in `~/.profile`.
 - Download files with `devvm-fetch URL SHA256 OUT`, which `base` installs. It fails when the file's checksum doesn't match.
+- devvm runs a few lines of its own before your script, which give it `$devvm_arch`, the VM's architecture as `arm64` or `amd64`, `$devvm_libc`, which is `musl` on Alpine and `gnu` elsewhere, and `devvm_sha TOOL`, which prints the checksum you pinned for this VM, as the [example](#example-mailpit) shows. Names that start with `devvm_` are devvm's, and one your script sets is your script's from then on.
 - `NAME.policy` lists the hosts that VMs with the layer can reach on the [allowlist tier](../safety/network.md#allowlists), one rule per line.
 - Editing the script rebuilds its image, and the ones built on it, the next time they're used ([rebuilding](images.md#rebuilding)).
 - A layer's script changes the VM's disk, so `devvm layer add mailpit` gives a VM you have the layer by making the VM again, keeping its home folder and settings ([adding layers to a VM](images.md#adding-layers-to-a-vm)), and `devvm layer rm mailpit` takes it out again in the same way ([taking layers out of a VM](images.md#taking-layers-out-of-a-vm)).
@@ -37,13 +38,8 @@ mailpit_version=1.32.0
 mailpit_sha256_amd64=4b5993c978e8604c70d43927e2ad103b311bba3b1822fa0cf1d4ee4ec890a93c
 mailpit_sha256_arm64=e1e45d1dc72bd497fb262a1e4100178eee057c42c5fc36d143eb8621769e1137
 
-case "$(uname -m)" in
-  x86_64) arch=amd64 sha256=$mailpit_sha256_amd64 ;;
-  aarch64) arch=arm64 sha256=$mailpit_sha256_arm64 ;;
-  *) echo "mailpit: no build for $(uname -m)" >&2; exit 1 ;;
-esac
-devvm-fetch "https://github.com/axllent/mailpit/releases/download/v$mailpit_version/mailpit-linux-$arch.tar.gz" \
-  "$sha256" /tmp/mailpit.tar.gz
+devvm-fetch "https://github.com/axllent/mailpit/releases/download/v$mailpit_version/mailpit-linux-$devvm_arch.tar.gz" \
+  "$(devvm_sha mailpit)" /tmp/mailpit.tar.gz
 sudo tar -xzf /tmp/mailpit.tar.gz -C /usr/local/bin mailpit
 rm /tmp/mailpit.tar.gz
 
@@ -53,7 +49,7 @@ printf '%s\n' '[Unit]' 'Description=Mailpit' '[Service]' 'ExecStart=/usr/local/b
 sudo systemctl enable --now mailpit
 ```
 
-The version and each download's SHA-256 sit at the top, so `devvm-fetch` refuses a download that doesn't match. To update Mailpit, change all three and rebuild the image. The downloads come from GitHub's releases, which `base`'s allowlist has, so `mailpit.policy` can stay empty. On a base made `--from` an Alpine container image, start it with OpenRC (`rc-update`, `rc-service`) instead of systemd.
+The version and each download's SHA-256 sit at the top, so `devvm-fetch` refuses a download that doesn't match. `$devvm_arch` names the VM's build in the address, and `devvm_sha mailpit` picks the matching pin, `mailpit_sha256_arm64` or `mailpit_sha256_amd64`, or names the pin the script lacks, so the download fails. On Alpine, it takes `mailpit_sha256_arm64_musl` instead when you pin one, for a tool with a separate musl build. To update Mailpit, change all three and rebuild the image. The downloads come from GitHub's releases, which `base`'s allowlist has, so `mailpit.policy` can stay empty. On a base made `--from` an Alpine container image, start it with OpenRC (`rc-update`, `rc-service`) instead of systemd.
 
 ## Base image features
 

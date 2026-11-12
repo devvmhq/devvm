@@ -29,6 +29,26 @@ func TestOwnScript(t *testing.T) {
 	}
 }
 
+// WithPrelude puts the prelude before any script, a user's included;
+// without the prelude, an error.
+func TestWithPrelude(t *testing.T) {
+	for _, tc := range []struct{ name, script, want string }{
+		{"a script", "echo hi\n", "p\necho hi\n"},
+		{"empty", "", "p\n"},
+		{"its own devvm_arch, after the prelude's", "devvm_arch=x\n", "p\ndevvm_arch=x\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := WithPrelude(fstest.MapFS{"prelude.sh": {Data: []byte("p\n")}}, []byte(tc.script))
+			if err != nil || string(got) != tc.want {
+				t.Errorf("WithPrelude = %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+	if _, err := WithPrelude(fstest.MapFS{}, []byte("x\n")); err == nil {
+		t.Error("no prelude: no error")
+	}
+}
+
 // preludeScripts are devvm's scripts that its builds run with bash, and
 // so read through OwnScript: the only ones that may use the prelude.
 func preludeScripts(name string) bool {
