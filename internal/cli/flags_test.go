@@ -286,7 +286,7 @@ func folderCommands() []string {
 		"devvm clone fetch", "devvm clone add",
 		"devvm secret use", "devvm secret unuse", "devvm layer add", "devvm layer rm", "devvm group", "devvm group join",
 		"devvm group leave", "devvm link", "devvm link add", "devvm link rm", "devvm link publish", "devvm link unpublish",
-		"devvm agent save", "devvm agent login",
+		"devvm agent save", "devvm agent login", "devvm paste", "devvm paste rm",
 	}
 }
 

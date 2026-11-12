@@ -48,4 +48,7 @@
 //     workspacefiles.go: the folder's own files, copied once).
 //   - devcontainer.go: a devcontainer.json's mapping and commands; sync.go:
 //     the setup devvm sends to a VM.
+//   - Paste (paste.go): devvm paste, an image, a PDF or a copied file from this
+//     machine's clipboard into the VM's paste folder, devvm paste rm, and
+//     the launch's offer to delete what's left there.
 package vm

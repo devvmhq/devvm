@@ -76,6 +76,7 @@ devvm [flags]
 - [devvm ls](devvm_ls.md): List the project VMs
 - [devvm mount-cache](devvm_mount-cache.md): Show or change how this folder's VM caches its project folder
 - [devvm network](devvm_network.md): Show or change the network tier of this folder's VM
+- [devvm paste](devvm_paste.md): Send the clipboard's image, PDF or copied file to this folder's VM
 - [devvm ports](devvm_ports.md): Show or change which ports this folder's VM forwards
 - [devvm rebuild](devvm_rebuild.md): Build an image again, and delete the old one
 - [devvm restart](devvm_restart.md): Restart this folder's VM and open a shell in it

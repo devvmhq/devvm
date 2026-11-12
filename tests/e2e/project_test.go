@@ -31,6 +31,7 @@ func projectSection(s *S) {
 	projectGit(s, w)
 	projectExisting(s, w)
 	projectMountCache(s, w)
+	projectPaste(s, w)
 	projectPorts(s, w)
 	projectGitProtect(s, w)
 	projectNested(s, w)

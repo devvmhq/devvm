@@ -215,6 +215,8 @@ The tests run a test build of devvm, which is one made with `-ldflags "-X github
 | `DEVVM_TEST_CPUS`, `DEVVM_TEST_MEMORY_GIB`, `DEVVM_TEST_FREE_GIB`, `DEVVM_TEST_LIST_TIMEOUT` | this machine's size and how long devvm waits for a backend's listings ([a host of any size](#a-host-of-any-size)) |
 | `DEVVM_PIPED_ANSWERS` | a terminal to answer questions in: with `1`, each question reads its answer as a line of input that isn't a terminal, without its prompt, where devvm would refuse it |
 | `DEVVM_HISTORY_MAX` | the 2 GiB that an export of agents' history holds at most, in bytes, so a script whose VM writes an export without end reaches the cap at once |
+| `DEVVM_CLIP_TOOLS` | where devvm paste finds the clipboard tools: macOS's `/usr/bin/osascript` and `/usr/bin/pbcopy`, and `wl-paste`, `wl-copy` and `xclip` in Linux's system folders, so the tests' stand-ins run in their place |
+| `DEVVM_PASTE_WAIT` | how long devvm paste waits for its script in the VM, in seconds, in place of 10 minutes for a write and 2 for a count or a delete, so a script whose VM never answers reaches the limit at once |
 
 The settings that the [environment table](../using/settings.md#environment) lists, such as `DEVVM_LIMA_HOME`, `DEVVM_SECRET_SERVICE` and `DEVVM_NO_TOOL_CHECK`, are yours to set, so every build reads them.
 

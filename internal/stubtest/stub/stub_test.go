@@ -739,6 +739,134 @@ func TestOpencode(t *testing.T) {
 	s.fails(1, "opencode", "run")
 }
 
+// The clipboard stubs: wl-paste and xclip list clip-types and print clip
+// for a listed type alone, osascript reports clip-file's files or writes
+// clip as the PNG within its cap, and wl-copy, xclip -i and pbcopy keep
+// what's copied, or fail with copy-fails.
+func TestClipboard(t *testing.T) {
+	s := newSandbox(t)
+	png := "\x89PNG\r\n\x1a\nimage"
+	osa := func(limit string) []string {
+		return []string{"-l", "JavaScript", "-e", "NSPasteboard", filepath.Join(s.dir, "out.png"), limit}
+	}
+	s.fails(1, "wl-paste", "--list-types")
+	s.fails(1, "xclip", "-selection", "clipboard", "-t", "TARGETS", "-o")
+	if out := s.ok("", "osascript", osa("100")...); out != "{}\n" {
+		t.Errorf("osascript with nothing %q", out)
+	}
+	s.write("clip-types", "text/html\nimage/png\n")
+	s.write("clip", png)
+	if out := s.ok("", "wl-paste", "--list-types"); out != "text/html\nimage/png\n" {
+		t.Errorf("wl-paste --list-types %q", out)
+	}
+	if out := s.ok("", "wl-paste", "--no-newline", "--type", "image/png"); out != png {
+		t.Errorf("wl-paste --type image/png %q", out)
+	}
+	s.fails(1, "wl-paste", "--no-newline", "--type", "text/plain")
+	if out := s.ok("", "xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"); out != "text/html\nimage/png\n" {
+		t.Errorf("xclip TARGETS %q", out)
+	}
+	if out := s.ok("", "xclip", "-selection", "clipboard", "-t", "image/png", "-o"); out != png {
+		t.Errorf("xclip -t image/png %q", out)
+	}
+	s.fails(1, "xclip", "-selection", "clipboard", "-t", "text/plain", "-o")
+	if out := s.ok("", "osascript", osa("5")...); out != `{"tooLarge":true}`+"\n" {
+		t.Errorf("osascript past the cap %q", out)
+	}
+	if out := s.ok("", "osascript", osa("100")...); out != `{"type":"image/png"}`+"\n" {
+		t.Errorf("osascript's image %q", out)
+	}
+	if got := s.read("out.png"); got != png {
+		t.Errorf("osascript's PNG %q", got)
+	}
+	s.write("clip-types", "image/png\napplication/pdf\n")
+	if out := s.ok("", "osascript", osa("100")...); out != `{"type":"application/pdf"}`+"\n" {
+		t.Errorf("osascript's PDF %q", out)
+	}
+	s.write("clip-types", "text/html\nimage/png\n")
+	s.write("clip-file", "/Users/me/shot.png\n")
+	if out := s.ok("", "osascript", osa("100")...); out != `{"file":"/Users/me/shot.png"}`+"\n" {
+		t.Errorf("osascript's file %q", out)
+	}
+	s.write("clip-file", "/Users/me/a.png\n/Users/me/b.png\n")
+	if out := s.ok("", "osascript", osa("100")...); out != `{"files":2}`+"\n" {
+		t.Errorf("osascript's files %q", out)
+	}
+	s.write("clip-types", "application/pdf\n")
+	if out := s.ok("", "osascript", osa("100")...); out != `{"type":"application/pdf"}`+"\n" {
+		t.Errorf("osascript's PDF beside files %q", out)
+	}
+	s.write("clip-types", "text/html\nimage/png\n")
+	s.touch("clip-gone")
+	if out := s.ok("", "osascript", osa("100")...); out != `{"gone":true}`+"\n" {
+		t.Errorf("osascript's file that's gone %q", out)
+	}
+	s.fails(1, "osascript", "-e", "beep")
+	for _, c := range [][]string{{"wl-copy"}, {"pbcopy"}, {"xclip", "-selection", "clipboard", "-i"}} {
+		s.ok("/tmp/devvm-paste/x.png", c[0], c[1:]...)
+		if got := s.read("copied"); got != "/tmp/devvm-paste/x.png" {
+			t.Errorf("%s copied %q", c[0], got)
+		}
+	}
+	s.touch("copy-fails")
+	s.fails(1, "wl-copy")
+	s.fails(1, "pbcopy")
+	s.fails(1, "xclip", "-selection", "clipboard", "-i")
+	if !slices.Contains(s.calls(), "wl-paste --list-types") {
+		t.Errorf("the calls weren't logged: %q", s.calls())
+	}
+	// With clip-floods a read writes until a write fails.
+	s.touch("clip-floods")
+	s.stdout, s.stderr = &gone{left: 1 << 20}, &gone{left: 1 << 30}
+	if code, _, _ := s.run("", "wl-paste", "--no-newline", "--type", "image/png"); code != 1 {
+		t.Errorf("a flood: %d", code)
+	}
+	s.stdout, s.stderr = nil, nil
+	// With clip-fails the paste tools can't reach the session and say so.
+	s.touch("clip-fails")
+	if code, _, errs := s.run("", "wl-paste", "--list-types"); code != 1 || !strings.Contains(errs, "Failed to connect to a Wayland server") {
+		t.Errorf("wl-paste with no session: %d, %q", code, errs)
+	}
+	if code, _, errs := s.run("", "xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"); code != 1 || !strings.Contains(errs, "Can't open display") {
+		t.Errorf("xclip with no session: %d, %q", code, errs)
+	}
+	s.fails(1, "osascript", osa("100")...)
+}
+
+// paste.sh in the guest: put keeps its input as paste-in and its folder
+// and name as paste-put, count and rm print paste-count (0 without it),
+// and each fails on the shell switches.
+func TestShellPaste(t *testing.T) {
+	s := newSandbox(t)
+	sh := func(args ...string) []string {
+		words := "cd '/' && exec 'sh' '-c' 'script' 'devvm-paste'"
+		for _, a := range args {
+			words += " '" + a + "'"
+		}
+		return []string{"shell", "--workdir", "/", "vm", "sh", "-c", words}
+	}
+	s.ok("the image", "limactl", sh("put", "/tmp/devvm-paste", "paste-x.png")...)
+	if s.read("paste-in") != "the image" || s.read("paste-put") != "/tmp/devvm-paste paste-x.png\n" {
+		t.Errorf("put: %q %q", s.read("paste-in"), s.read("paste-put"))
+	}
+	if code, _, _ := s.run("", "limactl", sh("put", "/tmp/devvm-paste")...); code != 2 {
+		t.Errorf("put without a name: %d", code)
+	}
+	if out := s.ok("", "limactl", sh("count", "/tmp/devvm-paste")...); out != "0\n" {
+		t.Errorf("count %q", out)
+	}
+	s.write("paste-count", "3\n")
+	if out := s.ok("", "limactl", sh("rm", "/tmp/devvm-paste")...); out != "3\n" {
+		t.Errorf("rm %q", out)
+	}
+	s.write("shell-fails-on", "'rm'")
+	s.fails(1, "limactl", sh("rm", "/tmp/devvm-paste")...)
+	s.ok("", "limactl", sh("count", "/tmp/devvm-paste")...)
+	s.touch("shell-fails")
+	s.fails(1, "limactl", sh("count", "/tmp/devvm-paste")...)
+	s.fails(1, "limactl", sh("put", "/tmp/devvm-paste", "paste-y.png")...)
+}
+
 // docker: down, an image or none, and save's tarball.
 func TestDocker(t *testing.T) {
 	s := newSandbox(t)

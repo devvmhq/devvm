@@ -49,3 +49,4 @@ These commands run on the host, in the project folder, so ask the user to run th
 | the GitHub token in this VM | `devvm secret set github`, then `devvm secret use github` |
 | an agent logged in | `devvm agent login AGENT`, such as `devvm agent login claude` |
 | `.git`'s hooks or config changed | devvm git-protect off, with the VM stopped, then devvm git-protect on |
+| an image, a PDF or a file from the host, such as a screenshot or pages copied from a PDF | `devvm paste`, which puts it in the paste folder, `/tmp/devvm-paste` unless the user set `paste-dir`, and gives the user its path to paste to you |

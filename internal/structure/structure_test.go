@@ -279,6 +279,7 @@ func devvmExecSites() map[string]string {
 		"internal/vmssh/forward.go":            "the port forwarder's ssh master and -W relays: streams that last as long as the forwarder",
 		"internal/vmssh/links.go":              "links' ssh sessions, which last as long as the link, their output to its log",
 		"internal/platform/keychain_darwin.go": "security and tmutil: secrets on stdin and stdout, never in a log",
+		"internal/platform/clipboard_tool.go":  "devvm paste's clipboard tools: osascript, wl-paste and xclip, the clipboard's image and a copied file's path on stdout, read and never logged; pbcopy, wl-copy and xclip -i, the path on stdin, which on Linux serve the clipboard after the run ends",
 		"internal/platform/folder_darwin.go":   "chflags, for .git protection",
 		"internal/daemon/daemon.go":            "devvm's background processes, which outlive the run and its context",
 		"internal/upgrade/upgrade.go":          "devvm upgrade: brew upgrade devvm through the UI's LoggedCmd, a new devvm's --version and ps's list, their output read",

@@ -1,0 +1,398 @@
+# devvm paste: an image, or one copied file, from this machine's clipboard
+# (stub wl-paste, xclip, osascript) into the folder's running VM, written
+# by paste.sh in its paste folder (config.toml's paste-dir, else
+# /tmp/devvm-paste) under a name devvm picks here, then that path copied
+# (stub wl-copy, pbcopy). devvm asks the clipboard only for a file's
+# reference and image types, never text, and the connection carries no
+# SSH agent. A stopped VM is refused, as are an empty clipboard, text
+# alone, several files, a link on a copied file's path, bytes that aren't
+# the type claimed, anything over 64 MiB, a missing tool and no session.
+env WAYLAND_DISPLAY=wayland-0
+env DISPLAY=
+project plain
+! exec devvm paste
+stderr '^devvm: no_vm dir=\S*/plain$'
+
+# A stopped VM is refused before the clipboard is read.
+exec devvm --network open --no-git-protect
+vm_name PLAIN plain
+exec limactl stop $PLAIN
+stub_reset
+! exec devvm paste
+stderr '^devvm: vm_not_running vm=devvm-plain-[0-9a-f]{14}$'
+stub_calls
+! stdout 'wl-paste|osascript'
+exec devvm
+
+# Nothing on the clipboard, then text alone: nothing sent, and the text
+# never asked for.
+stub_reset
+! exec devvm paste
+stderr '^devvm: paste_nothing$'
+exec sh -c 'printf "text/plain\nUTF8_STRING\n" > "$STUB_DIR/clip-types"'
+! exec devvm paste
+stderr '^devvm: paste_nothing$'
+stub_calls
+! stdout '''devvm-paste'''
+[linux] ! stdout 'wl-paste --no-newline'
+
+# An image: the PNG's bytes go to paste.sh put on stdin, under a name
+# devvm picked, into the default folder, with no SSH agent on the
+# connection; the path is copied, and only image/png was read.
+exec sh -c 'printf "text/html\nimage/png\n" > "$STUB_DIR/clip-types"'
+exec sh -c 'printf "\211PNG\r\n\032\nthe image" > "$STUB_DIR/clip"'
+stub_reset
+exec devvm paste
+stdout '^==> paste_sent path=/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.png vm=devvm-plain-[0-9a-f]{14}$'
+! stderr .
+cmp $STUB_DIR/paste-in $STUB_DIR/clip
+grep '^/tmp/devvm-paste paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.png$' $STUB_DIR/paste-put
+grep '^/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.png$' $STUB_DIR/copied
+grep '^unset$' $STUB_DIR/shell-agent
+stub_calls
+[linux] stdout '^wl-paste --list-types$'
+[linux] stdout '^wl-paste --no-newline --type image/png$'
+[linux] stdout '^wl-copy$'
+[darwin] stdout '^osascript -l JavaScript -e ObjC.import\(''AppKit''\);$'
+[darwin] stdout '^pbcopy$'
+! stdout 'text/html'
+
+# On macOS, osascript and pbcopy are the system's, never ones first on
+# PATH (the tests' stand-ins are in DEVVM_CLIP_TOOLS).
+[darwin] mkdir $WORK/planted
+[darwin] cp $WORK/planted.sh $WORK/planted/osascript
+[darwin] cp $WORK/planted.sh $WORK/planted/pbcopy
+[darwin] chmod 0755 $WORK/planted/osascript
+[darwin] chmod 0755 $WORK/planted/pbcopy
+[darwin] env PATH0=$PATH
+[darwin] env PATH=$WORK/planted:$PATH
+[darwin] exec devvm paste
+[darwin] stdout '^==> paste_sent path=/tmp/devvm-paste/paste-'
+[darwin] ! exists $WORK/planted/ran
+[darwin] env PATH=$PATH0
+
+# --json: the same, as one object.
+exec devvm paste --json
+stdout '"version": ?1'
+stdout '"sent": ?true'
+stdout '"kind": ?"image"'
+stdout '"type": ?"image/png"'
+stdout '"bytes": ?17'
+stdout '"copied": ?true'
+stdout '"path": ?"/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.png"'
+! stdout 'paste_sent'
+
+# A copy that fails is a warning: the image is in the VM already, and
+# devvm says where without saying it copied the path.
+exec sh -c ': > "$STUB_DIR/copy-fails"'
+exec devvm paste
+stdout '^==> paste_put path=/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.png vm=devvm-plain-[0-9a-f]{14}$'
+! stdout 'paste_sent'
+stderr '^devvm: paste_copy_failed path=/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.png$'
+exec devvm paste --json
+stdout '"copied": ?false'
+rm $STUB_DIR/copy-fails
+
+# Bytes that aren't the type claimed are nothing devvm sends.
+exec sh -c 'printf "hello" > "$STUB_DIR/clip"'
+! exec devvm paste
+stderr '^devvm: paste_nothing$'
+
+# A PDF, as a PDF viewer copies a selection with a picture of it beside
+# it, is sent as it is, as .pdf, never as an image; bytes that aren't a
+# PDF are nothing devvm sends.
+exec sh -c 'printf "image/png\napplication/pdf\n" > "$STUB_DIR/clip-types"'
+exec sh -c 'printf "%%PDF-1.4\nthe page\n" > "$STUB_DIR/clip"'
+stub_reset
+exec devvm paste --json
+stdout '"kind": ?"pdf"'
+stdout '"type": ?"application/pdf"'
+stdout '"path": ?"/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.pdf"'
+cmp $STUB_DIR/paste-in $STUB_DIR/clip
+stub_calls
+[linux] stdout '^wl-paste --no-newline --type application/pdf$'
+[linux] ! stdout 'type image/png'
+
+# A page's thumbnail copied in a PDF viewer names a temporary file beside
+# the PDF: the PDF is sent, and the file is neither read nor asked about.
+exec sh -c 'printf "text/uri-list\nimage/png\napplication/pdf\n" > "$STUB_DIR/clip-types"'
+exec sh -c 'printf "%s/page (dragged).pdf\n" "$PWD" > "$STUB_DIR/clip-file"'
+stub_reset
+exec devvm paste
+stdout '^==> paste_sent path=/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.pdf '
+! stderr 'paste_file_ask'
+stub_calls
+[linux] ! stdout 'type text/uri-list'
+rm $STUB_DIR/clip-file
+exec sh -c 'printf "PDF? no\n" > "$STUB_DIR/clip"'
+! exec devvm paste
+stderr '^devvm: paste_nothing$'
+exec sh -c 'printf "text/html\nimage/png\n" > "$STUB_DIR/clip-types"'
+
+# Over 64 MiB: stopped at the cap, nothing sent.
+[linux] exec sh -c ': > "$STUB_DIR/clip-floods"'
+[darwin] exec sh -c 'head -c 67108865 /dev/zero > "$STUB_DIR/clip"'
+stub_reset
+! exec devvm paste
+stderr '^devvm: paste_too_large max=64 MiB$'
+stub_calls
+! stdout '''devvm-paste'''
+[linux] rm $STUB_DIR/clip-floods
+
+# paste.sh failing in the VM: nothing copied.
+exec sh -c 'printf "\211PNG\r\n\032\nthe image" > "$STUB_DIR/clip"'
+exec sh -c 'echo "devvm-paste" > "$STUB_DIR/shell-fails-on"'
+stub_reset
+! exec devvm paste
+stderr '^devvm: paste_not_sent path=/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.png vm=devvm-plain-[0-9a-f]{14}$'
+stub_calls
+! stdout '^(wl-copy|pbcopy)$'
+rm $STUB_DIR/shell-fails-on
+
+# paste.sh that never finishes writing is stopped at its time limit (a
+# test build's DEVVM_PASTE_WAIT, in seconds, in place of 10 minutes):
+# nothing copied.
+exec sh -c ': > "$STUB_DIR/paste-hangs"'
+env DEVVM_PASTE_WAIT=1
+stub_reset
+! exec devvm paste
+stderr '^devvm: paste_not_sent path=/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.png vm=devvm-plain-[0-9a-f]{14}$'
+stub_calls
+! stdout '^(wl-copy|pbcopy)$'
+env DEVVM_PASTE_WAIT=
+rm $STUB_DIR/paste-hangs
+
+# A copied file wins over the image beside it (its icon), is read as
+# named in its folder, and keeps only its extension, so nothing of its
+# name reaches the clipboard. It's sent only once you say so: devvm asks, showing the file's
+# path on this machine, and without a terminal the question is refused,
+# naming --send-file, and nothing is sent.
+cp $WORK/doc.txt doc.txt
+cp $WORK/doc.txt 'my doc (1).txt'
+exec sh -c 'printf "text/uri-list\nimage/png\n" > "$STUB_DIR/clip-types"'
+exec sh -c 'printf "file://%s/my%%20doc%%20(1).txt\r\n" "$PWD" > "$STUB_DIR/clip"'
+exec sh -c 'printf "%s/my doc (1).txt\n" "$PWD" > "$STUB_DIR/clip-file"'
+stub_reset
+! exec devvm paste
+stderr '^paste_file_ask file=\S*/plain/my doc \(1\)\.txt vm=devvm-plain-[0-9a-f]{14}\ndevvm: no_input answer=--send-file$'
+! stdout .
+stub_calls
+! stdout '''devvm-paste'''
+! stdout '^(wl-copy|pbcopy)$'
+ttyin -stdin $WORK/no.txt
+exec devvm paste
+stderr '^paste_file_ask file=\S*/plain/my doc \(1\)\.txt vm=devvm-plain-[0-9a-f]{14} \[y/N\] $'
+! stdout .
+stub_calls
+! stdout '''devvm-paste'''
+# With --json, a no is an object a script can read: nothing sent, the
+# VM and the file it was asked about.
+ttyin -stdin $WORK/no.txt
+exec devvm paste --json
+stdout '"sent": ?false'
+stdout '"path": ?""'
+stdout '"source": ?"\S*/plain/my doc \(1\)\.txt"'
+ttyin -stdin $WORK/yes.txt
+exec devvm paste
+stdout '^==> paste_sent path=/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.txt vm=devvm-plain-[0-9a-f]{14}$'
+cmp $STUB_DIR/paste-in doc.txt
+stub_reset
+exec devvm paste --send-file
+! stderr .
+stdout '^==> paste_sent path=/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.txt vm=devvm-plain-[0-9a-f]{14}$'
+cmp $STUB_DIR/paste-in doc.txt
+stub_calls
+[linux] ! stdout 'image/png'
+exec devvm paste --json --send-file
+stdout '"kind": ?"file"'
+stdout '"type": ?""'
+stdout '"bytes": ?13'
+stdout '"source": ?"\S*/plain/my doc \(1\)\.txt"'
+
+# A file outside the project folder, which the VM can't read already, is
+# sent only after a yes in a terminal: --send-file doesn't answer for it,
+# and without a terminal it's refused, naming the file and the folder.
+mkdir $WORK/outside
+cp $WORK/doc.txt $WORK/outside/notes.txt
+exec sh -c 'printf "file://%s/outside/notes.txt\n" "$WORK" > "$STUB_DIR/clip"'
+exec sh -c 'printf "%s/outside/notes.txt\n" "$WORK" > "$STUB_DIR/clip-file"'
+stub_reset
+! exec devvm paste --send-file
+stderr '^devvm: paste_file_outside dir=\S*/plain file=\S*/outside/notes\.txt$'
+! stdout .
+stub_calls
+! stdout '''devvm-paste'''
+ttyin -stdin $WORK/yes.txt
+exec devvm paste --send-file
+stdout '^==> paste_sent path=/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.txt '
+cmp $STUB_DIR/paste-in $WORK/outside/notes.txt
+exec sh -c 'printf "file://%s/my%%20doc%%20(1).txt\r\n" "$PWD" > "$STUB_DIR/clip"'
+exec sh -c 'printf "%s/my doc (1).txt\n" "$PWD" > "$STUB_DIR/clip-file"'
+
+# --send-file sends an image as it would without it, and an image's
+# source is "".
+exec sh -c 'printf "image/png\n" > "$STUB_DIR/clip-types"'
+exec sh -c 'printf "\211PNG\r\n\032\nthe image" > "$STUB_DIR/clip"'
+exec sh -c 'mv "$STUB_DIR/clip-file" "$WORK/clip-file"'
+exec devvm paste --json --send-file
+stdout '"kind": ?"image"'
+stdout '"source": ?""'
+exec sh -c 'mv "$WORK/clip-file" "$STUB_DIR/clip-file"'
+exec sh -c 'printf "text/uri-list\nimage/png\n" > "$STUB_DIR/clip-types"'
+exec sh -c 'printf "file://%s/my%%20doc%%20(1).txt\r\n" "$PWD" > "$STUB_DIR/clip"'
+
+# A link in the copied file's place, such as one the VM planted at a key
+# of yours, is refused; a link that was there before the copy too.
+symlink planted.txt -> doc.txt
+exec sh -c 'printf "file://%s/planted.txt\n" "$PWD" > "$STUB_DIR/clip"'
+exec sh -c 'printf "%s/planted.txt\n" "$PWD" > "$STUB_DIR/clip-file"'
+stub_reset
+! exec devvm paste
+stderr '^devvm: paste_file_link file=\S*/plain/planted\.txt$'
+stub_calls
+! stdout '''devvm-paste'''
+
+# A link the VM planted at a folder of yours, before the copy, is refused
+# on the way to the file, and so is a copied folder's reference, which
+# ends in a slash, at such a link named like a file under it.
+mkdir $WORK/elsewhere
+cp doc.txt $WORK/elsewhere/id_ed25519
+symlink docs -> $WORK/elsewhere
+symlink id_ed25519 -> $WORK/elsewhere
+exec sh -c 'printf "file://%s/docs/id_ed25519\n" "$PWD" > "$STUB_DIR/clip"'
+exec sh -c 'printf "%s/docs/id_ed25519\n" "$PWD" > "$STUB_DIR/clip-file"'
+! exec devvm paste
+stderr '^devvm: paste_file_link file=\S*/plain/docs/id_ed25519$'
+exec sh -c 'printf "file://%s/id_ed25519/\n" "$PWD" > "$STUB_DIR/clip"'
+exec sh -c 'printf "%s/id_ed25519/\n" "$PWD" > "$STUB_DIR/clip-file"'
+! exec devvm paste
+stderr '^devvm: paste_file_link file=\S*/plain/id_ed25519$'
+stub_calls
+! stdout '''devvm-paste'''
+
+# A folder, and a file that's gone.
+exec sh -c 'printf "file://%s\n" "$PWD" > "$STUB_DIR/clip"'
+exec sh -c 'printf "%s\n" "$PWD" > "$STUB_DIR/clip-file"'
+! exec devvm paste
+stderr '^devvm: paste_not_file file=\S*/plain$'
+exec sh -c 'printf "file://%s/gone.txt\n" "$PWD" > "$STUB_DIR/clip"'
+exec sh -c 'printf "%s/gone.txt\n" "$PWD" > "$STUB_DIR/clip-file"'
+! exec devvm paste
+stderr '^devvm: paste_failed reason=.*gone\.txt'
+
+# On macOS, a copied file whose path can't be found, as it's gone, is
+# said so, and Finder's icon beside it is never sent instead; osascript
+# failing is its failure, with what it said.
+[darwin] exec sh -c ': > "$STUB_DIR/clip-gone"'
+[darwin] stub_reset
+[darwin] ! exec devvm paste
+[darwin] stderr '^devvm: paste_file_gone$'
+[darwin] stub_calls
+[darwin] ! stdout '''devvm-paste'''
+[darwin] rm $STUB_DIR/clip-gone
+[darwin] exec sh -c ': > "$STUB_DIR/clip-fails"'
+[darwin] ! exec devvm paste
+[darwin] stderr '^devvm: paste_osascript_failed reason=execution error: Error: Connection invalid \(-2700\)$'
+[darwin] rm $STUB_DIR/clip-fails
+
+# Several files: devvm paste sends one, and never the first alone.
+exec sh -c 'printf "file://%s/doc.txt\nfile://%s/planted.txt\n" "$PWD" "$PWD" > "$STUB_DIR/clip"'
+exec sh -c 'printf "%s/doc.txt\n%s/planted.txt\n" "$PWD" "$PWD" > "$STUB_DIR/clip-file"'
+stub_reset
+! exec devvm paste
+stderr '^devvm: paste_many_files count=2$'
+stub_calls
+! stdout '''devvm-paste'''
+rm $STUB_DIR/clip-file
+
+# GNOME's file copies, and a web address, which isn't a file: the image
+# beside it is sent instead.
+[linux] exec sh -c 'printf "x-special/gnome-copied-files\nimage/png\n" > "$STUB_DIR/clip-types"'
+[linux] exec sh -c 'printf "copy\nfile://%s/doc.txt\n" "$PWD" > "$STUB_DIR/clip"'
+[linux] exec devvm paste --send-file
+[linux] stdout '^==> paste_sent path=/tmp/devvm-paste/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.txt '
+[linux] exec sh -c 'printf "text/uri-list\nimage/png\n" > "$STUB_DIR/clip-types"'
+[linux] exec sh -c 'printf "https://example.com/x.png\n" > "$STUB_DIR/clip"'
+[linux] ! exec devvm paste
+[linux] stderr '^devvm: paste_nothing$'
+
+# A wl-paste that can't reach the session WAYLAND_DISPLAY names is its
+# failure, with what it said, not an empty clipboard.
+[linux] exec sh -c ': > "$STUB_DIR/clip-fails"'
+[linux] ! exec devvm paste
+[linux] stderr '^devvm: paste_tool_failed reason=Failed to connect to a Wayland server tool=wl-paste$'
+[linux] rm $STUB_DIR/clip-fails
+
+# X11: xclip reads the targets and the type, and copies with -i.
+[linux] env WAYLAND_DISPLAY=
+[linux] env DISPLAY=:0
+[linux] exec sh -c 'printf "TARGETS\nimage/png\n" > "$STUB_DIR/clip-types"'
+[linux] exec sh -c 'printf "\211PNG\r\n\032\nthe image" > "$STUB_DIR/clip"'
+[linux] stub_reset
+[linux] exec devvm paste
+[linux] stdout '^==> paste_sent path=/tmp/devvm-paste/paste-'
+[linux] stub_calls
+[linux] stdout '^xclip -selection clipboard -t TARGETS -o$'
+[linux] stdout '^xclip -selection clipboard -t image/png -o$'
+[linux] stdout '^xclip -selection clipboard -i$'
+# xclip on an empty clipboard is nothing to send, and xclip that can't
+# reach the display DISPLAY names is its failure, with what it said.
+[linux] exec sh -c 'mv "$STUB_DIR/clip-types" "$WORK/clip-types"'
+[linux] ! exec devvm paste
+[linux] stderr '^devvm: paste_nothing$'
+[linux] exec sh -c 'mv "$WORK/clip-types" "$STUB_DIR/clip-types"'
+[linux] exec sh -c ': > "$STUB_DIR/clip-fails"'
+[linux] ! exec devvm paste
+[linux] stderr '^devvm: paste_tool_failed reason=xclip: Error: Can''t open display: :0 tool=xclip$'
+[linux] rm $STUB_DIR/clip-fails
+
+# No session, and a missing tool (a folder of tools without it).
+[linux] env DISPLAY=
+[linux] ! exec devvm paste
+[linux] stderr '^devvm: paste_no_session$'
+[linux] env DISPLAY=:0
+mkdir $WORK/notools
+env CLIP0=$DEVVM_CLIP_TOOLS
+env DEVVM_CLIP_TOOLS=$WORK/notools
+! exec devvm paste
+[linux] stderr '^devvm: paste_needs_tool tool=xclip$'
+[darwin] stderr '^devvm: paste_needs_tool tool=osascript$'
+env DEVVM_CLIP_TOOLS=$CLIP0
+[linux] env DISPLAY=
+[linux] env WAYLAND_DISPLAY=wayland-0
+
+# config.toml's paste-dir: the folder devvm paste writes to, and the one a
+# launch makes (sync's vm file). One devvm can't use fails the command,
+# naming its line.
+exec sh -c 'printf "text/html\nimage/png\n" > "$STUB_DIR/clip-types"'
+exec sh -c 'printf "\211PNG\r\n\032\nthe image" > "$STUB_DIR/clip"'
+cp $WORK/pastes.toml $CFG/config.toml
+exec devvm paste
+stdout '^==> paste_sent path=/home/me/pastes/paste-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}\.png '
+grep '^/home/me/pastes paste-' $STUB_DIR/paste-put
+exec devvm
+exec tar -xOf $STUB_DIR/sync.tar vm
+stdout '^DEVVM_PASTE_DIR=''/home/me/pastes''$'
+cp $WORK/bad.toml $CFG/config.toml
+! exec devvm paste
+stderr '^devvm: paste_failed reason=\S*/config\.toml:2: paste_dir_invalid setting=paste-dir$'
+rm $CFG/config.toml
+exec devvm
+exec tar -xOf $STUB_DIR/sync.tar vm
+stdout '^DEVVM_PASTE_DIR=''/tmp/devvm-paste''$'
+
+-- doc.txt --
+twelve chars
+-- pastes.toml --
+paste-dir = "/home/me/pastes"
+-- bad.toml --
+# not absolute
+paste-dir = "pastes"
+-- yes.txt --
+y
+-- no.txt --
+n
+-- planted.sh --
+#!/bin/sh
+touch "$(dirname "$0")/ran"
+exit 1

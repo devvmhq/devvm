@@ -1,0 +1,137 @@
+# devvm paste rm: the files devvm paste left in the folder's running VM's
+# paste folder, counted first by paste.sh (the stub guest's paste-count),
+# asked about ([y/N], --force answers), then deleted, and said how many.
+# With nothing there it says so. A launch that starts a stopped VM offers
+# the same once the VM is set up, in a terminal only, and a launch into a
+# running VM, or of a new VM, never asks.
+project plain
+! exec devvm paste rm
+stderr '^devvm: no_vm dir=\S*/plain$'
+
+# A new VM: no offer. A stopped one is refused.
+exec devvm --network open --no-git-protect
+! stderr 'paste_launch_ask'
+vm_name PLAIN plain
+exec limactl stop $PLAIN
+! exec devvm paste rm
+stderr '^devvm: vm_not_running vm=devvm-plain-[0-9a-f]{14}$'
+! exec devvm paste rm --force
+stderr '^devvm: vm_not_running vm=devvm-plain-[0-9a-f]{14}$'
+exec devvm
+
+# Nothing to delete: said, exit 0, nothing asked.
+stub_reset
+exec devvm paste rm
+stdout '^paste_rm_none dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14}$'
+stub_calls
+stdout '''devvm-paste'' ''count'' ''/tmp/devvm-paste'''
+! stdout '''devvm-paste'' ''rm'''
+grep '^unset$' $STUB_DIR/shell-agent
+
+# Three files: without a terminal the question is refused, naming
+# --force, and nothing is deleted.
+exec sh -c 'echo 3 > "$STUB_DIR/paste-count"'
+stub_reset
+! exec devvm paste rm
+stderr '^paste_rm_ask count=3 dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14}\ndevvm: no_input answer=--force$'
+stub_calls
+! stdout '''devvm-paste'' ''rm'''
+
+# In a terminal: no deletes nothing, yes deletes them.
+ttyin -stdin $WORK/no.txt
+exec devvm paste rm
+stderr '^paste_rm_ask count=3 dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14} \[y/N\] $'
+! stdout 'paste_rm_done'
+stub_calls
+! stdout '''devvm-paste'' ''rm'''
+ttyin -stdin $WORK/yes.txt
+exec devvm paste rm
+stderr '\[y/N\] $'
+stdout '^==> paste_rm_done count=3 dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14}$'
+stub_calls
+stdout '''devvm-paste'' ''rm'' ''/tmp/devvm-paste'''
+
+# --force deletes without asking.
+stub_reset
+exec devvm paste rm --force
+! stderr .
+stdout '^==> paste_rm_done count=3 dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14}$'
+
+# paste.sh failing: the count's failure, or the delete's.
+exec sh -c 'echo "devvm-paste" > "$STUB_DIR/shell-fails-on"'
+! exec devvm paste rm --force
+stderr '^devvm: paste_count_failed dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14}$'
+rm $STUB_DIR/shell-fails-on
+exec sh -c 'echo "''rm''" > "$STUB_DIR/shell-fails-on"'
+! exec devvm paste rm --force
+stderr '^devvm: paste_rm_not_done dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14}$'
+rm $STUB_DIR/shell-fails-on
+
+# A VM that prints without end for the count is stopped once it's past
+# what devvm reads, and the count fails, rather than devvm reading on.
+exec sh -c ': > "$STUB_DIR/paste-floods"'
+! exec devvm paste rm --force
+stderr '^devvm: paste_count_failed dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14}$'
+rm $STUB_DIR/paste-floods
+
+# A count that never finishes is stopped at its time limit (a test
+# build's DEVVM_PASTE_WAIT, in seconds, in place of 2 minutes), and fails.
+exec sh -c ': > "$STUB_DIR/paste-hangs"'
+env DEVVM_PASTE_WAIT=1
+! exec devvm paste rm --force
+stderr '^devvm: paste_count_failed dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14}$'
+env DEVVM_PASTE_WAIT=
+rm $STUB_DIR/paste-hangs
+
+# A launch into the running VM asks nothing. A launch that starts the
+# stopped VM asks in a terminal, after the setup, and without one keeps
+# the files and says nothing.
+stub_reset
+exec devvm
+! stderr 'paste_launch_ask'
+stub_calls
+! stdout 'devvm-paste'
+exec limactl stop $PLAIN
+exec devvm
+! stderr 'paste_launch_ask'
+! stdout 'paste_rm_done'
+exec limactl stop $PLAIN
+ttyin -stdin $WORK/no.txt
+exec devvm
+stderr '^paste_launch_ask count=3 dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14} \[y/N\] $'
+! stdout 'paste_rm_done'
+exec limactl stop $PLAIN
+ttyin -stdin $WORK/yes.txt
+stub_reset
+exec devvm
+stderr '^paste_launch_ask count=3 dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14} \[y/N\] $'
+stdout '^==> paste_rm_done count=3 dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14}$'
+stub_calls
+stdout 'tar -xf - (.*\n)*.*''devvm-paste'' ''count'' ''/tmp/devvm-paste'''
+stdout '''devvm-paste'' ''rm'' ''/tmp/devvm-paste''\nlimactl shell --workdir \S*/plain devvm-plain-[0-9a-f]{14}$'
+
+# A delete that fails after the yes is a warning, as a count that fails
+# is, and the launch goes on into the VM's shell.
+exec limactl stop $PLAIN
+exec sh -c 'echo "''rm''" > "$STUB_DIR/shell-fails-on"'
+ttyin -stdin $WORK/yes.txt
+stub_reset
+exec devvm
+stderr 'paste_launch_ask count=3 dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14} \[y/N\] '
+stderr 'devvm: paste_rm_not_done dir=/tmp/devvm-paste vm=devvm-plain-[0-9a-f]{14}'
+! stdout 'paste_rm_done'
+stub_calls
+stdout 'limactl shell --workdir \S*/plain devvm-plain-[0-9a-f]{14}$'
+rm $STUB_DIR/shell-fails-on
+
+# A stopped VM with nothing pasted: started without a question.
+exec sh -c 'echo 0 > "$STUB_DIR/paste-count"'
+exec limactl stop $PLAIN
+ttyin -stdin $WORK/yes.txt
+exec devvm
+! stderr 'paste_launch_ask'
+
+-- no.txt --
+n
+-- yes.txt --
+y

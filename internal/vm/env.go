@@ -56,6 +56,12 @@ type Env struct {
 	// OpenURL opens a URL with macOS's open (devvm desktop's vnc://, in
 	// Screen Sharing).
 	OpenURL func(ctx context.Context, url string) error
+	// ReadClip reads an image or one copied file's path from this
+	// machine's clipboard, at most limit bytes, and CopyText puts text on
+	// it (platform.Clipboard's, with the system's tools unless the CLI
+	// gives a test build's): devvm paste's.
+	ReadClip func(ctx context.Context, limit int64) (platform.Clip, error)
+	CopyText func(ctx context.Context, text string) error
 	// Environ is the environment devvm started with, the SSH agent
 	// included: the editor's, which devvm's own connections don't change.
 	Environ []string
@@ -85,6 +91,10 @@ type Env struct {
 	// HistoryMax is the most of an export of agents' history devvm
 	// keeps, in bytes; 0 is historyMax.
 	HistoryMax int
+	// PasteWait is how long devvm paste waits for paste.sh in the VM, in
+	// place of pastePutWait and pasteCountWait: a test build's; 0 is
+	// those.
+	PasteWait time.Duration
 	// Links returns the links a VM's start and setup give it: its targets'
 	// addresses and names, for its /etc/hosts and its NO_PROXY (checkLinks checks them first); nil gives none.
 	Links func(st *state.VM) ([]GuestLink, error)
@@ -154,6 +164,7 @@ func NewEnv(d paths.Dirs, assets fs.FS, self, version string, reg *backend.Regis
 		Proxy: netpolicy.NewProxy(d, assets, self, store, r),
 		OS:    runtime.GOOS, Version: version,
 		Host: func() (Host, error) { return ThisHost(reg.Host) }, Exec: execShell, OpenURL: openURL, Environ: os.Environ(),
+		ReadClip: platform.Clipboard{}.ReadClip, CopyText: platform.Clipboard{}.CopyText,
 		Getenv: os.Getenv, HostTZ: hostTZ, GitConfig: gitConfig,
 		SSHAdd:    func(ctx context.Context, args ...string) int { return sshAdd(ctx, r.Stderr(), args...) },
 		Reporter:  r,

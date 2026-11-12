@@ -25,6 +25,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/secrets"
+	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/shell"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
@@ -298,6 +299,10 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 	if tz == "" {
 		tz = e.HostTZ()
 	}
+	pasteDir, err := settings.PasteDir(e.Dirs)
+	if err != nil {
+		return nil, err
+	}
 	vars := [][2]string{
 		{"DEVVM_HOSTNAME", slug},
 		{"DEVVM_TZ", tz},
@@ -311,6 +316,7 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 		// none for off, and the proxy's reserved target.
 		{"DEVVM_TRANSPARENT_ADDR", in.transparent},
 		{"DEVVM_TRANSPARENT_HOST", proxy.TransparentHost},
+		{"DEVVM_PASTE_DIR", pasteDir},
 	}
 	// The devcontainer.json's variables first: devvm's own win.
 	dcEnv, err := devcontainerEnv(st)

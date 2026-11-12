@@ -25,6 +25,8 @@ This page lists devvm's commands in the groups that `devvm --help` shows them in
 | `devvm history` | list the exports of agents' history that devvm saved in `~/.local/share/devvm/exports` ([details](../using/coding-agents.md#history)) |
 | `devvm history export [FILE]` | save the history of this folder's VM's agents to FILE, or to a new `.tar.gz` in `~/.local/share/devvm/exports` ([details](../using/coding-agents.md#history)) |
 | `devvm history import [FILE]` | put the agents' history in FILE, or in the newest export devvm saved for this folder, into this folder's VM ([details](../using/coding-agents.md#importing-history)) |
+| `devvm paste [--json] [--send-file]` | send the image, the PDF, or the one copied file, after asking about a file, on this machine's clipboard into this folder's running VM's paste folder, and copy its path there for your terminal's paste shortcut ([details](../using/coding-agents.md#pasting-images)) |
+| `devvm paste rm [--force]` | delete the files devvm paste left in this folder's running VM, after asking ([details](../using/coding-agents.md#deleting-pasted-files)) |
 
 In a folder without a VM of its own, each of these commands but `devvm adopt` uses the VM of the nearest folder with one that it's inside, and says which VM that is. `--here` and `--parent` choose which VM a command uses ([a subfolder](../using/vms.md#a-subfolder)).
 

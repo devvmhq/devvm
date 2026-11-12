@@ -182,9 +182,10 @@ linters:
         text: devvm's environment never changes
       # The readers of files a VM can write, or swap, are held to
       # internal/safefile: the project folder's (devcontainer.json, its
-      # default.nix, .git's), devvm agent save's store, the agents' logins and
-      # the policy files. Tests make their own fixtures.
-      - path-except: ^internal/(gitprotect/|vm/(devcontainer|detect|agentsave[a-z_]*)\.go$|agentlogin/|netpolicy/rules\.go$|proxy/(config|policy)\.go$)|^testdata/lint/
+      # default.nix, .git's), devvm agent save's store, devvm paste's copied
+      # file, the agents' logins and the policy files. Tests make their own
+      # fixtures.
+      - path-except: ^internal/(gitprotect/|vm/(devcontainer|detect|paste|agentsave[a-z_]*)\.go$|agentlogin/|netpolicy/rules\.go$|proxy/(config|policy)\.go$)|^testdata/lint/
         linters: [forbidigo]
         text: internal/safefile
       - path: _test\.go$

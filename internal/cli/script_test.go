@@ -245,6 +245,9 @@ func sandbox(env *testscript.Env, bin, stubs string) error {
 	env.Setenv("TOOLCHAINS", strings.Join(image.Toolchains, " "))
 	env.Setenv("AGENTS", strings.Join(image.Agents, " "))
 	env.Setenv("DEVVM_HOST_MISE", filepath.Join(stubs, "mise"))
+	// devvm paste's clipboard tools: the stubs, in place of the system's
+	// (macOS's /usr/bin/osascript), so no script reaches the real clipboard.
+	env.Setenv("DEVVM_CLIP_TOOLS", stubs)
 	env.Setenv("MISE_STUB_LOCK", filepath.Join(repo, "testdata", "mise.lock"))
 	env.Setenv("DEVVM_BIN", bin) // for scripts that set their own PATH
 	if err := scriptCoverDir(env); err != nil {

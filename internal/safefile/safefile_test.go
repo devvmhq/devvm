@@ -168,6 +168,39 @@ func TestOneLink(t *testing.T) {
 	}
 }
 
+// Checked takes a regular file its caller opened, and refuses a folder, a FIFO and, with
+// OneLink, a file with another hard link, closing what it refuses.
+func TestChecked(t *testing.T) {
+	t.Parallel()
+	dir, _ := folder(t)
+	must(t, os.Link(filepath.Join(dir, "file"), filepath.Join(dir, "file2")))
+	open := func(name string) *os.File {
+		t.Helper()
+		f, err := os.OpenFile(filepath.Join(dir, name), os.O_RDONLY|syscall.O_NONBLOCK, 0) //nolint:gosec // the test's own files
+		must(t, err)
+		return f
+	}
+	f, err := Checked(open("big"), Opts{})
+	must(t, err)
+	if b, err := f.ReadAll(64); !errors.Is(err, ErrTooLong) || b != nil {
+		t.Errorf("past its cap: %q, %v", b, err)
+	}
+	_ = f.Close()
+	for _, c := range []struct {
+		name string
+		o    Opts
+		err  error
+	}{{"sub", Opts{}, ErrNotRegular}, {"fifo", Opts{}, ErrNotRegular}, {"file2", Opts{OneLink: true}, ErrLinked}} {
+		raw := open(c.name)
+		if _, err := Checked(raw, c.o); !errors.Is(err, c.err) {
+			t.Errorf("%s: %v, want %v", c.name, err, c.err)
+		}
+		if err := raw.Close(); !errors.Is(err, os.ErrClosed) {
+			t.Errorf("%s: left open (%v)", c.name, err)
+		}
+	}
+}
+
 // A file swapped for a FIFO, a link out or back as it's read never holds the reader: each read
 // gives the file or an error.
 func TestSwapDuringOpen(t *testing.T) {

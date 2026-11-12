@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"time"
 
 	"github.com/devvmhq/devvm/assets"
 	"github.com/devvmhq/devvm/internal/backend"
@@ -155,6 +156,9 @@ func (a *app) vmEnv() (*vm.Env, error) {
 		e.PickMany = pickMany(a.u)
 		e.Folder = a.folder.rule()
 		e.HistoryMax = a.testOverrides().HistoryMax
+		e.PasteWait = time.Duration(a.testOverrides().PasteWait) * time.Second
+		clip := platform.Clipboard{Tools: a.testOverrides().ClipTools}
+		e.ReadClip, e.CopyText = clip.ReadClip, clip.CopyText
 		return e, nil
 	})
 }

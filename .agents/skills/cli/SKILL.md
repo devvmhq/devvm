@@ -13,11 +13,11 @@ The reasoning behind most rules is in the [Command Line Interface Guidelines](ht
 
 ## The tree
 
-devvm has 34 commands at the top, plus help. Each one is in a group of the root's help, in this order. The table shows each command with its subcommands and the values a setting takes, and each command's help lists its flags.
+devvm has 35 commands at the top, plus help. Each one is in a group of the root's help, in this order. The table shows each command with its subcommands and the values a setting takes, and each command's help lists its flags.
 
 | Group | Commands |
 | --- | --- |
-| Your VM | devvm, with --tools, --agents and --layers; restart, stop, update, rm [VM], adopt [VM], ls, code, desktop, host, history, history export [FILE], history import [FILE] |
+| Your VM | devvm, with --tools, --agents and --layers; restart, stop, update, rm [VM], adopt [VM], ls, code, desktop, host, history, history export [FILE], history import [FILE], paste, paste rm |
 | Change your VM | tools (a picker in a terminal), tools add\|rm TOOL..., tools update; size, with --cpus, --memory and --disk; mount-cache [none]; ports [all\|none\|LIST], ports add\|rm LIST; network [open\|internet\|learn\|allowlist\|none], network allow\|deny\|rm RULE..., network log, network lock, network transparent [on\|off]; ssh-agent [on\|devvm\|off], ssh-agent add\|rm KEY_FILE; git-protect [on\|off]; clone [on\|off], clone fetch, clone add PATH; secret, secret set\|rm\|use\|unuse NAME; layer add\|rm LAYER... |
 | Links between VMs | group, group join NAME, with --as NAME, group leave; link, link add\|rm TARGET PORT, with --as NAME on add; link publish [PORTS], link unpublish PORTS |
 | Images | images, images rm IMAGE\|KEY..., build IMAGE, rebuild IMAGE, layer new NAME |

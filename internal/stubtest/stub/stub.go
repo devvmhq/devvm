@@ -43,6 +43,8 @@ func stubs() map[string]func(*call) int {
 		"mise":                mise,
 		"open":                open,
 		"opencode":            opencode,
+		"osascript":           osascript,
+		"pbcopy":              clipCopy,
 		"qemu-img":            qemuImg,
 		"qemu-system-aarch64": logged,
 		"qemu-system-x86_64":  logged,
@@ -55,6 +57,9 @@ func stubs() map[string]func(*call) int {
 		"sw_vers":             swVers,
 		"tmutil":              tmutil,
 		"uname":               uname,
+		"wl-copy":             clipCopy,
+		"wl-paste":            wlPaste,
+		"xclip":               xclip,
 	}
 }
 

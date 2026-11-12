@@ -58,6 +58,8 @@ func (e *Env) restartOr(ctx context.Context, vm string, say func(msg.M), later m
 // and tools newer than the VM's (--clone on a VM that mounts the folder is
 // refused); then it launches the VM (launch) with its agent folder mounts
 // matched to the host's, sets it up and opens the shell, as for a new VM.
+// A VM it started, which was stopped, is offered devvm paste rm first
+// when devvm paste left files in it (Paste.offerRm).
 func (e Launch) open(ctx context.Context, o Options, t *target) error {
 	vm, st, b := t.f.Name, t.st, t.b
 	if o.Clone && !isClone(st) {
@@ -78,12 +80,18 @@ func (e Launch) open(ctx context.Context, o Options, t *target) error {
 		return err
 	}
 	e.warnIgnored(o, st)
+	wasRunning := t.in.Status == backend.StatusRunning
 	conf, err := e.launch(ctx, t, upOpts{agentDirs: true})
 	if err != nil {
 		return err
 	}
 	if err := e.setUpVM(ctx, t, conf); err != nil {
 		return err
+	}
+	if !wasRunning {
+		if err := Paste(e).offerRm(ctx, t); err != nil {
+			return err
+		}
 	}
 	cmd, err := t.shell(ctx)
 	if err != nil {

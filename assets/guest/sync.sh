@@ -15,9 +15,10 @@
 #                DEVVM_PROXY (the proxy URL, empty when the guest has none),
 #                DEVVM_NO_PROXY (what reaches the VM itself without the proxy; its links go through it),
 #                DEVVM_LOCAL_PROXY (ADDRESS:PORT on the VM's loopback, where devvm-local-proxy
-#                listens; empty without a proxy), and DEVVM_TRANSPARENT_ADDR and
+#                listens; empty without a proxy), DEVVM_TRANSPARENT_ADDR and
 #                DEVVM_TRANSPARENT_HOST (transparent mode's stand-in address, empty for off, and the
-#                proxy's reserved target; transparent.sh)
+#                proxy's reserved target; transparent.sh), and DEVVM_PASTE_DIR (the folder devvm
+#                paste writes to, config.toml's paste-dir: made here, the user's own, mode 700)
 #   transparent.sh  devvm-transparent: transparent mode, for tools that ignore the proxy settings
 #   tools        the VM's shared tool images, "FILE TOOL VERSION" lines; tools.sh mounts them
 #   tool-alias.toml  the [tool_alias] table of devvm's shared-tools/mise.toml: the backend each
@@ -76,6 +77,20 @@ if [[ -n "$DEVVM_TZ" ]]; then
       sudo timedatectl set-timezone "$DEVVM_TZ" || echo "devvm: unknown timezone $DEVVM_TZ" >&2
   elif [[ -f /usr/share/zoneinfo/$DEVVM_TZ ]]; then
     [[ "$(readlink /etc/localtime)" == "/usr/share/zoneinfo/$DEVVM_TZ" ]] || sudo ln -sfn "/usr/share/zoneinfo/$DEVVM_TZ" /etc/localtime
+  fi
+fi
+# The paste folder (devvm paste): made once, the user's own, mode 700, by the user, or by root where
+# the user can't make it, such as a folder under /srv. One that's there keeps its mode. A link, a
+# file or another user's folder there is left alone, with a warning, as is one that can't be made,
+# under a file say: paste.sh refuses them too, and the rest of the setup goes on.
+if [[ -n "${DEVVM_PASTE_DIR:-}" ]]; then
+  p=$DEVVM_PASTE_DIR
+  if [[ -L $p ]]; then echo "devvm: $p is a symbolic link, so devvm paste can't use it" >&2
+  elif [[ -e $p && ! -d $p ]]; then echo "devvm: $p isn't a folder, so devvm paste can't use it" >&2
+  elif [[ -d $p && ! -O $p ]]; then echo "devvm: $p isn't yours, so devvm paste can't use it" >&2
+  elif [[ ! -e $p ]]; then
+    (umask 077 && mkdir -p "$p") 2>/dev/null || sudo install -d -m 700 -o "$(id -u)" -g "$(id -g)" "$p" \
+      || echo "devvm: $p can't be made, so devvm paste can't use it" >&2
   fi
 fi
 # musl (Alpine) has no locales to generate.

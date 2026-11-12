@@ -31,6 +31,14 @@ type Overrides struct {
 	// HistoryMax (DEVVM_HISTORY_MAX) is the most of an export of agents'
 	// history devvm keeps, in bytes (vm.Env.HistoryMax), in place of 2 GiB.
 	HistoryMax int
+	// ClipTools (DEVVM_CLIP_TOOLS) is the folder devvm paste runs the
+	// clipboard tools from (platform.Clipboard's Tools), in place of the
+	// system's, so the tests' stand-ins never reach the real clipboard.
+	ClipTools string
+	// PasteWait (DEVVM_PASTE_WAIT) is how long devvm paste waits for
+	// paste.sh in the VM, in seconds (vm.Env.PasteWait), in place of 10
+	// minutes for a write and 2 for a count or a delete.
+	PasteWait int
 }
 
 // ReleaseOverrides are devvm upgrade's stand-ins: a fake release server
@@ -58,6 +66,7 @@ func readOverrides(getenv func(string) string) Overrides {
 		return Overrides{}
 	}
 	historyMax, _ := strconv.Atoi(getenv("DEVVM_HISTORY_MAX"))
+	pasteWait, _ := strconv.Atoi(getenv("DEVVM_PASTE_WAIT"))
 	return Overrides{
 		Overrides: registry.Overrides{
 			Host: platform.Overrides{
@@ -78,5 +87,7 @@ func readOverrides(getenv func(string) string) Overrides {
 			CA: getenv("DEVVM_RELEASE_CA"), Version: getenv("DEVVM_TEST_VERSION"),
 		},
 		HistoryMax: historyMax,
+		ClipTools:  getenv("DEVVM_CLIP_TOOLS"),
+		PasteWait:  pasteWait,
 	}
 }

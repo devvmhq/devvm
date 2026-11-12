@@ -57,6 +57,9 @@ type configFile struct {
 	// proxy settings to the proxy (TransparentProxy), which no command
 	// saves.
 	TransparentProxy opt[switchKind] `toml:"transparent-proxy"`
+	// PasteDir is the folder in every VM that devvm paste writes to
+	// (PasteDir), which no command saves.
+	PasteDir opt[pasteDirKind] `toml:"paste-dir"`
 	// PassKeys are the providers whose API keys an agent's VMs get as
 	// they are (PassKeys), which no command saves.
 	PassKeys passKeys `toml:"pass-keys"`
@@ -142,7 +145,7 @@ func (c *configFile) refused() (msg.M, bool) {
 	for _, v := range []refuser{
 		&c.Network, &c.Ports, &c.Features, &c.Agents, &c.Layers, &c.Size.CPUs, &c.Size.Memory, &c.Size.Disk,
 		&r.Logs.Runs, &r.History.Age, &r.History.Count, &r.Tools.UnusedAge, &r.Orphans.Age, &r.NixCache.Size,
-		&c.Proxy.HTTPS, &c.Proxy.HTTP, &c.Proxy.NoProxy, &c.UbuntuMirror, c.PassKeys,
+		&c.Proxy.HTTPS, &c.Proxy.HTTP, &c.Proxy.NoProxy, &c.UbuntuMirror, &c.PasteDir, c.PassKeys,
 	} {
 		if m, ok := v.refusal(); ok {
 			return m, true

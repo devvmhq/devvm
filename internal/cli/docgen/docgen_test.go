@@ -129,7 +129,7 @@ func TestHiddenCommandsAreLeftOut(t *testing.T) {
 		"_index.md", "devvm.md", "devvm_adopt.md", "devvm_agent.md", "devvm_agent_import.md", "devvm_agent_login.md", "devvm_agent_save.md", "devvm_build.md", "devvm_clone.md", "devvm_clone_add.md", "devvm_clone_fetch.md", "devvm_code.md", "devvm_completion.md", "devvm_desktop.md", "devvm_doctor.md", "devvm_gc.md", "devvm_git-protect.md", "devvm_group.md", "devvm_group_join.md", "devvm_group_leave.md", "devvm_history.md", "devvm_history_export.md", "devvm_history_import.md", "devvm_host.md", "devvm_images.md", "devvm_images_rm.md", "devvm_layer.md", "devvm_layer_add.md", "devvm_layer_new.md", "devvm_layer_rm.md", "devvm_limactl.md",
 		"devvm_link.md", "devvm_link_add.md", "devvm_link_publish.md", "devvm_link_rm.md", "devvm_link_unpublish.md", "devvm_ls.md", "devvm_mount-cache.md", "devvm_network.md",
 		"devvm_network_allow.md", "devvm_network_deny.md", "devvm_network_lock.md", "devvm_network_log.md", "devvm_network_rm.md", "devvm_network_transparent.md",
-		"devvm_ports.md", "devvm_ports_add.md", "devvm_ports_rm.md", "devvm_rebuild.md",
+		"devvm_paste.md", "devvm_paste_rm.md", "devvm_ports.md", "devvm_ports_add.md", "devvm_ports_rm.md", "devvm_rebuild.md",
 		"devvm_restart.md", "devvm_retention.md", "devvm_rm.md", "devvm_secret.md", "devvm_secret_rm.md",
 		"devvm_secret_set.md", "devvm_secret_unuse.md", "devvm_secret_use.md",
 		"devvm_setup.md", "devvm_size.md", "devvm_space.md", "devvm_ssh-agent.md", "devvm_ssh-agent_add.md", "devvm_ssh-agent_rm.md", "devvm_stop.md",

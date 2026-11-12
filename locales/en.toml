@@ -2042,6 +2042,112 @@ other = "Screen Sharing didn't open. Open {{.url}} in a VNC viewer instead."
 [desktop_vm_stopped]
 other = "{{.vm}} stopped, and its desktop with it."
 
+[paste_failed]
+description = "reason is an error from the system, in English"
+other = "Sending the clipboard to this folder's VM failed: {{.reason}}."
+
+[paste_sent]
+description = "path is the file's path in the VM, which devvm chose"
+other = "put {{.path}} into {{.vm}} and copied the path, for your terminal's paste shortcut"
+
+[paste_put]
+description = "path is the file's path in the VM, which devvm chose; copying it to the clipboard failed, which a warning says"
+other = "put {{.path}} into {{.vm}}"
+
+[paste_copy_failed]
+other = "Copying the path to the clipboard failed. Paste {{.path}} into the agent yourself."
+
+[paste_nothing]
+other = "There's no image, PDF or copied file on the clipboard. Copy one, then run devvm paste again."
+
+[paste_many_files]
+description = "count is how many files are on the clipboard, more than one"
+one = "{{.count}} file is on the clipboard, and devvm paste sends one. Copy one file, then run it again."
+other = "{{.count}} files are on the clipboard, and devvm paste sends one. Copy one file, then run it again."
+
+[paste_too_large]
+description = "max is the most devvm paste sends, such as 64 MiB"
+other = "The image, PDF or file is over {{.max}}, the most devvm paste sends."
+
+[paste_needs_tool]
+description = "tool is the clipboard tool's command: wl-paste, wl-copy, xclip, osascript or pbcopy"
+other = "{{.tool}} isn't installed, and devvm paste reads and writes the clipboard with it. Install it, then run devvm paste again."
+
+[paste_no_session]
+other = "Neither WAYLAND_DISPLAY nor DISPLAY is set, so there's no clipboard to read. Run devvm paste from a terminal in your desktop session."
+
+[paste_tool_failed]
+description = "tool is Linux's clipboard tool's command, wl-paste or xclip; reason is what it printed, in English"
+other = "Reading the clipboard with {{.tool}} failed: {{.reason}}. Run devvm paste from a terminal in your current desktop session."
+
+[paste_osascript_failed]
+description = "reason is what macOS's osascript printed, in English"
+other = "Reading the clipboard with osascript failed: {{.reason}}. Run devvm paste in a terminal on the Mac you're logged in to, not over ssh."
+
+[paste_tool_slow]
+description = "count is how many seconds devvm waits for the clipboard"
+one = "The app you copied from didn't hand over the clipboard within {{.count}} second. Copy it again, or wait until that app responds, then run devvm paste again."
+other = "The app you copied from didn't hand over the clipboard within {{.count}} seconds. Copy it again, or wait until that app responds, then run devvm paste again."
+
+[paste_file_gone]
+other = "The file on the clipboard is gone, so devvm sent nothing. Copy the file again, then run devvm paste again."
+
+[paste_unsupported]
+other = "Reading the clipboard works only on macOS and Linux."
+
+[paste_not_file]
+other = "{{.file}} isn't a regular file, so devvm sent nothing. Copy a file, not a folder."
+
+[paste_file_link]
+other = "{{.file}} is a symbolic link, or has one on its path, so devvm sent nothing. Copy the file from the folder it's really in."
+
+[paste_not_sent]
+other = "Writing {{.path}} in {{.vm}} failed."
+
+[paste_count_failed]
+other = "Counting the pasted files in {{.dir}} in {{.vm}} failed."
+
+[paste_rm_not_done]
+other = "Deleting the pasted files in {{.dir}} in {{.vm}} failed."
+
+[paste_file_ask]
+description = "file is the copied file's path on this machine"
+other = "Anything in {{.vm}} can read what you send.\nSend {{.file}} from this machine?"
+
+[paste_file_outside]
+description = "file is the copied file's path on this machine; dir is the project folder the VM reads"
+other = "{{.file}} is outside {{.dir}}, the folder the VM already reads, so devvm sends it only after you say yes in a terminal. --send-file sends only a file in that folder."
+
+[paste_file_through_link]
+description = "file is the copied file's path on this machine, which has a system symbolic link on it"
+other = "{{.file}} is reached through a symbolic link, so it may not be where its path says, and devvm sends it only after you say yes in a terminal. --send-file sends only a file in the project folder with no link on its path."
+
+[paste_rm_ask]
+description = "count is how many pasted files are in dir, the paste folder in the VM"
+one = "Delete {{.count}} pasted file in {{.dir}} in {{.vm}}?"
+other = "Delete {{.count}} pasted files in {{.dir}} in {{.vm}}?"
+
+[paste_rm_none]
+other = "There are no pasted files in {{.dir}} in {{.vm}}."
+
+[paste_rm_done]
+description = "count is how many pasted files devvm deleted"
+one = "deleted {{.count}} pasted file from {{.dir}} in {{.vm}}"
+other = "deleted {{.count}} pasted files from {{.dir}} in {{.vm}}"
+
+[paste_rm_failed]
+description = "reason is an error from the system, in English"
+other = "Deleting the pasted files in this folder's VM failed: {{.reason}}."
+
+[paste_launch_ask]
+description = "count is how many pasted files are in dir, the paste folder in the VM, from before it stopped"
+one = "{{.vm}} still has {{.count}} pasted file in {{.dir}} from before it stopped.\nDelete it?"
+other = "{{.vm}} still has {{.count}} pasted files in {{.dir}} from before it stopped.\nDelete them?"
+
+[paste_dir_invalid]
+description = "setting is config.toml's paste-dir"
+other = "{{.setting}} isn't a folder devvm paste can use. Set it as an absolute path of letters, digits, dots, dashes and _, such as /tmp/devvm-paste."
+
 [limactl_failed]
 description = "reason is an error from the system, in English"
 other = "Running limactl failed: {{.reason}}."

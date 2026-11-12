@@ -20,6 +20,56 @@ In the VM the agent sees only your project folder, and your agents' settings fro
 
 Every VM has a guide to devvm for the agents in it, at `/usr/share/doc/devvm/README.md`, and `devvm-help` in the VM prints it. It tells an agent what a devvm VM is, how its network tiers and secrets work, where its installs go, and which commands to ask you to run on this machine, such as `devvm network allow` for a blocked host or `devvm agent login` for a login. The guide is the same in every VM, so it says nothing about the VM's own tier, ports or layers. Each launch installs it again whenever it differs from devvm's, and it belongs to root and is read-only, so nothing that the VM's user runs without `sudo` can change what the agents read, and a change made with `sudo` lasts only until the next launch. Ask your agent to read it, or to run `devvm-help`, when it doesn't know where it's running. devvm adds nothing about it to the agents' instruction files.
 
+## Pasting images
+
+An agent in the VM can't see this machine's clipboard, so an image you copied, such as a screenshot, gets to it through devvm paste, which sends the image into the VM and copies its path there for you to paste:
+
+1. Copy an image on this machine, such as a screenshot, copy pages in a PDF viewer such as Preview, or copy a file in Finder or your file manager.
+2. In a terminal on this machine, run `devvm paste` in the project folder. devvm says where the image is in the VM, such as `/tmp/devvm-paste/paste-20261109-153012-7f3a9c01.png`, and puts that path on your clipboard. If putting it there fails, devvm warns you and still says where the image is, so you can paste that path yourself.
+3. Paste the path into the agent with your terminal's paste shortcut, which is Cmd+V on macOS and usually Ctrl+Shift+V on Linux. Ctrl+V on its own asks the agent to read the VM's clipboard, and the VM has none.
+
+Claude Code, Codex and opencode attach an image whose path you paste, and pi reads it with its `read` tool. The VM must be running, because devvm paste is for an agent that runs in it, and devvm refuses a stopped one.
+
+devvm reads only an image, a PDF or a copied file's reference from the clipboard, never text, so a password you copied never reaches it. It checks that an image's or a PDF's bytes are the type the clipboard claims. It takes PNG, JPEG, GIF and WebP images, and on macOS it also takes a TIFF, which many Mac apps copy, and sends it as a PNG. An image, a PDF or a file over 64 MiB is refused.
+
+The app you copied from hands over what you copied when devvm asks for it, and devvm waits for it at most 30 seconds. If the app doesn't answer in that time, devvm stops waiting, sends nothing and says so. Copy it again, or wait until the app responds, then run devvm paste again. On macOS, devvm reads the clipboard with `osascript`, which reaches the clipboard of the session you're logged in to, so run devvm paste in a terminal on that Mac, not over ssh.
+
+What devvm gets depends on the app you copied from. A browser's Copy Image hands over a PNG, never the original JPEG, GIF or WebP, and Safari hands over a TIFF, which devvm makes a PNG, so an animated GIF arrives as one still frame. To send the original, save it and copy the saved file instead. Text is never sent, so paste text, such as an error message, into the agent's terminal yourself.
+
+A PDF on the clipboard, such as pages you copied in Preview, is sent as it is, as a `.pdf` file, because most models read PDFs. A PDF viewer puts a picture of what you copied beside the PDF, and devvm sends the PDF, never the picture. When you copy a page's thumbnail in Preview, Preview also puts a temporary file of its own on the clipboard, and devvm sends the PDF without asking about that file.
+
+A copied file is sent the same way, under a name of devvm's that keeps only the file's extension, when it's letters and digits alone and at most 16 of them. So `my shot (1).png` becomes `paste-20261109-153012-7f3a9c01.png`, and `Makefile` becomes `paste-20261109-153012-7f3a9c01`. Nothing else of the file's name reaches the clipboard, so the path you paste into a terminal is devvm's own and can't run anything, even when the VM named the file in the project folder.
+
+devvm sends one file at a time. It refuses several files, a folder, and a symbolic link anywhere in the file's path, your own included. A file you copy may be in the project folder, which the VM can write, and a link planted there could point at a file of yours. The only links devvm follows are the system's own, which root owns, such as macOS's `/tmp`, so copy the file from the folder it's really in.
+
+On macOS, Finder puts the copied file's icon on the clipboard as an image beside the file, and devvm sends the file, not the icon. If the file is gone by the time you run devvm paste, devvm says so and sends nothing, rather than the icon. Text is never taken for a file, even when it's a path, so copy the file itself in Finder.
+
+Before devvm sends a copied file, it shows the file's path on this machine and asks, [y/N], because the clipboard can name any file of yours, such as a key in `~/.ssh` that you didn't mean to copy. Answer no and nothing is sent. An image or a PDF is sent without a question, because it's only what you copied. A photo you copy in Photos comes with a file of the Photos library beside it, so devvm asks about that file, as it does about any copied file.
+
+`devvm paste --send-file` sends a file in the project folder without asking, as a script must, because the VM can read that folder already. A file anywhere else is still asked about with `--send-file`, so only you can send it, at a terminal. So is a file whose path goes through a symbolic link, even one of the system's that devvm follows, because the file may not be where its path says. Where devvm can't ask, such as without a terminal, it sends nothing. It names `--send-file` for a file in the folder, the file and the folder for one outside it, and the file for one reached through a link. So don't bind `devvm paste --send-file` to a hotkey to send files from outside the project, because a hotkey has no terminal to ask in, and devvm refuses those files. A clone VM, made with `--clone`, doesn't mount the folder, so `--send-file` answers for none of its files.
+
+`devvm paste --json` does the same and prints what it sent as one object, with `"version": 1` first. It has whether anything was `sent`, which is `false` when you answered no about a file, the VM, and the file's `path` in it (`""` when nothing was sent). Then its `kind` (`image`, `pdf` or `file`), an image's or a PDF's `type` (`image/png`, `image/jpeg`, `image/gif`, `image/webp` or `application/pdf`, and `""` for a file), and a copied file's `source`, its path on this machine (`""` otherwise). Last come its size in `bytes`, and whether the path was `copied` to the clipboard:
+
+```json
+{"version": 1, "sent": true, "vm": "devvm-website-3f9a1c2b4d5e6f", "path": "/tmp/devvm-paste/paste-20261109-153012-7f3a9c01.png", "kind": "image", "type": "image/png", "source": "", "bytes": 48213, "copied": true}
+```
+
+### The paste folder and your agent's settings
+
+The files go into the VM's paste folder, `/tmp/devvm-paste` unless `config.toml`'s `paste-dir` names another ([the paste folder](settings.md#the-paste-folder)). Each launch makes the folder in the VM, mode 700 and yours, and leaves an existing one as it is. The folder is a fixed path so that you can allow it once in an agent's settings. Claude Code refuses to read a path outside the project folder when its `permissions.blockReadsOutsideWorkingDirectories` setting is on, until you add the folder with `/add-dir /tmp/devvm-paste` or list it in `permissions.additionalDirectories` in your settings, which [devvm's agent store](#devvms-agent-store) keeps for every VM. The files keep their mode, 600, so only the VM's user reads them.
+
+Anything in the VM can read what you send, as it can read any file in the project folder, so paste nothing you wouldn't put in the folder.
+
+### Deleting pasted files
+
+devvm never deletes a pasted file on its own, because Codex reads the image when you submit your message and pi when the model calls `read`, which may be some time after the paste. `devvm paste rm` deletes the files devvm paste left in the folder, after asking in a terminal, and `devvm paste rm --force` deletes them without asking, as a script must. It deletes only the files devvm paste named, and nothing else in the folder, so a `paste-dir` of your own, such as `/home/USER/pastes` where `USER` is your user in the VM, can hold other files.
+
+The VM's `/tmp` is emptied when the VM boots, so with the default folder the files are gone after a restart anyway. With a `paste-dir` of your own, they stay. A command that starts a stopped VM and opens its shell offers to delete them, [y/N], once the VM is set up. Those commands are `devvm`, `devvm restart`, `devvm tools`, `devvm tools add`, `devvm tools rm` and `devvm tools update`, `devvm layer add` and `devvm layer rm`, `devvm update`, and `devvm clone on` and `devvm clone off`. Without a terminal, devvm keeps the files and says nothing, and if deleting them fails, it warns you and opens the shell anyway. Commands that start a VM without opening its shell, such as `devvm code` and `devvm agent save`, don't ask, so run `devvm paste rm` when you want the files gone.
+
+### On Linux
+
+devvm reads and writes the clipboard with `wl-paste` and `wl-copy` in a Wayland session, which `WAYLAND_DISPLAY` names, and with `xclip` in an X11 session, which `DISPLAY` names. It looks for them only in the system's folders, `/usr/bin`, `/bin`, `/usr/local/bin` and NixOS's `/run/current-system/sw/bin`, and never elsewhere on your `PATH`, where a folder the VM can write, such as a project's `node_modules/.bin`, might come first. It tells you which one is missing, and installs nothing itself, so install `wl-clipboard` or `xclip` with your distribution's package manager. Run devvm paste from a terminal in your desktop session, because without either variable there's no clipboard to read. If `WAYLAND_DISPLAY` or `DISPLAY` names a session that's over, as in a tmux window left from an earlier login, devvm tells you that `wl-paste` or `xclip` failed and what it said, rather than that the clipboard is empty. Copying the path leaves `wl-copy` or `xclip` running until you copy something else, because a Linux clipboard's contents live in the program that copied them.
+
 ## Supported agents
 
 A new VM gets an agent when you choose it as you customize the VM, or when you name it with `--agents`. A VM that exists gets one from `devvm tools`, which shows the same list with the VM's agents already chosen, or from `devvm tools add`:

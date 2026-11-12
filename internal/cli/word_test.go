@@ -90,7 +90,7 @@ func TestUnknownWord(t *testing.T) {
 		{[]string{"pg"}, "no_command_part flags=--layers pg word=pg"},
 		{[]string{"node+claude"}, "no_command_part flags=--tools node --agents claude word=node+claude"},
 		{[]string{"docker,go+node+codex+node"}, "no_command_part flags=--tools go,node --agents codex --layers docker word=docker,go+node+codex+node"},
-		{[]string{"base"}, "no_command word=base"},
+		{[]string{"base"}, "no_command_like command=paste word=base"}, // an image's name gets no help of its own: base is near paste, as any word is near a command
 		{[]string{"node+nope"}, "no_command word=node+nope"},
 		{[]string{"nodee"}, "no_command_like command=code word=nodee"},
 		{[]string{"pgg"}, "no_command_like command=gc word=pgg"},

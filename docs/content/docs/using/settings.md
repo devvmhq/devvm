@@ -52,6 +52,9 @@ release-check = true
 # Whether confined VMs send tools that ignore the proxy settings to their proxy.
 transparent-proxy = true
 
+# The folder in every VM that devvm paste puts images and files in.
+paste-dir = "/tmp/devvm-paste"
+
 # New VMs' CPUs, and their memory and disk in GiB.
 [size]
 cpus = 4
@@ -90,6 +93,12 @@ The `[pass-keys]` table names, for an agent, the providers whose API keys its VM
 `ubuntu-mirror` is a mirror of Ubuntu's archive, such as one your company or university runs, which the first build of base gets its packages from before it tries Ubuntu's own. It must mirror the archive for this machine's architecture: `archive.ubuntu.com/ubuntu` on an Intel or AMD machine, or `ports.ubuntu.com/ubuntu-ports` on an Apple silicon Mac or another arm64 machine. Give it as an `http://` or `https://` address without a user, a query or spaces, and devvm refuses anything else (`config.toml` names the line). A package that the mirror doesn't have, or a mirror that doesn't answer, falls back to Ubuntu's archive for that file.
 
 A mirror can't give base a package that Ubuntu didn't publish. apt checks every list and package against Ubuntu's archive key whichever server sends it, and refuses one that doesn't match, and devvm checks them against that key again on this machine before it keeps any package. A mirror that's behind, or one that's lying, can still serve lists older than Ubuntu's, because Ubuntu's signed lists don't expire. devvm refuses lists more than a day older than the Ubuntu cloud image base starts from, and it names the mirror and keeps none of the build's packages ([old package lists](troubleshooting.md#base-gets-old-package-lists)). devvm compares the lists with the cloud image's date, not with today's, so a mirror that fell behind after that date can still give base packages older than Ubuntu's, and you should only set a mirror you trust to keep up. Only the first build of each base uses the mirror, because a later build of the same base installs the packages devvm kept from that first build ([base](images.md#base)). VMs don't use it, and neither do layers or a `--from` base. No command saves it, so it's only ever in `config.toml`.
+
+### The paste folder
+
+`paste-dir` is the folder in every VM that [devvm paste](coding-agents.md#pasting-images) puts images, PDFs and copied files in, `/tmp/devvm-paste` unless you set it. Each launch makes the folder in the VM when it's missing, mode 700 and the VM's user's own. It leaves a folder that's there as it is, so a folder of your own, such as `/home/USER/pastes` where `USER` is your user in the VM, keeps its mode and its other files. When what's at the path is a symbolic link, isn't a folder or isn't the VM's user's, a launch warns and devvm paste refuses the folder. A launch also warns when it can't make the folder, as under a file, and in each case the launch goes on.
+
+It's one fixed path for every VM so that you can allow it once in an agent's settings. Give it as an absolute path without a trailing slash, made of letters, digits and `.`, `_` and `-`, and devvm refuses anything else (`config.toml` names the line), because the path goes into a shell in the VM and onto your clipboard. A change applies to each VM at its next launch, which makes the new folder, and devvm paste uses the new folder at once. No command saves it, so it's only ever in `config.toml`.
 
 ### The release check
 

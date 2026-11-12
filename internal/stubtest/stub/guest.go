@@ -49,6 +49,8 @@ import (
 //	                    Alpine guest's mount of a share it just unmounted does, and leaves
 //	                    the folder unmounted until the VM's next start, which mounts it:
 //	                    the stubs mark it with unmounted-<vm>, which start removes
+//	paste-count         what paste.sh count and rm print, the number of pasted files (else 0)
+//	paste-in            where paste.sh put's stdin goes, with its folder and name in paste-put
 type guest struct {
 	*call
 	vm string // the VM's name, "" over ssh
@@ -195,6 +197,33 @@ func (g *guest) files() (code int, done bool) {
 			return 1, true
 		}
 		g.print(string(g.raw("agent-save.tar", string(make([]byte, 1024)))))
+		return 0, true
+	case strings.Contains(all, "'devvm-paste' 'put' "):
+		if g.on("shell-fails") || g.mentions("shell-fails-on") {
+			return 1, true
+		}
+		if g.on("paste-hangs") {
+			g.hang() // then goes on, as a write that's only slow
+		}
+		words := shellWords(strings.TrimPrefix(g.last(), shellPrefix))
+		if len(words) < 7 {
+			return 2, true
+		}
+		if err := g.put("paste-put", []byte(words[5]+" "+words[6]+"\n")); err != nil {
+			return g.status(err), true
+		}
+		return g.status(g.copyIn("paste-in")), true
+	case strings.Contains(all, "'devvm-paste' 'count' "), strings.Contains(all, "'devvm-paste' 'rm' "):
+		if g.on("shell-fails") || g.mentions("shell-fails-on") {
+			return 1, true
+		}
+		if g.on("paste-floods") {
+			return g.flood("1\n"), true
+		}
+		if g.on("paste-hangs") {
+			g.hang() // then goes on, as a count that's only slow
+		}
+		g.print(g.textOr("paste-count", "0") + "\n")
 		return 0, true
 	case strings.Contains(all, "tar -x -C "):
 		return g.status(g.copyIn("packages-in.tar")), true

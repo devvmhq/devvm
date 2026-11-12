@@ -66,6 +66,13 @@ func Read(path string, limit int64, o Opts) ([]byte, error) {
 	return f.ReadAll(limit)
 }
 
+// Checked checks f, a file its caller opened another way, as Open checks its own: such as
+// devvm paste's, opened through no link (platform.OpenNoLinks) with a call this package can't
+// make on the standard library alone. Anything that isn't a regular file is ErrNotRegular, and
+// with OneLink a file with another hard link is ErrLinked; Follow isn't Checked's, as the open
+// was the caller's. A file it refuses is closed; one it takes is the caller's to close.
+func Checked(f *os.File, o Opts) (*File, error) { return checked(f.Name(), f, nil, o) }
+
 // checked is what an open of path gave, f or err, checked as o says: a link that isn't followed
 // is ErrNotRegular, as is anything that isn't a regular file; with OneLink, a file with another
 // hard link is ErrLinked. A file it refuses is closed.
