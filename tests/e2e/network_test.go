@@ -813,8 +813,11 @@ func netTokens(n *netRun) {
 		return nil
 	})
 	s.Check("the VM's Codex reads its copy of the login, the fields devvm doesn't know left out", func() error {
+		// An API-key login whose key is devvm's placeholder: Codex 0.167.0
+		// shows the key's start ("Logged in using an API key - sk-devvm***…"),
+		// where earlier releases said "API key configured" alone.
 		r, err := s.InVM(vm, "codex login status")
-		if err != nil || !strings.Contains(r.Out, "API key configured") {
+		if err != nil || !strings.Contains(r.Out, "API key configured") && !Matches(r.Out, `^Logged in using an API key - sk-devvm`) {
 			return failed("codex login status:\n"+r.Out, err)
 		}
 		return nil
