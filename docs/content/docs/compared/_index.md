@@ -6,13 +6,14 @@ weight: 50
 
 devvm gives each project folder a VM of its own on your machine, with the project's toolchains shared read-only between VMs, a proxy on this machine that confines the VM's network, and your secrets kept outside the VM. Other tools sandbox coding agents in other ways: in a microVM, in an OS sandbox around the agent's process, or on a vendor's servers. This page sets devvm beside the ones you're most likely to weigh it against.
 
-Last checked on 2026-11-08, against each tool's own docs, which the [sources](#sources) list. These tools change every week, so check a tool's own docs before you rely on a row here, and [open an issue](https://github.com/devvmhq/devvm/issues) when a row is out of date.
+> [!NOTE]
+> Last checked on 2026-11-08, against each tool's own docs, which the [sources](#sources) list. These tools change every week, so check a tool's own docs before you rely on a row here, and [open an issue](https://github.com/devvmhq/devvm/issues) when a row is out of date.
 
 ## Boundary and where it runs
 
 | | Boundary | Runs on | Project files | Open source | Account and cost |
 | --- | --- | --- | --- | --- | --- |
-| devvm | a full VM with its own kernel, on Lima | macOS 13 or newer and Linux, on arm64 or x86_64 | mounted read-write at the same path, or the VM's own clone with `--clone` | yes, MIT | no account, free |
+| devvm | a full VM with its own kernel, on Lima | macOS 13 or newer and Linux, on arm64 or x86_64 | mounted read-write at the same path, or with `--clone`, the VM's own clone of the repo as `git status` shows it here | yes, MIT | no account, free |
 | [Docker Sandboxes](docker-sandboxes.md) | a microVM with its own kernel and Docker Engine | macOS 14 or newer on Apple silicon, Windows 11, Ubuntu 24.04 or newer, and Docker's cloud | mounted read-write, a private clone, or none | no | a Docker sign-in; free locally, cloud paid by use |
 | NVIDIA OpenShell | containers on Kubernetes, Podman or Docker with Landlock and seccomp, or a microVM you choose | Linux, macOS on Apple silicon through Docker Desktop, and Windows through WSL2 as an experiment | copied in and out | yes, Apache-2.0 | no account, free |
 | microsandbox | a microVM with its own kernel, running as root inside | macOS on Apple silicon, Linux and Windows | mounted read-write by default | yes, Apache-2.0 | no account, free locally |
@@ -26,8 +27,8 @@ Last checked on 2026-11-08, against each tool's own docs, which the [sources](#s
 
 | | Network by default | Rules by | API keys | Agent logins | Agents |
 | --- | --- | --- | --- | --- | --- |
-| devvm | the allowlist tier: devvm's built-in hosts, your secrets' hosts and yours, enforced outside the VM | host and port | placeholders in the VM, real values added by the proxy on this machine | made through the proxy or imported, kept and refreshed on this machine, with placeholders in the VM | Claude Code, Codex, opencode and pi |
-| Docker Sandboxes | a preset you choose at first run: open, balanced or locked down | host, and HTTP method, path and query | placeholders in the VM, real values added by a proxy on the host | kept on the host for Claude Code, Codex, Cursor and Droid, with placeholders in the VM; you log in to Claude Code inside the sandbox, and one login serves every sandbox | Claude Code, Codex, Copilot, Cursor, Devin, Docker Agent, Droid, Gemini, Kiro and OpenCode |
+| devvm | the allowlist tier: devvm's built-in hosts, your secrets' hosts and yours, enforced outside the VM, or the internet tier while the VM learns the hosts it needs | host and port, and HTTP method and path | placeholders in the VM, real values added by the proxy on this machine, for agents' providers and for any API key you save as your own secret | made through the proxy or imported, kept on this machine and refreshed there for Claude Code, Codex and opencode, with placeholders in the VM | Claude Code, Codex, opencode, pi and Cursor's CLI |
+| Docker Sandboxes | a preset you choose at first run: open, balanced or locked down | host and port, and HTTP method, path and query | placeholders in the VM, real values added by a proxy on the host | kept on the host for Claude Code, Codex, Cursor and Droid, with placeholders in the VM; you log in to Claude Code inside the sandbox, and one login serves every sandbox | Claude Code, Codex, Copilot, Cursor, Devin, Docker Agent, Droid, Gemini, Kiro and OpenCode |
 | NVIDIA OpenShell | deny for hosts no rule names; method and path rules only log by default | host, port and the calling program, and method and path if you turn them on | placeholders from providers | not documented; providers take API keys from your environment | Claude Code, OpenCode, Codex and GitHub Copilot CLI, in your own image |
 | microsandbox | public internet open, private addresses refused | domain, address and port | placeholders, over TLS that the host intercepts | its Claude Code guide logs in inside the VM | any, with a guide for Claude Code |
 | smolvm | off | host and address range | placeholders in headers, and in form bodies if you turn it on | not documented | any |
@@ -38,9 +39,16 @@ Last checked on 2026-11-08, against each tool's own docs, which the [sources](#s
 
 ## How devvm differs
 
-Of the tools on this page, only devvm shares toolchains read-only between VMs, so a second project that needs node uses the same copy as the first, and nothing in a VM can change it. devvm detects the toolchains from the project's files and reads a project's `devcontainer.json`. It locks a folder's `.git` hooks and config against the VM, so the VM can't add a hook that runs on this machine, which Docker Sandboxes' docs say its direct mode doesn't prevent. Its network confinement holds even against root in the VM, because devvm enforces it from outside the VM. A VM can [learn the hosts it needs](../safety/network.md#learning-the-hosts-a-vm-needs) and then keep the ones you choose, much as OpenShell shows you the hosts it blocked so that you can approve them.
+Beyond the tables, these are the differences you're most likely to weigh:
 
-devvm keeps each agent's login on this machine and refreshes it there, so a confined VM never holds it, and Docker Sandboxes does the same for Claude Code, Codex, Cursor and Droid. In both, one login for each agent serves every VM. On devvm's open tier, a program in the VM can go around the proxy and keep a login that it makes there.
+- **Shared toolchains.** Of the tools on this page, only devvm shares toolchains read-only between VMs, so a second project that needs node uses the same copy as the first, and nothing in a VM can change it. devvm detects the toolchains from the project's files and reads a project's `devcontainer.json`.
+- **`.git` protection.** devvm locks the hooks and config of a folder's `.git` against the VM, and those of each repo nested up to four folders below it, so the VM can't add a hook that runs on this machine, which Docker Sandboxes' docs say its direct mode doesn't prevent. On Linux the locks need no root, and where the kernel doesn't allow them, such as on Ubuntu 23.10 and newer, devvm watches `.git` instead and names what changed ([.git protection](../safety/git-protection.md)).
+- **A clone of your repo as it is.** With `--clone`, the VM works on a clone of its own instead of your folder, and the clone gets your local branches, tags, uncommitted changes, stash, the repo's settings and hooks, its submodules and its Git LFS files. `devvm clone fetch` brings the VM's work back as branches, and `devvm rm` checks for work you haven't fetched before it deletes the VM ([working on a clone](../using/clone.md)).
+- **Confinement from outside the VM.** devvm enforces the network policy from outside the VM, so it holds even against root in the VM. Transparent mode also sends tools that ignore the proxy settings, such as static Go binaries and containers, to the VM's proxy, on every tier but open.
+- **Learning a VM's hosts.** A VM can [learn the hosts it needs](../safety/network.md#learning-the-hosts-a-vm-needs) on the internet tier, and `devvm network lock` then keeps the ones you choose, much as OpenShell shows you the hosts it blocked so that you can approve them.
+- **Your own secrets.** Any API key that a tool sends in a header can be a secret of your own, so the VM gets a placeholder, and its proxy puts the real value only into requests to the hosts, methods and paths you give it ([your own secrets](../safety/network.md#your-own-secrets)).
+- **Agents' logins on this machine.** devvm keeps each agent's login on this machine, so a confined VM never holds it, and Docker Sandboxes does the same for Claude Code, Codex, Cursor and Droid. In both, one login for each agent serves every VM. On devvm's open tier, a program in the VM can go around the proxy and keep a login that it makes there.
+- **Images from the clipboard.** `devvm paste` sends an image, a PDF or a file you copied on this machine into the VM, and puts its path in the VM on your clipboard for the agent's prompt. It never reads text from the clipboard ([pasting images](../using/coding-agents.md#pasting-images)).
 
 ## What devvm doesn't do
 
@@ -54,7 +62,8 @@ devvm keeps each agent's login on this machine and refreshes it there, so a conf
 
 ## Other tools
 
-- **Clawk** and **agent-vm** are closer to devvm in shape, with a VM for each folder on your machine. Clawk denies outbound traffic by default, but it forwards your SSH agent, and its tip for Claude Code signs every sandbox in with your Claude Code token. agent-vm runs Lima as devvm does, makes every `.git` read-only for the VM from your machine and asks you before the VM writes files such as `.envrc` and `.vscode/tasks.json`, but the VM reaches the whole internet unless you add domain rules.
+- **Clawk** is closer to devvm in shape, with a VM for each folder on your machine. It denies outbound traffic by default, but it forwards your SSH agent, and its tip for Claude Code signs every sandbox in with your Claude Code token.
+- **agent-vm** also gives each folder a VM on your machine, and it runs Lima as devvm does. It makes every `.git` read-only for the VM from your machine and asks you before the VM writes files such as `.envrc` and `.vscode/tasks.json`, but the VM reaches the whole internet unless you add domain rules.
 - **Lima's own recipe** for coding agents mounts only the project folder, or syncs it and asks before the VM's changes reach your machine, and it leaves the network and API keys to you.
 - **Dev Containers** run in a container, which shares this machine's kernel or Docker's VM, and set no network policy. Claude Code's reference container adds a firewall allowlist, and its docs warn that it doesn't stop a malicious project from sending out what's in the container, Claude Code's login included.
 - **Hosted sandboxes,** such as E2B, Vercel Sandbox, Fly.io Sprites and exe.dev, run on the vendor's servers, so your code and keys go there, and each needs an account.
