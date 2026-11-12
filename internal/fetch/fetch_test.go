@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -83,15 +84,37 @@ func TestRetry(t *testing.T) {
 	}
 }
 
+// unanswered is the URL of a server that closes each connection without
+// answering. It keeps its port until the test ends, so no other test's
+// server can take the port and answer in its place, as one could take a
+// closed server's.
+func unanswered(t *testing.T) string {
+	t.Helper()
+	l, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	return "http://" + l.Addr().String()
+}
+
 // No answer at all is tried again too.
 func TestRetryUnanswered(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.NotFoundHandler())
-	srv.Close()
+	url := unanswered(t)
 	tries := 0
 	err := Retry(t.Context(), 2, time.Millisecond, func() (bool, error) {
 		tries++
-		_, err := Get(t.Context(), NewClient(time.Minute, HTTPSOnly), srv.URL, 10)
+		_, err := Get(t.Context(), NewClient(time.Minute, HTTPSOnly), url, 10)
 		return Transient(err), err
 	})
 	if err == nil || tries != 3 {
