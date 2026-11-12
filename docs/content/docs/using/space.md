@@ -25,7 +25,12 @@ Sizes count each file's blocks once, as `du` does. On macOS a Lima VM's disk sha
 
 The second table lists the caches that belong to Lima, with what each cache holds, how many entries it has, its size and where it is. That's Lima's download cache. devvm's builds fill it, but it can also hold your own downloads, so it isn't in the total. The [Lima](#lima) section below says what it holds.
 
-devvm never prunes these caches on its own. `devvm gc --caches` frees devvm's share of them, which is what devvm's builds put there and nothing of devvm's needs. It lists the entries it would delete with their sizes and asks. Without a terminal it refuses unless you give `--force`, which frees them without asking.
+```sh
+devvm gc --caches           # gc as usual, then free devvm's share of Lima's caches, after asking
+devvm gc --caches --force   # the same without asking, as a script must
+```
+
+devvm never prunes these caches on its own. `devvm gc --caches` cleans up as `devvm gc` does, then frees devvm's share of them, which is what devvm's builds put there and nothing of devvm's needs. It lists the entries it would delete with their sizes and asks. Without a terminal it refuses unless you give `--force`, which frees them without asking.
 
 ### devvm space --json
 
@@ -86,7 +91,9 @@ devvm never prunes these caches on its own. `devvm gc --caches` frees devvm's sh
 
 ## devvm's data folder
 
-devvm keeps its state in `~/.local/share/devvm`, or in `$XDG_DATA_HOME/devvm` when `XDG_DATA_HOME` is set. Only you can read it, because each time devvm runs, it makes this folder and the settings folder, `~/.config/devvm`, yours alone (mode 700), whatever mode they had, so nothing inside either one is open to others. If devvm can't, for example because someone else owns a folder, it warns and goes on. Whenever devvm writes into the folders that hold history, logs, keys and secrets, which are `exports/`, `logs/`, `logs/runs/`, `run/`, `secrets/`, and the `run/`, `run/ca/` and `logs/` folders in each VM's folder, it makes them only yours again as well, whatever mode they had. Everything in it is devvm's own, and devvm makes most of it again when it's needed. The exceptions are the exports, which are the only copy of a deleted VM's agent history, and the defaults, agents' logins, keys and secrets that your commands saved.
+devvm keeps its state in `~/.local/share/devvm`, or in `$XDG_DATA_HOME/devvm` when `XDG_DATA_HOME` is set. Everything in it is devvm's own, and devvm makes most of it again when it's needed. The exceptions are the exports, which are the only copy of a deleted VM's agent history, and the defaults, agents' logins, keys and secrets that your commands saved.
+
+Only you can read it, because each time devvm runs, it makes this folder and the settings folder, `~/.config/devvm`, yours alone (mode 700), whatever mode they had, so nothing inside either one is open to others. If devvm can't, for example because someone else owns a folder, it warns and goes on. Whenever devvm writes into the folders that hold history, logs, keys and secrets, which are `exports/`, `logs/`, `logs/runs/`, `run/`, `secrets/`, and the `run/`, `run/ca/` and `logs/` folders in each VM's folder, it makes them only yours again as well, whatever mode they had.
 
 | Path | What it is | How it's cleaned up |
 | --- | --- | --- |
@@ -119,11 +126,9 @@ devvm keeps its state in `~/.local/share/devvm`, or in `$XDG_DATA_HOME/devvm` wh
 | `retention.lock` | an empty file that the devvm applying the [retention settings](settings.md#retention) locks, so that one at a time applies them | it stays, and takes no space |
 | `lima/` | devvm's own [Lima home](../backends/lima.md#devvms-lima-home), with its VMs and images, unless `DEVVM_LIMA_HOME` moves it | see [Lima](#lima) |
 
-Which ports each VM forwards is in its state, and its port forwarder's files are in its own folder too, its log in `vms/<hash>/logs/` and the rest in `vms/<hash>/run/`. `devvm rm` deletes them with the VM.
-
-The [retention settings](settings.md#retention), which are all off until you set them, make devvm delete some of these on its own: `logs.runs` keeps that many run logs instead of 20, `history.age` and `history.count` delete old exports of agents' history, `tools.unused-age` deletes current shared tools that no VM has had for that long, and `orphans.age` forgets VMs that their backend no longer has. `nix-cache.size` sets the shared Nix cache's cap, and each time retention runs, it deletes the cache's least recently used files while it takes more than that. Retention also writes `retention.run` in the data folder, when it last ran, and records in each current shared tool's record since when no VM has had it. It never deletes anything in `cache/` but the shared Nix cache's files.
-
-A build also makes a temporary folder in the data folder, `tools-build.<random>` for the shared tools, and devvm deletes it when the build ends, even after a failure or Ctrl+C.
+- Which ports each VM forwards is in its state, and its port forwarder's files are in its own folder too, its log in `vms/<hash>/logs/` and the rest in `vms/<hash>/run/`. `devvm rm` deletes them with the VM.
+- The [retention settings](settings.md#retention), which are all off until you set them, make devvm delete some of these on its own, and that section lists what each one deletes. Retention also writes `retention.run` in the data folder, when it last ran, and records in each current shared tool's record since when no VM has had it. It never deletes anything in `cache/` but the shared Nix cache's files.
+- A build also makes a temporary folder in the data folder, `tools-build.<random>` for the shared tools, and devvm deletes it when the build ends, even after a failure or Ctrl+C.
 
 ### Shared tools
 
@@ -143,9 +148,8 @@ When you delete a VM with its backend's own command instead of `devvm rm`, such 
 - **The VM was made elsewhere.** devvm records where each new VM's backend keeps it: the Lima home, which `DEVVM_LIMA_HOME` moves. When this run looks somewhere else, the VM may still exist there. A VM whose state doesn't record it counts as made in the backend's default place, so while `DEVVM_LIMA_HOME` is set, gc leaves such a VM alone.
 - **Its state changed in the last hour,** because the VM may still be being made.
 
-When another devvm starts to make the VM again in its folder after gc listed it, gc refuses to forget it and stops there, and so does retention's `orphans.age`.
-
-Forgetting a VM also removes your other VMs' [links](links.md) to it, as `devvm rm` does. `devvm gc --orphans` also removes links to VMs whose state is already gone, naming each one, and deletes the sockets that a link session leaves on your machine when it's killed, which are the ones nothing listens on.
+- When another devvm starts to make the VM again in its folder after gc listed it, gc refuses to forget it and stops there, and so does retention's `orphans.age`.
+- Forgetting a VM also removes your other VMs' [links](links.md) to it, as `devvm rm` does. `devvm gc --orphans` also removes links to VMs whose state is already gone, naming each one, and deletes the sockets that a link session leaves on your machine when it's killed, which are the ones nothing listens on.
 
 Once a VM's state is gone, `devvm gc` treats its shared tools like any others. `devvm space` counts the whole folder of each VM that `devvm gc --orphans` would forget as `leftover state`, and each socket a link session left counts there too. A VM that gc leaves alone for one of the reasons above isn't leftover state, so its folder counts as `state` and its logs as `network logs`.
 
@@ -177,7 +181,13 @@ These warnings never make doctor fail, and `devvm doctor --json` lists them in `
 
 The Lima backend's VMs and images are in devvm's Lima home, `~/.local/share/devvm/lima`. Each image is a stopped VM named `devvm-img-<key>`, and each project VM is a clone of one. On macOS a clone's disk shares its image's blocks until the VM writes them, so `du` counts those blocks twice. On Linux hosts a VM's disk is an overlay of its image's. `devvm rm` deletes a VM, `devvm gc` deletes stale and unfinished images, and `devvm images rm` deletes any image you name.
 
-Lima keeps a download cache of its own, `~/Library/Caches/lima` on macOS and `~/.cache/lima` on Linux, or `$XDG_CACHE_HOME/lima` when `XDG_CACHE_HOME` is set. When devvm builds base, Lima downloads Ubuntu's cloud image into that cache, which is 600 to 900 MB for each release, and on macOS it also keeps a copy converted to a raw disk, which takes about 2.4 GB more. The cache is Lima's and it isn't in devvm's Lima home, so your own Lima VMs' downloads share it. devvm deletes something in it only when you run `devvm gc --caches`. Lima keeps each download in a folder named by the SHA-256 of its address, and gc frees only the folders of Ubuntu's cloud images at the address devvm downloads base from, for its Ubuntu release, that no image record of devvm's names and that haven't changed in the last hour. A cloud image that one of your own Lima VMs downloaded from that same address can be among them, and Lima downloads it again the next time it needs it. No VM needs its entry once it's made, because Lima copies the disk out of the cache. `limactl prune` deletes the whole cache, your own downloads included, so devvm never runs it.
+Lima keeps a download cache of its own, `~/Library/Caches/lima` on macOS and `~/.cache/lima` on Linux, or `$XDG_CACHE_HOME/lima` when `XDG_CACHE_HOME` is set. When devvm builds base, Lima downloads Ubuntu's cloud image into that cache, which is 600 to 900 MB for each release, and on macOS it also keeps a copy converted to a raw disk, which takes about 2.4 GB more. The cache is Lima's and it isn't in devvm's Lima home, so your own Lima VMs' downloads share it.
+
+```sh
+devvm gc --caches   # free devvm's share of Lima's cache, after asking
+```
+
+devvm deletes something in it only when you run `devvm gc --caches`. Lima keeps each download in a folder named by the SHA-256 of its address, and gc frees only the folders of Ubuntu's cloud images at the address devvm downloads base from, for its Ubuntu release, that no image record of devvm's names and that haven't changed in the last hour. A cloud image that one of your own Lima VMs downloaded from that same address can be among them, and Lima downloads it again the next time it needs it. No VM needs its entry once it's made, because Lima copies the disk out of the cache. `limactl prune` deletes the whole cache, your own downloads included, so devvm never runs it.
 
 ## Outside devvm's folders
 

@@ -80,9 +80,17 @@ Code in the client can often run code in the target through the target's own ser
 
 A client links only to a target on its own [network tier](../safety/network.md#network-tiers) or a stricter one, because a link to a target on a lower tier would let the client reach more through the target. So an allowlist client links to allowlist and none targets, but not to internet or open ones, and an open client may link to any target. When devvm can't read a client's or a target's tier, because that part of its state was changed by hand, it refuses the link rather than take it as open ([a file devvm can't read](troubleshooting.md#a-file-devvm-cant-read)).
 
-devvm checks this rule when you add a link, at each launch of the client and on every connection. For a client on a confined tier, on every connection the target's tier must also be in force as the target runs. If you move the target from open to a confined tier while it's running, `devvm ls` shows it as `unenforced` until the target starts again behind its proxy, and devvm refuses the client's connections to it until then, so start the target again with `devvm restart` in its folder. devvm also warns you of such a target when you add a link to it, when you publish a port in its folder that the client links to, and each time the client starts. The warning names the target and refuses nothing, and devvm doesn't warn of a stopped target, because its tier applies when it next starts.
+devvm checks this rule when you add a link, at each launch of the client and on every connection ([each connection](../internals/ports.md#each-connection)):
 
-While such a link exists, devvm refuses to give the target a tier lower than a client's, such as `devvm network open` in its folder, and names the clients that link to it, and it refuses to give the client a tier higher than a target's, such as `devvm network allowlist` for a client that links to an open VM. Remove those links with `devvm link rm` first, or give the target the client's tier.
+- For a client on a confined tier, on every connection the target's tier must also be in force as the target runs. If you move the target from open to a confined tier while it's running, `devvm ls` shows it as `unenforced` until the target starts again behind its proxy, and devvm refuses the client's connections to it until then, so start the target again with `devvm restart` in its folder.
+- devvm also warns you of such a target when you add a link to it, when you publish a port in its folder that the client links to, and each time the client starts. The warning names the target and refuses nothing, and devvm doesn't warn of a stopped target, because its tier applies when it next starts.
+
+While such a link exists, devvm refuses to give the target a tier lower than a client's, such as `devvm network open` in its folder, and names the clients that link to it, and it refuses to give the client a tier higher than a target's, such as `devvm network allowlist` for a client that links to an open VM. Remove those links with `devvm link rm` first, or give the target the client's tier:
+
+```sh
+devvm link rm db 5432     # in the client's folder: remove the link to db's port 5432
+devvm network allowlist   # or, in the target's folder, give the target an allowlist client's tier
+```
 
 Every VM has its proxy, so a program that uses the VM's proxy settings, such as curl, sends its requests for a link to the VM's proxy, and the proxy carries a request for one of the link's names and its port, such as `db:5432` or `db.devvm.internal:5432`, to the link. Other programs reach the link by its name directly. The proxy passes a link's connection on as it is, so it doesn't look into it and puts none of your secrets into it.
 
@@ -159,7 +167,8 @@ A change of links reaches a running client at once and a stopped one when it nex
 
 devvm never starts a VM for a link. A connection to a stopped target fails, and each launch of the client warns about each stopped target, until you start it with `devvm` in its folder. The client's links then work again without any change to the client. When the target stops, the connections that were open through it end. A link also needs both VMs' backends to carry links, which every backend of devvm's does, and when one can't, each launch of the client says so.
 
-`devvm rm` of a target removes every link to it from your other VMs and names the clients that lost one. A VM that you make again in that folder isn't linked, so publish its ports and add the links again. `devvm rm` of a client removes its links, and `devvm stop` of a client ends its links' connections.
+- `devvm rm` of a target removes every link to it from your other VMs and names the clients that lost one. A VM that you make again in that folder isn't linked, so publish its ports and add the links again.
+- `devvm rm` of a client removes its links, and `devvm stop` of a client ends its links' connections.
 
 A link can't listen when a program in the client already holds its port in a way that covers the link's address, such as a server of the client's own on all its addresses with the same port. That link alone doesn't work, devvm says so, and the client's other links work. Stop that program, then run `devvm restart`.
 

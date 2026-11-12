@@ -69,12 +69,14 @@ On Linux, QEMU shares the project folder with the VM over 9p, and the VM's kerne
 
 Lima's own default for a writable folder is `mmap`, which caches the files' contents in the VM, and Linux's 9p client loses data with it in two ways. When a program reads a file's size while another write is making the file longer, the VM can take the older size from this machine and drop the new data, even after `fsync` succeeded, so the file ends up empty or cut to 4096 bytes, and Claude Code's edits are one way to set it off. And when a program locks a file it has written, its next read of that file returns zeros. That stops SQLite at its second write with `file is not a database`, whatever its journal mode, and Gradle's second build with `Unexpected lock protocol found in lock file`.
 
-A VM made before devvm chose `none` keeps `mmap`, and devvm doesn't change its mount on its own, so each launch of such a VM warns until you switch it. `devvm mount-cache` shows how this folder's VM caches its project folder, and `devvm mount-cache none` switches it from the VM's next start, so in a terminal devvm offers to restart a running VM now. `none` is the only mode devvm sets, so any other value is refused.
+A VM made before devvm chose `none` keeps `mmap`, and devvm doesn't change its mount on its own, so each launch of such a VM warns until you switch it:
 
 ```sh
-devvm mount-cache
-devvm mount-cache none
+devvm mount-cache        # how this folder's VM caches its project folder
+devvm mount-cache none   # switch it to none from the VM's next start
 ```
+
+`devvm mount-cache none` switches the mode from the VM's next start, so in a terminal devvm offers to restart a running VM now. `none` is the only mode devvm sets, so any other value is refused.
 
 A [`--clone` VM](../using/clone.md) mounts no project folder, so it has no cache mode until `devvm clone off` mounts the folder, which then gets `none`. On macOS, VMs share the project folder with virtiofs, which has no cache mode to choose, so there `devvm mount-cache` refuses. On Linux it refuses the same for a VM whose project folder isn't a 9p mount, such as one whose Lima config you gave another mount type.
 

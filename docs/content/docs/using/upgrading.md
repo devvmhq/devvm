@@ -80,7 +80,8 @@ Homebrew installs only its formula's release, so with Homebrew devvm upgrade doe
 
 A prerelease is a version of devvm that you can try before its release is out, such as a release candidate, `0.2.0-rc.1`, or a beta, `0.2.0-beta.1`. devvm upgrade and the install script never pick a prerelease as the newest release, and the daily release check never announces one, so you get a prerelease only when you name it or when you install `devvm-rc`, Homebrew's formula for prereleases.
 
-The docs at [devvm.dev](https://devvm.dev/) are for the newest release. The docs for the next release, which a prerelease comes before, are at [next.devvm.dev](https://next.devvm.dev/), and they change as that release is written, so they can describe more than a prerelease has.
+> [!NOTE]
+> The docs at [devvm.dev](https://devvm.dev/) are for the newest release. The docs for the next release, which a prerelease comes before, are at [next.devvm.dev](https://next.devvm.dev/), and they change as that release is written, so they can describe more than a prerelease has.
 
 Versions go in this order: a prerelease comes before its release, a beta before a release candidate, and the numbers in order, so `0.2.0-beta.3` comes before `0.2.0-rc.1`, then `0.2.0-rc.2`, then `0.2.0`.
 
@@ -119,9 +120,8 @@ curl -fsSL https://github.com/devvmhq/devvm/releases/latest/download/install.sh 
 
 When the install script installed the devvm you have, `devvm upgrade --to 0.2.0-rc.1` installs the prerelease too. Both check a prerelease's signature and checksum as they check a release's.
 
-While you run a prerelease that the install script installed, devvm upgrade offers the release it comes before once that release is out, and the daily check says so. It never offers a newer prerelease, such as `0.2.0-rc.2`, so install one with `devvm upgrade --to 0.2.0-rc.2`.
-
-To go back to the newest release before the prerelease's own release is out, name the newest release's version, such as `devvm upgrade --to 0.1.0`. devvm upgrade asks first, because that release is older than the prerelease you have.
+- While you run a prerelease that the install script installed, devvm upgrade offers the release it comes before once that release is out, and the daily check says so. It never offers a newer prerelease, such as `0.2.0-rc.2`, so install one with `devvm upgrade --to 0.2.0-rc.2`.
+- To go back to the newest release before the prerelease's own release is out, name the newest release's version, such as `devvm upgrade --to 0.1.0`. devvm upgrade asks first, because that release is older than the prerelease you have.
 
 ### devvm upgrade --json
 
@@ -146,9 +146,20 @@ To go back to the newest release before the prerelease's own release is out, nam
 
 ## One devvm
 
-Install devvm one way, with Homebrew or with the install script, but not both. With two copies, the one that comes first on your `PATH` is the one that runs, and `brew upgrade devvm` may update the one you don't run. So when Homebrew installed devvm, the install script stops before it downloads anything and says to run `brew upgrade devvm` instead, or `brew uninstall devvm` first if you want to use the script, and it names `devvm-rc` in both commands when that's the formula you installed. It stops whether or not it runs in a terminal, and its `--force` installs a second copy anyway.
+Install devvm one way, with Homebrew or with the install script, but not both. With two copies, the one that comes first on your `PATH` is the one that runs, and `brew upgrade devvm` may update the one you don't run. So when Homebrew installed devvm, the install script stops before it downloads anything and says to run `brew upgrade devvm` instead, or `brew uninstall devvm` first if you want to use the script, and its `--force` installs a second copy anyway ([the install script](../internals/install.md#the-install-script)).
 
-To switch from one way to the other, remove devvm with the command for the way you installed it, as step 5 of [Uninstalling](#uninstalling) shows, and then install it the other way. Your images, VMs and settings stay, because they don't live with devvm.
+To switch from one way to the other, remove devvm with the command for the way you installed it, as step 5 of [Uninstalling](#uninstalling) shows, and then install it the other way. Your images, VMs and settings stay, because they don't live with devvm:
+
+```sh
+# from Homebrew to the install script
+brew uninstall devvm   # or devvm-rc, if that's the formula you installed
+curl -fsSL https://github.com/devvmhq/devvm/releases/latest/download/install.sh | bash
+
+# from the install script to Homebrew
+rm -rf ~/.local/lib/devvm ~/.local/bin/devvm
+brew trust --formula devvmhq/tap/devvm
+brew install devvmhq/tap/devvm
+```
 
 After it installs devvm, the script warns when another devvm comes before `~/.local/bin` on your `PATH`. The warning names that copy's path and says to remove it, or to put `~/.local/bin` before its folder in `PATH`. `devvm doctor` warns the same way when the devvm first on your `PATH` isn't the one you ran, naming both, and the warning doesn't make it fail.
 

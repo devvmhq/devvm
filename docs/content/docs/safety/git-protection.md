@@ -4,7 +4,13 @@ explainer: Keep code in the VM out of your .git
 weight: 2
 ---
 
-The project folder is read-write in the VM, so without protection anything in the VM could add a git hook, or set `core.fsmonitor`, `core.hooksPath` or `core.sshCommand` in `.git/config`, and your next git command on this machine would run it. On macOS, devvm locks the git hooks and config with a flag that even root in the VM can't clear, so nothing the VM does runs through them on this machine. On Linux, devvm makes them read-only in the VM's own view of the folder, which root in the VM can't change either ([Linux hosts](#linux-hosts)). It does the same for each git repo nested in the folder that it has found, such as the repos of a folder that holds several, but a repo or a submodule that the VM adds while it runs is git's to use before devvm finds it ([nested repos](#nested-repos), [not covered](#not-covered)). Only [`--clone`](../using/clone.md) keeps the VM's code away from git on this machine.
+The project folder is read-write in the VM, so without protection anything in the VM could add a git hook, or set `core.fsmonitor`, `core.hooksPath` or `core.sshCommand` in `.git/config`, and your next git command on this machine would run it. devvm protects them:
+
+- **On macOS,** devvm locks the git hooks and config with a flag that even root in the VM can't clear, so nothing the VM does runs through them on this machine.
+- **On Linux,** devvm makes them read-only in the VM's own view of the folder, which root in the VM can't change either ([Linux hosts](#linux-hosts)).
+- **Nested repos:** it does the same for each git repo nested in the folder that it has found, such as the repos of a folder that holds several, but a repo or a submodule that the VM adds while it runs is git's to use before devvm finds it ([nested repos](#nested-repos), [not covered](#not-covered)).
+
+Only [`--clone`](../using/clone.md) keeps the VM's code away from git on this machine.
 
 Every new VM gets `.git` protection. `--no-git-protect` creates a VM without it, and [`devvm git-protect`](#turning-it-on-or-off) changes it later. [How it works › .git protection](../internals/git-protection.md) lists what devvm locks and when it checks the locks again.
 
@@ -22,6 +28,12 @@ devvm git-protect on
 ```
 
 ## Turning it on or off
+
+```sh
+devvm git-protect       # show this folder's VM's protection: on, off or clone
+devvm git-protect off   # take the locks off
+devvm git-protect on    # lock .git as it is now
+```
 
 `devvm git-protect` shows the VM's protection, which is `on`, `off`, or `clone` for a [`--clone`](../using/clone.md) VM, which mounts no `.git`. `devvm git-protect on` or `off` changes it at once when the VM is stopped. A running VM could race the locks, so for a running VM devvm saves your choice and asks in a terminal whether to restart the VM now, which stops anything running in it. If you answer no, or there's no terminal, or you pass `--no-input`, devvm says it saved the choice. It applies the choice the next time it finds the VM stopped: at the restart you agreed to, at `devvm stop`, at `devvm restart`, or, when the VM was stopped some other way, at the next launch, before the VM starts. Until then, `devvm git-protect` shows the protection the VM has, and a later choice replaces the saved one. Launches lock only a stopped VM for the same reason.
 
@@ -47,11 +59,24 @@ In devvm 0.1.0 and 0.1.1-rc.1, `devvm git-protect strict` sets `diff.ignoreSubmo
 
 A VM that was made strict shows as `on` at once, in `devvm ls`, `devvm git-protect` and its `--json`, and its locks stay as they are while it runs. The first time devvm finds it stopped, at a launch, at `devvm stop`, or at `devvm clone on`, or when devvm undoes a `devvm clone off` that didn't finish, devvm takes `diff.ignoreSubmodules = all` out of the `.git/config` of the folder's own repo and of each nested repo the VM protected, unlocking each file for the moment and locking it again. Then it records the VM as `on` and says so once, unless you chose `devvm git-protect off` while it ran, which it applies next. `devvm git-protect on` and `off` and `devvm rm` take the setting out the same way, without saying so.
 
-strict doesn't record a value that the setting had before it sets its own, so devvm can't put one back. It takes out only the value `all`, so a value that you set since, such as `none` or `dirty`, stays. devvm leaves the setting alone in a repo whose `.git` isn't the one it recorded, because strict never set it there: a `.git` that the VM replaced, which devvm names, a nested repo that it finds for the first time at that check, and every repo of a VM it has no record of, such as one that `devvm adopt` moved. When such a config sets `all`, devvm names it once. If you didn't set it, run `devvm stop` and `devvm git-protect off`, then `git config --file .git/config --unset-all diff.ignoreSubmodules '^all$'` in that repo, and `devvm git-protect on`, which locks `.git` again as it is then. On a Linux host that watches `.git`, it also leaves a config that changed since the check read it, which the next check names.
+devvm leaves the setting where it can't tell that it set it, and names what it leaves:
 
-A `.git/config` that another VM's protection also keeps locked keeps the setting, because unlocking it would let that VM change the file if it runs, and devvm names the file and that VM at each launch that finds this VM stopped. devvm takes the setting out at such a check once the other VM no longer keeps the file locked. To take it out yourself, stop both VMs first, with `devvm stop` in this VM's folder and in the other VM's, because a running VM could change the file while it's unlocked, and a launch into a running VM locks nothing. Then, in that repo, run `chflags nouchg .git/config` on macOS, and `git config --file .git/config --unset-all diff.ignoreSubmodules '^all$'`. The next launch of either VM finds it stopped and locks the file again, and on Linux the other VM's watch names the change.
+- strict doesn't record a value that the setting had before it sets its own, so devvm can't put one back. It takes out only the value `all`, so a value that you set since, such as `none` or `dirty`, stays.
+- devvm leaves the setting alone in a repo whose `.git` isn't the one it recorded, because strict never set it there: a `.git` that the VM replaced, which devvm names, a nested repo that it finds for the first time at that check, and every repo of a VM it has no record of, such as one that `devvm adopt` moved. When such a config sets `all`, devvm names it once.
+- On a Linux host that watches `.git`, it also leaves a config that changed since the check read it, which the next check names.
+- If git can't change a config, devvm names it, and `git status` and `git diff` on this machine go on skipping that repo's submodules until you take the setting out yourself.
+- A `.git/config` that another VM's protection also keeps locked keeps the setting, because unlocking it would let that VM change the file if it runs, and devvm names the file and that VM at each launch that finds this VM stopped. devvm takes the setting out at such a check once the other VM no longer keeps the file locked.
 
-If git can't change a config, devvm names it, and `git status` and `git diff` on this machine go on skipping that repo's submodules until you take the setting out yourself: stop the VM, run `devvm git-protect off`, run `git config --file .git/config --unset-all diff.ignoreSubmodules '^all$'` in that repo, then run `devvm git-protect on`.
+To take the setting out of a repo yourself, if you didn't set it:
+
+```sh
+devvm stop                # in this VM's folder, and in the other VM's when another VM locks the file too
+devvm git-protect off
+git config --file .git/config --unset-all diff.ignoreSubmodules '^all$'   # in that repo
+devvm git-protect on      # lock .git again as it is then
+```
+
+Stop both VMs when another VM keeps the file locked too, because a running VM could change the file while it's unlocked, and a launch into a running VM locks nothing. In that case, run `chflags nouchg .git/config` on macOS in place of `devvm git-protect off`, and the next launch of either VM finds it stopped and locks the file again, and on Linux the other VM's watch names the change.
 
 ## When devvm reports .git
 
@@ -69,13 +94,29 @@ Every launch of an existing VM, and `devvm stop`, check `.git` again, and devvm 
 
 ## Nested repos
 
-A folder can hold git repos of its own besides its submodules, such as `ws/repo-a` and `ws/repo-b` in a folder `ws`, whether `ws` is a repo itself or only a folder of repos. The VM can write all of them, and git on this machine runs what their `.git` holds when you run git there, so devvm protects each one it finds as it protects the folder's own `.git`: it locks them on macOS, makes them read-only in the VM on Linux, and watches them on a Linux host that can't lock. It finds them when it creates the VM, at each launch that finds the VM stopped and at `devvm stop`, by looking up to four folders below the project folder for anything named `.git` (on macOS, `.GIT` as well). It doesn't look in the folders that package managers and build tools fill, `node_modules`, `vendor`, `.venv`, `__pycache__` and `.terraform`, nor in a folder on another disk, and it protects the first 100 it finds and names the rest, at every check. A launch into a running VM doesn't look again, and it doesn't check the nested repos either, so they're checked at the next launch that finds the VM stopped, or at `devvm stop`.
+A folder can hold git repos of its own besides its submodules, such as `ws/repo-a` and `ws/repo-b` in a folder `ws`, whether `ws` is a repo itself or only a folder of repos. The VM can write all of them, and git on this machine runs what their `.git` holds when you run git there, so devvm protects each one it finds as it protects the folder's own `.git`: it locks them on macOS, makes them read-only in the VM on Linux, and watches them on a Linux host that can't lock. It finds them this way:
+
+- **When:** when it creates the VM, at each launch that finds the VM stopped and at `devvm stop`. A launch into a running VM doesn't look again, and it doesn't check the nested repos either, so they're checked at the next launch that finds the VM stopped, or at `devvm stop`.
+- **Where:** up to four folders below the project folder, for anything named `.git` (on macOS, `.GIT` as well). It doesn't look in the folders that package managers and build tools fill, `node_modules`, `vendor`, `.venv`, `__pycache__` and `.terraform`, nor in a folder on another disk.
+- **How many:** it protects the first 100 it finds and names the rest, at every check.
 
 What [still works](#what-still-works) and what doesn't is the same in a nested repo as in the folder's own: `git config`, `git remote add` and hook installers fail there on macOS, so run them with protection off. devvm keeps protecting a nested repo for as long as anything is at its `.git`, even when that `.git` no longer looks like a repo's, because the VM can change it back at any time.
 
-When you don't need the VM to write your working trees, `devvm --clone` in a folder of repos keeps the VM out of all of them instead. The VM gets a clone of each repo you choose, at the same path, and mounts nothing of this machine, so it can't reach any repo's working tree or `.git` here, and none of what this page describes applies to it ([folders of repos](../using/clone.md#folders-of-repos)). You get its work back with `devvm clone fetch`.
+When you don't need the VM to write your working trees, `devvm --clone` in a folder of repos keeps the VM out of all of them instead:
 
-devvm can't protect a repo before it has found it. A repo the VM makes in the folder while it runs, by cloning one or by making a `.git` in a folder of yours, is git's repo for that folder from the moment it's there: your `git status` in the folder, and the shell prompts and editors that run git as you open it, run what its config says. devvm names such a repo only at the next launch that finds the VM stopped, or at `devvm stop`, with the settings in its config and the hooks that run programs, and then locks it as it is, so check what it names before you run git there. A repo the VM makes more than four folders down, or in a folder devvm doesn't look in, is never named, only counted where devvm walks the folder for set-id files on Linux. On Linux the VM can also move a nested repo's folder aside and put another repo in its place while it runs, which devvm names only if it's still in place when the VM stops ([Linux hosts](#linux-hosts)). So when you run git in a folder of a VM's project while the VM runs, the protection holds only for the repos devvm has already found.
+```sh
+cd ws && devvm --clone   # a VM with its own clone of each repo you choose, mounting none of them
+devvm clone fetch        # bring the VM's work back
+```
+
+The VM gets a clone of each repo you choose, at the same path, and mounts nothing of this machine, so it can't reach any repo's working tree or `.git` here, and none of what this page describes applies to it ([folders of repos](../using/clone.md#folders-of-repos)). You get its work back with `devvm clone fetch`.
+
+devvm can't protect a repo before it has found it, so when you run git in a folder of a VM's project while the VM runs, the protection holds only for the repos devvm has already found:
+
+- A repo the VM makes in the folder while it runs, by cloning one or by making a `.git` in a folder of yours, is git's repo for that folder from the moment it's there: your `git status` in the folder, and the shell prompts and editors that run git as you open it, run what its config says.
+- devvm names such a repo only at the next launch that finds the VM stopped, or at `devvm stop`, with the settings in its config and the hooks that run programs, and then locks it as it is, so check what it names before you run git there.
+- A repo the VM makes more than four folders down, or in a folder devvm doesn't look in, is never named, only counted where devvm walks the folder for set-id files on Linux.
+- On Linux the VM can also move a nested repo's folder aside and put another repo in its place while it runs, which devvm names only if it's still in place when the VM stops ([Linux hosts](#linux-hosts)).
 
 ### Bare repos
 
@@ -105,15 +146,27 @@ The lock covers `.git`, and the VM can still put things elsewhere that git on th
 
 ## Linux hosts
 
-On Linux, devvm runs each VM's QEMU in a user namespace of its own, without root, and there it makes the paths that macOS's flag would lock read-only: the hooks and config of `.git` and of its submodules, and the rest of [what's locked](../internals/git-protection.md#whats-locked). The VM reaches the project folder only through QEMU, so root in the VM gets `Read-only file system` when it writes one of them, and `Device or resource busy` when it renames or removes one, or renames `.git` itself. A [nested repo](#nested-repos)'s own folder isn't pinned, so the VM can still rename the folder, `.git` and all, and put another repo in its place, which devvm reports at the next check as a replaced `.git`. Nothing changes on this machine: your own git commands write `.git/config` as usual, and the read-only view ends when the VM stops. `devvm git-protect` works as it does on macOS, and a change to a running VM's protection applies at its next start.
+On Linux, devvm runs each VM's QEMU in a user namespace of its own, without root, and there it makes the paths that macOS's flag would lock read-only: the hooks and config of `.git` and of its submodules, and the rest of [what's locked](../internals/git-protection.md#whats-locked). The VM reaches the project folder only through QEMU, so root in the VM gets `Read-only file system` when it writes one of them, and `Device or resource busy` when it renames or removes one, or renames `.git` itself.
 
-Start VMs with devvm. A VM that `limactl start` starts runs without the read-only view, and so does one whose view went for another reason, so each launch of a running VM, and `devvm stop`, check that the VM still can't rename `.git` and still sees its hooks and config read-only, and name what it doesn't: run `devvm restart` then. If devvm's own process that runs the VM ends, the VM ends with it at once, as if you pulled its power, so it never runs without the view.
+- A [nested repo](#nested-repos)'s own folder isn't pinned, so the VM can still rename the folder, `.git` and all, and put another repo in its place, which devvm reports at the next check as a replaced `.git`.
+- Nothing changes on this machine: your own git commands write `.git/config` as usual, and the read-only view ends when the VM stops.
+- `devvm git-protect` works as it does on macOS, and a change to a running VM's protection applies at its next start.
+
+> [!WARNING]
+> Start VMs with devvm. A VM that `limactl start` starts runs without the read-only view, and so does one whose view went for another reason, so each launch of a running VM, and `devvm stop`, check that the VM still can't rename `.git` and still sees its hooks and config read-only, and name what it doesn't: run `devvm restart` then. If devvm's own process that runs the VM ends, the VM ends with it at once, as if you pulled its power, so it never runs without the view.
 
 Because a lock in the VM's view covers one name of a file, devvm also [watches](#when-devvm-names-a-change) `.git` as a Linux host without locks does, and names what changed at each launch that finds the VM stopped and at `devvm stop`. That includes your own changes, such as a `git remote add` or `git push -u`.
 
 ### When git on this machine replaces a locked file
 
-The VM sees your changes, because its view is the same folder. A git command on this machine that writes `.git/config`, such as `git config`, `git remote add` or `git push -u`, writes a new file and renames it over the old one, and the new file isn't read-only in the VM until devvm locks it again. devvm watches the folders of what it locks, so it locks the new file within milliseconds, but until then the VM can change it, replace it with a file of its own, which devvm then locks as yours, or open it to write it later, which the lock doesn't stop. A VM running code that watches for that moment can use it, so this is a real gap whenever you change a locked file on this machine while the VM runs. devvm doesn't stop it, but it names it: at `devvm stop`, or at the next launch when the VM stopped another way, devvm names each file it locked again, once however often it happened, and the watch names each one whose contents changed. If devvm couldn't record whether its locks held while the VM ran, it says so then, and you should check `.git`'s hooks and config yourself. Check what it names before you run git in the folder, or stop the VM before you change its `.git` on this machine.
+The VM sees your changes, because its view is the same folder. A git command on this machine that writes `.git/config`, such as `git config`, `git remote add` or `git push -u`, writes a new file and renames it over the old one, and the new file isn't read-only in the VM until devvm locks it again. devvm watches the folders of what it locks, so it locks the new file within milliseconds, but until then the VM can change it, replace it with a file of its own, which devvm then locks as yours, or open it to write it later, which the lock doesn't stop. A VM running code that watches for that moment can use it, so this is a real gap whenever you change a locked file on this machine while the VM runs.
+
+devvm doesn't stop it, but it names it:
+
+- At `devvm stop`, or at the next launch when the VM stopped another way, devvm names each file it locked again, once however often it happened, and the watch names each one whose contents changed.
+- If devvm couldn't record whether its locks held while the VM ran, it says so then, and you should check `.git`'s hooks and config yourself.
+
+Check what it names before you run git in the folder, or stop the VM before you change its `.git` on this machine.
 
 ### Hard links
 
@@ -145,7 +198,13 @@ On a Linux host that can't lock, each launch of a VM that mounts a folder with a
 
 ### When devvm names a change
 
-On a Linux host that can't lock, devvm can't stop the VM from changing `.git`, and on one that locks, the VM can change a file that git on this machine [replaced](#when-git-on-this-machine-replaces-a-locked-file), but devvm notices the change afterwards on both. When devvm creates a VM, it records a hash of each path that a lock would cover on macOS, which are the hooks in `.git/hooks`, `.git/config` and the rest of [what's locked](../internals/git-protection.md#whats-locked), submodules' and [nested repos'](#nested-repos) included. It also hashes `.git/commondir`, whether it's there or not, and what the config hands over to the project folder: the files that an `include.path` leads to, and the hooks folder that `core.hooksPath` names, such as husky's `.husky`. Each launch that finds the VM stopped, and `devvm stop`, hash them again and name every path that changed since the last check, such as `.git/config` and `.git/hooks/pre-commit`. A warning names ten paths at most, and then how many more changed. The same checks report what a lock can't stop either, as they do on macOS: a `.git` that was replaced, a `commondir`, a repo or submodule that appeared, and includes, hook links and a `core.hooksPath` into the project folder ([not covered](#not-covered)). A launch of a VM that's already running checks nothing, so run `devvm stop` when you want the check. A VM that devvm has no hashes for yet, such as one that an older devvm made, records them at its first check and names nothing.
+On a Linux host that can't lock, devvm can't stop the VM from changing `.git`, and on one that locks, the VM can change a file that git on this machine [replaced](#when-git-on-this-machine-replaces-a-locked-file), but devvm notices the change afterwards on both. When devvm creates a VM, it records a hash of each of these:
+
+- each path that a lock would cover on macOS, which are the hooks in `.git/hooks`, `.git/config` and the rest of [what's locked](../internals/git-protection.md#whats-locked), submodules' and [nested repos'](#nested-repos) included
+- `.git/commondir`, whether it's there or not
+- what the config hands over to the project folder: the files that an `include.path` leads to, and the hooks folder that `core.hooksPath` names, such as husky's `.husky`
+
+Each launch that finds the VM stopped, and `devvm stop`, hash them again and name every path that changed since the last check, such as `.git/config` and `.git/hooks/pre-commit`. A warning names ten paths at most, and then how many more changed. The same checks report what a lock can't stop either, as they do on macOS: a `.git` that was replaced, a `commondir`, a repo or submodule that appeared, and includes, hook links and a `core.hooksPath` into the project folder ([not covered](#not-covered)). A launch of a VM that's already running checks nothing, so run `devvm stop` when you want the check. A VM that devvm has no hashes for yet, such as one that an older devvm made, records them at its first check and names nothing.
 
 devvm names a change only after it happened, so git on this machine may already have run a changed hook or read a changed config. devvm can't tell who made a change, so it also names your own, such as a `git remote add` or `git push -u` that you ran on this machine. When it names a path that you didn't change, check it before you run git in the folder:
 

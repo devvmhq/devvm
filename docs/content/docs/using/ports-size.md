@@ -41,11 +41,13 @@ devvm ports -g none         # what new VMs forward (default: all)
 - `devvm ports -g` shows what new VMs forward, followed by where it came from after a `#`, and `devvm ports -g --json` adds it as `source`. When [`config.toml`](settings.md#configtoml) sets `ports`, `devvm ports -g` refuses to change it and names the file, so edit `config.toml` instead ([where a default comes from](settings.md#where-a-default-comes-from)).
 - devvm forwards ports on every [network tier](../safety/network.md#network-tiers), and it forwards no ports from builds.
 
-When a VM forwards every port, devvm forwards each TCP port from 1024 up that a server in the VM listens on, whether on the VM's loopback or on all its addresses. When a VM lists its ports, devvm forwards those ports alone, however many there are, ports below 1024 included. A port reaches this machine within a few seconds of the server starting, only on `localhost` (`127.0.0.1` and `::1`), and the forward goes away when the server stops. At most 256 ports are forwarded at once. Your browser sends the cookies of every app you use on `localhost` to a forwarded port as well, so the server in the VM gets them ([your browser](../safety/attack-vectors.md#the-network)).
+When a VM forwards every port, devvm forwards each TCP port from 1024 up that a server in the VM listens on, whether on the VM's loopback or on all its addresses. When a VM lists its ports, devvm forwards those ports alone, however many there are, ports below 1024 included. A port reaches this machine within a few seconds of the server starting, only on `localhost` (`127.0.0.1` and `::1`), and the forward goes away when the server stops. At most 256 ports are forwarded at once ([what it forwards](../internals/ports.md#what-it-forwards)). Your browser sends the cookies of every app you use on `localhost` to a forwarded port as well, so the server in the VM gets them ([your browser](../safety/attack-vectors.md#the-network)).
 
-A VM never takes a port that a program on this machine already has, a port that another VM lists, or a port that devvm uses for its VMs' ssh and proxies. When a port you listed is taken by a program on this machine as the VM starts, or as you change its ports, devvm warns you and the VM runs on without that port. The next start or change that finds the port free forwards it. A program that starts on a port after the VM's forward does can still bind it on all addresses, as most servers do, and then that program's `localhost` connections reach the VM.
+A VM never takes a port that a program on this machine already has, a port that another VM lists, or a port that devvm uses for its VMs' ssh and proxies ([what it never takes](../internals/ports.md#what-it-never-takes)):
 
-If the forwarder can't start, devvm warns you and names its log, and the VM runs on without forwarded ports.
+- When a port you listed is taken by a program on this machine as the VM starts, or as you change its ports, devvm warns you and the VM runs on without that port. The next start or change that finds the port free forwards it.
+- A program that starts on a port after the VM's forward does can still bind it on all addresses, as most servers do, and then that program's `localhost` connections reach the VM.
+- If the forwarder can't start at all, devvm warns you and names its log, and the VM runs on without forwarded ports.
 
 **UDP isn't forwarded, on any backend.** Run the UDP client in the VM instead, or tunnel it over a forwarded TCP port with [socat](http://www.dest-unreach.org/socat/doc/socat.html), installed on both sides. For a UDP server on port 8125 in the VM, with TCP port 9125 forwarded:
 
@@ -86,7 +88,13 @@ Before the two questions, devvm says how many CPUs and how much memory this mach
 
 devvm doesn't ask for a value that `config.toml` sets, and says so. It saves only the values you type, where `devvm size -g` saves them, and keeps a saved disk size as it is. When you keep both values, devvm saves nothing, so new VMs go on getting the image's size. Either way, devvm prints the size new VMs get. A new size changes only the VMs made after it, and nothing is rebuilt, so existing VMs keep their size until you change it with `devvm size`.
 
-The first run asks only in a terminal, and only when no size is set and you didn't give `--cpus` or `--memory`. It asks once, because that run also chooses base's features, and devvm asks only before they're chosen. Without a terminal, or with `--no-input`, devvm asks nothing, and new VMs get the image's size. `devvm setup` asks only in a terminal, without `--no-input`, and only when you give it no flags ([devvm setup](settings.md#devvm-setup)). To set the size without asking, use `devvm size -g --cpus N --memory GiB`, which takes the same values and has the same limits.
+The first run asks once, because that run also chooses base's features, and devvm asks only before they're chosen. It asks only when all of these hold ([questions devvm asks](command-line.md#questions-devvm-asks)):
+
+- devvm runs in a terminal
+- no size is set
+- you didn't give `--cpus` or `--memory`
+
+Without a terminal, or with `--no-input`, devvm asks nothing, and new VMs get the image's size. `devvm setup` asks only in a terminal, without `--no-input`, and only when you give it no flags ([devvm setup](settings.md#devvm-setup)). To set the size without asking, use `devvm size -g --cpus N --memory GiB`, which takes the same values and has the same limits.
 
 ### Disk use
 
@@ -106,11 +114,7 @@ Before devvm builds an image or makes a VM, it checks the free space on the disk
 | building shared tool images | 3 GiB, and 0.5 GiB for each tool | 9 GiB, and 0.5 GiB for each tool |
 | making a VM | 2 GiB | 2 GiB |
 
-devvm rounds each number up to whole GiB, so building one shared tool with Lima on macOS needs 4 GiB, and building all ten needs 8 GiB. Each build checks again before it starts, so the first VM on a Mac, which builds base, needs 8 GiB free.
-
-The numbers leave a margin over what each step took when devvm's tests measured the free space before, during and after it. Most of a step's space is only needed while it runs. On Lima on macOS, base took about 1 GiB with Ubuntu's cloud image already downloaded, and downloading the image takes up to another 0.9 GiB. base's features add up to 2.5 GiB. A build of all ten shared tools took 6 GiB at its peak and kept 1.5 GiB of images. On macOS, an image built on another and a new VM take only what they write. On Linux hosts, an image and the VM that builds shared tools start as a full copy of their parent's disk, but a new VM's disk holds only its own changes. A VM then grows as you work in it, and its disk never shrinks.
-
-devvm checks the disk that holds the images and VMs, which is the disk of devvm's Lima home. Shared tool images come out into devvm's data folder, so a tools build also checks that folder's disk, which needs 0.5 GiB and 0.25 GiB for each tool, rounded up: 1 GiB for one tool and 3 GiB for all ten. When devvm's data folder is on a small temporary disk, such as a tmpfs `/tmp` on Linux, devvm checks that disk.
+devvm rounds each number up to whole GiB, so building one shared tool with Lima on macOS needs 4 GiB, and building all ten needs 8 GiB. Each build checks again before it starts, so the first VM on a Mac, which builds base, needs 8 GiB free. A tools build also checks the disk of devvm's data folder, where the shared tool images come out, and [free space](../internals/images.md#free-space) explains which disks devvm checks, what each one needs and how the numbers were measured.
 
 `devvm doctor` also warns when that disk has less free space than building base needs, but the warning doesn't make doctor fail. When devvm refuses, see [Not enough free space](troubleshooting.md#not-enough-free-space) for how to make room.
 

@@ -82,17 +82,38 @@ opencode = ["ollama"]
 pi = ["ollama"]
 ```
 
-Each key takes what its command takes. `network` is a tier, `open`, `internet`, `allowlist` or `none`, as `devvm network -g` sets it ([choosing a tier](../safety/network.md#choosing-a-tier)), and never `learn`, because each VM [learns the hosts it needs](../safety/network.md#learning-the-hosts-a-vm-needs) on its own. `ports` is `all`, `none` or a list, as `devvm ports -g` takes it ([size and ports](ports-size.md#size-and-ports)). `features` lists the [features](customizing.md#choosing-features) that base gets, `agents` the [coding agents](#coding-agents-for-new-vms) that new VMs get, and `layers` the [layers](#layers-for-new-vms) that new VMs get, bottom first. `cpus` is a whole number, and `memory` and `disk` are a number of GiB, such as `8`, `8.5` or `"8G"`, as `devvm size -g` takes them. The `[retention]` keys are the [retention settings](#retention), with a duration such as `"90d"` or a size such as `"20G"` in quotes, and a count as a number.
+Each key takes what its command takes:
+
+| Key | What it takes |
+| --- | --- |
+| `network` | a tier, `open`, `internet`, `allowlist` or `none`, as `devvm network -g` sets it ([choosing a tier](../safety/network.md#choosing-a-tier)), and never `learn`, because each VM [learns the hosts it needs](../safety/network.md#learning-the-hosts-a-vm-needs) on its own |
+| `ports` | `all`, `none` or a list, as `devvm ports -g` takes it ([size and ports](ports-size.md#size-and-ports)) |
+| `features` | the [features](customizing.md#choosing-features) that base gets |
+| `agents` | the [coding agents](#coding-agents-for-new-vms) that new VMs get |
+| `layers` | the [layers](#layers-for-new-vms) that new VMs get, bottom first |
+| `cpus` | a whole number, as `devvm size -g` takes it |
+| `memory`, `disk` | a number of GiB, such as `8`, `8.5` or `"8G"`, as `devvm size -g` takes them |
+| the `[retention]` keys | the [retention settings](#retention), with a duration such as `"90d"` or a size such as `"20G"` in quotes, and a count as a number |
 
 The `[proxy]` table is the [company proxy](../safety/network.md#behind-a-company-proxy) that every VM's proxy, builds and devvm's own downloads go through when the shell you run devvm in sets neither `HTTPS_PROXY` nor `HTTP_PROXY`, whatever the VM's tier. No VM gets the company proxy's settings itself. That shell's settings win over the whole table. `https` and `http` take what `HTTPS_PROXY` and `HTTP_PROXY` take, an `http://` URL or `host:port`, and `no-proxy` takes what `NO_PROXY` takes. A URL never holds a password, and devvm refuses one that does, so put only the user in it and save the password with `devvm secret set proxy`. No command saves the proxy, so it's only ever in `config.toml`.
 
-The `[pass-keys]` table names, for an agent, the providers whose API keys its VMs get as they are, which devvm otherwise keeps on this machine because the VM's proxy can't put them in, such as a local model server's. It takes `opencode` and `pi`, each with a list of the agent's provider IDs as its `auth.json` names them, in lower case, such as `["ollama"]` ([opencode logins](coding-agents.md#codex-and-opencode-logins), [pi logins](coding-agents.md#pi-logins)). devvm refuses another agent, a name that isn't a provider's ID and a repeat (`config.toml` names the line). A provider whose key the VM's proxy puts in ([API keys the proxy puts in](coding-agents.md#api-keys-the-proxy-puts-in)) never needs the table, because the proxy puts its key in without it. When the table lists one all the same, the VM gets that key's placeholder from its next launch on, not the key, and devvm notes at each launch that you can take the provider out. A VM that got such a key as it was before then may still hold copies of it, which keep working, so make a new key when you don't trust that VM ([API keys the proxy puts in](coding-agents.md#api-keys-the-proxy-puts-in)). Every VM with the agent gets the change at its next launch. No command saves it, so it's only ever in `config.toml`.
+The `[pass-keys]` table names, for an agent, the providers whose API keys its VMs get as they are, which devvm otherwise keeps on this machine because the VM's proxy can't put them in, such as a local model server's. Every VM with the agent gets a change at its next launch, and no command saves the table, so it's only ever in `config.toml`. This is what it takes and refuses:
+
+- It takes `opencode` and `pi`, each with a list of the agent's provider IDs as its `auth.json` names them, in lower case, such as `["ollama"]` ([opencode logins](coding-agents.md#codex-and-opencode-logins), [pi logins](coding-agents.md#pi-logins)).
+- devvm refuses another agent, a name that isn't a provider's ID and a repeat (`config.toml` names the line).
+- A provider whose key the VM's proxy puts in ([API keys the proxy puts in](coding-agents.md#api-keys-the-proxy-puts-in)) never needs the table, because the proxy puts its key in without it. When the table lists one all the same, the VM gets that key's placeholder from its next launch on, not the key, and devvm notes at each launch that you can take the provider out. A VM that got such a key as it was before then may still hold copies of it, which keep working, so make a new key when you don't trust that VM ([API keys the proxy puts in](coding-agents.md#api-keys-the-proxy-puts-in)).
 
 ### An Ubuntu mirror
 
+```toml
+ubuntu-mirror = "http://mirror.example.com/ubuntu-ports"   # in ~/.config/devvm/config.toml
+```
+
 `ubuntu-mirror` is a mirror of Ubuntu's archive, such as one your company or university runs, which the first build of base gets its packages from before it tries Ubuntu's own. It must mirror the archive for this machine's architecture: `archive.ubuntu.com/ubuntu` on an Intel or AMD machine, or `ports.ubuntu.com/ubuntu-ports` on an Apple silicon Mac or another arm64 machine. Give it as an `http://` or `https://` address without a user, a query or spaces, and devvm refuses anything else (`config.toml` names the line). A package that the mirror doesn't have, or a mirror that doesn't answer, falls back to Ubuntu's archive for that file.
 
-A mirror can't give base a package that Ubuntu didn't publish. apt checks every list and package against Ubuntu's archive key whichever server sends it, and refuses one that doesn't match, and devvm checks them against that key again on this machine before it keeps any package. A mirror that's behind, or one that's lying, can still serve lists older than Ubuntu's, because Ubuntu's signed lists don't expire. devvm refuses lists more than a day older than the Ubuntu cloud image base starts from, and it names the mirror and keeps none of the build's packages ([old package lists](troubleshooting.md#base-gets-old-package-lists)). devvm compares the lists with the cloud image's date, not with today's, so a mirror that fell behind after that date can still give base packages older than Ubuntu's, and you should only set a mirror you trust to keep up. Only the first build of each base uses the mirror, because a later build of the same base installs the packages devvm kept from that first build ([base](images.md#base)). VMs don't use it, and neither do layers or a `--from` base. No command saves it, so it's only ever in `config.toml`.
+- **What it can't do:** a mirror can't give base a package that Ubuntu didn't publish, because apt and devvm both check every list and package against Ubuntu's archive key. A mirror that's behind can still serve old lists, and devvm refuses lists more than a day older than the Ubuntu cloud image base starts from, names the mirror and keeps none of the build's packages ([old package lists](troubleshooting.md#base-gets-old-package-lists)). A mirror that fell behind after that image's date can still give base packages older than Ubuntu's, so set only a mirror you trust to keep up ([base's packages](../internals/images.md#bases-packages)).
+- **What uses it:** only the first build of each base, because a later build of the same base installs the packages devvm kept from that first build ([base](images.md#base)). VMs don't use it, and neither do layers or a `--from` base.
+- **Where it's set:** no command saves it, so it's only ever in `config.toml`.
 
 ### The paste folder
 
@@ -107,7 +128,7 @@ It's one fixed path for every VM so that you can allow it once in an agent's set
 
 When you run devvm in a terminal, it checks at most once a day for a newer devvm release, and when one is out it says so in one line before it opens the VM, naming the release, the version you have and devvm upgrade. devvm never installs anything on its own, so you upgrade with [devvm upgrade](upgrading.md#upgrading) when you choose to. `release-check = false` turns the check off, and so does setting `DEVVM_NO_RELEASE_CHECK=1` in the environment, as CI can. `release-check` must be `true` or `false`, and devvm refuses anything else (`config.toml` names the line). No command saves it, so it's only ever in `config.toml`.
 
-The check reads only where GitHub's latest devvm release is, over HTTPS, and sends nothing about you or your machine. The latest release is never a prerelease, so the check never announces one ([trying a prerelease](upgrading.md#trying-a-prerelease)). The exception is a devvm that Homebrew's `devvm-rc` formula installed, which follows prereleases: its check reads GitHub's list of devvm's newest releases instead, and it announces a newer prerelease or release, whichever is newest. It runs beside the launch, so it never makes devvm wait, and when you're offline it says nothing and tries again the next day. The line comes from what the last check found, so a release that came out since then shows up at the launch after the next check. devvm keeps what the check found in `~/.local/share/devvm/cache/release.json`, and `devvm doctor` shows it. devvm says nothing without a terminal, with `--no-input`, for a devvm built from its source, or for a copy that neither the install script nor Homebrew installed, which devvm upgrade can't upgrade.
+The check never announces a prerelease, unless Homebrew's `devvm-rc` formula installed devvm, which follows prereleases and announces a newer prerelease or release, whichever is newest ([trying a prerelease](upgrading.md#trying-a-prerelease)). It never makes devvm wait, and `devvm doctor` shows what it found last. devvm says nothing without a terminal, with `--no-input`, for a devvm built from its source, or for a copy that neither the install script nor Homebrew installed, which devvm upgrade can't upgrade. [The release check](../internals/install.md#the-release-check) explains what the check reads and when its line shows a new release.
 
 ### Transparent mode
 
@@ -178,15 +199,22 @@ devvm --layers none                   # this VM gets no layers
 
 `devvm setup --layers` takes the layers bottom first, in the order the image's name joins them, so `--layers docker,desktop` gives new VMs the image `docker+desktop`. It refuses a name that isn't a layer's, suggesting the closest, and changes nothing. Until you choose some, new VMs get no layers by default, and devvm doesn't ask for them on its first run. In a terminal, `devvm setup` asks for them last, after the coding agents. To set them by hand, use the `layers` key in [`config.toml`](#configtoml), which `devvm setup --layers` then refuses to change.
 
-`--layers` on `devvm` is the exact list of one VM's layers, so it replaces setup's layers, and `--layers none` makes a VM without any. A `devcontainer.json`'s layers go on top of setup's ([`devcontainer.json`](devcontainer.md)).
-
-The choice is for new VMs only. A VM that exists keeps the layers it was made with, and `devvm setup` says so when it saves the choice. To give that VM more layers, run `devvm layer add` in its folder ([adding layers to a VM](images.md#adding-layers-to-a-vm)), and to take some out, `devvm layer rm` ([taking layers out of a VM](images.md#taking-layers-out-of-a-vm)).
+- `--layers` on `devvm` is the exact list of one VM's layers, so it replaces setup's layers, and `--layers none` makes a VM without any. A `devcontainer.json`'s layers go on top of setup's ([`devcontainer.json`](devcontainer.md)).
+- The choice is for new VMs only. A VM that exists keeps the layers it was made with, and `devvm setup` says so when it saves the choice. To give that VM more layers, run `devvm layer add` in its folder ([adding layers to a VM](images.md#adding-layers-to-a-vm)), and to take some out, `devvm layer rm` ([taking layers out of a VM](images.md#taking-layers-out-of-a-vm)).
 
 When a layer of yours that you chose in `devvm setup` has no script in `~/.config/devvm/layers`, such as after you delete it, a new VM is made without it, and devvm warns, naming the layer. Run `devvm setup --layers` to choose the layers again. When the VM's backend can't run a layer you chose, such as `docker` on a backend without Docker's engine, devvm makes no VM and names the layer. Then choose other layers for that VM with `--layers`, or change new VMs' layers with `devvm setup --layers`.
 
 ## Retention
 
 devvm keeps what it makes until you delete it, and the retention settings tell it to delete some of it on its own. Every setting is off until you set it, so first run `devvm space` to see what each one would free: its `RETAIN` column shows each setting that's on, beside the row it applies to, with what it would delete now ([devvm space](space.md#devvm-space)).
+
+```sh
+devvm space                                            # see what each setting would free
+devvm retention                                        # show every setting
+devvm retention history.age=90d tools.unused-age=30d   # set some
+devvm retention history.age=off                        # turn one off
+devvm gc --retention                                   # gc as usual, then apply them now
+```
 
 `devvm retention` shows every setting and its value, and `off` for each one that isn't set. `devvm retention KEY=VALUE...` sets them, and `devvm retention KEY=off` turns one off, for example `devvm retention history.age=90d tools.unused-age=30d`. devvm refuses a key or value it doesn't know, and a key with no value such as `history.age=`, and then it writes nothing. devvm saves the settings in `~/.local/share/devvm/settings.json`. The `[retention]` table of [`config.toml`](#configtoml) sets them too, and a setting there wins over the saved one, so `devvm retention` refuses to change it. Each line that `devvm retention` shows ends with where its value came from, after a `#`. When devvm can't read a file that sets them, it names the file, and the line for `config.toml`, and applies none of them.
 
@@ -199,7 +227,14 @@ devvm keeps what it makes until you delete it, and the retention settings tell i
 | `orphans.age` | what devvm keeps for VMs that their backend no longer has, once their state hasn't changed for this long, as `devvm gc --orphans` does |
 | `nix-cache.size` | the [shared Nix cache](toolchains.md#nix-projects)'s least recently used files, while it takes more than this, such as `20G`; it's 10 GiB when it's off |
 
-Ages are [durations](command-line.md#flags-and-values), a whole number of minutes, hours, days or weeks, such as `30m`, `12h`, `30d` or `2w`. Sizes are a whole number of `K`, `M`, `G` or `T`, each 1024 of the one before, such as `500M` or `20G`, as `devvm space` shows them. The shared Nix cache also keeps to its size while VMs fill it, because a VM's proxy deletes the cache's least recently used files before a new file would take it past that size. A size you set applies to each VM from its next start. devvm applies the settings at the start of a command, at most once a day, except for `orphans.age`, which needs to ask each backend about its VMs, so only `devvm gc --retention` applies it. `devvm gc --retention` applies all of them at once. When it deletes something, devvm says what in one line. Retention never deletes a VM, an image, a shared tool that any VM's state lists, or anything in the backends' own caches, which only `devvm gc --caches` frees. In `cache/`, the folder in [devvm's data folder](space.md#devvms-data-folder) that holds what devvm makes again when it needs it, retention deletes only the shared Nix cache's files. When two devvms start at once, only one of them applies the settings.
+| Value | Written as | Examples |
+| --- | --- | --- |
+| an age | a [duration](command-line.md#flags-and-values), a whole number of minutes, hours, days or weeks | `30m`, `12h`, `30d` or `2w` |
+| a size | a whole number of `K`, `M`, `G` or `T`, each 1024 of the one before, as `devvm space` shows them | `500M` or `20G` |
+
+- **When they apply:** devvm applies the settings at the start of a command, at most once a day, except for `orphans.age`, which needs to ask each backend about its VMs, so only `devvm gc --retention` applies it. `devvm gc --retention` applies all of them at once. When two devvms start at once, only one of them applies the settings, and when it deletes something, devvm says what in one line.
+- **The Nix cache's size:** the shared Nix cache also keeps to its size while VMs fill it, because a VM's proxy deletes the cache's least recently used files before a new file would take it past that size. A size you set applies to each VM from its next start.
+- **What it never deletes:** retention never deletes a VM, an image, a shared tool that any VM's state lists, or anything in the backends' own caches, which only `devvm gc --caches` frees. In `cache/`, the folder in [devvm's data folder](space.md#devvms-data-folder) that holds what devvm makes again when it needs it, retention deletes only the shared Nix cache's files.
 
 ### devvm retention --json
 
@@ -236,9 +271,20 @@ mkdir -p ~/.config/devvm/ca
 cp company-root.pem ~/.config/devvm/ca/
 ```
 
-devvm reads every `*.pem` and `*.crt` file in that folder each time you open a VM, each time it builds an image and each time it resolves the shared tools' versions, and it leaves other files alone. A file can hold one certificate or several, in PEM, the text form that starts with `-----BEGIN CERTIFICATE-----`. devvm accepts only CA certificates. When a file holds anything else, such as a private key, a certificate devvm can't read or a certificate that isn't a CA's, devvm refuses the whole folder and names the file. It sends only the certificates it read out of a file, never the rest of the file. devvm doesn't follow links there, so copy each certificate into the folder rather than linking to it. When a `*.pem` or `*.crt` file is a link, or the folder itself is one, devvm refuses the whole folder and names the link, because a link into a project folder would let that project's VM replace the CA that every VM, build and proxy trusts. devvm also refuses the folder, naming the file, when it can't read a file there or the folder itself.
+devvm reads every `*.pem` and `*.crt` file in that folder each time you open a VM, each time it builds an image and each time it resolves the shared tools' versions, and it leaves other files alone. A file can hold one certificate or several, in PEM, the text form that starts with `-----BEGIN CERTIFICATE-----`. devvm accepts only CA certificates, and it sends only the certificates it read out of a file, never the rest of the file. It refuses the whole folder, naming the file, in these cases:
 
-Every project VM trusts these CAs in its system's store from its next launch, and so does every VM that devvm builds an image or shared tools in. devvm takes them out of a build VM before the image is finished, so images never keep them, and adding or removing a CA rebuilds nothing. A layer script of yours that copies the system's CA bundle somewhere else does keep that copy. On every [network tier](../safety/network.md), the VM's proxy also trusts them for the connections it makes itself, and so does the refresh of a coding agent's login that the proxy makes on this machine when the login is due, so a company proxy that inspects TLS doesn't make the refresh fail. devvm also resolves the shared tools' versions on this machine, with a mise of its own that it downloads once, and that download trusts these CAs as well as this machine's own store, and on Linux so does that mise. On macOS, mise trusts them for most of its connections, but the part of it that checks where each tool's release was built trusts only the CAs that macOS trusts, which Keychain Access shows. So on macOS, a company's CA that mise needs has to be there too, where a Mac that your company manages usually has it already. When mise doesn't trust a server's certificate, devvm says so and names this folder. devvm's other connections from this machine, such as checking an image's registry or Ubuntu's image, trust this machine's own store, as your other programs here do. When you take a certificate out of the folder, VMs stop trusting it at their next launch, and stores that copy the system's CAs, such as Java's `cacerts`, drop it too.
+- **Anything else in a file,** such as a private key, a certificate devvm can't read or a certificate that isn't a CA's.
+- **A link:** a `*.pem` or `*.crt` file that is a link, or a folder that is one, because a link into a project folder would let that project's VM replace the CA that every VM, build and proxy trusts. devvm doesn't follow links there, so copy each certificate into the folder rather than linking to it.
+- **A file it can't read,** or a folder it can't read.
+
+These trust the CAs:
+
+- **Every project VM,** in its system's store, from its next launch.
+- **Every build VM,** for an image or for shared tools. devvm takes them out of a build VM before the image is finished, so images never keep them, and adding or removing a CA rebuilds nothing. A layer script of yours that copies the system's CA bundle somewhere else does keep that copy ([a company's CA in builds](../internals/images.md#a-companys-ca-in-builds)).
+- **The VM's proxy,** on every [network tier](../safety/network.md), for the connections it makes itself, the refresh of a coding agent's login included, which the proxy makes on this machine when the login is due, so a company proxy that inspects TLS doesn't make the refresh fail.
+- **devvm's own mise,** which devvm downloads once to resolve the shared tools' versions on this machine. That download trusts these CAs as well as this machine's own store, and on Linux so does that mise. On macOS, mise trusts them for most of its connections, but the part of it that checks where each tool's release was built trusts only the CAs that macOS trusts, which Keychain Access shows. So on macOS, a company's CA that mise needs has to be there too, where a Mac that your company manages usually has it already. When mise doesn't trust a server's certificate, devvm says so and names this folder.
+
+devvm's other connections from this machine, such as checking an image's registry or Ubuntu's image, trust this machine's own store, as your other programs here do. When you take a certificate out of the folder, VMs stop trusting it at their next launch, and stores that copy the system's CAs, such as Java's `cacerts`, drop it too.
 
 Most tools read the system's store, among them apt, apk, curl, git and Python's `ssl` module. For those that don't, every VM's environment points them at it:
 
@@ -255,11 +301,9 @@ A CA in the folder can read every TLS connection a VM makes, as it can this mach
 
 `~/.local/share/devvm` (`$XDG_DATA_HOME/devvm`) holds what devvm makes and keeps for you, and devvm writes everything in it, so don't edit it by hand. It holds the defaults that `devvm setup`, `devvm size -g`, `devvm ports -g`, `devvm network -g` and `devvm retention` save in `settings.json`, below [`config.toml`](#configtoml)'s, and a folder for each VM in `vms/`, with the VM's state, its own allowlist and its network logs. It also holds the images and the shared tools, the [run logs](troubleshooting.md#a-command-fails), the agents' history that `devvm history export` and `devvm rm` save, the [ssh config](ssh.md#ssh-access-by-name) for your VMs, and devvm's own Lima home (`lima/`), where the Lima backend's VMs and images live. [devvm's data folder](space.md#devvms-data-folder) lists each file and folder in it, with how each one is cleaned up.
 
-On Linux hosts this folder also holds your [secrets](../safety/network.md#saving-and-binding-secrets), in files under `secrets/` that only you can read, so keep that in mind when you back it up. On macOS they're in the Keychain.
-
-devvm's Lima home is its own, whatever `LIMA_HOME` says, so Lima settings meant for other VMs never reach devvm's. Set `DEVVM_LIMA_HOME` to move it, for example to a sandbox or to a shorter path.
-
-Only you can read devvm's files, in either folder, because each time devvm runs, it makes both folders yours alone ([devvm's data folder](space.md#devvms-data-folder)). When devvm can't read one of its files, it names the file and the line ([a file devvm can't read](troubleshooting.md#a-file-devvm-cant-read)).
+- On Linux hosts this folder also holds your [secrets](../safety/network.md#saving-and-binding-secrets), in files under `secrets/` that only you can read, so keep that in mind when you back it up. On macOS they're in the Keychain.
+- devvm's Lima home is its own, whatever `LIMA_HOME` says, so Lima settings meant for other VMs never reach devvm's. Set `DEVVM_LIMA_HOME` to move it, for example to a sandbox or to a shorter path.
+- Only you can read devvm's files, in either folder, because each time devvm runs, it makes both folders yours alone ([devvm's data folder](space.md#devvms-data-folder)). When devvm can't read one of its files, it names the file and the line ([a file devvm can't read](troubleshooting.md#a-file-devvm-cant-read)).
 
 ## Project folders devvm refuses
 
@@ -272,9 +316,23 @@ When devvm refuses a folder, make the VM in a project folder inside it, or keep 
 
 ## Colors
 
-In a terminal, devvm colors the labels and links around its messages, while the messages' own text stays in your terminal's usual color. The values a message fills in, such as a VM's name, a path, a port or a count, are bold, so they stand out from the words around them. An error's `devvm:` label is red and a warning's is yellow, a doc link is blue and underlined, and the `==>` before what devvm did is bold. When a step fails, the end of the run log that devvm prints is dim, and so is the log's latest line on the status line and each line that `-v` shows. The mark a slow step leaves when it's done is green.
+In a terminal, devvm colors the labels and links around its messages, while the messages' own text stays in your terminal's usual color. The tables that devvm ls, devvm images, devvm space and devvm doctor print are colored too, and their columns line up the same with colors or without:
 
-The tables that devvm ls, devvm images, devvm space and devvm doctor print are colored too. Each table's header row and the totals row are bold, and a state is green when it's good, such as current, Running or native, yellow when it needs your attention, such as stale, unused, Stopped or emulated, and red when something is wrong, such as an unenforced tier or an unreviewed emulation. Digests, image keys and a feature a backend doesn't have, which devvm doctor lists as none, are dim, and names, paths, sizes and counts stay in your terminal's usual color. The columns line up the same with colors or without.
+| What | Color |
+| --- | --- |
+| the values a message fills in, such as a VM's name, a path, a port or a count, so they stand out from the words around them | bold |
+| an error's `devvm:` label | red |
+| a warning's `devvm:` label | yellow |
+| a doc link | blue and underlined |
+| the `==>` before what devvm did | bold |
+| the end of the run log that devvm prints when a step fails, the log's latest line on the status line, and each line that `-v` shows | dim |
+| the mark a slow step leaves when it's done | green |
+| each table's header row and the totals row | bold |
+| a state that's good, such as current, Running or native | green |
+| a state that needs your attention, such as stale, unused, Stopped or emulated | yellow |
+| a state that says something is wrong, such as an unenforced tier or an unreviewed emulation | red |
+| digests, image keys and a feature a backend doesn't have, which devvm doctor lists as none | dim |
+| names, paths, sizes and counts in a table | your terminal's usual color |
 
 devvm uses only your terminal's 16 base colors, so your theme picks shades that read well on its background, light or dark. It never sets a background color.
 

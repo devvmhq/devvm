@@ -70,6 +70,8 @@ run = [
   "go test ./internal/cli -run '^TestCommandLines$'",
   # Social cards: every page has an explainer, and it and the title fit the card.
   "go test ./internal/cli/docgen -run '^TestExplainers$'",
+  # Prose: no user page has a run of long paragraphs or a wall of one.
+  "go test ./internal/cli/docgen -run '^TestUserPageProse$'",
   # The site builds with no warning, a deprecation's included, into a folder
   # the run removes, and its pages and stylesheets load nothing from another
   # host.

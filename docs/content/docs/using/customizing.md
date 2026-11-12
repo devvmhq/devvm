@@ -53,7 +53,7 @@ printf '%s\n' '[Unit]' 'Description=Mailpit' '[Service]' 'ExecStart=/usr/local/b
 sudo systemctl enable --now mailpit
 ```
 
-The version and each download's SHA-256 sit at the top, so `devvm-fetch` refuses a download that doesn't match. To update Mailpit, change all three and rebuild the image. The downloads come from GitHub's releases, which `base`'s allowlist has, so `mailpit.policy` can stay empty. On a base made `--from` an Alpine image, start it with OpenRC (`rc-update`, `rc-service`) instead of systemd.
+The version and each download's SHA-256 sit at the top, so `devvm-fetch` refuses a download that doesn't match. To update Mailpit, change all three and rebuild the image. The downloads come from GitHub's releases, which `base`'s allowlist has, so `mailpit.policy` can stay empty. On a base made `--from` an Alpine container image, start it with OpenRC (`rc-update`, `rc-service`) instead of systemd.
 
 ## Base image features
 

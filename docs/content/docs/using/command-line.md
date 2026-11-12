@@ -14,13 +14,12 @@ devvm itself takes no word after it but a command's name, so every word there is
 
 ## Flags and values
 
-Each flag belongs to the commands that list it in their help, and only `-h` or `--help`, `-v` or `--verbose` and `--no-input` work with every command. `-v` shows the output of the commands devvm runs as they run ([details](troubleshooting.md#a-command-fails)), and `--no-input` makes devvm ask nothing ([questions devvm asks](#questions-devvm-asks)). A flag can come before or after the command's arguments, and options that take a value also work with an equals sign, such as `--cpus=N`.
+These rules hold for every command:
 
-The options for a new VM, such as `--tools` and `--cpus`, are taken only by `devvm`. Another command given one of them, such as `devvm ls --cpus 4`, fails as it does for any flag it doesn't know ([what a new VM gets](images.md#what-a-new-vm-gets)).
-
-When a flag or a setting can mean none or off, you write that as a word: `devvm setup --features none`, `devvm --agents none`, `devvm ports none`, `devvm retention history.age=off` and `devvm ssh-agent add KEY_FILE --lifetime forever`. devvm refuses an empty value, such as `--features ''`, and an empty argument, so a blank never stands for none or for a default.
-
-Every duration is a whole number followed by a unit, which is `m` for minutes, `h` for hours, `d` for days or `w` for weeks, as in `30m`, `12h`, `30d` or `2w`. That covers `devvm gc --older-than`, the retention settings' ages and `devvm ssh-agent add --lifetime`, and only `--lifetime` also takes `forever`, for a key that devvm's agent keeps until it ends.
+- Each flag belongs to the commands that list it in their help, and only `-h` or `--help`, `-v` or `--verbose` and `--no-input` work with every command. `-v` shows the output of the commands devvm runs as they run ([details](troubleshooting.md#a-command-fails)), and `--no-input` makes devvm ask nothing ([questions devvm asks](#questions-devvm-asks)). A flag can come before or after the command's arguments, and options that take a value also work with an equals sign, such as `--cpus=N`.
+- The options for a new VM, such as `--tools` and `--cpus`, are taken only by `devvm`. Another command given one of them, such as `devvm ls --cpus 4`, fails as it does for any flag it doesn't know ([what a new VM gets](images.md#what-a-new-vm-gets)).
+- When a flag or a setting can mean none or off, you write that as a word: `devvm setup --features none`, `devvm --agents none`, `devvm ports none`, `devvm retention history.age=off` and `devvm ssh-agent add KEY_FILE --lifetime forever`. devvm refuses an empty value, such as `--features ''`, and an empty argument, so a blank never stands for none or for a default.
+- Every duration is a whole number followed by a unit, which is `m` for minutes, `h` for hours, `d` for days or `w` for weeks, as in `30m`, `12h`, `30d` or `2w`. That covers `devvm gc --older-than`, the retention settings' ages and `devvm ssh-agent add --lifetime`, and only `--lifetime` also takes `forever`, for a key that devvm's agent keeps until it ends.
 
 ## Questions devvm asks
 
@@ -53,15 +52,24 @@ devvm asks a question only in a terminal, and each question has a flag or a comm
 
 `--force` only skips a confirmation, and it never deletes more than the command does without it. A command that would delete something asks first in a terminal, and where devvm can't ask, it refuses unless you give `--force`.
 
-A few questions protect work that only you can judge, so no flag answers them, and devvm asks them only in a terminal. They are `devvm rm` deleting the VM of a folder this one is inside or the VM made for an earlier folder at this path, a `--clone` VM's commits that this repo hasn't fetched and its uncommitted changes, a command giving the VM of a folder this one is inside more access, and `devvm agent save` saving a VM's settings for every VM. Where devvm can't ask, each of them refuses and says what to run instead.
+A few questions protect work that only you can judge, so no flag answers them, and devvm asks them only in a terminal. Where devvm can't ask, each of them refuses and says what to run instead. They are these:
+
+- `devvm rm` deleting the VM of a folder this one is inside or the VM made for an earlier folder at this path
+- a `--clone` VM's commits that this repo hasn't fetched and its uncommitted changes
+- a command giving the VM of a folder this one is inside more access
+- `devvm agent save` saving a VM's settings for every VM
 
 With `--no-input`, devvm asks nothing even in a terminal, and it never reads an answer from a pipe or a file either. A question that has no usual answer fails instead, after devvm shows the question, and the error names the flag or command that answers it. A question fails the same way when the input ends before an answer, as it does when you press Ctrl+D at the prompt.
 
 ## Output for scripts
 
-Every command that shows or lists something takes `--json`, which prints what the command shows as one JSON object instead of a table or lines, so a script can read it. The object's first field is `"version": 1`, and the page for each command lists its other fields with an example. A shape only ever gains fields. devvm adds new fields to version 1, and any other change to a shape, such as a field renamed, removed or given another type, comes with a new version.
+Every command that shows or lists something takes `--json`, which prints what the command shows as one JSON object instead of a table or lines, so a script can read it. The page for each command lists its fields with an example, and every command's JSON follows the same rules:
 
-With `--json`, standard output gets only the JSON. devvm's messages, such as warnings and notes, still go to standard error, as they do without it, and the JSON is never colored. A list with nothing in it is `[]`, never `null`. Sizes are in bytes, unless a field's name gives the unit, such as `memory_gib`. A field that doesn't apply, such as a VM's `from` when its base is Ubuntu's cloud image, is left out.
+- The object's first field is `"version": 1`. A shape only ever gains fields. devvm adds new fields to version 1, and any other change to a shape, such as a field renamed, removed or given another type, comes with a new version.
+- With `--json`, standard output gets only the JSON. devvm's messages, such as warnings and notes, still go to standard error, as they do without it, and the JSON is never colored.
+- A list with nothing in it is `[]`, never `null`.
+- Sizes are in bytes, unless a field's name gives the unit, such as `memory_gib`.
+- A field that doesn't apply, such as a VM's `from` when its base is Ubuntu's cloud image, is left out.
 
 A command that shows a setting when you run it bare and changes the setting when you give it a value, such as `devvm network` or `devvm size`, only shows with `--json`. devvm refuses a value given with `--json`, such as `devvm network open` with `--json`, and changes nothing.
 

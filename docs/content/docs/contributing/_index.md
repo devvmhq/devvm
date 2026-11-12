@@ -49,7 +49,7 @@ Run the tasks with `mise run <task>`:
 | `fmt` | formats Go code |
 | `lint` | runs `lint:code` and `lint:docs` |
 | `lint:code` | runs golangci-lint, shellcheck, actionlint and zizmor |
-| `lint:docs` | runs the docs linters, the message link check and the command line check, and builds the site, which fails on any warning |
+| `lint:docs` | runs the docs linters, the message link check, the command line check and the user pages' prose check, and builds the site, which fails on any warning |
 | `test` | runs the tests with the race detector, then checks each package's coverage against its [baseline](tests.md#coverage) |
 | `coverage` | runs the tests, then raises each package's coverage baseline to what they reach (`scripts/test.sh --raise`) |
 | `vuln` | runs govulncheck |

@@ -8,15 +8,18 @@ Each section below starts with what you see, then says what to do, with a link t
 
 ## A command fails
 
-devvm prints its own steps, and it sends the output of the commands it runs to a log instead of the terminal. When a step fails, devvm prints the end of the log.
+devvm prints its own steps and sends the output of the commands it runs to a log, and when a step fails, it prints the end of that log. To watch the output as it runs, add `-v` or `--verbose` to any command:
 
-To see the commands' output as they run, add `-v` or `--verbose` to any command, as in `devvm -v build base` or `devvm -v`. devvm then shows each line on standard error as the log gets it, without the status line, and it still writes the log. The lines are the log's own, so a VM's proxy key is hidden in them as it is in the log, and devvm drops the control characters a command prints, so its output can't move the cursor or change your terminal. When a step fails with `-v`, devvm names the log instead of printing its end again.
+```sh
+devvm -v              # open this folder's VM, showing each command's output
+devvm -v build base   # the same for any command
+```
 
-Each run that runs a command has one log, `~/.local/share/devvm/logs/runs/<date>-<time>-<pid>.log`, which only you can read, and devvm keeps the newest 20. In the log, each command appears as a `+` line with its arguments, followed by its output, and a numbered step adds a `# [2/5] <step>` line first. A command that devvm runs in a VM adds at most 4 MiB of output to the log, because a VM could otherwise fill this machine's disk with it, and a `devvm: truncated` line marks where devvm left out the rest. A VM's proxy key and the build proxy's password are written as `devvm:<key>@`. Any other password in a URL, in a command's arguments or its output, is written as `user:<password>@`, and so is the password in a proxy's address without a scheme, such as `user:password@proxy.corp:8080`, when the address has a port. So a company proxy's password from your shell's `HTTPS_PROXY`, which Lima can print as it starts a VM, stays out of the log, even when a command writes it in pieces. This covers the output of the commands devvm runs in a VM too, such as a VM's setup or a `devcontainer.json`'s commands.
+With `-v`, devvm shows each line on standard error as the log gets it, in place of the status line, and it still writes the log. When a step fails with `-v`, devvm names the log instead of printing its end again. Without `-v`, a status line in a terminal shows the step, how long it has run and the log's latest line, and a step that takes more than a few seconds leaves a line with its time.
 
-Lima keeps a log of its own for each VM, `ha.stderr.log` in the VM's folder in devvm's Lima home, and it writes a proxy password into that log as it starts the VM. Once Lima has started the VM, devvm replaces each password there with as many `*`, so the log keeps its length and Lima goes on writing to it. If devvm can't change the file, it warns you and names it, and you can delete the file, which Lima makes again at the VM's next start.
-
-In a terminal and without `-v`, a status line shows the step, how long it has run, and the log's latest line. A step that takes more than a few seconds leaves a line with its time.
+- **The log** is `~/.local/share/devvm/logs/runs/<date>-<time>-<pid>.log`, one for each run that runs a command, which only you can read, and devvm keeps the newest 20.
+- **Each command** appears in it as a `+` line with its arguments, followed by its output, and a numbered step adds a `# [2/5] <step>` line first.
+- **Passwords and a VM's proxy key** stay out of it, written as `user:<password>@` and `devvm:<key>@`, including a company proxy's password from your shell's `HTTPS_PROXY` ([the run log](../internals/overview.md#the-run-log)).
 
 ## A command is refused before it runs
 
@@ -52,11 +55,11 @@ When an image's build fails in its script, or as the build VM starts or stops, d
 devvm limactl shell --start devvm-img-<key>
 ```
 
-`--start` starts the VM first, outside the build's confinement.
+`--start` starts the VM first, outside the build's confinement. What happens next depends on the failure:
 
-The next build of that image deletes the VM and starts over, and `devvm gc` also deletes it. A build whose create or clone fails deletes the image, once devvm has shown the end of the log, because there's nothing in the image to look at.
-
-A first build of base also fails when the packages its VM gives back aren't exactly the packages apt downloaded, each named by its own checksum with apt's entry for it. devvm then keeps none of them, so nothing it didn't check reaches its package cache ([base's packages](../internals/images.md#bases-packages)).
+- The next build of that image deletes the VM and starts over, and `devvm gc` also deletes it.
+- A build whose create or clone fails deletes the image, once devvm has shown the end of the log, because there's nothing in the image to look at.
+- A first build of base also fails when the packages its VM gives back aren't exactly the packages apt downloaded, each named by its own checksum with apt's entry for it. devvm then keeps none of them, so nothing it didn't check reaches its package cache ([base's packages](../internals/images.md#bases-packages)).
 
 Either way, the images under it, which are already built, stay. devvm deletes and builds again any image it finds without its record, such as a failed build's or one devvm couldn't clean up after a crash or a power cut.
 
@@ -78,9 +81,13 @@ devvm deletes an interrupted new VM, with its state, until its first shell opens
 
 ## base can't build on Lima
 
-On Lima, base starts from a dated release of Ubuntu's cloud image. The first time devvm builds base, it finds the newest release on cloud-images.ubuntu.com and pins it on this machine, so that build needs to reach Ubuntu's list of releases and the release's checksums. When it can't, devvm says so and pins nothing, so check that you're online and run the command again. When the newest release doesn't boot, devvm says so and builds base from the release before it. Once an image is pinned, building base again needs Lima's cached copy of it or the release itself, which Ubuntu removes after a few months, and devvm rebuild base pins the newest again ([Ubuntu's cloud image](../internals/images.md#ubuntus-cloud-image)).
+On Lima, base starts from a dated release of Ubuntu's cloud image. The first time devvm builds base, it finds the newest release on cloud-images.ubuntu.com and pins it on this machine, so that build needs to reach Ubuntu's list of releases and the release's checksums. When it can't, devvm says so and pins nothing, so check that you're online and run the command again. When the newest release doesn't boot, devvm says so and builds base from the release before it ([Ubuntu's cloud image](../internals/images.md#ubuntus-cloud-image)).
 
-Building the same base again also needs the copies of its packages that devvm kept from its first build. When one of them is gone or changed, devvm names it and builds nothing, and `devvm rebuild base` makes a new base with the newest packages ([base's packages](../internals/images.md#bases-packages)).
+Once an image is pinned, building base again needs Lima's cached copy of it or the release itself, which Ubuntu removes after a few months. Building the same base again also needs the copies of its packages that devvm kept from its first build, and when one of them is gone or changed, devvm names it and builds nothing ([base's packages](../internals/images.md#bases-packages)). Either way, start base again from the newest release and packages:
+
+```sh
+devvm rebuild base   # pin the newest cloud image again, and install the newest packages
+```
 
 ## No package source answers
 
@@ -94,13 +101,23 @@ The first build of base checks that the package lists it got are as new as the U
 
 When devvm can't read one of its settings or state files, it names the file, and the line when the problem is on one. Fix the line or delete the file. [Your settings](settings.md#your-settings) lists what each file you edit holds, and [devvm's data folder](space.md#devvms-data-folder) what each file devvm writes holds.
 
-A VM's own state file, `vm.json` in its folder in `vms/`, is the one to fix rather than delete, because it's what devvm knows of that VM. While devvm can't read it, every command on that VM fails, and the commands that read every VM leave that VM out and carry on with the rest. `devvm ls` warns and lists the VM with its name and status alone, when its backend has it, and `devvm gc --orphans` never forgets it. devvm doesn't know which shared tools such a VM uses or which folders it mounts, so `devvm space`, `devvm images` and `devvm gc` fail and name the file. devvm also refuses to add a key to its own SSH agent, or to load one into it as a VM starts, because it can't tell whether that VM mounts the key's folder.
+A VM's own state file, `vm.json` in its folder in `vms/`, is the one to fix rather than delete, because it's what devvm knows of that VM. While devvm can't read it:
+
+- Every command on that VM fails, and the commands that read every VM leave that VM out and carry on with the rest.
+- `devvm ls` warns and lists the VM with its name and status alone, when its backend has it, and `devvm gc --orphans` never forgets it.
+- devvm doesn't know which shared tools such a VM uses or which folders it mounts, so `devvm space`, `devvm images` and `devvm gc` fail and name the file.
+- devvm refuses to add a key to its own SSH agent, or to load one into it as a VM starts, because it can't tell whether that VM mounts the key's folder.
 
 ## devvm says a newer release is out
 
 When you run devvm in a terminal and a newer release is out, devvm says so in one line before it opens the VM, and it opens the VM as usual. Run `devvm upgrade` to install the release, or carry on with the devvm you have, because devvm never upgrades on its own. The line comes from devvm's daily check, and `devvm doctor` shows the newest release that check found and the day it found it. When you'd rather not see the line, set `release-check = false` in `config.toml`, or `DEVVM_NO_RELEASE_CHECK=1` in the environment ([the release check](settings.md#the-release-check)).
 
-When devvm never says it, even though a newer release is out, the check may not have run yet, because it runs once a day and the line comes from what it found the time before. It also doesn't run while you're offline, without a terminal, with `--no-input`, for a devvm built from its source, or for a copy that neither the install script nor Homebrew installed. `devvm upgrade --check` asks GitHub at once.
+When devvm never says it, even though a newer release is out, the check may not have run yet, because it runs once a day and the line comes from what it found the time before. It also doesn't run while you're offline, without a terminal, with `--no-input`, for a devvm built from its source, or for a copy that neither the install script nor Homebrew installed. `devvm upgrade --check` asks GitHub at once:
+
+```sh
+devvm upgrade --check   # ask GitHub for the newest release now, and install nothing
+devvm upgrade           # install it, after asking
+```
 
 ## A newer devvm changed devvm's folders
 
@@ -123,7 +140,11 @@ devvm finds its folders from `HOME`, so it stops when `HOME` is empty or isn't a
 
 `devvm ls` and `devvm network` show a VM's tier as `unenforced` when the VM is on a confined tier but devvm didn't start it confined. That happens when it was started outside devvm, such as with `devvm limactl start`, or when it has been running since before `devvm network` moved it from open to a confined tier, such as with `devvm network allowlist`. The VM then reaches the network without its proxy.
 
-On the VM's next launch, devvm offers in a terminal to restart it confined, and if you decline, it warns and goes on. Without a terminal, or with `--no-input`, devvm stops the VM instead, and the next `devvm` starts it confined ([the self-check](../internals/network.md#the-self-check)).
+On the VM's next launch, devvm offers in a terminal to restart it confined, and if you decline, it warns and goes on. Without a terminal, or with `--no-input`, devvm stops the VM instead, and the next `devvm` starts it confined ([the self-check](../internals/network.md#the-self-check)). To confine it at once:
+
+```sh
+devvm restart   # in the VM's folder: start it again behind its proxy
+```
 
 If you press Ctrl+C while devvm starts a confined VM, devvm stops the VM and its proxy before it exits, so the VM never runs on without the proxy, and the next `devvm` starts both again confined.
 
@@ -160,19 +181,36 @@ http = "http://alice@proxy.example.com:8080"
 no-proxy = "localhost,.example.com"
 ```
 
-`config.toml` never holds the company proxy's password. Put only the user in the URL, as above, and save the password with `devvm secret set proxy`, which asks for it. Then run devvm again in the folder, which starts the VM's proxy again with the new settings.
+`config.toml` never holds the company proxy's password. Put only the user in the URL, as above, and save the password with `devvm secret set proxy`, which asks for it. Then run devvm again in the folder, which starts the VM's proxy again with the new settings:
 
-When a VM's proxy went through a company proxy the last time it started and devvm finds none this time, devvm warns you, names `config.toml` and starts the proxy without one, so the VM's requests go directly. Set the proxy in that shell or in `config.toml`, then run `devvm restart` in the folder.
+```sh
+devvm secret set proxy   # asks for the company proxy's password
+devvm                    # start the VM's proxy again with the new settings
+```
 
-When devvm says that `HTTPS_PROXY`, `HTTP_PROXY` or one of `config.toml`'s `[proxy]` keys names an `https://` or `socks5://` proxy, ask your IT team for the proxy's `http://` address, and set that. A company proxy that inspects TLS also needs its CA, as the next section describes.
+Other messages and cases:
 
-Builds behind a company proxy go through a proxy of devvm's, which allows any host. It sends a name that this machine can't look up on to the company proxy, which resolves it.
+- When a VM's proxy went through a company proxy the last time it started and devvm finds none this time, devvm warns you, names `config.toml` and starts the proxy without one, so the VM's requests go directly. Set the proxy in that shell or in `config.toml`, then run `devvm restart` in the folder.
+- When devvm says that `HTTPS_PROXY`, `HTTP_PROXY` or one of `config.toml`'s `[proxy]` keys names an `https://` or `socks5://` proxy, ask your IT team for the proxy's `http://` address, and set that. A company proxy that inspects TLS also needs its CA, as the next section describes.
+- Builds behind a company proxy go through a proxy of devvm's, which allows any host. It sends a name that this machine can't look up on to the company proxy, which resolves it ([open VMs and builds](../safety/network.md#open-vms-and-builds)).
 
 ## TLS errors behind a company proxy
 
-When apt, `npm install`, `pip install`, `git clone` over HTTPS or an image's build fails with an error such as `certificate verify failed`, `self-signed certificate in certificate chain` or `unable to get local issuer certificate`, the network you're on may inspect TLS. Ask your IT team for the CA's certificate, or export it from this machine's store, such as Keychain Access on macOS. Put it in `~/.config/devvm/ca` and open the VM again ([a company's CA](settings.md#a-companys-ca)).
+When apt, `npm install`, `pip install`, `git clone` over HTTPS or an image's build fails with an error such as `certificate verify failed`, `self-signed certificate in certificate chain` or `unable to get local issuer certificate`, the network you're on may inspect TLS. Ask your IT team for the CA's certificate, or export it from this machine's store, such as Keychain Access on macOS. Put it in `~/.config/devvm/ca` and open the VM again ([a company's CA](settings.md#a-companys-ca)):
 
-When resolving the shared tools' versions fails because this machine doesn't trust a server's certificate, mise's lines in the run log end with `invalid peer certificate: UnknownIssuer`. On Linux, put the CA in `~/.config/devvm/ca`, or add it to this machine's own store, as `update-ca-certificates` does on Debian and Ubuntu, and run devvm again. A bundle that `SSL_CERT_FILE` names in devvm's environment works too, because that mise reads it in place of the system's. On macOS, open the CA's certificate in Keychain Access and set it to be trusted, because the part of that mise that checks where each tool's release was built trusts only what macOS trusts.
+```sh
+mkdir -p ~/.config/devvm/ca && cp company-root.pem ~/.config/devvm/ca/
+devvm   # open the VM again, which now trusts the CA
+```
+
+When resolving the shared tools' versions fails because this machine doesn't trust a server's certificate, mise's lines in the run log end with `invalid peer certificate: UnknownIssuer`. On Linux, put the CA in `~/.config/devvm/ca`, or add it to this machine's own store, as `update-ca-certificates` does on Debian and Ubuntu, and run devvm again:
+
+```sh
+# on a Debian or Ubuntu host, not in the VM (Fedora: /etc/pki/ca-trust/source/anchors/ and sudo update-ca-trust)
+sudo cp company-root.pem /usr/local/share/ca-certificates/company-root.crt && sudo update-ca-certificates
+```
+
+A bundle that `SSL_CERT_FILE` names in devvm's environment works too, because that mise reads it in place of the system's. On macOS, open the CA's certificate in Keychain Access and set it to be trusted, because the part of that mise that checks where each tool's release was built trusts only what macOS trusts.
 
 `devvm doctor` says so when `HTTPS_PROXY` or `config.toml`'s `proxy.https` is set and the folder has no CA certificates. Many proxies don't inspect TLS, so that line isn't a problem in itself. When devvm refuses a file in the folder, it names the file, and you take out anything that isn't a CA certificate, such as a private key or a server's certificate.
 
@@ -186,7 +224,11 @@ A Lima VM that doesn't answer over ssh within a minute of starting is stopped. R
 
 ## A VM whose creation didn't finish
 
-When devvm stops after it made a VM but before the VM was ready, such as when you press Ctrl+C at the wrong moment, devvm never starts that VM. The VM never opened a shell, so nothing of yours is in it. In a terminal, devvm asks whether to delete the VM and make it again, with no as the default. Without a terminal, with `--no-input` or when you answer no, devvm keeps the VM and says so, and you run `devvm rm` to delete it, then `devvm` to make it again.
+When devvm stops after it made a VM but before the VM was ready, such as when you press Ctrl+C at the wrong moment, devvm never starts that VM. The VM never opened a shell, so nothing of yours is in it. In a terminal, devvm asks whether to delete the VM and make it again, with no as the default. Without a terminal, with `--no-input` or when you answer no, devvm keeps the VM and says so, and you run `devvm rm` to delete it, then `devvm` to make it again:
+
+```sh
+devvm rm && devvm   # delete the unfinished VM, after asking, then make it again
+```
 
 While another devvm is still making the folder's VM, such as one waiting for your answers in another terminal, `devvm` and `devvm rm` in that folder refuse at once and say so. Finish or stop the other devvm, then run the command again: once the VM is made, `devvm` opens it.
 
@@ -218,9 +260,11 @@ A shared tool's newest release is sometimes not published for every platform yet
 
 When a VM can't mount one of its shared tools, devvm stops the launch with an error that names the VM and the tools, and the VM keeps running. That happens when the tool's image is missing from the folder that devvm keeps the shared tools in, such as after you deleted it by hand, or when the VM can't mount the image. devvm doesn't let the VM download the tool in its place, because that copy would be the VM's own, a download you didn't ask for, and one that the VM's tier may block.
 
-Run `devvm tools update` in the project folder. It builds the tools that are missing and then opens the shell. When the VM has the newest versions, devvm builds those, and otherwise it builds the newest versions and moves the VM to them. If the launch still stops, the run log says why the VM couldn't mount the image ([a command fails](#a-command-fails)).
+```sh
+devvm tools update   # in the project folder: build the missing tools, then open the shell
+```
 
-A tool that doesn't mount never keeps the VM from booting. The VM mounts the tools it can and boots as usual, and only devvm's launch stops ([the share](../internals/images.md#the-share)).
+When the VM has the newest versions, `devvm tools update` builds those, and otherwise it builds the newest versions and moves the VM to them. If the launch still stops, the run log says why the VM couldn't mount the image ([a command fails](#a-command-fails)). A tool that doesn't mount never keeps the VM from booting. The VM mounts the tools it can and boots as usual, and only devvm's launch stops ([the share](../internals/images.md#the-share)).
 
 ## Reporting a bug
 

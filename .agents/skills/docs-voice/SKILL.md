@@ -20,6 +20,47 @@ devvm's docs should read like a guide a colleague wrote: full sentences that say
 - **Present tense, current state.** Describe how devvm works now. Don't mention older behavior, what changed or what moved.
 - **House rules.** Write commands as devvm x or in backticks, never in quotes. Never write "please", "note that" or "simply". Use sentence-case headings. Address the reader as "you".
 
+## Commands first on user pages
+
+The user pages, in Getting started, Using devvm, Staying safe, Backends and Compared (`getting-started/`, `using/`, `safety/`, `backends/` and `compared/`), are where readers go to get something done or to learn what they can rely on, so each section there that has a task starts with what to type: a copyable command block, or a numbered list of steps, with a comment on each line that says what it does. Explanation follows, and it stays short.
+
+- **One paragraph is fine.** A paragraph that says why, next to the command it's about, is good, and so is one that gives the details a reader needs while doing the task, such as a limit, a question devvm asks or the flag that answers it.
+- **The target is paragraphs back to back.** Two or more prose paragraphs with no command, list, table or callout between them are the sign that mechanism has crept in. Split them with the command each one describes, turn parallel facts into a short list, or move the mechanism to its How it works page.
+- **Move mechanism, don't delete it.** How devvm does something, such as what it checks, in what order, and why an attack fails, goes to its How it works page in `internals/`, under a heading that a link from the user page names. Leave a sentence that says what the reader gets and links there.
+- **Keep every fact.** A move is a cut and a paste, not a summary. Run `facts.sh --all REV` after a move, so a fact that went to another page doesn't show as removed, and add the heading on the How it works page first if it doesn't exist.
+- **Lists for parallel facts only.** A list of modes, refusals, limits or what a command keeps is easier to scan than a paragraph. Facts that build on each other stay prose, as [Bold-label bullets](tropes.md#bold-label-bullets-boldlabel) says.
+
+`scan.sh -p paras FILE` lists each run of paragraphs, two or more on a user page and three or more in `internals/` and `contributing/`, with each paragraph's words, its line and its heading. A paragraph of 40 words or fewer that ends with a colon doesn't count, because it introduces the block after it. `scan.sh -p long FILE` lists each paragraph or list item over 80 words or 4 sentences. A run or a long paragraph is a candidate, not an error: leave one that a reader needs in one piece, such as a warning and the action that follows it. `mise run lint:docs` fails on the worst of them on a user page: a run of three or more paragraphs where two are over 80 words, and a paragraph or list item over 150 words.
+
+Before, from Troubleshooting's A command fails (five paragraphs in a row, abridged):
+
+> devvm prints its own steps, and it sends the output of the commands it runs to a log instead of the terminal. When a step fails, devvm prints the end of the log.
+>
+> To see the commands' output as they run, add `-v` or `--verbose` to any command, as in `devvm -v build base` or `devvm -v`. devvm then shows each line on standard error … and devvm drops the control characters a command prints …
+>
+> Each run that runs a command has one log, `~/.local/share/devvm/logs/runs/<date>-<time>-<pid>.log` … A command that devvm runs in a VM adds at most 4 MiB of output to the log … A VM's proxy key and the build proxy's password are written as `devvm:<key>@` …
+>
+> Lima keeps a log of its own for each VM, `ha.stderr.log` … devvm replaces each password there with as many `*` …
+>
+> In a terminal and without `-v`, a status line shows the step, how long it has run, and the log's latest line …
+
+After:
+
+> devvm prints its own steps and sends the output of the commands it runs to a log, and when a step fails, it prints the end of that log. To watch the output as it runs, add `-v`:
+>
+> ```sh
+> devvm -v              # open this folder's VM, showing each command's output
+> devvm -v build base   # the same for any command
+> ```
+>
+> With `-v`, devvm shows each line on standard error as the log gets it, in place of the status line, and when a step fails it names the log instead of printing its end again. Without `-v`, a status line in a terminal shows the step, how long it has run and the log's latest line, and a step that takes more than a few seconds leaves a line with its time.
+>
+> - **The log** is `~/.local/share/devvm/logs/runs/<date>-<time>-<pid>.log`, one for each run, which only you can read, and devvm keeps the newest 20.
+> - **Each command** appears in it as a `+` line with its arguments, followed by its output, and a numbered step adds a `# [2/5] <step>` line first.
+> - **Passwords and a VM's proxy key** stay out of it, written as `user:<password>@` and `devvm:<key>@`, including a company proxy's password from your shell's `HTTPS_PROXY`, and How it works would have the rest.
+
+The rest would move to a new The run log section on How it works' Overview, which the after version links to: the 4 MiB cap on a VM command's output and the `devvm: truncated` line, the build proxy's password, a proxy address without a scheme, passwords written in pieces, the VM's setup and a `devcontainer.json`'s commands being covered, `-v` showing the log's own lines with control characters dropped, and Lima's `ha.stderr.log`, where devvm replaces each password with as many `*`, warns when it can't and lets you delete the file.
+
 ## Scope
 
 All prose in the repo:

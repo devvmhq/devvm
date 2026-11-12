@@ -7,6 +7,12 @@
 #   scan.sh -v FILE...     each hit: file:line: [pattern] the line as written
 #   scan.sh -p NAME FILE.. -v for one pattern only
 #
+# paras counts runs of prose paragraphs back to back, two or more on a user
+# page and three or more in internals/ or contributing/, and long counts
+# paragraphs and list items over 80 words or 4 sentences. -v, -p paras and
+# -p long show each with its words. A colon-ended paragraph of 40 words or
+# fewer introduces the block after it, so it doesn't count in a run.
+#
 # A .toml file is scanned as messages (locales/en.toml): only the other and
 # one strings, with their {{.fields}} read as code spans. -v shows each hit's
 # message ID, and -m REGEX scans only the messages whose ID matches.
@@ -28,7 +34,7 @@ while [ $# -gt 0 ]; do
 		shift
 		;;
 	-h | --help)
-		sed -n '2,12s/^# \{0,1\}//p' "$0"
+		sed -n '2,18s/^# \{0,1\}//p' "$0"
 		exit 0
 		;;
 	--) shift && break ;;
@@ -131,6 +137,61 @@ shown() { # file line
 	fi
 }
 
+# The paragraphs of one file, for paras or long (what), one per line.
+# paras: each run of prose paragraphs, as its first line, the count, each
+# paragraph's words joined with + and the heading above it; a user page's runs
+# start at two paragraphs, any other page's at three. long: each paragraph or
+# list item over 80 words or 4 sentences, as its line, words, sentences and
+# heading. Code fences, lists, tables, callouts, shortcodes, HTML and headings
+# end a run, and a line that is only an HTML comment neither counts nor ends
+# one. A paragraph of at most 40 words whose last line ends with a colon
+# introduces the next block, so it doesn't count in a run.
+paras() { # file what
+	local min=2
+	case $1 in */internals/* | */contributing/*) min=3 ;; esac
+	awk -v what="$2" -v min="$min" '
+		function flush() {
+			if (what == "paras" && n >= min) printf "%d\t%d\t%s\t%s\n", start, n, sizes, head
+			n = 0
+			sizes = ""
+		}
+		function endblock(  t, w, s) {
+			if (kind != "") {
+				t = text
+				gsub(/`[^`]*`/, "x", t)
+				gsub(/\]\([^)]*\)/, "]", t)
+				w = split(t, _, /[[:space:]]+/)
+				if (t ~ /^[[:space:]]/) w--
+				s = gsub(/[a-z0-9)x*][.!?]([[:space:]]|$)/, "&", t)
+				if (what == "long" && kind != "o" && (w > 80 || s > 4))
+					printf "%d\t%d\t%d\t%s\n", from, w, s, head
+				if (kind == "p" && !(last ~ /:[[:space:]]*$/ && w <= 40)) {
+					if (n == 0) start = from
+					n++
+					sizes = sizes (sizes == "" ? "" : "+") w
+				}
+			}
+			kind = ""
+			text = ""
+		}
+		function block(k) { endblock(); kind = k; from = NR; text = $0; last = $0 }
+		BEGIN { head = "(no heading)" }
+		NR == 1 && /^---$/ { front = 1; next }
+		front { if (/^---$/) front = 0; next }
+		/^[[:space:]]*(```|~~~)/ { endblock(); flush(); fence = !fence; next }
+		fence { next }
+		/^[[:space:]]*<!--.*-->[[:space:]]*$/ { next }
+		/^[[:space:]]*$/ { endblock(); next }
+		/^[[:space:]]*([-*+]|[0-9]+\.)[[:space:]]/ { block("l"); flush(); next }
+		kind == "p" || kind == "l" { text = text " " $0; last = $0; next }
+		kind == "o" { next }
+		/^#/ { endblock(); flush(); head = $0; next }
+		/^[[:space:]]*[|><]/ || /^[[:space:]]*\{\{/ { block("o"); flush(); next }
+		/^[[:space:]]+[^[:space:]]/ { block("l"); flush(); next }
+		{ block("p") }
+		END { endblock(); flush() }' "$1"
+}
+
 hits() { # flags regex: matching lines (-n) or matches (-o) from stdin
 	local flags=$1 re=$2 mode=$3 opts=-E
 	case $flags in *w*) opts="$opts -w" ;; esac
@@ -144,6 +205,7 @@ if [ "$verbose" = 0 ]; then
 	while IFS='	' read -r name _ _; do printf ' %5.5s' "$name"; done <<EOF
 $patterns
 EOF
+	[ "$mode" = toml ] || printf ' %5s %5s' paras long
 	printf '\n'
 fi
 
@@ -159,6 +221,16 @@ for f in "$@"; do
 		done <<EOF
 $patterns
 EOF
+		if [ "$mode" = md ] && { [ -z "$only" ] || [ "$only" = paras ]; }; then
+			paras "$f" paras | while IFS='	' read -r n count sizes head; do
+				printf '%s:%s: [paras] %s paragraphs (%s words) under %s\n' "$f" "$n" "$count" "$sizes" "$head"
+			done
+		fi
+		if [ "$mode" = md ] && { [ -z "$only" ] || [ "$only" = long ]; }; then
+			paras "$f" long | while IFS='	' read -r n words sents head; do
+				printf '%s:%s: [long] %s words, %s sentences under %s\n' "$f" "$n" "$words" "$sents" "$head"
+			done
+		fi
 		continue
 	fi
 	words=$(printf '%s\n' "$text" | wc -w | tr -d ' ')
@@ -169,5 +241,7 @@ EOF
 	done <<EOF
 $patterns
 EOF
+	[ "$mode" = toml ] || printf ' %5s %5s' "$(paras "$f" paras | wc -l | tr -d ' ')" \
+		"$(paras "$f" long | wc -l | tr -d ' ')"
 	printf '\n'
 done

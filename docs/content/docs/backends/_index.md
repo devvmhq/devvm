@@ -22,6 +22,10 @@ On macOS, `.git` protection uses your machine's file flags, so it doesn't depend
 
 An image's key includes its backend, so a backend never uses an image another backend built.
 
+```sh
+devvm doctor   # Lima's features, and what devvm needs on this machine
+```
+
 `devvm doctor` lists Lima's features, which are what Lima does itself, what devvm builds from other parts of it, and what it can't do. These are backend features, not the base image features you choose with `devvm setup`, even though `devvm doctor` calls both "features". [How it works › Backends](../internals/backends.md) explains them.
 
 ## A VM's backend

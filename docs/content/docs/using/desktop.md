@@ -17,6 +17,11 @@ devvm --layers docker,desktop   # the desktop on top of the docker layer
 
 devvm builds the `desktop` image the first time a VM needs it, and VMs that choose it share that image. `--layers` is the exact list of the VM's layers, so name every layer you want the VM to have.
 
+```sh
+devvm setup --layers desktop          # every new VM gets the desktop
+devvm setup --layers docker,desktop   # the desktop on top of docker, for every new VM
+```
+
 To give every new VM the desktop, choose it with `devvm setup --layers desktop`, or add it to the layers you already chose, such as `devvm setup --layers docker,desktop`. New VMs then get it unless you leave it out when you customize them or give `--layers` without it ([layers for new VMs](settings.md#layers-for-new-vms)). VMs that exist keep the layers they were made with.
 
 A VM made without the desktop has none, and `devvm desktop` says so. To give it one, run `devvm layer add desktop`, which makes the VM again from an image with the desktop on top of its own layers, such as `docker+desktop`. The VM keeps its home folder, the project folder and its settings, and loses the rest of its disk, such as the packages you installed, so devvm asks first ([adding layers to a VM](images.md#adding-layers-to-a-vm)). `devvm layer rm desktop` takes the desktop out again in the same way ([taking layers out of a VM](images.md#taking-layers-out-of-a-vm)).
@@ -26,7 +31,7 @@ devvm layer add desktop   # make this folder's VM again with the desktop, after 
 devvm layer rm desktop    # make it again without the desktop
 ```
 
-The desktop works on base, and on a base made `--from` a Debian, Ubuntu or Alpine image.
+The desktop works on base, and on a base made `--from` a Debian, Ubuntu or Alpine container image.
 
 ## Opening it
 
@@ -57,19 +62,20 @@ The desktop is only ever on this machine, and only while `devvm desktop` runs:
 
 ## Browsers
 
-The desktop has no browser of its own, so install the one you want in the VM, such as Google Chrome, Chromium or Firefox. Browsers reach the web through the VM's proxy without asking you for a password, and so do the desktop's other programs. Browsers ask for a proxy's password rather than read it from the VM's proxy settings, so the desktop's programs use the VM's local proxy instead. The local proxy is a small proxy in the VM, at `http://127.0.77.1:3128`, which adds the VM's password to each request and sends it on to the VM's proxy. A browser follows the desktop's proxy settings unless you've given it one of its own.
+The desktop has no browser of its own, so install the one you want in the VM, such as Google Chrome, Chromium or Firefox. Browsers reach the web through the VM's proxy without asking you for a password, and so do the desktop's other programs. Browsers ask for a proxy's password rather than read it from the VM's proxy settings, so the desktop's programs use the VM's local proxy instead. The local proxy is a small proxy in the VM, at `http://127.0.77.1:3128`, which adds the VM's password to each request and sends it on to the VM's proxy. A browser follows the desktop's proxy settings unless you've given it one of its own. The local proxy listens on the VM's loopback alone, and devvm never forwards it to this machine, even on a VM that [forwards every port](ports-size.md#ports) ([the local proxy](../internals/desktop.md#the-local-proxy)).
 
 The local proxy changes nothing about what the VM may reach. A host that the VM's [network tier](../safety/network.md#network-tiers) doesn't allow is still blocked, and a plain `http://` page shows the proxy's reason and the `devvm network allow` command that allows it. An `https://` page shows the browser's own error instead, such as Chrome's `ERR_TUNNEL_CONNECTION_FAILED`, so run `devvm-why` in the desktop's terminal to see what was blocked.
 
-The local proxy listens on the VM's loopback alone, and devvm never forwards it to this machine, even on a VM that [forwards every port](ports-size.md#ports). It starts with the desktop and runs until the VM stops.
-
 ## The password
 
-Each VM has its own password of eight lowercase letters and digits. devvm makes it the first time you run `devvm desktop` and keeps it with the VM's state on this machine, so `devvm rm` deletes it. The password never goes into the VM, and it isn't in devvm's run log. devvm checks it on this machine before a viewer reaches the VM, whatever the VM's own desktop asks for.
-
-Other users and programs on this machine can also connect to `127.0.0.1`, so the password is what keeps them out. VNC passwords are eight characters at most, and devvm lets a viewer try one password a second, so guessing it would take thousands of years.
+Each VM has its own password of eight lowercase letters and digits. devvm makes it the first time you run `devvm desktop` and keeps it with the VM's state on this machine, so `devvm rm` deletes it. The password never goes into the VM, and it isn't in devvm's run log. devvm checks it on this machine before a viewer reaches the VM, whatever the VM's own desktop asks for. Other users and programs on this machine can also connect to `127.0.0.1`, so the password is what keeps them out, and devvm lets a viewer try only one password a second ([on this machine](../internals/desktop.md#on-this-machine)).
 
 ## The clipboard
+
+```sh
+devvm desktop --clipboard   # share the clipboard both ways, for this run
+devvm desktop               # the next run without it shares nothing
+```
 
 The clipboard isn't shared unless you add `--clipboard`. With sharing on, what you copy on this machine goes into the VM, where a coding agent can read it, and what the VM copies lands on this machine's clipboard. Without `--clipboard`, devvm keeps this machine's clipboard out of the VM, even when something in the VM has changed its desktop's settings, and the VM's desktop doesn't send its clipboard.
 
