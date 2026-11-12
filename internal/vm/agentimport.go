@@ -148,7 +148,7 @@ func (im AgentImport) read(ctx context.Context, agent string) (*hostAgent, error
 			return nil, err
 		}
 	}
-	if agent == agents.Opencode && im.opencodeMajor(ctx) >= 2 {
+	if opencodeKeepsDB(agent) && im.opencodeMajor(ctx) >= 2 {
 		if err := im.readOpencode2(ctx, h); err != nil {
 			h.close()
 			return nil, err
@@ -169,11 +169,7 @@ func (im AgentImport) read(ctx context.Context, agent string) (*hostAgent, error
 	case !fi.Mode().IsRegular():
 		return h, nil
 	}
-	if agent == agents.Claude {
-		h.login, err = agentlogin.ClaudeCopy(login) // never its projects' history or API key
-	} else {
-		h.login, err = os.ReadFile(login) //nolint:gosec // the user's own login file, not a link
-	}
+	h.login, err = claudeHostLogin(agent, login)
 	if err != nil {
 		h.close()
 		return nil, msg.AgentLoginReadFailed(login, err.Error()).Because(err)
@@ -335,9 +331,7 @@ func (im AgentImport) saveFile(h *hostAgent, store, folder, p string) error {
 	if err != nil {
 		return err
 	}
-	if h.agent == agents.Claude && path.Dir(p) == "plugins" && path.Ext(p) == ".json" {
-		data = renamePrefix(data, filepath.Join(im.Dirs.Home, folder, "plugins"), filepath.Join(store, folder, "plugins"))
-	}
+	data = claudePlugins(h.agent, p, data, filepath.Join(im.Dirs.Home, folder), filepath.Join(store, folder))
 	mode := fi.Mode().Perm()&0o755 | 0o600
 	return state.WriteFileMode(filepath.Join(store, folder, src), data, mode)
 }

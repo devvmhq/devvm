@@ -51,6 +51,7 @@ Each script runs in a sandbox under `/tmp`, never the real folders:
 | `DEVVM_CLIP_TOOLS` | the stubs' folder, so devvm paste runs the clipboard stubs in place of the system's tools, such as macOS's `/usr/bin/osascript`, and no script reaches the real clipboard |
 | `MISE_STUB_LOCK` | `testdata/mise.lock`, the lock the `mise` stub writes |
 | `TOOLCHAINS`, `AGENTS` | the toolchains' and the coding agents' names, in the registries' order and joined with spaces, as devvm's messages list them, so a script that checks a list names no toolchain or agent itself (`stderr 'names='$TOOLCHAINS'$'`) |
+| `AGENT_CHOICES`, `LOGIN_AGENTS`, `KEY_AGENTS` | every agent's name, those that `devvm agent login` logs in, and those with a key for each provider, in the registry's order and joined with a comma and a space, as a message of choices lists them (`stderr 'choices='$AGENT_CHOICES' command='`) |
 | `DEVVM_BIN` | the folder of the built `devvm`, alone |
 | `DEVVM_REPO` | the checkout, for the scripts in `scripts/`, which tests copy into a throwaway repo before running, and the scripts in `assets/`, which tests source to check their pieces |
 

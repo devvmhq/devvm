@@ -30,7 +30,7 @@ This page lists devvm's commands in the groups that `devvm --help` shows them in
 
 In a folder without a VM of its own, each of these commands but `devvm adopt` uses the VM of the nearest folder with one that it's inside, and says which VM that is. `--here` and `--parent` choose which VM a command uses ([a subfolder](../using/vms.md#a-subfolder)).
 
-These options are for a new VM, and only `devvm` takes them. A VM that exists ignores them with a warning ([what a new VM gets](../using/images.md#what-a-new-vm-gets)).
+These options are for a new VM, so a VM that exists ignores them with a warning, and only `devvm` takes them ([what a new VM gets](../using/images.md#what-a-new-vm-gets)):
 
 | | |
 | --- | --- |

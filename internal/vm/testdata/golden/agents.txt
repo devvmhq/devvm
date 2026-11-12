@@ -56,6 +56,19 @@ mkdir "$t/.devvm-save" && printf '%s\n' "$HOME" > "$t/.devvm-save/home" || exit 
 set --
 for p in '.pi/agent/settings.json' '.pi/agent/keybindings.json' '.pi/agent/models.json' '.pi/agent/mcp.json' '.pi/agent/AGENTS.md' '.pi/agent/SYSTEM.md' '.pi/agent/APPEND_SYSTEM.md' '.pi/agent/extensions' '.pi/agent/skills' '.pi/agent/prompts' '.pi/agent/themes'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
 tar -cf - "$@" -C "$t" .devvm-save
+agent cursor folder .cursor
+  dirs .cursor/rules .cursor/commands
+  files .cursor/cli-config.json .cursor/mcp.json
+  login .config/cursor/auth.json /d/logins/cursor/.config/cursor/auth.json
+  save script
+set -o pipefail
+cd ~ || exit 1
+t=$(mktemp -d) || exit 1
+trap 'rm -rf "$t"' EXIT
+mkdir "$t/.devvm-save" && printf '%s\n' "$HOME" > "$t/.devvm-save/home" || exit 1
+set --
+for p in '.cursor/cli-config.json' '.cursor/mcp.json' '.cursor/rules' '.cursor/commands'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
+tar -cf - "$@" -C "$t" .devvm-save
 claude-oauth login .claude/.credentials.json /d/logins/claude/.claude/.credentials.json
 file .claude/settings.json format json true withheld false
   listed false claude .claude/settings.json false true
@@ -132,9 +145,9 @@ listed .pi/agent/extensions/e.ts false pi .pi/agent/extensions true true
 listed .pi/agent/extensions/e.ts true pi .pi/agent/extensions true true
 listed .pi/agent/sessions/s false   false false
 listed .pi/agent/sessions/s true   false false
-history paths .claude .claude.json .codex .local/share/opencode .local/state/opencode .pi/agent/sessions
+history paths .claude .claude.json .codex .local/share/opencode .local/state/opencode .pi/agent/sessions .cursor/chats
 history excludes .claude/.credentials.json .codex/auth.json .local/share/opencode/auth.json .local/share/opencode/account.json .local/share/opencode/mcp-auth.json .local/share/opencode/bin
-import skips .claude.json .claude/.credentials.json .claude/CLAUDE.md .claude/agents .claude/commands .claude/output-styles .claude/plugins .claude/settings.json .claude/skills .codex/AGENTS.md .codex/auth.json .codex/config.toml .codex/prompts .codex/skills .local/share/opencode/account.json .local/share/opencode/auth.json .local/share/opencode/bin .local/share/opencode/mcp-auth.json .pi/agent/AGENTS.md .pi/agent/APPEND_SYSTEM.md .pi/agent/SYSTEM.md .pi/agent/extensions .pi/agent/keybindings.json .pi/agent/mcp.json .pi/agent/models.json .pi/agent/prompts .pi/agent/settings.json .pi/agent/skills .pi/agent/themes
+import skips .claude.json .claude/.credentials.json .claude/CLAUDE.md .claude/agents .claude/commands .claude/output-styles .claude/plugins .claude/settings.json .claude/skills .codex/AGENTS.md .codex/auth.json .codex/config.toml .codex/prompts .codex/skills .cursor/cli-config.json .cursor/commands .cursor/mcp.json .cursor/rules .local/share/opencode/account.json .local/share/opencode/auth.json .local/share/opencode/bin .local/share/opencode/mcp-auth.json .pi/agent/AGENTS.md .pi/agent/APPEND_SYSTEM.md .pi/agent/SYSTEM.md .pi/agent/extensions .pi/agent/keybindings.json .pi/agent/mcp.json .pi/agent/models.json .pi/agent/prompts .pi/agent/settings.json .pi/agent/skills .pi/agent/themes
 save script, every agent
 set -o pipefail
 cd ~ || exit 1
@@ -142,7 +155,7 @@ t=$(mktemp -d) || exit 1
 trap 'rm -rf "$t"' EXIT
 mkdir "$t/.devvm-save" && printf '%s\n' "$HOME" > "$t/.devvm-save/home" || exit 1
 set --
-for p in '.claude/settings.json' '.claude/CLAUDE.md' '.claude/skills' '.claude/agents' '.claude/commands' '.claude/output-styles' '.claude/plugins' '.codex/config.toml' '.codex/AGENTS.md' '.codex/prompts' '.codex/skills' '.pi/agent/settings.json' '.pi/agent/keybindings.json' '.pi/agent/models.json' '.pi/agent/mcp.json' '.pi/agent/AGENTS.md' '.pi/agent/SYSTEM.md' '.pi/agent/APPEND_SYSTEM.md' '.pi/agent/extensions' '.pi/agent/skills' '.pi/agent/prompts' '.pi/agent/themes'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
+for p in '.claude/settings.json' '.claude/CLAUDE.md' '.claude/skills' '.claude/agents' '.claude/commands' '.claude/output-styles' '.claude/plugins' '.codex/config.toml' '.codex/AGENTS.md' '.codex/prompts' '.codex/skills' '.pi/agent/settings.json' '.pi/agent/keybindings.json' '.pi/agent/models.json' '.pi/agent/mcp.json' '.pi/agent/AGENTS.md' '.pi/agent/SYSTEM.md' '.pi/agent/APPEND_SYSTEM.md' '.pi/agent/extensions' '.pi/agent/skills' '.pi/agent/prompts' '.pi/agent/themes' '.cursor/cli-config.json' '.cursor/mcp.json' '.cursor/rules' '.cursor/commands'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
 for p in .config/opencode/* .config/opencode/.[!.]* .config/opencode/..?*; do
   if { [ -e "$p" ] || [ -L "$p" ]; } && [ "${p##*/}" != node_modules ]; then set -- "$@" "$p"; fi
 done
@@ -185,14 +198,14 @@ for db in "$HOME"/'.local/share/opencode'/opencode*.db; do
   :
 done
 [ "${#add[@]}" -eq 0 ] || add=(-C "$t" "${add[@]}")
-cd ~ && ls -d .claude .claude.json .codex .local/share/opencode .local/state/opencode .pi/agent/sessions 2>/dev/null | tar -czf - '--exclude=.claude/.credentials.json' '--exclude=.codex/auth.json' '--exclude=.local/share/opencode/auth.json' '--exclude=.local/share/opencode/account.json' '--exclude=.local/share/opencode/mcp-auth.json' '--exclude=.local/share/opencode/bin' '--no-wildcards-match-slash' '--exclude=.local/share/opencode/opencode*.db' '--exclude=.local/share/opencode/opencode*.db-wal' '--exclude=.local/share/opencode/opencode*.db-shm' '--exclude=.local/share/opencode/opencode*.db-journal' '--transform=flags=r;s,^devvm-clean/,.local/share/opencode/,' -T - ${add[@]+"${add[@]}"}
+cd ~ && ls -d .claude .claude.json .codex .local/share/opencode .local/state/opencode .pi/agent/sessions .cursor/chats 2>/dev/null | tar -czf - '--exclude=.claude/.credentials.json' '--exclude=.codex/auth.json' '--exclude=.local/share/opencode/auth.json' '--exclude=.local/share/opencode/account.json' '--exclude=.local/share/opencode/mcp-auth.json' '--exclude=.local/share/opencode/bin' '--no-wildcards-match-slash' '--exclude=.local/share/opencode/opencode*.db' '--exclude=.local/share/opencode/opencode*.db-wal' '--exclude=.local/share/opencode/opencode*.db-shm' '--exclude=.local/share/opencode/opencode*.db-journal' '--transform=flags=r;s,^devvm-clean/,.local/share/opencode/,' -T - ${add[@]+"${add[@]}"}
 import script
 set -o pipefail
 mkdir -p ~/.cache && t=$(mktemp -d ~/.cache/devvm-import.XXXXXX) || exit 1
 trap 'rm -rf "$t"' EXIT
 cat > "$t/export" && tar -tzf "$t/export" --absolute-names --quoting-style=escape > "$t/names" || exit 1
-if grep -vqE '^(\.claude|\.claude\.json|\.codex|\.local/share/opencode|\.local/state/opencode|\.pi/agent/sessions)(/|$)' "$t/names" || grep -qE '(^|/)\.\.(/|$)' "$t/names"; then echo devvm-history-unsafe; exit 1; fi
-mkdir "$t/x" && tar -xzf "$t/export" -C "$t/x" '--no-same-owner' '--no-same-permissions' '--anchored' '--exclude=.claude.json' '--exclude=.claude/.credentials.json' '--exclude=.claude/CLAUDE.md' '--exclude=.claude/agents' '--exclude=.claude/commands' '--exclude=.claude/output-styles' '--exclude=.claude/plugins' '--exclude=.claude/settings.json' '--exclude=.claude/skills' '--exclude=.codex/AGENTS.md' '--exclude=.codex/auth.json' '--exclude=.codex/config.toml' '--exclude=.codex/prompts' '--exclude=.codex/skills' '--exclude=.local/share/opencode/account.json' '--exclude=.local/share/opencode/auth.json' '--exclude=.local/share/opencode/bin' '--exclude=.local/share/opencode/mcp-auth.json' '--exclude=.pi/agent/AGENTS.md' '--exclude=.pi/agent/APPEND_SYSTEM.md' '--exclude=.pi/agent/SYSTEM.md' '--exclude=.pi/agent/extensions' '--exclude=.pi/agent/keybindings.json' '--exclude=.pi/agent/mcp.json' '--exclude=.pi/agent/models.json' '--exclude=.pi/agent/prompts' '--exclude=.pi/agent/settings.json' '--exclude=.pi/agent/skills' '--exclude=.pi/agent/themes' || exit 1
+if grep -vqE '^(\.claude|\.claude\.json|\.codex|\.local/share/opencode|\.local/state/opencode|\.pi/agent/sessions|\.cursor/chats)(/|$)' "$t/names" || grep -qE '(^|/)\.\.(/|$)' "$t/names"; then echo devvm-history-unsafe; exit 1; fi
+mkdir "$t/x" && tar -xzf "$t/export" -C "$t/x" '--no-same-owner' '--no-same-permissions' '--anchored' '--exclude=.claude.json' '--exclude=.claude/.credentials.json' '--exclude=.claude/CLAUDE.md' '--exclude=.claude/agents' '--exclude=.claude/commands' '--exclude=.claude/output-styles' '--exclude=.claude/plugins' '--exclude=.claude/settings.json' '--exclude=.claude/skills' '--exclude=.codex/AGENTS.md' '--exclude=.codex/auth.json' '--exclude=.codex/config.toml' '--exclude=.codex/prompts' '--exclude=.codex/skills' '--exclude=.cursor/cli-config.json' '--exclude=.cursor/commands' '--exclude=.cursor/mcp.json' '--exclude=.cursor/rules' '--exclude=.local/share/opencode/account.json' '--exclude=.local/share/opencode/auth.json' '--exclude=.local/share/opencode/bin' '--exclude=.local/share/opencode/mcp-auth.json' '--exclude=.pi/agent/AGENTS.md' '--exclude=.pi/agent/APPEND_SYSTEM.md' '--exclude=.pi/agent/SYSTEM.md' '--exclude=.pi/agent/extensions' '--exclude=.pi/agent/keybindings.json' '--exclude=.pi/agent/mcp.json' '--exclude=.pi/agent/models.json' '--exclude=.pi/agent/prompts' '--exclude=.pi/agent/settings.json' '--exclude=.pi/agent/skills' '--exclude=.pi/agent/themes' || exit 1
 find "$t/x" -type l -print0 | while IFS= read -r -d '' l; do
   case $(readlink "$l") in /* | .. | ../* | */.. | */../*) echo "devvm: left out the link $l" >&2; rm -f "$l" ;; esac
 done
@@ -228,5 +241,5 @@ for db in "$o"/opencode*.db; do
   fi
   rm -f "$db"
 done
-cd "$t/x" && set -- && for p in '.claude' '.claude.json' '.codex' '.local/share/opencode' '.local/state/opencode' '.pi/agent/sessions'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
+cd "$t/x" && set -- && for p in '.claude' '.claude.json' '.codex' '.local/share/opencode' '.local/state/opencode' '.pi/agent/sessions' '.cursor/chats'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
 [ "$#" -eq 0 ] || tar -cf - "$@" | tar --extract --file=- --directory ~ --skip-old-files '--no-same-owner' '--no-same-permissions'

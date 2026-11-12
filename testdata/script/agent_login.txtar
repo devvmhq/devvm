@@ -9,21 +9,23 @@
 ! exec devvm agent login
 stderr '^devvm: arg_missing args=AGENT command=devvm agent login$'
 ! exec devvm agent login aider
-stderr '^devvm: arg_not_choice choices=claude, codex, opencode, pi(, [a-z0-9-]+)* command=devvm agent login given=aider$'
+stderr '^devvm: arg_not_choice choices='$LOGIN_AGENTS' command=devvm agent login given=aider$'
 ! exec devvm agent login codex --setup-token
-stderr '^devvm: agent_login_setup_token_alone$'
+stderr '^devvm: agent_login_flag agent=codex flag=--setup-token$'
 ! exec devvm agent login claude --device-code
-stderr '^devvm: agent_login_claude_flag flag=--device-code$'
+stderr '^devvm: agent_login_flag_or_token agent=claude flag=--device-code$'
 ! exec devvm agent login claude --api-key
-stderr '^devvm: agent_login_claude_flag flag=--api-key$'
+stderr '^devvm: agent_login_flag_or_token agent=claude flag=--api-key$'
 ! exec devvm agent login claude --stdin
-stderr '^devvm: agent_login_claude_flag flag=--stdin$'
+stderr '^devvm: agent_login_flag_or_token agent=claude flag=--stdin$'
+! exec devvm agent login opencode --setup-token
+stderr '^devvm: agent_login_flag agent=opencode flag=--setup-token$'
 ! exec devvm agent login codex --stdin
 stderr '^devvm: agent_login_stdin_alone agent=codex$'
 ! exec devvm agent login codex --api-key --provider anthropic
-stderr '^devvm: agent_login_provider_alone agents=opencode, pi(, [a-z0-9-]+)*$'
+stderr '^devvm: agent_login_provider_alone agents='$KEY_AGENTS'$'
 ! exec devvm agent login opencode --provider anthropic
-stderr '^devvm: agent_login_provider_alone agents=opencode, pi(, [a-z0-9-]+)*$'
+stderr '^devvm: agent_login_provider_alone agents='$KEY_AGENTS'$'
 ! exec devvm agent login opencode --api-key
 stderr '^devvm: agent_login_provider_needed agent=opencode providers=anthropic, deepseek, google, groq, mistral, openai, openrouter, xai$'
 ! exec devvm agent login opencode --api-key --provider lmstudio
@@ -244,7 +246,7 @@ exec devvm --network open --no-git-protect --agents claude
 vm_name CL claude
 stub_reset
 ! exec devvm agent login claude
-stdout '^==> agent_login_claude_paste$'
+stdout '^==> agent_login_paste display=Claude Code$'
 ! stdout agent_login_forward
 stderr '^devvm: agent_login_not_saved agent=claude vm=devvm-claude-[0-9a-f]{14}$'
 stub_calls
@@ -261,7 +263,7 @@ mkdir $DATA/logins/claude/.claude
 cp $WORK/credentials.json $DATA/logins/claude/.claude/.credentials.json
 rm $STUB_DIR/shell-waits-on
 wait c
-stdout '^==> claude_login_saved vm=devvm-claude-[0-9a-f]{14}$'
+stdout '^==> agent_own_login_saved display=Claude Code vm=devvm-claude-[0-9a-f]{14}$'
 # Only the launch, before the login, found none.
 stderr -count=1 no_claude_token
 exec tar -xOf $STUB_DIR/sync.tar home/.claude/.credentials.json

@@ -106,8 +106,8 @@ func ownerDocs() []ownerDoc {
 		},
 		{
 			check:     "the structure test's `owners`, the coding agents",
-			owner:     "`internal/agents`, whose `Defs` hold every fact devvm keeps of each agent, so no copy of an agent's list or paths goes stale when one is added. A string literal that is an agent's name or a login file's kind, whole, or that holds an agent's folder below the home folder, fails, and code of one agent's own names the agent by its constant there ([adding a coding agent](extending.md#adding-a-coding-agent))",
-			elsewhere: "`internal/stubtest`, whose stubs are named after the commands they stand in for, and tests",
+			owner:     "`internal/agents`, whose `Defs` hold every fact devvm keeps of each agent, so no copy of an agent's list or paths goes stale when one is added. A string literal that is an agent's name or a login file's kind, whole, or that holds an agent's folder below the home folder, fails, and code of one agent's own names the agent by its constant there. Comparing with that constant, or with one named after it such as `secrets.ClaudeToken`, a `case` for it, looking for it with `slices.Contains` or `slices.Index`, looking it up in a map, a map literal keyed on it and `strings.HasPrefix`, `HasSuffix`, `EqualFold` or `Contains` with it fail too, outside the files named for the agent, such as `claude.go`, so the rest of devvm asks the agent's `Def` and a new agent changes none of it. A list that holds every agent's name, tests included, fails as a copy of `agents.Names()`, and so does a CLI test script's line that lists agents as a message does, for which the runner gives `$AGENT_CHOICES`, `$LOGIN_AGENTS` and `$KEY_AGENTS` ([adding a coding agent](extending.md#adding-a-coding-agent))",
+			elsewhere: "`internal/stubtest`, whose stubs are named after the commands they stand in for, and tests; for the comparisons, the files whose names hold the agent's name as a word, and the constants `devvmSwitchFree` lists in one file each with its reason: the claude secret's own checks, which are a secret's, and Codex's binding name in `logins.go`",
 		},
 		{
 			check:     "the structure test's `owners`, the toolchains",

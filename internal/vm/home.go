@@ -38,10 +38,12 @@ const homeIn = "cd ~ && tar -xzf - --skip-old-files"
 // devvm's own files (its environment, with the tokens' placeholders),
 // the ssh key its backend logs in with, the
 // agents' folders linked to their mounts and the files copied from
-// devvm's store, the agents' logins, and caches, which are made again.
+// devvm's store, every agent's logins, whichever agents the VM has
+// (agents.LoginFiles), and caches, which are made again.
 func homeSkips(d paths.Dirs, toolNames []string) []string {
 	skips := []string{".config/devvm", ".ssh/authorized_keys", ".cache"}
 	skips = append(skips, agents.HistoryExcludes()...)
+	skips = append(skips, agents.LoginFiles()...)
 	for _, a := range image.AgentsOf(toolNames) {
 		store := agentStore(d, a)
 		skips = append(skips, agentDirs(store, a)...)

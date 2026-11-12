@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
@@ -116,7 +117,7 @@ func TestAgentSaveScriptRuns(t *testing.T) {
 		".pi/agent/auth.json":                      "testfake-pi-auth",
 		".pi/agent/sessions/--p--/s.jsonl":         "testfake-pi-history",
 	})
-	cmd := exec.CommandContext(t.Context(), "bash", "-c", agentSaveScript([]string{"claude", "codex", "opencode", "pi"})) //nolint:gosec // devvm's own script
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", agentSaveScript(agents.Names())) //nolint:gosec // devvm's own script
 	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "COPYFILE_DISABLE=1"}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -124,7 +125,7 @@ func TestAgentSaveScriptRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v: %s", err, stderr.String())
 	}
-	s, err := readSent(bytes.NewReader(out), "vm", []string{"claude", "codex", "opencode", "pi"})
+	s, err := readSent(bytes.NewReader(out), "vm", agents.Names())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +234,7 @@ func TestReadSent(t *testing.T) {
 // The listed paths: each agent's files and folders, and opencode's
 // config folder's entries but lock files and node_modules.
 func TestListedPath(t *testing.T) {
-	all := []string{"claude", "codex", "opencode", "pi"}
+	all := agents.Names()
 	for _, tc := range []struct {
 		name   string
 		dir    bool

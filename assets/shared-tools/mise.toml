@@ -1,6 +1,8 @@
 # The shared tools (the docs' images page, "Shared tools"). devvm resolves each, per user, to upstream's newest
 # release matching its version here, into ~/.local/share/devvm/mise.lock with each download's checksum
-# per platform. A version here is a hold (node = "24"); nothing is pinned.
+# per platform. A version here is a hold (node = "24"), but for cursor, which publishes neither a
+# version list nor checksums: devvm pins its release and each platform's SHA-256 here, and the lock
+# takes them as they are.
 
 # Where each tool that isn't one of mise's own (core:) comes from, named here so that mise's registry
 # can't move it to another source: its first choice can change between mise releases (opencode 2
@@ -10,6 +12,7 @@ claude = "aqua:anthropics/claude-code"
 codex = "aqua:openai/codex"
 opencode = "github:anomalyco/opencode"   # its GitHub releases: a musl build of its own, attested
 pi = "github:earendil-works/pi"          # its GitHub releases: one Bun-built program per platform, glibc only
+cursor = "http:cursor"                   # Cursor's CLI package: its bundled node and programs, glibc only
 pnpm = "aqua:pnpm/pnpm"
 uv = "aqua:astral-sh/uv"
 
@@ -26,6 +29,9 @@ claude = "latest"
 codex = "latest"
 opencode = "2"         # upstream marks its 1.x releases as GitHub's latest, which "latest" resolves to
 pi = "latest"
+# The address and checksums are those of the package Cursor's install script (cursor.com/install) fetches for
+# this version; the musl platforms get the same, which their VMs refuse (glibc only).
+cursor = { version = "2026.11.11-b912975", platforms = { linux-x64 = { url = "https://downloads.cursor.com/lab/2026.11.11-b912975/linux/x64/agent-cli-package.tar.gz", checksum = "sha256:be01f42ad334f81d05a9992fcf060a52cc746f52cc451e849eb652146a6e3c91" }, linux-arm64 = { url = "https://downloads.cursor.com/lab/2026.11.11-b912975/linux/arm64/agent-cli-package.tar.gz", checksum = "sha256:f068af64ed91b5304605976586f690579679f740a41f388091a6b3a2e776987c" } } }
 
 [settings]
 experimental = true

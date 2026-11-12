@@ -1,11 +1,12 @@
 // Package agents is the coding agents devvm supports, one Def each, in Defs: every list of the
 // agents, and every fact devvm keeps of one (its shared tool, its settings, logins and history,
-// the environment its VMs get, how devvm agent login logs it in), comes from there. What one
-// agent alone does (Claude Code's OAuth login, opencode's database, pi's settings filter) is
-// code of its own elsewhere, which names the agent by its constant here. Each agent's shared
-// tool is also its line in assets/shared-tools/mise.toml's [tool_alias] and its policy,
-// assets/shared-tools/<Name>.policy; its login files' formats are internal/agentlogin's; and
-// its row in the docs' Supported agents table names it (TestDefsComplete checks them all).
+// the environment its VMs get, how devvm agent login logs it in, its row in the docs' Supported
+// agents table), comes from there. What one agent alone does (Claude Code's OAuth login,
+// opencode's database, pi's settings filter) is code of its own elsewhere, in files named for
+// the agent, which name it by its constant here: the structure test fails on code elsewhere that
+// compares with one. Each agent's shared tool is also its line in
+// assets/shared-tools/mise.toml's [tool_alias] and its policy, assets/shared-tools/<Name>.policy,
+// and its login files' formats are internal/agentlogin's (TestDefsComplete checks them all).
 // Providers are the model providers whose API keys the VM's proxy puts in for opencode and pi.
 // Adding an agent is a Def here and those files; Contributing's "Adding a coding agent" lists
 // them.
@@ -22,6 +23,7 @@ const (
 	Codex    = "codex"
 	Opencode = "opencode"
 	Pi       = "pi"
+	Cursor   = "cursor"
 )
 
 // Folders of the agents' below the home folder that code of one agent's own reads.
@@ -164,6 +166,37 @@ func ProviderOf(id string) (Provider, bool) {
 // Env is a variable of the guest environment that every VM's shells get.
 type Env struct{ Name, Value string }
 
+// LoginCmd is an agent's own login, as devvm agent login runs it in the VM, in a login shell:
+// each command line starts with the agent's command, or with env and its arguments.
+type LoginCmd struct {
+	// Argv is the login's command line, none for an agent without a login of its own.
+	Argv []string
+	// Device is the command line of its login with a code to type into a browser on any
+	// machine (--device-code), so nothing is forwarded: none when it has no such login.
+	Device []string
+	// SetupToken is the command line that gets a long-lived token instead (--setup-token),
+	// which devvm saves as the agent's Secret: none when it has no such token.
+	SetupToken []string
+	// Forward: its login in a browser on this machine comes back to the agent's server in the
+	// VM, on a port devvm forwards while it runs (a ChatGPT login's).
+	Forward bool
+	// Paste: its login shows an address to open in a browser on any machine, whose code you
+	// paste back on the terminal.
+	Paste bool
+}
+
+// Run returns the command line of the login devvm agent login runs: with a code (device),
+// or for a long-lived token (setupToken), when the agent has one.
+func (l LoginCmd) Run(device, setupToken bool) []string {
+	switch {
+	case setupToken && l.SetupToken != nil:
+		return slices.Clone(l.SetupToken)
+	case device && l.Device != nil:
+		return slices.Clone(l.Device)
+	}
+	return slices.Clone(l.Argv)
+}
+
 // Def is one coding agent.
 type Def struct {
 	// Name is its shared tool's name, as --agents and devvm tools name it, its command in the
@@ -171,6 +204,9 @@ type Def struct {
 	Name string
 	// Display is the agent's name as people know it: Claude Code.
 	Display string
+	// Command is its command in the VM when it isn't Name: Cursor's CLI is cursor-agent (and
+	// agent), as cursor is its editor's.
+	Command string
 	// Folder is the folder of the home folder its settings are in, which devvm agent import
 	// copies them from, following no link out of it.
 	Folder string
@@ -197,16 +233,30 @@ type Def struct {
 	// GlibcOnly: its releases are built for glibc alone, so a VM on a musl base (Alpine)
 	// can't have it.
 	GlibcOnly bool
-	// OwnLogin: devvm agent login runs the agent's own login, as it is (Claude Code's).
-	OwnLogin bool
-	// ChatGPT: devvm agent login logs it in to ChatGPT, in a browser on this machine or with
-	// a code (--device-code).
+	// Login is the agent's own login, as devvm agent login runs it in the VM: none for an
+	// agent devvm saves only API keys for.
+	Login LoginCmd
+	// ChatGPT: its login file holds a ChatGPT login, which devvm agent login makes in a
+	// browser on this machine or with a code (--device-code).
 	ChatGPT bool
 	// Keys are the API keys devvm agent login saves for it.
 	Keys Keys
 	// PassKeys: config.toml's [pass-keys] takes it, so the providers it lists for the agent
 	// go to its VMs as they are, and the logins devvm neither binds nor passes are withheld.
 	PassKeys bool
+	// Docs is its row in the docs' Supported agents table, which mise run cli-docs writes.
+	Docs Docs
+}
+
+// Docs is what an agent's row in the docs' Supported agents table says, beside its name, its
+// Display name and its policy's hosts.
+type Docs struct {
+	// Site is the address its Display name links to, for an agent people may not know.
+	Site string
+	// Adds is what devvm adds: which release, and what devvm turns off in it.
+	Adds string
+	// Reaches is what its allowlist's hosts are for, which the table lists after it.
+	Reaches string
 }
 
 // Defs are the agents, in the order every list of them has.
@@ -220,7 +270,17 @@ var Defs = []Def{
 		HistoryExcludes: []string{".claude/.credentials.json"},
 		Env:             []Env{{"DISABLE_AUTOUPDATER", "1"}, {"DISABLE_TELEMETRY", "1"}, {"DISABLE_ERROR_REPORTING", "1"}},
 		Secret:          Claude,
-		OwnLogin:        true,
+		// Its subscription's login, or claude setup-token's token, never with a
+		// CLAUDE_CODE_OAUTH_TOKEN of the VM's environment, which Claude Code would use instead.
+		Login: LoginCmd{
+			Argv:       []string{"env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", Claude, "auth", "login", "--claudeai"},
+			SetupToken: []string{"env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", Claude, "setup-token"},
+			Paste:      true,
+		},
+		Docs: Docs{
+			Adds:    "the newest release, with its auto-update off, since the shared copy is read-only, and its telemetry off",
+			Reaches: "Anthropic's API, Claude's login and Claude Code's downloads",
+		},
 	},
 	{
 		Name: Codex, Display: "Codex", Folder: ".codex",
@@ -229,7 +289,18 @@ var Defs = []Def{
 		Logins:          []Login{{Codex, ".codex/auth.json"}},
 		History:         []string{".codex"},
 		HistoryExcludes: []string{".codex/auth.json"},
-		ChatGPT:         true, Keys: OneKey,
+		// Its ChatGPT login, kept in its auth.json, which the VM's proxy fills with
+		// placeholders, never in a keyring.
+		Login: LoginCmd{
+			Argv:    []string{Codex, "-c", `cli_auth_credentials_store="file"`, "login"},
+			Device:  []string{Codex, "-c", `cli_auth_credentials_store="file"`, "login", "--device-auth"},
+			Forward: true,
+		},
+		ChatGPT: true, Keys: OneKey,
+		Docs: Docs{
+			Adds:    "the newest release, with its analytics and metrics off unless your config sets them",
+			Reaches: "the OpenAI API and the ChatGPT login",
+		},
 	},
 	{
 		Name: Opencode, Display: "opencode", Folder: OpencodeConfig, WholeFolder: true,
@@ -238,8 +309,20 @@ var Defs = []Def{
 		HistoryExcludes: []string{
 			OpencodeData + "/auth.json", OpencodeData + "/account.json", OpencodeData + "/mcp-auth.json", OpencodeData + "/bin",
 		},
-		Env:     []Env{{"OPENCODE_DISABLE_AUTOUPDATE", "1"}},
+		Env: []Env{{"OPENCODE_DISABLE_AUTOUPDATE", "1"}},
+		// Its Codex login to OpenAI (its methods chatgpt-browser and chatgpt-headless), whose
+		// token endpoint the proxy captures: its Sign in with ChatGPT gets its tokens from
+		// another endpoint, whose replies the proxy refuses.
+		Login: LoginCmd{
+			Argv:    []string{Opencode, "auth", "login", "openai", "--method", "chatgpt-browser"},
+			Device:  []string{Opencode, "auth", "login", "openai", "--method", "chatgpt-headless"},
+			Forward: true,
+		},
 		ChatGPT: true, Keys: ProviderKeys, PassKeys: true,
+		Docs: Docs{
+			Adds:    "the newest 2.x release, because opencode marks its 1.x releases as its latest on GitHub",
+			Reaches: "opencode's own service and its model catalog",
+		},
 	},
 	{
 		Name: Pi, Display: "pi", Folder: PiFolder,
@@ -257,6 +340,32 @@ var Defs = []Def{
 		History:   []string{PiFolder + "/sessions"},
 		Env:       []Env{{"PI_SKIP_VERSION_CHECK", "1"}, {"PI_TELEMETRY", "0"}},
 		GlibcOnly: true, Keys: ProviderKeys, PassKeys: true,
+		Docs: Docs{
+			Site:    "https://pi.dev",
+			Adds:    "the newest release, with its check for a newer pi and its install report off, and `fd`, which pi finds files with, in base",
+			Reaches: "pi's model catalog",
+		},
+	},
+	// Cursor's CLI, checked against its Linux package 2026.11.11-b912975 (read, not run): its
+	// settings in ~/.cursor (CURSOR_CONFIG_DIR unset), its login in ~/.config/cursor
+	// (XDG_CONFIG_HOME's), its chats in ~/.cursor/chats. Its login shows an address to open in a
+	// browser on any machine and polls for the login (NO_OPEN_BROWSER=1 prints it rather than
+	// opening one), so nothing comes back to the VM. It has no variable that turns off its
+	// self-update or its telemetry: a VM's setup sets its channel to static in cli-config.json,
+	// which its updates skip.
+	{
+		Name: Cursor, Display: "Cursor CLI", Command: "cursor-agent", Folder: ".cursor",
+		Dirs:      []string{".cursor/rules", ".cursor/commands"},
+		Files:     []File{{".cursor/cli-config.json", JSON}, {".cursor/mcp.json", JSON}},
+		Logins:    []Login{{Cursor, ".config/cursor/auth.json"}},
+		History:   []string{".cursor/chats"},
+		GlibcOnly: true,
+		Login:     LoginCmd{Argv: []string{"env", "NO_OPEN_BROWSER=1", "cursor-agent", "login"}},
+		Docs: Docs{
+			Site:    "https://cursor.com/cli",
+			Adds:    "the release devvm pins, run as `cursor-agent` or `agent`, with its self-update off through its static channel",
+			Reaches: "Cursor's API, its agent's hosts and its codebase indexing",
+		},
 	},
 }
 
@@ -320,15 +429,15 @@ func LoginOf(kind string) (Login, Def, bool) {
 	return Login{}, Def{}, false
 }
 
-// LoginAgents are the agents devvm agent login logs in: those with a login of their own, a
-// ChatGPT login or API keys.
+// LoginAgents are the agents devvm agent login logs in: those with a login of their own or API
+// keys.
 func LoginAgents() []string {
-	return Select(func(d Def) bool { return d.OwnLogin || d.ChatGPT || d.Keys != NoKeys })
+	return Select(func(d Def) bool { return d.Login.Argv != nil || d.Keys != NoKeys })
 }
 
 // KeysOnly reports whether devvm agent login saves only API keys for the
-// agent: it has neither a login of its own nor a ChatGPT login (pi).
-func (d Def) KeysOnly() bool { return !d.OwnLogin && !d.ChatGPT && d.Keys != NoKeys }
+// agent: it has no login of its own (pi).
+func (d Def) KeysOnly() bool { return d.Login.Argv == nil && d.Keys != NoKeys }
 
 // file returns the agent's settings file at rel, by its path relative to the home folder, if
 // it's one of its Files.
@@ -380,6 +489,21 @@ func History() []string {
 	var out []string
 	for _, d := range Defs {
 		out = append(out, d.History...)
+	}
+	return out
+}
+
+// LoginFiles are every agent's login files that aren't part of its history, in Defs' order:
+// what a VM made again never takes from the old VM's home, as the store gives it its own.
+// Claude Code's .claude.json is history too, for its per-folder state, so it isn't one.
+func LoginFiles() []string {
+	var out []string
+	for _, d := range Defs {
+		for _, l := range d.Logins {
+			if !slices.Contains(d.History, l.Rel) {
+				out = append(out, l.Rel)
+			}
+		}
 	}
 	return out
 }

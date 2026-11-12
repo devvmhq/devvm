@@ -2933,11 +2933,13 @@ other = "devvm saved {{.agent}}'s ChatGPT login in its agent store, and {{.vm}} 
 description = "email is the ChatGPT account's email, as its tokens name it"
 other = "devvm saved {{.agent}}'s ChatGPT login for {{.email}} in its agent store, and {{.vm}} uses it now. Every VM with {{.agent}} gets it from its next launch."
 
-[agent_login_claude_paste]
-other = "Open the address Claude Code shows in a browser on any machine and approve the login, then paste the code the browser shows here."
+[agent_login_paste]
+description = "display is the agent's name as people know it, such as Claude Code"
+other = "Open the address {{.display}} shows in a browser on any machine and approve the login, then paste the code the browser shows here."
 
-[claude_login_saved]
-other = "devvm saved Claude Code's login in its agent store, and {{.vm}} uses it now. Every VM with Claude Code gets it from its next launch."
+[agent_own_login_saved]
+description = "display is the agent's name as people know it, such as Claude Code"
+other = "devvm saved {{.display}}'s login in its agent store, and {{.vm}} uses it now. Every VM with {{.display}} gets it from its next launch."
 
 [claude_setup_token_saved]
 other = "devvm saved the Claude Code token from claude setup-token with its secrets, and {{.vm}} uses it now. Every VM with Claude Code gets it from its next launch."
@@ -2945,12 +2947,13 @@ other = "devvm saved the Claude Code token from claude setup-token with its secr
 [claude_env_token_wins]
 other = "CLAUDE_CODE_OAUTH_TOKEN is set in devvm's environment, so VMs get that token, not the login devvm saved. Unset it to use the saved login."
 
-[agent_login_claude_flag]
-description = "flag is the flag given, as typed: --device-code, --api-key or --stdin"
-other = "{{.flag}} doesn't go with devvm agent login claude, which logs in in a browser on any machine. Run devvm agent login claude, or devvm agent login claude --setup-token."
+[agent_login_flag]
+description = "flag is the flag given, as typed: --device-code, --setup-token, --api-key or --stdin; agent is the agent's name in devvm's commands, such as claude"
+other = "{{.flag}} doesn't go with devvm agent login {{.agent}}, because {{.agent}} has no login that takes it. Run devvm agent login {{.agent}} without it."
 
-[agent_login_setup_token_alone]
-other = "--setup-token goes with devvm agent login claude. Run devvm agent login claude --setup-token."
+[agent_login_flag_or_token]
+description = "flag is the flag given, as typed: --device-code, --api-key or --stdin; agent is the name in devvm's commands of an agent with a setup token, such as claude"
+other = "{{.flag}} doesn't go with devvm agent login {{.agent}}, because {{.agent}} has no login that takes it. Run devvm agent login {{.agent}}, or devvm agent login {{.agent}} --setup-token."
 
 [agent_key_saved]
 description = "provider is the API key's provider, as the agent names it, such as openai"
@@ -3087,20 +3090,16 @@ other = "The Codex login in devvm's agent store isn't a ChatGPT login any more, 
 description = "agent is the agent whose login the VM sent, such as codex"
 other = "{{.vm}} doesn't have {{.agent}}, so devvm didn't save the {{.agent}} login it sent. Log {{.agent}} in from a VM that has it."
 
-[codex_refresh_failed]
-description = "reason is an error from the system or OpenAI's token endpoint, in English"
-other = "Refreshing the Codex login in devvm's agent store failed: {{.reason}}. Run devvm agent login codex in a VM's folder to log in again."
+[agent_refresh_failed]
+description = "display is the agent's name as people know it, such as Claude Code; agent is its name in devvm's commands, such as claude; reason is an error from the system or the agent's token endpoint, in English"
+other = "Refreshing {{.display}}'s login in devvm's agent store failed: {{.reason}}. Run devvm agent login {{.agent}} in a VM's folder to log in again."
 
-[claude_refresh_failed]
-description = "reason is an error from the system or Claude's token endpoint, in English"
-other = "Refreshing the Claude Code login in devvm's agent store failed: {{.reason}}. Run devvm agent login claude in a VM's folder to log in again."
+[agent_provider_refresh_failed]
+description = "display is the agent's name as people know it, such as opencode; provider is the agent's ID for the provider, such as openai; agent is its name in devvm's commands; reason is an error from the system or the token endpoint, in English"
+other = "Refreshing {{.display}}'s {{.provider}} login in devvm's agent store failed: {{.reason}}. Run devvm agent login {{.agent}} in a VM's folder to log in again."
 
 [claude_no_login]
 other = "devvm has no Claude Code login any more, so the VM's proxy has none to put in. Run devvm agent login claude in the VM's folder."
-
-[opencode_refresh_failed]
-description = "provider is opencode's provider ID, such as openai; reason is an error from the system or the token endpoint, in English"
-other = "Refreshing opencode's {{.provider}} login in devvm's agent store failed: {{.reason}}. Run devvm agent login opencode in a VM's folder to log in again."
 
 [login_read_failed]
 description = "file is an agent's login file in devvm's agent store; reason is an error from the system, in English"

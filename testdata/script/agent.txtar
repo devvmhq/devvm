@@ -7,7 +7,7 @@
 exec devvm agent
 stdout 'devvm agent import'
 ! exec devvm agent import nope
-stderr '^devvm: arg_not_choice choices=claude, codex, opencode, pi(, [a-z0-9-]+)* command=devvm agent import given=nope$'
+stderr '^devvm: arg_not_choice choices='$AGENT_CHOICES' command=devvm agent import given=nope$'
 
 # Nothing to import: said once, or for each agent named.
 exec devvm agent import

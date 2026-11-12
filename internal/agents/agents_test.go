@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"cmp"
 	"os"
 	"path"
 	"path/filepath"
@@ -132,6 +133,9 @@ func TestDefsWellFormed(t *testing.T) {
 		if d.Name == "" || d.Display == "" || d.Folder == "" {
 			t.Errorf("%+v: no name, display name or folder", d)
 		}
+		if d.Docs.Adds == "" || d.Docs.Reaches == "" || strings.Contains(d.Docs.Adds+d.Docs.Reaches, "|") {
+			t.Errorf("%s: its row in the docs' table has no Adds or Reaches, or one breaks the table", d.Name)
+		}
 		if len(d.Logins) > 0 && d.Logins[0].Kind != d.Name {
 			t.Errorf("%s: its first login's kind is %s", d.Name, d.Logins[0].Kind)
 		}
@@ -227,6 +231,108 @@ func TestLists(t *testing.T) {
 		}
 	}()
 	Of("none")
+}
+
+// The command lines devvm agent login runs, exactly: Claude Code's
+// subscription login and claude setup-token without the VM's
+// CLAUDE_CODE_OAUTH_TOKEN, which Claude Code would use instead; Codex's
+// ChatGPT login kept in its file, never a keyring; and opencode's Codex
+// logins to OpenAI, in a browser or with a code. pi has none.
+func TestLoginRun(t *testing.T) {
+	const store = `cli_auth_credentials_store="file"`
+	want := map[string][3][]string{ // its login, with a code, with a setup token
+		Claude: {
+			{"env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", "claude", "auth", "login", "--claudeai"},
+			{"env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", "claude", "auth", "login", "--claudeai"},
+			{"env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", "claude", "setup-token"},
+		},
+		Codex: {
+			{"codex", "-c", store, "login"},
+			{"codex", "-c", store, "login", "--device-auth"},
+			{"codex", "-c", store, "login"},
+		},
+		Opencode: {
+			{"opencode", "auth", "login", "openai", "--method", "chatgpt-browser"},
+			{"opencode", "auth", "login", "openai", "--method", "chatgpt-headless"},
+			{"opencode", "auth", "login", "openai", "--method", "chatgpt-browser"},
+		},
+		Pi: {},
+		// Its login prints the address rather than opening a browser in the VM.
+		Cursor: {
+			{"env", "NO_OPEN_BROWSER=1", "cursor-agent", "login"},
+			{"env", "NO_OPEN_BROWSER=1", "cursor-agent", "login"},
+			{"env", "NO_OPEN_BROWSER=1", "cursor-agent", "login"},
+		},
+	}
+	for _, d := range Defs {
+		w, ok := want[d.Name]
+		if !ok {
+			t.Errorf("%s: no command lines in TestLoginRun", d.Name)
+			continue
+		}
+		for i, flags := range [][2]bool{{false, false}, {true, false}, {false, true}} {
+			if got := d.Login.Run(flags[0], flags[1]); !slices.Equal(got, w[i]) {
+				t.Errorf("%s: Run(%v, %v) = %q, want %q", d.Name, flags[0], flags[1], got, w[i])
+			}
+		}
+	}
+}
+
+// Each agent's own login runs the agent, a forwarded one a ChatGPT login
+// that has a login with a code too, and devvm agent login runs the command
+// line its flags choose, or the login's own when the agent has no such
+// one: a copy, which the caller can't change the Def by.
+func TestLoginCmds(t *testing.T) {
+	runs := func(name string, argv []string) bool {
+		return len(argv) > 0 && (argv[0] == name || argv[0] == "env" && slices.Contains(argv, name))
+	}
+	or := func(a, b []string) []string {
+		if a != nil {
+			return a
+		}
+		return b
+	}
+	for _, d := range Defs {
+		l := d.Login
+		if l.Argv == nil {
+			if l.Device != nil || l.SetupToken != nil || l.Forward || l.Paste {
+				t.Errorf("%s: no login of its own, but %+v", d.Name, l)
+			}
+			continue
+		}
+		for _, argv := range [][]string{l.Argv, l.Device, l.SetupToken} {
+			if command := cmp.Or(d.Command, d.Name); argv != nil && !runs(command, argv) {
+				t.Errorf("%s: %q doesn't run %s", d.Name, argv, command)
+			}
+		}
+		if l.Forward && (!d.ChatGPT || l.Device == nil) {
+			t.Errorf("%s: a login forwarded without a ChatGPT login or a login with a code", d.Name)
+		}
+		if l.SetupToken != nil && d.Secret == "" {
+			t.Errorf("%s: a setup token, but no secret to save it as", d.Name)
+		}
+		for _, tc := range []struct {
+			device, token bool
+			want          []string
+		}{
+			{false, false, l.Argv},
+			{true, false, or(l.Device, l.Argv)},
+			{false, true, or(l.SetupToken, l.Argv)},
+		} {
+			got := l.Run(tc.device, tc.token)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("%s: Run(%v, %v) = %q, want %q", d.Name, tc.device, tc.token, got, tc.want)
+			}
+			got[0] = "changed"
+			if tc.want[0] == "changed" {
+				t.Errorf("%s: Run returned the Def's own command line", d.Name)
+			}
+		}
+	}
+	if !slices.ContainsFunc(Defs, func(d Def) bool { return d.Login.Device != nil }) ||
+		!slices.ContainsFunc(Defs, func(d Def) bool { return d.Login.SetupToken != nil }) {
+		t.Error("no agent has a login with a code or a setup token, so Run's choices go untested")
+	}
 }
 
 // The agents devvm agent login logs in, and those it saves keys alone for.

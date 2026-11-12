@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/backend/backendtest"
 	"github.com/devvmhq/devvm/internal/image"
@@ -150,6 +151,28 @@ func TestCopyHome(t *testing.T) {
 	}
 	if err := copyHome(strings.NewReader("not gzip"), io.Discard, nil); err == nil {
 		t.Error("copied a stream that isn't gzip")
+	}
+}
+
+// A remade VM's home never takes an agent's login file from the old one, whatever agents the VM
+// has: every login file the registry names, such as Cursor's and pi's, is skipped, but one
+// that's history too (Claude Code's .claude.json, whose per-folder state stays).
+func TestHomeSkipsEveryLogin(t *testing.T) {
+	skips := homeSkips(paths.Dirs{Config: t.TempDir()}, nil)
+	for _, rel := range []string{".config/cursor/auth.json", ".pi/agent/auth.json"} {
+		if !skipped(rel, skips) {
+			t.Errorf("%s is kept", rel)
+		}
+	}
+	if skipped(agents.ClaudeJSON, skips) {
+		t.Errorf("%s isn't kept", agents.ClaudeJSON)
+	}
+	for _, d := range agents.Defs {
+		for _, l := range d.Logins {
+			if !slices.Contains(d.History, l.Rel) && !skipped(l.Rel, skips) {
+				t.Errorf("%s's %s is kept", d.Name, l.Rel)
+			}
+		}
 	}
 }
 

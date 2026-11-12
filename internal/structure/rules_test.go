@@ -446,6 +446,140 @@ func agentCases() []ruleCase {
 	}
 }
 
+// A CLI test script's list of agents as a message joins them fails, line by
+// line; a flag's list, joined with a comma alone, passes.
+func TestScriptLists(t *testing.T) {
+	names := strings.Fields("claude codex opencode pi")
+	text := "exec devvm --agents claude,codex\n" +
+		"stderr 'choices=claude, codex, opencode, pi command='\n" +
+		"stderr 'agents='$KEY_AGENTS'$'\n" +
+		"stderr 'agents=opencode, pi$'\n" +
+		"stdout 'claude, the agent'\n"
+	vs := scriptLists("a.txtar", text, names)
+	var at []string
+	for _, v := range vs {
+		at = append(at, v.pos)
+	}
+	if !slices.Equal(at, []string{"a.txtar:2", "a.txtar:4"}) || !strings.Contains(vs[0].text, "$AGENT_CHOICES") {
+		t.Errorf("scriptLists = %q", vs)
+	}
+}
+
+// switchCases compare with, choose by and list the coding agents, which
+// only internal/agents and the files named for an agent do, and which no
+// list holds all of outside internal/agents.
+func switchCases() []ruleCase {
+	const (
+		registry = "package agents\n\nconst (\n\tClaude = \"claude\"\n\tCodex = \"codex\"\n\tOpencode = \"opencode\"\n\tPi = \"pi\"\n\tClaudeOAuth = \"claude-oauth\"\n)\n"
+		head     = "package vm\n\nimport (\n\t\"slices\"\n\t\"strings\"\n\n\t\"example.com/m/internal/agents\"\n)\n\n"
+	)
+	vm := func(name, body string) map[string]string {
+		return map[string]string{"internal/agents/a.go": registry, "internal/vm/" + name: head + body}
+	}
+	// The registry above's names, whatever devvm's own are.
+	every := rules{every: everyOwner{strings.Fields("claude codex opencode pi"), "internal/agents", "agents.Names()"}}
+	return []ruleCase{
+		{
+			name:  "comparing with an agent outside its files",
+			files: vm("a.go", "func f(a string) bool { return a != agents.Opencode }\n"),
+			want:  &want{ruleOwners, `compares with "opencode": give its agents.Def a field the code asks, or put the code in a file named for opencode`},
+		},
+		{
+			name:  "comparing with an agent in its own file",
+			files: vm("opencode.go", "func f(a string) bool { return a == agents.Opencode }\n"),
+		},
+		{
+			name:  "comparing with an agent's login kind in its own file",
+			files: vm("agentlogin_claude.go", "func f(k string) bool { return k == agents.ClaudeOAuth }\n"),
+		},
+		{
+			name:  "comparing with an agent's login kind in another's file",
+			files: vm("pi.go", "func f(k string) bool { return k == agents.ClaudeOAuth }\n"),
+			want:  &want{ruleOwners, `compares with "claude-oauth"`},
+		},
+		{
+			name:  "a case for an agent",
+			files: vm("a.go", "func f(a string) int {\n\tswitch a {\n\tcase agents.Codex:\n\t\treturn 1\n\t}\n\treturn 0\n}\n"),
+			want:  &want{ruleOwners, `has a case for "codex"`},
+		},
+		{
+			name:  "looking for an agent",
+			files: vm("a.go", "func f(as []string) bool { return slices.Contains(as, agents.Pi) }\n"),
+			want:  &want{ruleOwners, `looks for "pi"`},
+		},
+		{
+			name:  "a map keyed on an agent",
+			files: vm("a.go", "func f() map[string]int { return map[string]int{agents.Claude: 1} }\n"),
+			want:  &want{ruleOwners, `keys a map on "claude"`},
+		},
+		{
+			name:  "comparing with an agent in a test",
+			files: vm("a_test.go", "func f(a string) bool { return a == agents.Claude }\n"),
+		},
+		{
+			name:  "comparing with an agent in internal/agents",
+			files: map[string]string{"internal/agents/a.go": registry + "\nfunc f(a string) bool { return a == Claude }\n"},
+		},
+		{
+			name:  "comparing with a constant named after an agent's",
+			files: vm("a.go", "const mine = agents.Pi\n\nfunc f(a string) bool { return a == mine }\n"),
+			want:  &want{ruleOwners, `compares with "pi"`},
+		},
+		{
+			name: "comparing with a constant two hops from an agent's",
+			files: map[string]string{
+				"internal/agents/a.go":  registry,
+				"internal/secrets/a.go": "package secrets\n\nimport \"example.com/m/internal/agents\"\n\nconst Token = agents.Claude\n",
+				"internal/vm/a.go":      "package vm\n\nimport \"example.com/m/internal/secrets\"\n\nconst tok = secrets.Token\n\nfunc f(n string) bool { return n != tok }\n",
+			},
+			want: &want{ruleOwners, `compares with "claude"`},
+		},
+		{
+			name:  "looking an agent up in a map",
+			files: vm("a.go", "func f(m map[string]int) int { return m[agents.Codex] }\n"),
+			want:  &want{ruleOwners, `looks up "codex"`},
+		},
+		{
+			name:  "an agent as a prefix",
+			files: vm("a.go", "func f(s string) bool { return strings.HasPrefix(s, agents.Opencode) }\n"),
+			want:  &want{ruleOwners, `compares with "opencode"`},
+		},
+		{
+			name:  "a constant named after an agent where it's free",
+			files: vm("a.go", "const mine = agents.Pi\n\nfunc f(a string) bool { return a == mine }\n"),
+			r:     rules{switchFree: map[string]string{"internal/vm/a.go: internal/vm.mine": "a reason"}},
+		},
+		{
+			name:  "a free constant that frees nothing",
+			files: vm("a.go", "func f() {}\n"),
+			r:     rules{switchFree: map[string]string{"internal/vm/a.go: internal/vm.mine": "a reason"}},
+			want:  &want{ruleOwners, "internal/vm/a.go: internal/vm.mine passes nothing: take it out"},
+		},
+		{
+			name:  "comparing with an agent's name as a literal",
+			files: vm("a.go", "func f(a string) bool { return a == \"opencode\" }\n"),
+			want:  &want{ruleOwners, `is "opencode", a name internal/agents owns`},
+		},
+		{
+			name:  "a list of every agent",
+			files: vm("a_test.go", "func all() []string { return []string{agents.Claude, agents.Codex, agents.Opencode, agents.Pi} }\n"),
+			want:  &want{ruleOwners, "lists every one of claude, codex, opencode, pi: a copy of internal/agents's list, so use agents.Names()"},
+			r:     every,
+		},
+		{
+			name:  "a call with every agent",
+			files: vm("a.go", "func f(names ...string) {}\n\nfunc g() { f(\"x\", agents.Pi, agents.Opencode, agents.Codex, agents.Claude) }\n"),
+			want:  &want{ruleOwners, "lists every one of"},
+			r:     every,
+		},
+		{
+			name:  "a list of some agents",
+			files: vm("a_test.go", "func some() []string { return []string{agents.Claude, agents.Codex} }\n"),
+			r:     every,
+		},
+	}
+}
+
 func ownerCases() []ruleCase {
 	return []ruleCase{
 		{
@@ -707,7 +841,7 @@ func callerCases() []ruleCase {
 // what it allows.
 func TestRulesFail(t *testing.T) {
 	var broken []string // the layer violations' texts
-	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), commandCases(), envCases(), agentCases(), separatorCases(), runnerCases(), pathCases(), callerCases()) {
+	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), commandCases(), envCases(), agentCases(), switchCases(), separatorCases(), runnerCases(), pathCases(), callerCases()) {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := fstest.MapFS{"go.mod": {Data: []byte("module example.com/m\n\ngo 1.27\n")}}
 			for name, src := range tc.files {
@@ -747,6 +881,12 @@ func TestRulesFail(t *testing.T) {
 			}
 			if r.pathsOwner == "" {
 				r.pathsOwner = devvm().pathsOwner
+			}
+			if r.switches == nil {
+				r.switches = devvm().switches
+			}
+			if r.every.names == nil {
+				r.every = devvm().every
 			}
 			vs := check(m, r)
 			if tc.want == nil {

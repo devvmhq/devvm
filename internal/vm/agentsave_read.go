@@ -2,7 +2,6 @@ package vm
 
 import (
 	"archive/tar"
-	"encoding/json"
 	"errors"
 	"io"
 	"path"
@@ -10,7 +9,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/devvmhq/devvm/internal/agentlogin"
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/shell"
@@ -68,15 +66,7 @@ func agentSaveScript(names []string) string {
 				"done")
 		}
 	}
-	if slices.Contains(names, agents.Claude) {
-		keys, _ := json.Marshal(agentlogin.ClaudeTopKeys())
-		own := `"$t/` + saveOwn
-		lines = append(lines,
-			`if [ -f `+agents.ClaudeJSON+` ] && [ ! -L `+agents.ClaudeJSON+` ]; then`,
-			`  jq --argjson k `+shell.Quote(string(keys))+` 'with_entries(select(.key as $x | any($k[]; . == $x)))' `+agents.ClaudeJSON+` > `+own+`/claude.json" 2>/dev/null ||`,
-			`    { rm -f `+own+`/claude.json"; : > `+own+`/claude-unreadable"; }`,
-			"fi")
-	}
+	lines = append(lines, claudeSaveLines(names)...)
 	lines = append(lines, `tar -cf - "$@" -C "$t" `+saveOwn)
 	return strings.Join(lines, "\n")
 }

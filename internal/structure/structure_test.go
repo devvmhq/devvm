@@ -4,6 +4,7 @@
 package structure
 
 import (
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -44,9 +45,9 @@ func devvm() rules {
 		// The registry's backends are behind its guard: only backend.As
 		// finds their other interfaces.
 		guardOwner: "internal/backend/guard.go",
-		literals:   devvmLiterals(),
-		names:      devvmNames(),
-		namesFree:  []string{"internal/stubtest"}, // the stubs, named after the commands they stand in for
+		literals:   devvmLiterals(), every: everyOwner{agents.Names(), "internal/agents", "agents.Names()"},
+		names: devvmNames(), switches: devvmSwitches(), switchFree: devvmSwitchFree(),
+		namesFree: []string{"internal/stubtest"}, // the stubs, named after the commands they stand in for
 		// An image's name is read once, by internal/image: its layers are
 		// split and joined there alone.
 		separators: map[string]literalOwner{"+": {"internal/image", "image.Name"}},
@@ -194,11 +195,16 @@ func devvmVars() map[string]string {
 	return map[string]string{
 		"internal/agentlogin.opencodeOAuth":       table,
 		"internal/agentlogin.codexKeep":           table,
+		"internal/agentlogin.cursorKeep":          table,
+		"internal/proxy.oauthTokenKeys":           table,
+		"internal/proxy.cursorMinting":            table,
+		"internal/proxy.cursorPersists":           table,
+		"internal/proxy.cursorAccount":            table,
+		"internal/agentlogin.cursorRoutes":        table,
 		"internal/agentlogin.claudeAccountKeep":   table,
 		"internal/agentlogin.claudeTopKeys":       table,
 		"internal/agentlogin.claudeServerKeys":    table,
 		"internal/agentlogin.openaiAuth":          fixture,
-		"internal/agentlogin.endpoints":           table,
 		"internal/agentlogin.withheldKeep":        table,
 		"internal/agentlogin.piVMDropped":         table,
 		"internal/cli.version":                    ldflags,
@@ -346,6 +352,61 @@ func devvmNames() map[string]literalOwner {
 		}
 	}
 	return names
+}
+
+// devvmSwitches are the coding agents' names and login kinds, which only
+// internal/agents, and the files named for the agent, compare with or
+// choose by: a login kind's word is its agent's name (claude for
+// claude-oauth). Everything else asks the agent's Def, so a new agent
+// changes no other code; and no list but agents.Names holds every agent.
+func devvmSwitches() map[string]switchOwner {
+	out := map[string]switchOwner{}
+	for _, d := range agents.Defs {
+		for _, n := range slices.Concat([]string{d.Name}, agents.LoginKinds()) {
+			if _, a, ok := agents.LoginOf(n); n == d.Name || ok && a.Name == d.Name {
+				out[n] = switchOwner{
+					"internal/agents", d.Name,
+					"give its agents.Def a field the code asks, or put the code in a file named for " + d.Name,
+				}
+			}
+		}
+	}
+	return out
+}
+
+// devvmSwitchFree are the constants named after an agent that a file
+// outside the agent's own may compare with, each for a reason that isn't
+// the agent's: the claude secret is a secret too, which the secrets'
+// registry, devvm secret and a launch's warnings name as they do github;
+// and Codex's ChatGPT login's binding is named after its agent, in Codex's
+// format, which shares logins.go with opencode's.
+func devvmSwitchFree() map[string]string {
+	const secret = "the claude secret's own value check, prompt and warning, as github's"
+	return map[string]string{
+		"internal/secrets/secrets.go: internal/secrets.ClaudeToken": secret,
+		"internal/cli/secret.go: internal/secrets.ClaudeToken":      secret,
+		"internal/vm/secret.go: internal/secrets.ClaudeToken":       secret,
+		"internal/agentlogin/logins.go: internal/agentlogin.codexLogin": "Codex's format's own binding, in the file of " +
+			"the Codex and opencode formats",
+	}
+}
+
+// The CLI tests' scripts list no agents as a message does: they take the
+// registry's lists from the runner.
+func TestScriptsListNoAgents(t *testing.T) {
+	names, err := fs.Glob(os.DirFS(root), "testdata/script/*.txtar")
+	if err != nil || len(names) == 0 {
+		t.Fatalf("no scripts: %v", err)
+	}
+	for _, n := range names {
+		data, err := fs.ReadFile(os.DirFS(root), n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, v := range scriptLists(n, string(data), agents.Names()) {
+			t.Error(v)
+		}
+	}
 }
 
 // The repo keeps to its rules.

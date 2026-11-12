@@ -1016,7 +1016,7 @@ func TestMainRefuses(t *testing.T) {
 		}
 	}
 	// Token endpoints without IO.Capture: no login could be saved, nor the VM given placeholders.
-	if err := Main([]string{"-config", writeConfig(t, withCA(Capture{"codex", "auth.openai.com", "/oauth/token"}))}, std); err == nil ||
+	if err := Main([]string{"-config", writeConfig(t, withCA(Capture{Agent: "codex", Host: "auth.openai.com", Path: "/oauth/token"}))}, std); err == nil ||
 		!strings.Contains(err.Error(), "captures without a capturer") {
 		t.Errorf("captures without IO.Capture: %v", err)
 	}

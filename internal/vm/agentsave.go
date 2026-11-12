@@ -219,9 +219,7 @@ func (sv saver) plan(agent string) (agentPlan, error) {
 			sv.Warn(msg.AgentSaveKindLeftOut(n, sv.s.vm))
 		}
 	}
-	if agent == agents.Claude {
-		sv.claudeJSON(&p)
-	}
+	sv.claudeJSON(agent, &p)
 	return p, nil
 }
 
@@ -268,9 +266,13 @@ func (sv saver) leftOut(rel string, err error) {
 // account state and MCP servers (agentlogin.ClaudeSubset), its
 // placeholders put back from the store's (agentlogin.Restore), its copy
 // in the VM being the store's as the VM got it. Left out, with a
-// warning, when it isn't JSON or a placeholder can't be put back.
-func (sv saver) claudeJSON(p *agentPlan) {
+// warning, when it isn't JSON or a placeholder can't be put back. Only
+// Claude Code's settings have one (claudeSaves).
+func (sv saver) claudeJSON(agent string, p *agentPlan) {
 	const rel = agents.ClaudeJSON
+	if !claudeSaves(agent) {
+		return
+	}
 	if sv.s.claudeBad {
 		sv.Warn(msg.AgentSaveUnparsed(rel, sv.s.vm))
 	}

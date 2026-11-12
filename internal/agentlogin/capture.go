@@ -52,35 +52,111 @@ const (
 	managed = "devvm-proxy-managed"
 )
 
-// endpoints are the agents' OAuth token endpoints, in order.
-var endpoints = []proxy.Capture{
-	{Agent: agents.Codex, Host: "auth.openai.com", Path: "/oauth/token"},
-	{Agent: agents.Opencode, Host: "auth.openai.com", Path: "/oauth/token"},
-	{Agent: agents.Claude, Host: "platform.claude.com", Path: "/v1/oauth/token"},
-	{Agent: agents.Claude, Host: "console.anthropic.com", Path: "/v1/oauth/token"},
+// endpoint is one of an agent's OAuth token endpoints, whose replies every VM's proxy captures:
+// its host and path, and as proxy.Capture has them, its method (POST when empty), the guard of a
+// host that serves an API beside it, and the fields the agent keeps its tokens in beside OAuth's.
+type endpoint struct {
+	host, path, method, guard string
+	tokenKeys                 []string
+}
+
+// captureFormat is a format whose logins the VM's proxy captures as its agent logs in (File.Capture),
+// at its endpoints.
+type captureFormat interface {
+	format
+	// endpoints are the agent's token endpoints, in order.
+	endpoints() []endpoint
+	// userAgents are how the User-Agents of the agent's token requests start, in lowercase, which
+	// tell its login from another agent's at an endpoint they share (Pick): none for the agent a
+	// shared endpoint's login is for when no other's matches.
+	userAgents() []string
+	// capture saves r, the reply to t, in m, the store's login, and returns m and the VM's reply.
+	capture(m map[string]any, t tokenRequest, r map[string]any, salt string) (map[string]any, map[string]any, error)
+	// managedReply is the reply to a VM's refresh of its own login, m the store's: its
+	// placeholders, as the code's reply gave them.
+	managedReply(m map[string]any, salt string) ([]byte, error)
+}
+
+// exchangeFormat is a capture format whose agent also exchanges its login for an API key, a
+// grant whose reply its capture reads when exchange reports t is it (Codex's).
+type exchangeFormat interface {
+	exchange(t tokenRequest) bool
+}
+
+// pollFormat is a capture format whose agent polls for its login, a GET whose query is the token
+// request (Cursor's): poll reports whether t is that poll, the only request its capture reads.
+type pollFormat interface {
+	poll(t tokenRequest) bool
+}
+
+// refreshPlaceholderFormat is a capture format whose VM copy holds a placeholder as its refresh
+// token too, besides managed: refreshPlaceholder returns it, m the store's login (opencode's
+// holds its access token's).
+type refreshPlaceholderFormat interface {
+	refreshPlaceholder(m map[string]any, salt string) string
+}
+
+// captureOf returns the format of the agent's login file whose logins the proxy captures, and the
+// file's kind: false when the proxy captures none of its logins.
+func captureOf(agent string) (captureFormat, string, bool) {
+	d, _ := agents.Get(agent)
+	for _, l := range d.Logins {
+		if c, ok := formats()[l.Kind].(captureFormat); ok {
+			return c, l.Kind, true
+		}
+	}
+	return nil, "", false
+}
+
+// CaptureKind is the kind of the agent's login file that a login the proxy captures goes in: its
+// first whose format captures logins (Claude Code's OAuth login, beside its .claude.json), else
+// its own name's.
+func CaptureKind(agent string) string {
+	if _, kind, ok := captureOf(agent); ok {
+		return kind
+	}
+	return agent
 }
 
 // Endpoints returns the token endpoints whose replies every VM's proxy captures, whatever its
-// image holds, as a VM can run an agent it installed itself, in order: Codex's, opencode's and
-// Claude Code's two.
-func Endpoints() []proxy.Capture { return slices.Clone(endpoints) }
+// image holds, as a VM can run an agent it installed itself: each capture format's, in
+// agents.Defs' order.
+func Endpoints() []proxy.Capture {
+	var out []proxy.Capture
+	for _, d := range agents.Defs {
+		if c, _, ok := captureOf(d.Name); ok {
+			for _, e := range c.endpoints() {
+				out = append(out, proxy.Capture{Agent: d.Name, Host: e.host, Path: e.path, Method: e.method, Guard: e.guard, TokenKeys: e.tokenKeys})
+			}
+		}
+	}
+	return out
+}
 
 // Pick returns which of agents, the VM's whose token endpoint a request went to, it's for: the one
-// there is, or for OpenAI's, which Codex and opencode share, opencode when the request's
-// User-Agent is Bun's (opencode runs on Bun) or opencode's own, else Codex.
+// whose capture format's userAgents the request's User-Agent starts with, else the first whose
+// format has none, else the first. OpenAI's endpoint is Codex's and opencode's, and opencode runs
+// on Bun.
 func Pick(names []string, userAgent string) string {
 	if len(names) == 0 {
 		return ""
 	}
-	if len(names) > 1 && slices.Contains(names, agents.Opencode) {
-		ua := strings.ToLower(userAgent)
-		if strings.HasPrefix(ua, "bun/") || strings.HasPrefix(ua, "opencode/") {
-			return agents.Opencode
+	ua := strings.ToLower(userAgent)
+	uas := func(a string) []string {
+		c, _, _ := captureOf(a)
+		if c == nil {
+			return nil
 		}
-		for _, a := range names {
-			if a != agents.Opencode {
-				return a
-			}
+		return c.userAgents()
+	}
+	for _, a := range names {
+		if slices.ContainsFunc(uas(a), func(p string) bool { return strings.HasPrefix(ua, p) }) {
+			return a
+		}
+	}
+	if len(names) > 1 {
+		if i := slices.IndexFunc(names, func(a string) bool { return len(uas(a)) == 0 }); i >= 0 {
+			return names[i]
 		}
 	}
 	return names[0]
@@ -166,16 +242,30 @@ func topKeys(b []byte) (int, error) {
 }
 
 // grantOK refuses a request whose reply the agent's capture can't read: a grant other than a
-// code's or a refresh's, or for Codex its API-key exchange, as a form.
+// code's or a refresh's, or its format's exchange (exchangeFormat); for a format whose login is
+// polled for (pollFormat), anything but its poll.
 func (f File) grantOK(t tokenRequest) error {
-	switch g := t.grant(); {
-	case g == grantCode || g == grantRefresh:
+	if p, ok := formats()[f.Kind].(pollFormat); ok {
+		if p.poll(t) {
+			return nil
+		}
+		return errGrant
+	}
+	switch t.grant() {
+	case grantCode, grantRefresh:
 		return nil
-	case f.Kind == agents.Codex && g == grantExchange && t.form &&
-		t.fields.Get("requested_token") == apiKeyToken && t.fields.Get("subject_token_type") == idTokenType:
-		return nil
+	case grantExchange:
+		if x, ok := formats()[f.Kind].(exchangeFormat); ok && x.exchange(t) {
+			return nil
+		}
 	}
 	return errGrant
+}
+
+// apiKeyExchange reports whether t is Codex's exchange of its id_token for an API key, as a form.
+func apiKeyExchange(t tokenRequest) bool {
+	return t.grant() == grantExchange && t.form &&
+		t.fields.Get("requested_token") == apiKeyToken && t.fields.Get("subject_token_type") == idTokenType
 }
 
 // readLogin reads the store's login file at path, or none (an empty one) when it isn't there.
@@ -223,9 +313,9 @@ func (f File) CaptureRequest(ctype string, body []byte) (out, answer []byte, err
 		return nil, nil, err
 	}
 	if refresh {
-		// opencode's VM copy holds its access token's placeholder as its refresh token too.
 		rt := t.fields.Get("refresh_token")
-		if rt == managed || f.Kind == agents.Opencode && rt == openaiPlaceholder(str(obj(m, "openai"), "access"), f.Salt) {
+		p, ok := formats()[f.Kind].(refreshPlaceholderFormat)
+		if rt == managed || ok && rt == p.refreshPlaceholder(m, f.Salt) {
 			answer, err = f.managedReply(m)
 			return nil, answer, err
 		}
@@ -242,22 +332,23 @@ func (f File) CaptureRequest(ctype string, body []byte) (out, answer []byte, err
 // managedReply is the reply to a VM's refresh of its own login, m the store's: its placeholders,
 // as the code's reply gave them.
 func (f File) managedReply(m map[string]any) ([]byte, error) {
-	if f.Kind == agents.ClaudeOAuth {
-		return claudeManagedReply(m, f.Salt)
+	c, ok := formats()[f.Kind].(captureFormat)
+	if !ok {
+		return nil, f.errKind()
 	}
+	return c.managedReply(m, f.Salt)
+}
+
+// openaiManagedReply is the managed reply of an OpenAI login (Codex's or opencode's): at, its
+// access token, and id, its id_token when it has one, as placeholders.
+func openaiManagedReply(at, id, salt string) ([]byte, error) {
 	vm := vmReply(map[string]any{"token_type": "Bearer"})
-	var at, id string
-	if f.Kind == agents.Codex {
-		at, id = str(obj(m, "tokens"), "access_token"), str(obj(m, "tokens"), "id_token")
-	} else if e := obj(m, "openai"); f.Kind == agents.Opencode && str(e, "type") == "oauth" {
-		at = str(e, "access")
-	}
 	if at == "" {
 		return nil, errors.New("the store has no login to refresh")
 	}
-	vm["access_token"], vm["refresh_token"] = openaiPlaceholder(at, f.Salt), managed
+	vm["access_token"], vm["refresh_token"] = openaiPlaceholder(at, salt), managed
 	if id != "" {
-		vm["id_token"] = openaiPlaceholder(id, f.Salt)
+		vm["id_token"] = openaiPlaceholder(id, salt)
 	}
 	return json.Marshal(vm)
 }
@@ -280,10 +371,8 @@ func (f File) Capture(ctype string, req, reply []byte) ([]byte, error) {
 	if json.Unmarshal(reply, &r) != nil || r == nil {
 		return nil, errors.New("the reply isn't a JSON object")
 	}
-	capture := map[string]func(map[string]any, tokenRequest, map[string]any, string) (map[string]any, map[string]any, error){
-		agents.Codex: codexCapture, agents.Opencode: opencodeCapture, agents.ClaudeOAuth: claudeCapture,
-	}[f.Kind]
-	if capture == nil {
+	c, ok := formats()[f.Kind].(captureFormat)
+	if !ok {
 		return nil, f.errKind()
 	}
 	unlock, err := f.lockStore()
@@ -295,7 +384,7 @@ func (f File) Capture(ctype string, req, reply []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, vm, err := capture(m, t, r, f.Salt)
+	m, vm, err := c.capture(m, t, r, f.Salt)
 	if err != nil {
 		return nil, err
 	}

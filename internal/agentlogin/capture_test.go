@@ -6,11 +6,13 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
 )
 
@@ -246,32 +248,107 @@ func TestOpencodeCapture(t *testing.T) {
 	}
 }
 
-// VMs capture Codex's and opencode's logins, at OpenAI's token endpoint, and Claude Code's at
-// both of Claude's; a request at OpenAI's is opencode's when Bun or opencode sends it.
-func TestEndpointsAndPick(t *testing.T) {
-	want := []proxy.Capture{
-		{Agent: Codex, Host: "auth.openai.com", Path: "/oauth/token"},
-		{Agent: Opencode, Host: "auth.openai.com", Path: "/oauth/token"},
-		{Agent: Claude, Host: "platform.claude.com", Path: "/v1/oauth/token"},
-		{Agent: Claude, Host: "console.anthropic.com", Path: "/v1/oauth/token"},
-	}
-	if got := Endpoints(); !slices.Equal(got, want) {
-		t.Errorf("Endpoints() = %+v", got)
-	}
-	for _, tc := range []struct {
-		agents    []string
-		ua, agent string
-	}{
-		{[]string{Codex}, "Bun/1.2", Codex},
-		{[]string{Opencode}, "codex_cli_rs/0.1", Opencode},
-		{[]string{Codex, Opencode}, "codex_cli_rs/0.1", Codex},
-		{[]string{Codex, Opencode}, "", Codex},
-		{[]string{Codex, Opencode}, "Bun/1.2.3", Opencode},
-		{[]string{Opencode, Codex}, "opencode/1.19.5", Opencode},
-		{nil, "", ""},
-	} {
-		if got := Pick(tc.agents, tc.ua); got != tc.agent {
-			t.Errorf("Pick(%v, %q) = %q, want %q", tc.agents, tc.ua, got, tc.agent)
+// VMs capture each agent's logins at its capture format's endpoints, in the registry's order, and
+// the login a capture saves goes in that format's file: Codex's and opencode's at OpenAI's token
+// endpoint, and Claude Code's at both of Claude's, in its OAuth login's file.
+func TestEndpoints(t *testing.T) {
+	var want []proxy.Capture
+	for _, d := range agents.Defs {
+		c, kind, ok := captureOf(d.Name)
+		if !ok {
+			if got := CaptureKind(d.Name); got != d.Name {
+				t.Errorf("CaptureKind(%s) = %s, without a capture format", d.Name, got)
+			}
+			continue
 		}
+		if CaptureKind(d.Name) != kind || !slices.ContainsFunc(d.Logins, func(l agents.Login) bool { return l.Kind == kind }) {
+			t.Errorf("CaptureKind(%s) = %s, not a login file of its own", d.Name, CaptureKind(d.Name))
+		}
+		if len(c.endpoints()) == 0 {
+			t.Errorf("%s: a capture format with no endpoints", d.Name)
+		}
+		for _, e := range c.endpoints() {
+			want = append(want, proxy.Capture{Agent: d.Name, Host: e.host, Path: e.path, Method: e.method, Guard: e.guard, TokenKeys: e.tokenKeys})
+		}
+	}
+	got := Endpoints()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Endpoints() = %+v, want %+v", got, want)
+	}
+	// Exactly these, whatever their order: a new or a repeated endpoint, which the proxy would
+	// capture and allow, fails until it's added here.
+	key := func(c proxy.Capture) string { return c.Agent + " " + c.Host + c.Path }
+	sorted := slices.SortedFunc(slices.Values(got), func(a, b proxy.Capture) int { return strings.Compare(key(a), key(b)) })
+	exact := []proxy.Capture{
+		{Agent: Claude, Host: "console.anthropic.com", Path: "/v1/oauth/token"},
+		{Agent: Claude, Host: "platform.claude.com", Path: "/v1/oauth/token"},
+		{Agent: Codex, Host: "auth.openai.com", Path: "/oauth/token"},
+		{
+			Agent: agents.Cursor, Host: "api2.cursor.sh", Path: "/auth/poll", Method: "GET", Guard: "/auth/",
+			TokenKeys: []string{"accessToken", "refreshToken", "xaiAccessToken", "xaiRefreshToken", "sessionToken", "authToken", "apiKey", "jwt", "token"},
+		},
+		{Agent: Opencode, Host: "auth.openai.com", Path: "/oauth/token"},
+	}
+	if !reflect.DeepEqual(sorted, exact) {
+		t.Errorf("Endpoints() = %+v, want exactly %+v", sorted, exact)
+	}
+	if CaptureKind(Claude) != ClaudeOAuth {
+		t.Errorf("CaptureKind(claude) = %s", CaptureKind(Claude))
+	}
+}
+
+// reversed is a copy of s, last first.
+func reversed(s []string) []string {
+	out := slices.Clone(s)
+	slices.Reverse(out)
+	return out
+}
+
+// A request at an endpoint agents share is the agent's whose User-Agent it has, else the first's
+// that names none, whatever their order; at one agent's own, it's that agent's whatever sends it.
+// At OpenAI's, which Codex and opencode share, it's opencode's when Bun or opencode sends it.
+func TestPick(t *testing.T) {
+	shared := map[string][]string{}
+	for _, c := range Endpoints() {
+		shared[c.Host+c.Path] = append(shared[c.Host+c.Path], c.Agent)
+	}
+	for _, names := range shared {
+		for _, a := range names {
+			if got := Pick([]string{a}, "other/1.0"); got != a {
+				t.Errorf("Pick(%s) = %s", a, got)
+			}
+		}
+		if len(names) < 2 {
+			continue
+		}
+		var plain string
+		for _, a := range names {
+			c, _, _ := captureOf(a)
+			if len(c.userAgents()) == 0 && plain == "" {
+				plain = a
+			}
+			for _, p := range c.userAgents() {
+				for _, order := range [][]string{names, reversed(names)} {
+					if got := Pick(order, strings.ToUpper(p[:1])+p[1:]+"1.2"); got != a {
+						t.Errorf("Pick(%v, %q) = %s, want %s", order, p, got, a)
+					}
+				}
+			}
+		}
+		for _, order := range [][]string{names, reversed(names)} {
+			if got := Pick(order, "codex_cli_rs/0.1"); plain != "" && got != plain {
+				t.Errorf("Pick(%v) = %s, want %s", order, got, plain)
+			}
+		}
+	}
+	openai := shared["auth.openai.com/oauth/token"]
+	if got := Pick(openai, "Bun/1.2.3"); got != Opencode || len(openai) < 2 {
+		t.Errorf("Pick(%v, Bun) = %s", openai, got)
+	}
+	if got := Pick(openai, ""); got != Codex {
+		t.Errorf("Pick(%v) = %s", openai, got)
+	}
+	if got := Pick(nil, ""); got != "" {
+		t.Errorf("Pick(nil) = %s", got)
 	}
 }

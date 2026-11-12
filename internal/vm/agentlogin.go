@@ -4,15 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
-	"io/fs"
 	"os"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/devvmhq/devvm/internal/agentlogin"
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/image"
@@ -79,8 +75,8 @@ func (e AgentLogin) Run(ctx context.Context, o AgentLoginOptions) error {
 		return msg.AgentLoginNoAgent(o.Agent, vm)
 	}
 	store := e.Proxy.Secrets
-	if o.Agent == agents.Claude {
-		return e.claude(ctx, t, conf, o)
+	if ok, err := e.claude(ctx, t, conf, o); ok {
+		return err
 	}
 	if o.Key != "" {
 		return e.saveKey(ctx, t, store, o)
@@ -94,8 +90,17 @@ func (e AgentLogin) Run(ctx context.Context, o AgentLoginOptions) error {
 
 // saved says what the store saved of the agent's login, which was
 // before (secrets.Store.LoginSum) as the login started: a new ChatGPT
-// login, with its account's email, or nothing, which fails.
+// login, with its account's email, or for an agent whose login isn't
+// ChatGPT's (Cursor's), a login file that changed; or nothing, which
+// fails.
 func (e AgentLogin) saved(store *secrets.Store, agent, vm, before string) error {
+	if d := agents.Of(agent); !d.ChatGPT {
+		if sum := store.LoginSum(agent); sum == "" || sum == before {
+			return msg.AgentLoginNotSaved(agent, vm)
+		}
+		e.Info(msg.AgentOwnLoginSaved(d.Display, vm))
+		return nil
+	}
 	email, ok, err := store.ChatGPT(agent)
 	if err != nil {
 		return err
@@ -111,48 +116,16 @@ func (e AgentLogin) saved(store *secrets.Store, agent, vm, before string) error 
 	return nil
 }
 
-// claude logs Claude Code in in the VM, its login's code pasted on this
-// terminal: the VM's proxy saves its subscription's login in the store,
-// or claude setup-token's token as the claude secret, and takes the other
-// away. Then the VM is set up again, so it gets the login devvm keeps now,
-// its token in the environment or its OAuth login's file, never both, and
-// Run says which it saved.
-func (e AgentLogin) claude(ctx context.Context, t *target, conf backend.Confinement, o AgentLoginOptions) error {
-	vm, store := t.f.Name, e.Proxy.Secrets
-	oauth, token, err := secrets.ClaudeOf(store).Sums(ctx)
-	if err != nil {
-		return err
-	}
-	e.Info(msg.AgentLoginClaudePaste())
-	if err := e.login(ctx, t, o); err != nil {
-		return err
-	}
-	oauth2, token2, err := secrets.ClaudeOf(store).Sums(ctx)
-	if err != nil {
-		return err
-	}
-	if o.SetupToken && (token2 == "" || token2 == token) || !o.SetupToken && (oauth2 == "" || oauth2 == oauth) {
-		return msg.AgentLoginNotSaved(o.Agent, vm)
-	}
-	if err := e.launcher.syncer.sync(ctx, t.b, t.st, t.f.Slug(), tools.Files(t.st), conf); err != nil {
-		return err
-	}
-	if o.SetupToken {
-		e.Info(msg.ClaudeSetupTokenSaved(vm))
-	} else {
-		e.Info(msg.ClaudeLoginSaved(vm))
-	}
-	if secrets.ClaudeOf(store).Env() != "" {
-		e.Warn(msg.ClaudeEnvTokenWins())
-	}
-	return nil
-}
-
-// login runs the agent's own login in the VM, on this terminal, with the
-// forward a ChatGPT login in a browser needs while it runs.
+// login runs the agent's own login in the VM, on this terminal (its Def's
+// Login), with the forward a ChatGPT login in a browser needs while it
+// runs, or first saying where to paste the code of one you paste back.
 func (e AgentLogin) login(ctx context.Context, t *target, o AgentLoginOptions) error {
-	vm := t.f.Name
-	if !o.Device && agents.Of(o.Agent).ChatGPT {
+	vm, d := t.f.Name, agents.Of(o.Agent)
+	cmd := d.Login
+	if cmd.Paste {
+		e.Info(msg.AgentLoginPaste(d.Display))
+	}
+	if !o.Device && cmd.Forward {
 		reach, err := vmssh.Checked(ctx, e.Dirs, e.Registry.Review, t.b, vm, vmssh.PinKeys)
 		if err != nil {
 			return err
@@ -168,7 +141,7 @@ func (e AgentLogin) login(ctx context.Context, t *target, o AgentLoginOptions) e
 		defer func() { fw.Close(); remove() }()
 		e.Info(msg.AgentLoginForward(o.Agent, strconv.Itoa(loginPort), vm))
 	}
-	argv := append([]string{"bash", "-lc", loginScript, "devvm"}, loginArgv(o)...)
+	argv := append([]string{"bash", "-lc", loginScript, "devvm"}, cmd.Run(o.Device, o.SetupToken)...)
 	// Interrupted, the run ends the login in the VM too, here or, past
 	// the run's grace for this command, in its cleanups.
 	remove := e.AddCleanup(func(ctx context.Context) {
@@ -208,37 +181,6 @@ func (e AgentLogin) endLogin(ctx context.Context, t *target) {
 	_ = t.exec(ctx, []string{"sh", "-c", endScript}, backend.ExecOpts{Stdout: log, Stderr: log})
 }
 
-// loginArgv is the agent's own login: Claude Code's subscription login, or
-// its claude setup-token, without a CLAUDE_CODE_OAUTH_TOKEN of the VM's
-// environment, which Claude Code would use instead; Codex's ChatGPT
-// login, kept in its auth.json, which the VM's proxy fills with
-// placeholders, never a keyring; opencode's Codex login to OpenAI, in a
-// browser or with a code (its methods chatgpt-browser and
-// chatgpt-headless), whose token endpoint the proxy captures: opencode's
-// Sign in with ChatGPT gets its tokens from another endpoint, whose
-// replies the proxy refuses.
-func loginArgv(o AgentLoginOptions) []string {
-	if o.Agent == agents.Claude {
-		argv := []string{"env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", agents.Claude}
-		if o.SetupToken {
-			return append(argv, "setup-token")
-		}
-		return append(argv, "auth", "login", "--claudeai")
-	}
-	if o.Agent == agents.Codex {
-		argv := []string{agents.Codex, "-c", `cli_auth_credentials_store="file"`, "login"}
-		if o.Device {
-			argv = append(argv, "--device-auth")
-		}
-		return argv
-	}
-	method := "chatgpt-browser"
-	if o.Device {
-		method = "chatgpt-headless"
-	}
-	return []string{agents.Opencode, "auth", "login", "openai", "--method", method}
-}
-
 // vmLoginScript writes its input to the login file at $1, below the VM's
 // home, whole, only the VM's user's to read.
 const vmLoginScript = `f="$HOME/$1" && mkdir -p "${f%/*}" && umask 077 && cat > "$f.devvm" && mv -f "$f.devvm" "$f"`
@@ -274,66 +216,9 @@ func (e AgentLogin) saveKey(ctx context.Context, t *target, store *secrets.Store
 		}
 		return backend.Logged(msg.AgentKeyCopyFailed(o.Agent, vm))
 	}
-	if o.Agent == agents.Opencode {
-		if err := e.importLogins(ctx, t, data); err != nil {
-			return err
-		}
+	if err := e.importLogins(ctx, t, o.Agent, data); err != nil {
+		return err
 	}
 	e.Info(msg.AgentKeySaved(o.Agent, provider, vm))
 	return nil
-}
-
-// opencodeScript is devvm's guest script that gives opencode 2 in the VM
-// the store's opencode logins that changed, run by every launch's setup
-// too (guest/sync.sh).
-const opencodeScript = "opencode.sh"
-
-// importOutMax is the most of opencodeScript's output devvm agent login
-// reads: a few lines a provider.
-const importOutMax = 1 << 20
-
-// importLogins gives the VM's opencode, which keeps its logins in its
-// database, the logins of vmCopy, the VM's copy of the store's
-// (agentlogin.OpencodeImport), with opencodeScript in a login shell
-// (opencode on PATH), the logins on its input. devvm reads at most
-// importOutMax bytes of what it prints, and stops it past that.
-func (e AgentLogin) importLogins(ctx context.Context, t *target, vmCopy []byte) error {
-	data, err := agentlogin.OpencodeImport(vmCopy)
-	if err != nil {
-		return msg.LoginCopyFailed(agents.Opencode, err.Error(), t.f.Name).Because(err)
-	}
-	script, err := fs.ReadFile(e.Assets, "guest/"+opencodeScript)
-	if err != nil {
-		return err
-	}
-	run, cancel := context.WithCancel(ctx)
-	defer cancel()
-	log := e.vmLog()
-	out := &bounded{max: importOutMax, cancel: cancel}
-	argv := []string{"bash", "-lc", string(script), opencodeScript}
-	err = t.exec(run, argv, backend.ExecOpts{Stdin: bytes.NewReader(data), Stdout: io.MultiWriter(out, log), Stderr: log})
-	switch {
-	case out.over:
-		return msg.OpencodeImportTooMuch(t.f.Name)
-	case err == nil:
-		return nil
-	case ctx.Err() != nil:
-		return ctx.Err()
-	}
-	if failed := opencodeRefused(out.String()); len(failed) > 0 {
-		return backend.Logged(msg.OpencodeImportFailed(strings.Join(failed, ", "), t.f.Name))
-	}
-	return backend.Logged(msg.AgentKeyCopyFailed(agents.Opencode, t.f.Name))
-}
-
-// opencodeRefused is the providers opencodeScript's output names as
-// refused by opencode's import, its "devvm-opencode-failed PROVIDER" lines.
-func opencodeRefused(out string) []string {
-	var failed []string
-	for line := range strings.Lines(out) {
-		if p, ok := strings.CutPrefix(strings.TrimSpace(line), "devvm-opencode-failed "); ok && p != "" {
-			failed = append(failed, msg.Printable(p))
-		}
-	}
-	return failed
 }

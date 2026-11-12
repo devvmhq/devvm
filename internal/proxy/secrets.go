@@ -797,11 +797,21 @@ var githubMinting = []struct {
 	{"POST PATCH", regexp.MustCompile(`^/(repos/[^/]+/[^/]+|repositories/[^/]+|orgs/[^/]+|organizations/[^/]+)/hooks(/[^/]+(/config)?)?$`), "a webhook"},
 }
 
+// Mints is what r, a request to host, would make or get with the token the proxy puts in, which
+// would outlast the VM, or "": GitHub's keys, runners and webhooks (mintsCredential), and Cursor's
+// tokens, keys and secrets (cursorMints).
+func Mints(host string, r *http.Request) string {
+	if what := mintsCredential(host, r.Method, r.URL.Path); what != "" || !cursorHost(host) {
+		return what
+	}
+	return cursorMints(host, r)
+}
+
 // refuseMinting answers a request that would make a credential with the token the proxy puts in
-// (mintsCredential) with 403, logged as a refused block, and reports whether it did. Every HTTPS
-// request the proxy forwards asks it first, in a tunnel it intercepts or in absolute form.
+// (Mints) with 403, logged as a refused block, and reports whether it did. Every HTTPS request the
+// proxy forwards asks it first, in a tunnel it intercepts or in absolute form.
 func (s *server) refuseMinting(w http.ResponseWriter, r *http.Request, host string, port int) bool {
-	what := mintsCredential(host, r.Method, r.URL.Path)
+	what := Mints(host, r)
 	if what == "" {
 		return false
 	}
@@ -885,15 +895,20 @@ func (s *server) forwarder(scheme, target, host string, port int) (fwd http.Hand
 					pr.Out.Header.Set("Proxy-Authorization", up.auth)
 				}
 			}
-			// A token endpoint's host's replies come as they are, or as gzip that Go's transport
-			// undoes, so the proxy reads them (capture.go).
-			if s.captures.has(host) {
+			// A token endpoint's host's replies that guard reads come as they are, or as gzip that
+			// Go's transport undoes, so the proxy reads them (capture.go).
+			if s.captures.guards(host, pr.In) {
 				pr.Out.Header.Del("Accept-Encoding")
 			}
+			// So are every reply's from a host of Cursor's, streams included (cursorReply).
+			if cursorHost(host) {
+				cursorUnencoded(pr.Out.Header)
+			}
 			// A captured request goes to the endpoint's own path, never the VM's spelling of it,
-			// which another handler there could read apart.
+			// which another handler there could read apart, with a GET's query as IO.Capture saw
+			// it, and a POST's never.
 			if c := captured(pr.In.Context()); c != nil {
-				pr.Out.URL.Path, pr.Out.URL.RawPath, pr.Out.URL.RawQuery = c.path, "", ""
+				pr.Out.URL.Path, pr.Out.URL.RawPath, pr.Out.URL.RawQuery = c.path, "", c.x.Query
 			}
 			// Secrets only ever go over TLS, to :443, each for the method and the path that go out.
 			if scheme == "https" && s.interceptPorts[port] {
@@ -922,9 +937,10 @@ func (s *server) forwarder(scheme, target, host string, port int) (fwd http.Hand
 		if s.refuseMinting(w, r, host, port) {
 			return
 		}
-		// An agent's token endpoint's host: no informational reply reaches the VM unread, and a
-		// login at the endpoint is captured (capture.go).
-		if s.captures.has(host) {
+		// An agent's token endpoint's host, or any host of Cursor's, on every path: no
+		// informational reply reaches the VM unread, as its headers could hold a cookie, and a login
+		// at the endpoint is captured (capture.go).
+		if s.captures.has(host) || cursorHost(host) {
 			w = no1xx{w}
 		}
 		if agents, at := s.captures.agents(host, r); len(agents) > 0 && s.interceptPorts[port] {

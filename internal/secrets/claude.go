@@ -6,9 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"path/filepath"
+	"slices"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
 	"github.com/devvmhq/devvm/internal/agents"
+	"github.com/devvmhq/devvm/internal/image"
+	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
 )
 
@@ -64,6 +68,88 @@ func (c Claude) saveToken(ctx context.Context, value string) error {
 		return err
 	}
 	return c.s.login(agents.ClaudeOAuth, "").Remove()
+}
+
+// capture is Store.Capture for Claude Code, ok false for another agent.
+// devvm keeps one Claude Code login, so the newest replaces the other:
+// claude setup-token's token is saved as the claude secret (Save, which
+// takes the OAuth login away), and an OAuth login takes the saved token
+// away, both under the Claude Code logins folder's lock (lock), so two at
+// once never lose both. A saved token that can't be deleted is a warning,
+// as the login is saved and the VM gets its reply.
+func (c Claude) capture(ctx context.Context, agent, salt, ctype string, req, reply []byte) (vm []byte, ok bool, err error) {
+	if agent != agents.Claude {
+		return nil, false, nil
+	}
+	unlock, err := c.lock()
+	if err != nil {
+		return nil, true, err
+	}
+	defer unlock()
+	if agentlogin.SetupToken(ctype, req) {
+		sec, _ := Lookup(ClaudeToken)
+		tok, vm, err := agentlogin.ClaudeToken(ctype, req, reply, sec.Placeholder(salt))
+		if err != nil {
+			return nil, true, err
+		}
+		if tok, err = Token(ClaudeToken, tok); err != nil {
+			return nil, true, err
+		}
+		return vm, true, c.saveToken(ctx, tok)
+	}
+	vm, err = c.s.captureFile(agent, salt).Capture(ctype, req, reply)
+	if err != nil {
+		return nil, true, err
+	}
+	if err := c.s.Delete(ctx, ClaudeToken); err != nil && !errors.Is(err, ErrNone) {
+		c.s.Warn(msg.SecretFailed(err.Error()).Because(err))
+	}
+	return vm, true, nil
+}
+
+// ownSecret reports whether the secret name is the Claude Code token.
+func (c Claude) ownSecret(name string) bool { return name == ClaudeToken }
+
+// oauthToken is what the claude secret's binding gets while no token is
+// saved: the OAuth login's access token (Get).
+func (c Claude) oauthToken(ctx context.Context) (string, error) {
+	return c.s.Get(ctx, proxy.Binding{Kind: proxy.KindLogin, Agent: agents.ClaudeOAuth, Name: agentlogin.ClaudeOAuthName})
+}
+
+// OAuthInstead reports whether a VM's secret name, with no value saved,
+// gets Claude Code's OAuth login instead: the claude secret, while devvm
+// keeps that login, so the VM gets the one or the other, never both.
+func (c Claude) OAuthInstead(name string) bool {
+	return c.ownSecret(name) && c.s.HasLogin(agents.ClaudeOAuth)
+}
+
+// used reports whether a VM uses its login of kind, as far as Claude Code
+// goes: its OAuth login only when it's the Claude Code login VMs get
+// (Login), never with the Claude Code token; any other kind, yes.
+func (c Claude) used(ctx context.Context, kind string) bool {
+	if kind != agents.ClaudeOAuth {
+		return true
+	}
+	l, err := c.Login(ctx)
+	return err == nil && l == "oauth"
+}
+
+// bound reports whether the login of kind is Claude Code's OAuth login,
+// whose binding bindings gives, not its file.
+func (c Claude) bound(kind string) bool { return kind == agents.ClaudeOAuth }
+
+// bindings are the bindings of the Claude Code login of a VM with these
+// shared tools: a VM with Claude Code has its OAuth login's binding while
+// devvm keeps either login, as it gets the one devvm keeps (Get), so the
+// VM's files name the one it had at its launch.
+func (c Claude) bindings(ctx context.Context, tools []string, salt string) ([]proxy.Binding, error) {
+	if !slices.Contains(image.AgentsOf(tools), agents.Claude) {
+		return nil, nil
+	}
+	if l, err := c.Login(ctx); err != nil || l == "" {
+		return nil, err
+	}
+	return []proxy.Binding{agentlogin.ClaudeOAuthBinding(salt)}, nil
 }
 
 // Sums are hashes of the Claude Code logins devvm keeps, "" for one it

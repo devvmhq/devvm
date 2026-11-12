@@ -34,6 +34,11 @@ stdout '^docker\+nix$'
 # --tools, --agents and --layers: comma-separated lists of their part's
 # names, and none.
 exec devvm __complete --agents claude,c
+stdout '^claude,codex$'
+cp stdout agents-c.txt
+# Exactly every other agent whose name starts with c, in the registry's
+# order, from the runner's list.
+exec sh -c 'for a in $(printf %s "$AGENT_CHOICES" | tr -d ,); do case $a in claude) ;; c*) echo "claude,$a" ;; esac; done; echo :4'
 cmp stdout agents-c.txt
 exec devvm __complete --layers ''
 stdout '^foo$'
@@ -74,6 +79,3 @@ stdout '^fish$'
 
 -- foo.sh --
 #!/bin/bash
--- agents-c.txt --
-claude,codex
-:4

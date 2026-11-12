@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,6 +78,7 @@ func networkSection(s *S) {
 	netOpencodeHistory(n)
 	netOpencodeKeys(n)
 	netPi(n)
+	netCursor(n)
 	netProviderKeys(n)
 	netClaudeLogins(n)
 	netSave(n)
@@ -213,7 +215,11 @@ func netSetup(n *netRun) {
 	}
 	_ = os.WriteFile(filepath.Join(n.nh, ".claude.json"), []byte(n.before["claude"]), 0o600)
 	_ = os.WriteFile(filepath.Join(n.nh, ".codex", "auth.json"), []byte(n.before["codex"]), 0o600)
+	// The sandbox's store of logins, from no login: an earlier run's in the same slot, such as the
+	// opencode key netOpencodeKeys saves, would reach a VM at its first launch.
 	n.logins = filepath.Join(s.Paths.Devvm, "logins")
+	_ = os.RemoveAll(n.logins)
+	madeFile(s.sb, n.logins)
 	s.Defer(func(ctx context.Context) {
 		forgetSecrets(ctx, s, "github", "claude", "custom."+customName, "custom."+basicName)
 	})
@@ -239,7 +245,7 @@ func netLaunch(n *netRun) {
 	n.n, _ = s.NewProject("net")
 	w, werr := WatchProcs(s)
 	var lr Res
-	n.vm, lr, _ = launchWith(s, n.n, n.home(fakeToken, "DEVVM_MESSAGES=names"), "--network", "allowlist", "--no-git-protect", "--agents", "claude,codex,opencode,pi")
+	n.vm, lr, _ = launchWith(s, n.n, n.home(fakeToken, "DEVVM_MESSAGES=names"), "--network", "allowlist", "--no-git-protect", "--agents", "claude,codex,opencode,pi,cursor")
 	if werr == nil {
 		w.Stop()
 	}
@@ -894,9 +900,12 @@ func netCapture(n *netRun) {
 // A secret of yours, its host faked by the fake token endpoints' company
 // proxy (customHost), which logs the headers each request arrives with.
 const (
-	customName  = "e2e-custom"
-	customHost  = "api.devvm-e2e-custom.dev"
-	customValue = "sk_e2e_e2efake-custom-value"
+	// cursorAPIHost is Cursor's API, which the fake company proxy stands in for, answering its
+	// login poll as Cursor does.
+	cursorAPIHost = "api2.cursor.sh"
+	customName    = "e2e-custom"
+	customHost    = "api.devvm-e2e-custom.dev"
+	customValue   = "sk_e2e_e2efake-custom-value"
 	// A second secret of yours, in Authorization below /v1/ alone, for GET
 	// and HEAD alone.
 	basicName  = "e2e-basic"
@@ -1085,7 +1094,7 @@ func netTokenServer(n *netRun) error {
 	if err != nil {
 		return err
 	}
-	cf, kf, err := ca.Sign("auth", "auth.openai.com", "platform.claude.com", "api.anthropic.com", "api.groq.com", "api.openai.com", geminiAPIHost, "openrouter.ai", customHost)
+	cf, kf, err := ca.Sign("auth", "auth.openai.com", "platform.claude.com", "api.anthropic.com", "api.groq.com", "api.openai.com", geminiAPIHost, "openrouter.ai", customHost, cursorAPIHost)
 	if err != nil {
 		return err
 	}
@@ -1277,7 +1286,10 @@ func netOpencodeKeys(n *netRun) {
 			// The run log's end holds opencode.sh's stderr: the import's own, or the command that failed.
 			return failed("devvm agent login opencode --api-key failed:\n"+r.Out+"\n"+n.runLogEnd(r.Out), err)
 		}
-		if has, err := vmHas(s, vm, true, "opencode auth export", "devvm-proxy-managed-opencode-openrouter"); err != nil || has {
+		switch has, err := vmHas(s, vm, true, "opencode auth export", "devvm-proxy-managed-opencode-openrouter"); {
+		case err != nil:
+			return failed("reading the second VM's opencode logins", err)
+		case has:
 			return errors.New("the second VM had the key before its launch")
 		}
 		if _, _, err := launchWith(s, oc, n.home()); err != nil {
@@ -1626,6 +1638,63 @@ func netOpenRouter(n *netRun) error {
 // neither. The control: with a PATH that has no fdfind, the same start
 // downloads fd, so the start did reach that check. It runs before the
 // checks behind the run's company proxies, which refuse GitHub.
+// netCursor checks Cursor's CLI in the VM: the shared release devvm pins, as cursor-agent and agent,
+// with its own node and rg off the PATH and its updates off; and its login's poll, a GET at
+// api2.cursor.sh that the proxy captures, which passes Cursor's answer for a login that isn't
+// there as it is.
+func netCursor(n *netRun) {
+	s, vm := n.s, n.vm
+	s.Check("Cursor's CLI is the shared release, as cursor-agent and agent, its node and rg off the PATH", func() error {
+		target := vmOut(s, vm, "readlink ~/.local/bin/agent")
+		version := strings.TrimSuffix(strings.TrimPrefix(target, "/opt/devvm/tools/cursor/"), "/cursor-agent")
+		switch {
+		case version == "" || version == target || strings.Contains(version, "/"):
+			return errors.New("~/.local/bin/agent links to " + target)
+		case vmOut(s, vm, "readlink ~/.local/bin/cursor-agent") != target:
+			return errors.New("cursor-agent isn't agent's link")
+		case vmOut(s, vm, "bash -lc 'cursor-agent --version'") != version:
+			return errors.New("cursor-agent --version isn't " + version)
+		}
+		for _, cmd := range []string{"node", "rg"} {
+			if p := vmOut(s, vm, "bash -lc 'command -v "+cmd+"'"); strings.Contains(p, "/tools/cursor/") {
+				return errors.New(cmd + " is Cursor's: " + p)
+			}
+		}
+		return nil
+	}, Tail(40))
+	s.Check("Cursor's CLI is on its static channel, which it never updates on", func() error {
+		if got := vmOut(s, vm, "jq -r .channel ~/.cursor/cli-config.json"); got != "static" {
+			return errors.New("its channel is " + got)
+		}
+		return nil
+	})
+	s.Check("the proxy captures Cursor's login poll, a GET, and passes Cursor's answer for a login that isn't there", func() error {
+		var cfg proxy.Config
+		if err := json.Unmarshal([]byte(readText(n.pxc)), &cfg); err != nil {
+			return fmt.Errorf("proxy.json: %w", err)
+		}
+		if !slices.ContainsFunc(cfg.Captures, func(c proxy.Capture) bool {
+			return c.Agent == "cursor" && c.Method == http.MethodGet && c.Host == "api2.cursor.sh" && c.Path == "/auth/poll"
+		}) {
+			return fmt.Errorf("proxy.json captures no GET of api2.cursor.sh/auth/poll for cursor: %+v", cfg.Captures)
+		}
+		// Its proxy behind the fake company proxy, which stands in for Cursor's API.
+		if _, err := n.dv("exit\n", n.tokenEnv()); err != nil {
+			return failed("the launch behind the fake endpoints", err)
+		}
+		got := vmOut(s, vm, `curl -sS -m 20 -w '\n%{http_code}' 'https://`+cursorAPIHost+`/auth/poll?verifier=devvm-e2e&uuid=00000000-0000-4000-8000-000000000000'`)
+		if got != "Not found\n404" {
+			return errors.New("Cursor's poll answered, through the proxy: " + got + "\n" + n.tokenWhy())
+		}
+		// It went on with its query canonical, and the login in no header.
+		const want = "cursor GET /auth/poll?uuid=00000000-0000-4000-8000-000000000000&verifier=devvm-e2e HTTP/1.1 authorization -"
+		if !slices.Contains(strings.Split(readText(n.tokLog), "\n"), want) {
+			return errors.New("Cursor's stand-in didn't get " + want + ":\n" + tailLines(readText(n.tokLog), 5))
+		}
+		return nil
+	})
+}
+
 func netPiTools(n *netRun) {
 	s, vm := n.s, n.vm
 	s.Check("pi's start finds base's fdfind and rg, and downloads neither; without fdfind it downloads fd", func() error {
@@ -1973,7 +2042,7 @@ func (n *netRun) claudeLoggedIn(p *Proc, w *os.File) string {
 	}
 	c := filepath.Join(n.logins, "claude", ".claude", ".credentials.json")
 	switch {
-	case !Matches(p.Out(), `^==> claude_login_saved vm=`):
+	case !Matches(p.Out(), `^==> agent_own_login_saved display=Claude Code vm=`):
 		return "it says the login is saved"
 	case jsonFileAt(c, "claudeAiOauth.refreshToken") != "sk-ant-ort01-e2efake-oauth" || jsonFileAt(c, "claudeAiOauth.accessToken") != "sk-ant-oat01-e2efake-oauth" || modeOf(c) != "600":
 		return "the store has the real tokens, only yours to read"
@@ -2856,7 +2925,14 @@ def openrouter(path, h):
     with open(log, "a") as o:
         o.write("openrouter " + path + " authorization " + (a[0] if a else "-") + " x-api-key " + (k[0] if k else "-") + "\n")
     return 404, {"error": {"code": 404, "message": "e2e"}}
-HOSTS = ("auth.openai.com", "platform.claude.com", "api.anthropic.com", "api.groq.com", "api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai", "` + customHost + `")
+# Cursor's API, under "cursor": each request's line and Authorization, and its login poll answered
+# as Cursor answers a login that isn't there, or isn't approved yet: 404, "Not found", plain text.
+def cursor(t, h):
+    a = [x.split(":", 1)[1].strip() for x in h[1:] if x.lower().startswith("authorization:")]
+    with open(log, "a") as o:
+        o.write("cursor " + h[0] + " authorization " + (a[0] if a else "-") + "\n")
+    t.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\n\r\nNot found")
+HOSTS = ("auth.openai.com", "platform.claude.com", "api.anthropic.com", "api.groq.com", "api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai", "` + customHost + `", "` + cursorAPIHost + `")
 def serve(c):
     try:
         req = head(c.makefile("rb"))
@@ -2877,6 +2953,9 @@ def serve(c):
             n = sum(int(x.split(":", 1)[1]) for x in h[1:] if x.lower().startswith("content-length:"))
             body = f.read(n).decode()
             code = 200
+            if host == "` + cursorAPIHost + `":
+                cursor(t, h)
+                continue
             if host in ("api.anthropic.com", "` + customHost + `"):
                 code, r = api(h[0].split(" ")[1], h)
             elif host == "api.groq.com":

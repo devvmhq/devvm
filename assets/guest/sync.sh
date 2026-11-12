@@ -115,7 +115,9 @@ sudo /usr/local/sbin/devvm-tools
   cat "$s/tool-alias.toml"
   echo
   echo '[tools]'
-  while read -r _ tool version; do [[ -z $tool || $tool == rust ]] || echo "$tool = \"$version\""; done < "$s/tools"
+  # rust is rustup's; cursor's folder holds its own node, rg and helpers, which shims would put
+  # ahead of the VM's, so it has links of its own (below).
+  while read -r _ tool version; do [[ -z $tool || $tool == rust || $tool == cursor ]] || echo "$tool = \"$version\""; done < "$s/tools"
   cat <<'T'
 
 [settings]
@@ -140,7 +142,7 @@ T
 } > "$s/mise.toml"
 cmp -s "$s/mise.toml" /etc/mise/config.toml 2>/dev/null || sudo install -D -m 644 "$s/mise.toml" /etc/mise/config.toml
 # Links into tools this VM doesn't have any more (devvm tools rm, devvm tools update).
-for l in ~/.rustup/toolchains/* ~/.local/bin/claude; do
+for l in ~/.rustup/toolchains/* ~/.local/bin/claude ~/.local/bin/cursor-agent ~/.local/bin/agent; do
   [[ -L $l && ! -e $l && "$(readlink "$l")" == /opt/devvm/tools/* ]] && rm "$l"
 done
 # Rust: rustup in ~/.cargo (installed once, from the tool image) with the shared toolchain linked in.
@@ -173,6 +175,13 @@ fi
 # Claude Code checks for itself at ~/.local/bin/claude.
 claude=$(awk '$2 == "claude" { print $3 }' "$s/tools")
 if [[ -n $claude ]]; then mkdir -p ~/.local/bin; ln -sfn /opt/devvm/tools/claude/"$claude"/claude ~/.local/bin/claude; fi
+# Cursor's CLI is cursor-agent, and agent, where its own installer links them, made again at every
+# launch, so it stays the shared release devvm pins (its channel, below).
+cursor=$(awk '$2 == "cursor" { print $3 }' "$s/tools")
+if [[ -n $cursor ]]; then
+  mkdir -p ~/.local/bin
+  for l in cursor-agent agent; do ln -sfn /opt/devvm/tools/cursor/"$cursor"/cursor-agent ~/.local/bin/"$l"; done
+fi
 mise reshim 2>/dev/null || true
 # A command over ssh runs bash non-interactively, and bash then reads ~/.bashrc instead of BASH_ENV:
 # its first line, before the "not interactive: return". Features (oh-my-bash) and users replace ~/.bashrc.
@@ -250,6 +259,20 @@ elif jq -e 'type == "object"' "$vsc" >/dev/null 2>&1; then
   jq --argjson off "$vsc_off" '. + $off' "$vsc" > "$vsc.tmp" && mv "$vsc.tmp" "$vsc"
 else
   echo "devvm: $vsc isn't plain JSON, so VS Code's port forwarding and git sign-in stay as they are there" >&2
+fi
+
+# Cursor's CLI has no variable that turns its updates off: on its static channel, which its config
+# (host-copied, or its own) keeps through its own writes, it skips them.
+if [[ -n $cursor ]]; then
+  c=~/.cursor/cli-config.json
+  mkdir -p ~/.cursor
+  if [[ ! -s $c ]]; then
+    echo '{"version":1,"channel":"static"}' > "$c"
+  elif jq -e 'type == "object" and .channel != "static"' "$c" >/dev/null 2>&1; then
+    jq '.channel = "static"' "$c" > "$c.devvm" && mv "$c.devvm" "$c"
+  elif ! jq -e 'type == "object"' "$c" >/dev/null 2>&1; then
+    echo "devvm: $c isn't plain JSON, so Cursor's CLI could update itself in this VM" >&2
+  fi
 fi
 
 # Codex has no env-var opt-out: append the off switches unless the (host-copied) config sets them.

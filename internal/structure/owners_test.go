@@ -14,9 +14,17 @@ import (
 // consts are a module's string constants, by "folder.Name".
 type consts map[string]string
 
-// stringConsts finds every string constant m declares with a literal.
+// stringConsts finds every string constant m declares with a literal, or
+// with another such constant, of its package or of one it imports
+// (const ClaudeToken = agents.Claude), however many hops away.
 func stringConsts(m *module) consts {
 	c := consts{}
+	type alias struct {
+		f    srcFile
+		key  string
+		expr ast.Expr
+	}
+	var aliases []alias
 	for _, f := range m.files {
 		for _, d := range f.ast.Decls {
 			gd, ok := d.(*ast.GenDecl)
@@ -31,12 +39,55 @@ func stringConsts(m *module) consts {
 				for i, name := range spec.Names {
 					if v, ok := literal(spec.Values[i]); ok {
 						c[f.dir+"."+name.Name] = v
+					} else {
+						aliases = append(aliases, alias{f, f.dir + "." + name.Name, spec.Values[i]})
 					}
 				}
 			}
 		}
 	}
+	// Each pass resolves the aliases of the constants resolved before it.
+	for resolved := true; resolved; {
+		resolved = false
+		for _, a := range aliases {
+			if _, done := c[a.key]; done {
+				continue
+			}
+			if v, ok := c.value(m, a.f, a.expr); ok {
+				c[a.key], resolved = v, true
+			}
+		}
+	}
 	return c
+}
+
+// name is the constant e names in f, as "folder.Name", or "" when e is no
+// constant's name.
+func (c consts) name(m *module, f srcFile, e ast.Expr) string {
+	switch x := e.(type) {
+	case *ast.Ident:
+		return f.dir + "." + x.Name
+	case *ast.SelectorExpr:
+		pkg, ok := x.X.(*ast.Ident)
+		if !ok {
+			return ""
+		}
+		for _, imp := range f.ast.Imports {
+			p, err := strconv.Unquote(imp.Path.Value)
+			dir, inModule := strings.CutPrefix(p, m.path+"/")
+			if err != nil || !inModule {
+				continue
+			}
+			name := path.Base(p)
+			if imp.Name != nil {
+				name = imp.Name.Name
+			}
+			if name == pkg.Name {
+				return dir + "." + x.Sel.Name
+			}
+		}
+	}
+	return ""
 }
 
 // literal is a string literal's value.

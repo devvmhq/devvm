@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/url"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/devvmhq/devvm/internal/agentlogin"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/secrets"
@@ -16,22 +18,21 @@ import (
 )
 
 // Every VM's proxy captures logins at OpenAI's and Claude's token endpoints, on every tier,
-// whatever its image holds: its config names them for Codex, opencode and Claude Code. In a Codex VM, the capture is
+// whatever its image holds: its config names every agent's (agentlogin.Endpoints). In a Codex VM, the capture is
 // Codex's, whatever sends it, and it saves the login in devvm's store, gives the VM its
 // placeholders, and writes the VM's bindings again, so the proxy puts the login in at once.
 func TestCapturer(t *testing.T) {
 	d, st := sandbox(t, "base", "codex")
 	p, _ := testProxy(t, d)
-	both := []proxy.Capture{
-		{Agent: "codex", Host: "auth.openai.com", Path: "/oauth/token"},
-		{Agent: "opencode", Host: "auth.openai.com", Path: "/oauth/token"},
-		{Agent: "claude", Host: "platform.claude.com", Path: "/v1/oauth/token"},
-		{Agent: "claude", Host: "console.anthropic.com", Path: "/v1/oauth/token"},
+	all := agentlogin.Endpoints()
+	codex := proxy.Capture{Agent: "codex", Host: "auth.openai.com", Path: "/oauth/token"}
+	if !slices.ContainsFunc(all, func(c proxy.Capture) bool { return reflect.DeepEqual(c, codex) }) {
+		t.Fatalf("Endpoints() = %+v, without Codex's", all)
 	}
 	for _, vm := range []*state.VM{st, newVM(t, d, "devvm-plain-0123456789abc4", "base")} {
 		for _, tier := range []Tier{TierAllowlist, TierInternet, TierNone, TierOpen} {
 			cfg, err := p.config(t.Context(), vm, tier, "k3y", "")
-			if err != nil || !slices.Equal(cfg.Captures, both) {
+			if err != nil || !reflect.DeepEqual(cfg.Captures, all) {
 				t.Errorf("%s, %s: captures %+v, %v", vm.Name(), tier, cfg.Captures, err)
 			}
 		}
@@ -101,6 +102,42 @@ func TestCapturer(t *testing.T) {
 	x.VM, x.Agents = st.Name(), []string{"aider"}
 	if _, _, err := c.Request(t.Context(), x); msg.IDOf(err) != "login_capture_refused" {
 		t.Errorf("another agent: %v", msg.NamesOf(err))
+	}
+}
+
+// A login polled for with a GET (Cursor's): the store reads its query as the request, nothing goes
+// on as a body, and the poll's success is saved with the VM given placeholders and its binding.
+func TestCapturerGet(t *testing.T) {
+	d, st := sandbox(t, "base", "cursor")
+	p, _ := testProxy(t, d)
+	_, err := Salt(t.Context(), st)
+	must(t, err)
+	c := Capturer{Dirs: d, Secrets: p.Secrets}
+	x := proxy.Exchange{VM: st.Name(), Agents: []string{"cursor"}, Method: "GET", Query: "uuid=u&verifier=v"}
+	if b, answer, err := c.Request(t.Context(), x); err != nil || b != nil || answer != nil {
+		t.Fatalf("Request = %q, %q, %v", b, answer, err)
+	}
+	bad := x
+	bad.Query = "uuid=u"
+	if _, _, err := c.Request(t.Context(), bad); err == nil {
+		t.Error("a poll without its verifier went on")
+	}
+	out, agent, err := c.Response(t.Context(), x, []byte(`{"accessToken":"at-real","refreshToken":"rt-real"}`))
+	if err != nil || agent != "cursor" || strings.Contains(string(out), "-real") {
+		t.Fatalf("Response = %s, %q, %v", out, agent, err)
+	}
+	if b, err := os.ReadFile(secrets.LoginFile(d, "cursor")); err != nil || !strings.Contains(string(b), "at-real") {
+		t.Errorf("the store's login: %s, %v", b, err)
+	}
+	l, err := proxy.ReadBindings(d.VM(st.Name()).Secrets())
+	// One binding for each of the CLI's routes, all of the login's placeholder.
+	if err != nil || len(l.Bindings) < 2 {
+		t.Fatalf("bindings %+v, %v", l.Bindings, err)
+	}
+	for _, b := range l.Bindings {
+		if b.Name != "cursor" || b.Path == "" || !strings.Contains(string(out), b.Placeholder) {
+			t.Errorf("binding %+v; the VM got %s", b, out)
+		}
 	}
 }
 

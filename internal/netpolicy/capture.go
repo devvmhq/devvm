@@ -3,6 +3,7 @@ package netpolicy
 import (
 	"context"
 	"errors"
+	"net/http"
 	"slices"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
@@ -50,14 +51,28 @@ func (c Capturer) vm(x proxy.Exchange) (*state.VM, string, string, error) {
 	return st, n.Made.ProxySalt, agentlogin.Pick(mine, x.UserAgent), nil
 }
 
+// tokenRequest is x's token request as the store reads it: a POST's body,
+// or a GET's query, as a form.
+func tokenRequest(x proxy.Exchange) (ctype string, body []byte) {
+	if x.Method == http.MethodGet {
+		return "application/x-www-form-urlencoded", []byte(x.Query)
+	}
+	return x.ContentType, x.Body
+}
+
 // Request is the token request's body as it goes on, or the reply the VM
-// gets instead.
+// gets instead. A GET's query goes on as the proxy read it, with no body.
 func (c Capturer) Request(_ context.Context, x proxy.Exchange) (out, answer []byte, err error) {
 	_, salt, agent, err := c.vm(x)
 	if err != nil {
 		return nil, nil, err
 	}
-	return c.Secrets.CaptureRequest(agent, salt, x.ContentType, x.Body)
+	ctype, body := tokenRequest(x)
+	out, answer, err = c.Secrets.CaptureRequest(agent, salt, ctype, body)
+	if x.Method == http.MethodGet {
+		out = nil
+	}
+	return out, answer, err
 }
 
 // Response saves the login in reply and returns what the VM gets, then
@@ -68,7 +83,8 @@ func (c Capturer) Response(ctx context.Context, x proxy.Exchange, reply []byte) 
 	if err != nil {
 		return nil, "", err
 	}
-	out, err := c.Secrets.Capture(ctx, agent, salt, x.ContentType, x.Body, reply)
+	ctype, body := tokenRequest(x)
+	out, err := c.Secrets.Capture(ctx, agent, salt, ctype, body, reply)
 	if err != nil {
 		return nil, "", err
 	}

@@ -12,6 +12,8 @@ import (
 // format is what devvm makes of one kind of login file (agents.Login's Kind), parsed as m:
 // File's Bindings, VMCopy and Get go to the format of its Kind.
 type format interface {
+	// kind is the kind of login file it's the format of (agents.Login's Kind).
+	kind() string
 	// bindings are m's logins as bindings, of proxy.KindLogin, their placeholders ending in salt.
 	bindings(m map[string]any, salt string) []proxy.Binding
 	// vmCopy makes m the VM's copy, its placeholders ending in f.Salt, and returns it with what
@@ -103,12 +105,15 @@ func (k keep) apply(m map[string]any) (map[string]any, []string) {
 	return out, withheld
 }
 
-// formats are every login kind's format (agents.LoginKinds; TestFormatsCoverLogins).
+// formats are every login kind's format, by the kind each names (agents.LoginKinds;
+// TestFormatsCoverLogins).
 func formats() map[string]format {
-	return map[string]format{
-		agents.Claude: claudeFormat{}, agents.ClaudeOAuth: claudeOAuthFormat{},
-		agents.Codex: codexFormat{}, agents.Opencode: opencodeFormat{}, agents.Pi: piFormat{},
+	list := []format{claudeFormat{}, claudeOAuthFormat{}, codexFormat{}, opencodeFormat{}, piFormat{}, cursorFormat{}}
+	out := make(map[string]format, len(list))
+	for _, f := range list {
+		out[f.kind()] = f
 	}
+	return out
 }
 
 // formatOf is the format of f's Kind.
@@ -129,6 +134,71 @@ type (
 	claudeFormat      struct{}
 	claudeOAuthFormat struct{}
 )
+
+func (codexFormat) kind() string       { return agents.Codex }
+func (opencodeFormat) kind() string    { return agents.Opencode }
+func (piFormat) kind() string          { return agents.Pi }
+func (claudeFormat) kind() string      { return agents.Claude }
+func (claudeOAuthFormat) kind() string { return agents.ClaudeOAuth }
+
+// endpoints: OpenAI's, which opencode's Codex logins share.
+func (codexFormat) endpoints() []endpoint {
+	return []endpoint{{host: "auth.openai.com", path: "/oauth/token"}}
+}
+
+func (codexFormat) userAgents() []string { return nil }
+
+func (codexFormat) capture(m map[string]any, t tokenRequest, r map[string]any, salt string) (map[string]any, map[string]any, error) {
+	return codexCapture(m, t, r, salt)
+}
+
+func (codexFormat) managedReply(m map[string]any, salt string) ([]byte, error) {
+	tk := obj(m, "tokens")
+	return openaiManagedReply(str(tk, "access_token"), str(tk, "id_token"), salt)
+}
+
+// exchange: its id_token for an API key.
+func (codexFormat) exchange(t tokenRequest) bool { return apiKeyExchange(t) }
+
+// endpoints: OpenAI's, Codex's too.
+func (opencodeFormat) endpoints() []endpoint {
+	return []endpoint{{host: "auth.openai.com", path: "/oauth/token"}}
+}
+
+// userAgents: Bun's, which opencode runs on, and opencode's own.
+func (opencodeFormat) userAgents() []string { return []string{"bun/", "opencode/"} }
+
+func (opencodeFormat) capture(m map[string]any, t tokenRequest, r map[string]any, salt string) (map[string]any, map[string]any, error) {
+	return opencodeCapture(m, t, r, salt)
+}
+
+func (opencodeFormat) managedReply(m map[string]any, salt string) ([]byte, error) {
+	var at string
+	if e := obj(m, "openai"); str(e, "type") == "oauth" {
+		at = str(e, "access")
+	}
+	return openaiManagedReply(at, "", salt)
+}
+
+// refreshPlaceholder: its VM copy holds its access token's placeholder as its refresh token too.
+func (opencodeFormat) refreshPlaceholder(m map[string]any, salt string) string {
+	return openaiPlaceholder(str(obj(m, "openai"), "access"), salt)
+}
+
+// endpoints: Claude's, and the Console's, which older versions of Claude Code post to.
+func (claudeOAuthFormat) endpoints() []endpoint {
+	return []endpoint{{host: "platform.claude.com", path: "/v1/oauth/token"}, {host: "console.anthropic.com", path: "/v1/oauth/token"}}
+}
+
+func (claudeOAuthFormat) userAgents() []string { return nil }
+
+func (claudeOAuthFormat) capture(m map[string]any, t tokenRequest, r map[string]any, salt string) (map[string]any, map[string]any, error) {
+	return claudeCapture(m, t, r, salt)
+}
+
+func (claudeOAuthFormat) managedReply(m map[string]any, salt string) ([]byte, error) {
+	return claudeManagedReply(m, salt)
+}
 
 func (codexFormat) bindings(m map[string]any, salt string) []proxy.Binding {
 	return codexBindings(m, salt)

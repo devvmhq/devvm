@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **New: Cursor's CLI as an agent:** `--agents cursor` gives a VM Cursor's CLI, run as `cursor-agent` or `agent`, at the release devvm pins, with its self-update off. `devvm agent login cursor` logs it in from the VM, in a browser on any machine, and the login stays on this machine, as the other agents' do ([Cursor CLI login](https://next.devvm.dev/docs/using/coding-agents/#cursor-cli-login)).
+
 ## 0.1.1-rc.2
 
 A release candidate for 0.1.1, adding to 0.1.1-rc.1. Install it with `devvm upgrade --to 0.1.1-rc.2`, the install script's `--version 0.1.1-rc.2`, or `brew install devvmhq/tap/devvm-rc`. Homebrew's `devvm` stays on 0.1.0.

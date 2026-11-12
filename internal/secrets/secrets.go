@@ -174,13 +174,11 @@ func loginHosts(st *state.VM) []string {
 }
 
 // captureFile is the file in devvm's store a login the proxy captured for
-// the agent goes in, its placeholders ending in salt: its login file, and
-// for claude its OAuth login's.
+// the agent goes in, its placeholders ending in salt: the login file whose
+// format captures logins (agentlogin.CaptureKind), Claude Code's OAuth
+// login's for claude.
 func (s *Store) captureFile(agent, salt string) agentlogin.File {
-	if agent == agents.Claude {
-		return s.login(agents.ClaudeOAuth, salt)
-	}
-	return s.login(agent, salt)
+	return s.login(agentlogin.CaptureKind(agent), salt)
 }
 
 // CaptureRequest returns a token request a VM's proxy captures the reply
@@ -196,45 +194,16 @@ func (s *Store) CaptureRequest(agent, salt, ctype string, body []byte) (out, ans
 // Capture saves the agent's login in reply, its token endpoint's answer to
 // req, in devvm's store (agentlogin.File.Capture), the agent's logins
 // folder kept out of backups, and returns the reply the VM gets, with
-// placeholders ending in salt. devvm keeps one Claude Code login, so the
-// newest replaces the other: claude setup-token's token is saved as the
-// claude secret (Save, which takes the OAuth login away), and an OAuth
-// login takes the saved token away, both under the Claude Code logins
-// folder's lock (Claude.lock), so two at once never lose both. A saved
-// token that can't be deleted is a warning, as the login is saved and
-// the VM gets its reply.
+// placeholders ending in salt. Claude Code's login is captured its own way
+// (Claude.capture).
 func (s *Store) Capture(ctx context.Context, agent, salt, ctype string, req, reply []byte) ([]byte, error) {
 	if err := s.loginsDir(ctx, agent); err != nil {
 		return nil, err
 	}
-	if agent != agents.Claude {
-		return s.captureFile(agent, salt).Capture(ctype, req, reply)
+	if vm, ok, err := ClaudeOf(s).capture(ctx, agent, salt, ctype, req, reply); ok {
+		return vm, err
 	}
-	c := ClaudeOf(s)
-	unlock, err := c.lock()
-	if err != nil {
-		return nil, err
-	}
-	defer unlock()
-	if agentlogin.SetupToken(ctype, req) {
-		sec, _ := Lookup(ClaudeToken)
-		tok, vm, err := agentlogin.ClaudeToken(ctype, req, reply, sec.Placeholder(salt))
-		if err != nil {
-			return nil, err
-		}
-		if tok, err = Token(ClaudeToken, tok); err != nil {
-			return nil, err
-		}
-		return vm, c.saveToken(ctx, tok)
-	}
-	vm, err := s.captureFile(agent, salt).Capture(ctype, req, reply)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.Delete(ctx, ClaudeToken); err != nil && !errors.Is(err, ErrNone) {
-		s.Warn(msg.SecretFailed(err.Error()).Because(err))
-	}
-	return vm, nil
+	return s.captureFile(agent, salt).Capture(ctype, req, reply)
 }
 
 // loginsDir readies the agent's logins folder in devvm's store: the
@@ -584,8 +553,8 @@ func (s *Store) Get(ctx context.Context, b proxy.Binding) (string, error) {
 			return "", err
 		}
 		v, err := s.Value(ctx, b.Name)
-		if errors.Is(err, ErrNone) && b.Name == ClaudeToken {
-			return s.Get(ctx, proxy.Binding{Kind: proxy.KindLogin, Agent: agents.ClaudeOAuth, Name: agentlogin.ClaudeOAuthName})
+		if c := ClaudeOf(s); errors.Is(err, ErrNone) && c.ownSecret(b.Name) {
+			return c.oauthToken(ctx)
 		}
 		if errors.Is(err, ErrNone) {
 			return "", msg.NoSecret(b.Name)
@@ -640,12 +609,10 @@ func loginFailed(path string, err error) msg.M {
 		return msg.CodexNoKey().Because(err)
 	case errors.Is(err, agentlogin.ErrCodexNoChatGPT):
 		return msg.CodexNoChatgpt().Because(err)
-	case errors.As(err, &re) && re.Agent == agents.Codex:
-		return msg.CodexRefreshFailed(re.Err.Error()).Because(err)
-	case errors.As(err, &re) && re.Agent == agents.Claude:
-		return msg.ClaudeRefreshFailed(re.Err.Error()).Because(err)
+	case errors.As(err, &re) && re.Provider != "":
+		return msg.AgentProviderRefreshFailed(re.Agent, agents.Of(re.Agent).Display, re.Provider, re.Err.Error()).Because(err)
 	case errors.As(err, &re):
-		return msg.OpencodeRefreshFailed(re.Provider, re.Err.Error()).Because(err)
+		return msg.AgentRefreshFailed(re.Agent, agents.Of(re.Agent).Display, re.Err.Error()).Because(err)
 	}
 	return msg.LoginReadFailed(path, err.Error()).Because(err)
 }
@@ -742,13 +709,8 @@ func (s *Store) Logins(ctx context.Context, tools []string) []string {
 	as := image.AgentsOf(tools)
 	var kinds []string
 	for _, k := range agents.LoginKinds() {
-		if !slices.Contains(as, agentOf(k)) || !s.HasLogin(k) {
+		if !slices.Contains(as, agentOf(k)) || !s.HasLogin(k) || !ClaudeOf(s).used(ctx, k) {
 			continue
-		}
-		if k == agents.ClaudeOAuth {
-			if l, err := ClaudeOf(s).Login(ctx); err != nil || l != "oauth" {
-				continue
-			}
 		}
 		kinds = append(kinds, k)
 	}
@@ -758,15 +720,14 @@ func (s *Store) Logins(ctx context.Context, tools []string) []string {
 // WriteFiles writes the proxy's view of a VM's secrets: the bindings of
 // those with a value saved and of its agents' logins, and the hosts they
 // all imply, on 443 only (where the proxy puts values in). The proxy reads
-// both again when they change. A VM with Claude Code has both Claude Code
-// logins' bindings while devvm keeps either, as each gets the one devvm
-// keeps (Get): the VM's files name the one it had at its launch.
+// both again when they change. Claude Code's OAuth login has a binding of
+// its own (Claude.bindings).
 func (s *Store) WriteFiles(ctx context.Context, st *state.VM, salt string) error {
 	var logins []proxy.Binding
 	names := tools.Names(st)
 	// A login that can't be read has no bindings.
 	for _, kind := range s.Logins(ctx, names) {
-		if kind == agents.ClaudeOAuth {
+		if ClaudeOf(s).bound(kind) {
 			continue
 		}
 		bs, err := s.login(kind, salt).Bindings()
@@ -775,14 +736,11 @@ func (s *Store) WriteFiles(ctx context.Context, st *state.VM, salt string) error
 		}
 		logins = append(logins, bs...)
 	}
-	if slices.Contains(image.AgentsOf(names), agents.Claude) {
-		if l, err := ClaudeOf(s).Login(ctx); err != nil {
-			return err
-		} else if l != "" {
-			logins = append(logins, agentlogin.ClaudeOAuthBinding(salt))
-		}
+	bs, err := ClaudeOf(s).bindings(ctx, names, salt)
+	if err != nil {
+		return err
 	}
-	return s.writeFiles(ctx, st, salt, logins)
+	return s.writeFiles(ctx, st, salt, append(logins, bs...))
 }
 
 // RefreshFiles writes a VM's secret files again for its secrets as they
@@ -819,7 +777,7 @@ func (s *Store) writeFiles(ctx context.Context, st *state.VM, salt string, login
 		}
 		hosts = append(hosts, sec.Hosts...)
 		// The claude secret's binding gets the OAuth login, without a token (Get).
-		if _, err := s.Value(ctx, name); errors.Is(err, ErrNone) && (name != ClaudeToken || !s.HasLogin(agents.ClaudeOAuth)) {
+		if _, err := s.Value(ctx, name); errors.Is(err, ErrNone) && !ClaudeOf(s).OAuthInstead(name) {
 			continue
 		} else if err != nil && !errors.Is(err, ErrNone) {
 			return err

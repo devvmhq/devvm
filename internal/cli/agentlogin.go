@@ -29,9 +29,8 @@ func newAgentLoginCmd(a *app) *cobra.Command {
 		}.annotations(),
 		Short: "Log an agent in, in this folder's VM, and save the login in devvm's store",
 		Long: "Log AGENT in inside this folder's VM, and keep the login in devvm's store for every VM with the agent, which gets only placeholders. " +
-			"claude logs in to your Claude subscription in a browser on any machine, whose code you paste back, " +
-			"or gets a long-lived Claude Code token with --setup-token. " +
-			andList(agents.Select(func(d agents.Def) bool { return d.ChatGPT })) +
+			pasteHelp() +
+			andList(agents.Select(func(d agents.Def) bool { return d.Login.Forward })) +
 			" log in to ChatGPT in a browser on this machine, or with a code with --device-code, " +
 			"or save an API key with --api-key, which is " + andList(possessive(agents.Select(agents.Def.KeysOnly))) + " only login.",
 		Example: examples(
@@ -65,29 +64,61 @@ func newAgentLoginCmd(a *app) *cobra.Command {
 	keyed := agents.Select(func(d agents.Def) bool { return d.Keys == agents.ProviderKeys })
 	f.StringVar(&o.provider, "provider", "", "with "+orList(possessive(keyed))+" --api-key, the `PROVIDER` it's for: "+orList(agentlogin.KeyProviders(keyed[0])))
 	f.BoolVar(&o.stdin, "stdin", false, "read the secret from a line of input, without asking")
-	f.BoolVar(&o.setupToken, "setup-token", false, "with claude, get a long-lived Claude Code token with claude setup-token instead")
+	f.BoolVar(&o.setupToken, "setup-token", false, setupTokenHelp())
 	exclusive(cmd, "device-code", "api-key")
 	addFolderFlags(cmd, a)
 	return cmd
 }
 
-// check refuses flags that don't go with agent's login: --setup-token
-// only with claude, which takes neither --device-code nor --api-key, an
-// agent with API keys alone (pi) only with --api-key, --provider only
-// with the --api-key of an agent with a key for each provider, which
-// needs it, and --stdin only with --api-key.
+// pasteHelp is devvm agent login's help for the agents whose login you
+// paste a code back to, each with its setup token when it has one.
+func pasteHelp() string {
+	var s strings.Builder
+	for _, d := range agents.Defs {
+		if !d.Login.Paste {
+			continue
+		}
+		s.WriteString(d.Name + " logs in through a browser on any machine, whose code you paste back")
+		if d.Login.SetupToken != nil {
+			s.WriteString(", or gets a long-lived " + d.Display + " token with --setup-token")
+		}
+		s.WriteString(". ")
+	}
+	return s.String()
+}
+
+// setupTokenHelp is --setup-token's help: the command each agent with a
+// setup token runs for it, from the agent's name on.
+func setupTokenHelp() string {
+	var clauses []string
+	for _, d := range agents.Defs {
+		if argv := d.Login.SetupToken; argv != nil {
+			cmd := strings.Join(argv[max(slices.Index(argv, d.Name), 0):], " ")
+			clauses = append(clauses, "with "+d.Name+", get a long-lived "+d.Display+" token with "+cmd+" instead")
+		}
+	}
+	return strings.Join(clauses, "; ")
+}
+
+// check refuses flags that don't go with agent's login (agents.LoginCmd):
+// --setup-token only with an agent that has a setup token, --device-code
+// only with one that has a login with a code, --api-key and --stdin only
+// with one devvm saves API keys for, an agent with API keys alone (pi)
+// only with --api-key, --provider only with the --api-key of an agent with
+// a key for each provider, which needs it, and --stdin only with
+// --api-key.
 func (o agentLoginOpts) check(agent string) error {
 	providers := agentlogin.KeyProviders(agent)
 	d, _ := agents.Get(agent)
 	switch {
-	case o.setupToken && agent != agents.Claude:
-		return msg.AgentLoginSetupTokenAlone()
-	case agent == agents.Claude && o.device:
-		return msg.AgentLoginClaudeFlag("--device-code")
-	case agent == agents.Claude && o.apiKey:
-		return msg.AgentLoginClaudeFlag("--api-key")
-	case agent == agents.Claude && o.stdin:
-		return msg.AgentLoginClaudeFlag("--stdin")
+	case o.setupToken && d.Login.SetupToken == nil:
+		return msg.AgentLoginFlag(agent, "--setup-token")
+	case o.device && d.Login.Argv != nil && d.Login.Device == nil:
+		return flagRefused(d, "--device-code")
+	case o.apiKey && d.Keys == agents.NoKeys:
+		return flagRefused(d, "--api-key")
+	case o.stdin && d.Keys == agents.NoKeys:
+		return flagRefused(d, "--stdin")
 	case d.KeysOnly() && !o.apiKey:
 		return msg.AgentLoginKeyOnly(agent)
 	case o.stdin && !o.apiKey:
@@ -101,6 +132,15 @@ func (o agentLoginOpts) check(agent string) error {
 		return msg.ArgNotChoice(strings.Join(providers, ", "), "--provider", o.provider)
 	}
 	return nil
+}
+
+// flagRefused is the error for flag with d's login, which doesn't take it:
+// naming --setup-token too when d has a setup token.
+func flagRefused(d agents.Def, flag string) error {
+	if d.Login.SetupToken != nil {
+		return msg.AgentLoginFlagOrToken(d.Name, flag)
+	}
+	return msg.AgentLoginFlag(d.Name, flag)
 }
 
 // askKey asks for the API key without showing it, or with --stdin reads

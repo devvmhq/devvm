@@ -1,0 +1,8 @@
+# cursor: its API, where its login polls too (api2), its agent's hosts, which api2's server config
+# names (agent.api5 and its regional hosts, which its package doesn't name, so all of them), and its
+# codebase indexing (repo42). Its metrics host (api3), its updates (downloads.cursor.com) and Sentry are
+# left out: blocking them costs nothing, and its updates are off.
+api2.cursor.sh
+api5.cursor.sh
+*.api5.cursor.sh
+repo42.cursor.sh

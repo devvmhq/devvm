@@ -28,7 +28,7 @@ Docker Sandboxes, the `sbx` command, is the tool closest to devvm: each sandbox 
 | MCP servers | run in the VM | local stdio servers run on your machine ([security](https://docs.docker.com/ai/sandboxes/security/)) |
 | Ports | every port from 1024 up forwarded to `localhost` unless you limit them | none until you publish one ([usage](https://docs.docker.com/ai/sandboxes/usage/)) |
 | Toolchains | shared read-only between VMs, detected from the project's files | in each sandbox's own image |
-| Agents | Claude Code, Codex, opencode and pi | Claude Code, Codex, Copilot, Cursor, Devin, Docker Agent, Droid, Gemini, Kiro and OpenCode ([agents](https://docs.docker.com/ai/sandboxes/agents/)) |
+| Agents | Claude Code, Codex, opencode, pi and Cursor's CLI | Claude Code, Codex, Copilot, Cursor, Devin, Docker Agent, Droid, Gemini, Kiro and OpenCode ([agents](https://docs.docker.com/ai/sandboxes/agents/)) |
 | Snapshots | none | a sandbox saved as a template ([template save](https://docs.docker.com/reference/cli/sbx/template/save/)) |
 | Secrets from other stores | saved with `devvm secret set` | 1Password, AWS Secrets Manager or a command ([credentials](https://docs.docker.com/ai/sandboxes/configuration/credentials/)) |
 | Secrets on Linux | in files only you can read | in a file only you can read when no Secret Service runs ([credentials](https://docs.docker.com/ai/sandboxes/configuration/credentials/)) |

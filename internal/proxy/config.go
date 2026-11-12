@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/netip"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -195,7 +197,9 @@ func (c Config) check() error {
 }
 
 // checkCaptures refuses token endpoints the proxy can't capture at: without a CA, which it
-// intercepts them with, or without an agent, a host name or a clean path.
+// intercepts them with, or without an agent, a host name or a clean path; with a method other than
+// POST or GET; with a Guard that isn't a clean path ending in /, or that the endpoint's path isn't
+// below, so guard reads its replies; or with an empty token key, which every reply holds.
 func checkCaptures(cs []Capture, withCA bool) error {
 	for _, x := range cs {
 		switch {
@@ -203,6 +207,12 @@ func checkCaptures(cs []Capture, withCA bool) error {
 			return errors.New("captures need ca")
 		case x.Agent == "" || !HostOK(x.Host) || !strings.HasPrefix(x.Path, "/") || path.Clean(x.Path) != x.Path:
 			return fmt.Errorf("capture %q at %q, %q isn't one", x.Agent, x.Host, x.Path)
+		case x.Method != "" && x.Method != http.MethodPost && x.Method != http.MethodGet:
+			return fmt.Errorf("capture %q at %q: method %q", x.Agent, x.Host, x.Method)
+		case x.Guard != "" && (!strings.HasSuffix(x.Guard, "/") || path.Clean(x.Guard)+"/" != x.Guard && x.Guard != "/" || !x.guards(x.Path)):
+			return fmt.Errorf("capture %q at %q: guard %q", x.Agent, x.Host, x.Guard)
+		case slices.Contains(x.TokenKeys, ""):
+			return fmt.Errorf("capture %q at %q: an empty token key", x.Agent, x.Host)
 		}
 	}
 	return nil

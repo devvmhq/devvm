@@ -363,10 +363,7 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 		v, err := store.Value(ctx, name)
 		if errors.Is(err, secrets.ErrNone) {
 			switch {
-			case name == secrets.ClaudeToken && store.HasLogin(agents.ClaudeOAuth):
-				// The VM gets the OAuth login instead (stageSecrets), never both.
-			case name == secrets.ClaudeToken:
-				e.Warn(msg.NoClaudeToken(vm))
+			case claudeTokenUnsaved(store, name, vm, e.Warn):
 			case name == "github":
 				e.Warn(msg.NoGithubToken(vm))
 			default:
@@ -376,7 +373,7 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 		} else if err != nil {
 			return nil, err
 		}
-		if name == secrets.ClaudeToken && !strings.HasPrefix(v, "sk-ant-oat01-") {
+		if claudeTokenInvalid(name, v) {
 			e.Warn(msg.ClaudeTokenInvalid())
 			continue
 		}
@@ -505,17 +502,13 @@ func (e syncer) stageSecrets(ctx context.Context, s *stage, store *secrets.Store
 		if err != nil {
 			return msg.LoginCopyFailed(kind, err.Error(), vm).Because(err)
 		}
-		name := "claude.json" // merged by sync.sh, not copied
-		if kind != agents.Claude {
+		name, merged := claudeSyncName(kind)
+		if !merged {
 			name = "home/" + secrets.LoginRel(kind)
 		}
 		s.put(name, 0o600, data)
-		if kind == agents.Opencode {
-			imp, err := agentlogin.OpencodeImport(data)
-			if err != nil {
-				return msg.LoginCopyFailed(kind, err.Error(), vm).Because(err)
-			}
-			s.put("opencode-import.json", 0o600, imp)
+		if err := opencodeSyncImport(s, kind, data); err != nil {
+			return msg.LoginCopyFailed(kind, err.Error(), vm).Because(err)
 		}
 	}
 	for _, f := range slices.Clone(s.files) {

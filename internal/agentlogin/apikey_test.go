@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/agents"
 )
 
 // An API key saved: Codex's login becomes an API-key login, its ChatGPT
@@ -133,7 +135,11 @@ func TestProviderKeys(t *testing.T) {
 	}
 	// pi takes an OpenAI key that doesn't start with sk- for a ChatGPT sign-in's token.
 	prefix := map[string]string{"openai": "sk-"}
-	for _, kind := range []string{Opencode, Pi} {
+	keyed := agents.Select(func(d agents.Def) bool { return d.Keys == agents.ProviderKeys })
+	if !slices.Contains(keyed, Pi) {
+		t.Fatalf("the agents with a key for each provider are %v, without pi", keyed)
+	}
+	for _, kind := range keyed {
 		if got := KeyProviders(kind); len(got) != len(want) {
 			t.Errorf("KeyProviders(%s) = %v", kind, got)
 		}

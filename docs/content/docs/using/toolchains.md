@@ -111,7 +111,11 @@ What this doesn't cover:
 
 The toolchains are [shared tools](images.md#shared-tools), like the [coding agents](coding-agents.md#supported-agents), so they aren't part of any image. devvm builds each version once and mounts it read-only into every VM that has it, and [mise](https://mise.jdx.dev) runs it, so each toolchain's commands, such as `node` or `cargo`, work from any shell in the VM, including `bash -c` from agents and from editors over SSH. Because the shared copy is read-only, a toolchain can't update itself, and anything you install globally goes into your home in the VM, as each section above says.
 
-devvm follows each toolchain's newest release, and Node 24 for node. [Which bases they run on](#which-bases-they-run-on) says what each one needs from a VM's base. [Adding and removing tools](#adding-and-removing-tools) explains how `devvm update` and `devvm tools update` move a VM to newer versions, how `devvm tools add` adds a toolchain to an existing VM, and how `devvm tools rm` takes one out. [What a new VM gets](images.md#what-a-new-vm-gets) explains what happens when a folder calls for more than one toolchain.
+devvm follows each toolchain's newest release, and Node 24 for node:
+
+- [Which bases they run on](#which-bases-they-run-on) says what each one needs from a VM's base.
+- [Adding and removing tools](#adding-and-removing-tools) explains how `devvm update` and `devvm tools update` move a VM to newer versions, how `devvm tools add` adds a toolchain to an existing VM, and how `devvm tools rm` takes one out.
+- [What a new VM gets](images.md#what-a-new-vm-gets) explains what happens when a folder calls for more than one toolchain.
 
 ## Which bases they run on
 
@@ -128,10 +132,18 @@ Every toolchain runs on `base` from Ubuntu's own image, and on an Alpine-based i
 | dotnet | 2.27 | 2.27 |
 | claude, opencode and pi | 2.17 | 2.17 |
 | codex | 2.28, for its voice helper | 2.28 |
+| cursor | 2.28, for the node it bundles | 2.28 |
 
 ## Adding and removing tools
 
 A new VM gets the shared tools chosen when devvm makes it, the toolchains and the [coding agents](coding-agents.md#supported-agents), and keeps those versions. On each launch, devvm warns when there are newer ones and names `devvm update`, which moves the VM to them, and also makes the VM again when its image has changed, after asking ([outdated VMs](images.md#outdated-vms)).
+
+```sh
+devvm tools                     # choose this folder's VM's toolchains and agents in a list
+devvm tools add python claude   # add tools without the list
+devvm tools rm python           # take one out
+devvm tools update              # move the VM to the newest shared tools
+```
 
 In a terminal, `devvm tools` shows the same list as for a new VM, with this folder's VM's toolchains and agents already chosen and its layers greyed out, because they're built into the VM's image, which keeps them until `devvm layer add` or `devvm layer rm` makes it again. The Layers heading names `devvm layer add` and `devvm layer rm`, which change a VM's layers by making it again ([adding layers to a VM](images.md#adding-layers-to-a-vm)). Choose the tools and confirm, and devvm adds and takes out what changed, as `devvm tools add` and `devvm tools rm` do, then opens a shell in the VM. When a new agent's config folders need the running VM to start again, devvm asks first. When nothing changed, devvm says so and opens nothing.
 

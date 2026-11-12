@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/devvmhq/devvm/internal/cli"
 )
 
 // checkedIn is the reference in the repo, from this package's folder.
@@ -58,9 +61,88 @@ func generated(t *testing.T, root *cobra.Command) string {
 	return dir
 }
 
+// repoRoot is the repo's root, from this package's folder.
+const repoRoot = "../../.."
+
+// The reference and the pages' generated blocks are as mise run cli-docs
+// writes them.
 func TestReferenceIsCurrent(t *testing.T) {
 	if diff := differences(t, generated(t, newRoot()), checkedIn); diff != nil {
 		t.Fatalf("docs/content/docs/cli is stale (%v): run mise run cli-docs", diff)
+	}
+	stale, err := blocks(repoRoot, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale != nil {
+		t.Fatalf("the generated blocks of %v are stale: run mise run cli-docs", stale)
+	}
+}
+
+// A copy of the repo's pages with a block edited is stale, and writing
+// its blocks makes it current again, changing nothing else; a page that
+// lacks a block's markers, or has them twice, fails.
+func TestStaleBlockIsCaught(t *testing.T) {
+	root := t.TempDir()
+	read := func(path string) string {
+		data, err := os.ReadFile(path) //nolint:gosec // the repo's pages and the test's copies
+		must(t, err)
+		return string(data)
+	}
+	put := func(path, data string) {
+		must(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		must(t, os.WriteFile(path, []byte(data), 0o600))
+	}
+	for _, b := range cli.DocBlocks() {
+		put(filepath.Join(root, b.Page), read(filepath.Join(repoRoot, b.Page)))
+	}
+	b := cli.DocBlocks()[0]
+	path := filepath.Join(root, b.Page)
+	data := read(path)
+	edited := strings.Replace(data, b.Begin(), b.Begin()+"| `aaa` |", 1)
+	put(path, edited)
+	if stale, err := blocks(root, true); err != nil || !slices.Equal(stale, []string{b.Page}) {
+		t.Fatalf("blocks = %v, %v", stale, err)
+	}
+	if read(path) != edited {
+		t.Error("checking the blocks wrote a page")
+	}
+	if stale, err := blocks(root, false); err != nil || len(stale) != 1 {
+		t.Fatalf("writing the blocks = %v, %v", stale, err)
+	}
+	if read(path) != data {
+		t.Error("writing the blocks didn't make the page as it was")
+	}
+	for _, page := range []string{"no markers\n", b.Begin() + b.End() + b.Begin() + b.End()} {
+		if _, err := filled(page, b); err == nil {
+			t.Errorf("filled(%q) didn't fail", page)
+		}
+	}
+	// run writes the reference and the blocks below a root.
+	put(path, edited)
+	if err := run(root); err != nil {
+		t.Fatal(err)
+	}
+	if read(path) != data || differences(t, filepath.Join(root, "docs", "content", "docs", "cli"), checkedIn) != nil {
+		t.Error("run didn't write the reference and the blocks")
+	}
+	// A page that isn't there, or lacks its markers, fails.
+	put(path, "no markers\n")
+	if _, err := blocks(root, true); err == nil {
+		t.Error("blocks of a page without markers didn't fail")
+	}
+	if _, err := blocks(t.TempDir(), true); err == nil {
+		t.Error("blocks without the pages didn't fail")
+	}
+	if err := run(t.TempDir()); err == nil {
+		t.Error("run without the pages didn't fail")
+	}
+}
+
+func must(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

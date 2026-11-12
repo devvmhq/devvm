@@ -7,6 +7,7 @@ import (
 	"errors"
 	"maps"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -186,8 +187,13 @@ func lines(data []byte) []string {
 	return out
 }
 
+// inlineVersion is an inline table's version, as mise.toml pins one with
+// its downloads: cursor = { version = "…", platforms = { … } }.
+var inlineVersion = regexp.MustCompile(`^\{\s*version\s*=\s*"([^"]+)"`)
+
 // configTools reads the [tools] table of a mise.toml: each tool and its
-// version as given ("24", "latest"), in order.
+// version as given ("24", "latest"), or its inline table's version, in
+// order.
 func configTools(data []byte) (names []string, versions map[string]string) {
 	versions = map[string]string{}
 	in := false
@@ -207,9 +213,12 @@ func configTools(data []byte) (names []string, versions map[string]string) {
 		if i := strings.Index(v, "#"); i >= 0 {
 			v = v[:i]
 		}
-		k = strings.TrimSpace(k)
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if m := inlineVersion.FindStringSubmatch(v); m != nil {
+			v = m[1]
+		}
 		names = append(names, k)
-		versions[k] = strings.Trim(strings.TrimSpace(v), `"`)
+		versions[k] = strings.Trim(v, `"`)
 	}
 	return names, versions
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/rogpeppe/go-internal/testscript"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/platform"
@@ -245,6 +246,12 @@ func sandbox(env *testscript.Env, bin, stubs string) error {
 	// that checks one names no toolchain or agent itself.
 	env.Setenv("TOOLCHAINS", strings.Join(image.Toolchains, " "))
 	env.Setenv("AGENTS", strings.Join(image.Agents, " "))
+	// The agents' lists as a choice's message names them: every agent,
+	// those devvm agent login logs in, and those with a key for each
+	// provider (--provider).
+	env.Setenv("AGENT_CHOICES", strings.Join(agents.Names(), ", "))
+	env.Setenv("LOGIN_AGENTS", strings.Join(agents.LoginAgents(), ", "))
+	env.Setenv("KEY_AGENTS", strings.Join(agents.Select(func(d agents.Def) bool { return d.Keys == agents.ProviderKeys }), ", "))
 	env.Setenv("DEVVM_HOST_MISE", filepath.Join(stubs, "mise"))
 	// devvm paste's clipboard tools: the stubs, in place of the system's
 	// (macOS's /usr/bin/osascript), so no script reaches the real clipboard.

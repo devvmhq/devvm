@@ -92,8 +92,8 @@ type File struct {
 	// Salt is the VM's key, which ends every placeholder, so each VM's are its own: a proxy puts a
 	// value in only for the placeholders bound for its VM. Empty: none.
 	Salt string
-	// TokenURL is where OAuth tokens are refreshed: when empty, ClaudeTokenURL for ClaudeOAuth,
-	// else OpenAITokenURL.
+	// TokenURL is where OAuth tokens are refreshed: when empty, the first token endpoint of its
+	// format (ClaudeTokenURL for ClaudeOAuth, OpenAITokenURL for Codex's and opencode's).
 	TokenURL string
 	// Pass are the providers whose API-key entries the VM's copy holds as they are (opencode's
 	// or pi's, from config.toml's [pass-keys]), unless devvm binds them; any other entry devvm
@@ -552,13 +552,16 @@ func (f File) opencodeGet(ctx context.Context, name string) (string, error) {
 	return "", fmt.Errorf("no opencode login %q", id)
 }
 
-// tokenURL is where f's OAuth tokens are refreshed (File.TokenURL).
+// tokenURL is where f's OAuth tokens are refreshed (File.TokenURL): else
+// its format's first token endpoint, where its logins are captured too, or
+// OpenAI's for a format that captures none.
 func (f File) tokenURL() string {
-	switch {
-	case f.TokenURL != "":
+	if f.TokenURL != "" {
 		return f.TokenURL
-	case f.Kind == agents.ClaudeOAuth:
-		return ClaudeTokenURL
+	}
+	if c, ok := formats()[f.Kind].(captureFormat); ok {
+		e := c.endpoints()[0]
+		return "https://" + e.host + e.path
 	}
 	return OpenAITokenURL
 }

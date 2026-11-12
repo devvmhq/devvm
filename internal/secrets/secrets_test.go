@@ -332,9 +332,9 @@ func TestLoginFailed(t *testing.T) {
 	}{
 		{agentlogin.ErrCodexNoKey, "codex_no_key"},
 		{agentlogin.ErrCodexNoChatGPT, "codex_no_chatgpt"},
-		{&agentlogin.RefreshError{Agent: agents.Codex, Err: cause}, "codex_refresh_failed reason=401 Unauthorized"},
-		{&agentlogin.RefreshError{Agent: agents.Opencode, Provider: "openai", Err: cause}, "opencode_refresh_failed provider=openai reason=401 Unauthorized"},
-		{&agentlogin.RefreshError{Agent: agents.Claude, Err: cause}, "claude_refresh_failed reason=401 Unauthorized"},
+		{&agentlogin.RefreshError{Agent: agents.Codex, Err: cause}, "agent_refresh_failed agent=codex display=Codex reason=401 Unauthorized"},
+		{&agentlogin.RefreshError{Agent: agents.Opencode, Provider: "openai", Err: cause}, "agent_provider_refresh_failed agent=opencode display=opencode provider=openai reason=401 Unauthorized"},
+		{&agentlogin.RefreshError{Agent: agents.Claude, Err: cause}, "agent_refresh_failed agent=claude display=Claude Code reason=401 Unauthorized"},
 		{cause, "login_read_failed file=/h/auth.json reason=401 Unauthorized"},
 	} {
 		m := loginFailed("/h/auth.json", tc.err)
@@ -453,12 +453,34 @@ func TestCapture(t *testing.T) {
 			t.Errorf("another agent: %v", msg.NamesOf(err))
 		}
 	}
-	if got := loginHosts(newVM(t, s.Dirs, vm1, "node", "codex", "claude")); !slices.Equal(got, []string{"auth.openai.com", "platform.claude.com", "console.anthropic.com"}) {
+	if got := loginHosts(newVM(t, s.Dirs, vm1, "node", "codex", "claude")); !slices.Equal(got, captureHosts("codex", "claude")) ||
+		!slices.Contains(got, "auth.openai.com") {
 		t.Errorf("loginHosts = %q", got)
 	}
 	if got := loginHosts(newVM(t, s.Dirs, vm2, "node")); got != nil {
 		t.Errorf("loginHosts without agents = %q", got)
 	}
+}
+
+// captureHosts are the hosts of the token endpoints of the agents named, in
+// agentlogin.Endpoints' order.
+func captureHosts(names ...string) []string {
+	var out []string
+	for _, c := range agentlogin.Endpoints() {
+		if slices.Contains(names, c.Agent) {
+			out = append(out, c.Host)
+		}
+	}
+	return out
+}
+
+// captureRules are captureHosts' policy lines, each on 443.
+func captureRules(names ...string) string {
+	var s strings.Builder
+	for _, h := range captureHosts(names...) {
+		s.WriteString(h + ":443\n")
+	}
+	return s.String()
 }
 
 // The proxy's view of a VM's secrets: bindings for those with a value and
@@ -508,7 +530,7 @@ func TestWriteFiles(t *testing.T) {
 	}
 	// Codex's token endpoint, which its proxy captures logins at, is allowed too.
 	wantPol := "api.github.com:443\ngithub.com:443\ncodeload.github.com:443\nraw.githubusercontent.com:443\napi.anthropic.com:443\napi.openai.com:443\n" +
-		"auth.openai.com:443\nplatform.claude.com:443\nconsole.anthropic.com:443\n"
+		captureRules("codex", "claude")
 	if string(pol) != wantPol {
 		t.Errorf("policy = %q, want %q", pol, wantPol)
 	}
@@ -532,7 +554,7 @@ func TestWriteFiles(t *testing.T) {
 	if strings.Contains(string(data), `"github"`) || !strings.Contains(string(data), `"codex-key"`) {
 		t.Errorf("refreshed bindings = %s", data)
 	}
-	if pol, _ := os.ReadFile(d.VM(vm1).SecretsPolicy()); string(pol) != "api.anthropic.com:443\napi.openai.com:443\nauth.openai.com:443\nplatform.claude.com:443\nconsole.anthropic.com:443\n" {
+	if pol, _ := os.ReadFile(d.VM(vm1).SecretsPolicy()); string(pol) != "api.anthropic.com:443\napi.openai.com:443\n"+captureRules("codex", "claude") {
 		t.Errorf("refreshed policy = %q", pol)
 	}
 	// No secrets at all: an empty list.

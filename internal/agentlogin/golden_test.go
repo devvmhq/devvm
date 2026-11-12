@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
 )
 
@@ -76,6 +77,10 @@ func goldenLogins() map[string]string {
 				"local":  map[string]any{"command": "npx srv --token sk-e2efake-1234567890", "args": []any{"--api-key", "e2efake", "srv"}, "env": map[string]any{"API_KEY": "e2efake-env"}, "extra": 1},
 				"oauth":  map[string]any{"type": "http", "url": "https://o.example.com/", "oauth": map[string]any{"clientId": "c", "callbackPort": 1, "clientSecret": "e2efake"}},
 			},
+		}),
+		agents.Cursor: enc(map[string]any{ //nolint:gosec // fake values
+			"accessToken": jwtWith(future, map[string]any{"sub": "auth0|e2efake"}), "refreshToken": "rt-e2efake",
+			"apiKey": "key-e2efake", "bedrockCredentials": map[string]any{"accessKey": "ak-e2efake", "secretKey": "sk-e2efake"}, //nolint:gosec // fake values
 		}),
 		ClaudeOAuth: enc(map[string]any{"claudeAiOauth": map[string]any{ //nolint:gosec // fake values
 			"accessToken": claudeTokenStart + "e2efake", "refreshToken": "rt-e2efake", "expiresAt": future.UnixMilli(),

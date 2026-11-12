@@ -103,8 +103,8 @@ description = "List functions nothing calls"
 run = "go run golang.org/x/tools/cmd/deadcode@v0.52.0 ./..."
 
 [tasks.cli-docs]
-description = "Generate the CLI reference (docs/content/docs/cli)"
-run = "go run ./internal/cli/docgen docs/content/docs/cli"
+description = "Generate the CLI reference (docs/content/docs/cli) and the pages' generated blocks"
+run = "go run ./internal/cli/docgen ."
 
 [tasks.docs]
 description = "Serve the docs site"

@@ -184,16 +184,6 @@ func AgentLoadFailed(key string) M {
 	return M{id: "agent_load_failed", vals: []val{{"key", key}}}
 }
 
-// AgentLoginClaudeFlag is [agent_login_claude_flag]: "{{.flag}} doesn't go with devvm agent login claude, which logs in in a browser on any machine. Run devvm agent login claude, or devvm agent login claude --setup-token."
-func AgentLoginClaudeFlag(flag string) M {
-	return M{id: "agent_login_claude_flag", vals: []val{{"flag", flag}}}
-}
-
-// AgentLoginClaudePaste is [agent_login_claude_paste]: "Open the address Claude Code shows in a browser on any machine and approve the login, then paste the code the browser shows here."
-func AgentLoginClaudePaste() M {
-	return M{id: "agent_login_claude_paste"}
-}
-
 // AgentLoginExited is [agent_login_exited]: "{{.agent}}'s login in {{.vm}} failed, and its output above says why."
 func AgentLoginExited(agent string, vm string) M {
 	return M{id: "agent_login_exited", vals: []val{{"agent", agent}, {"vm", vm}}}
@@ -202,6 +192,16 @@ func AgentLoginExited(agent string, vm string) M {
 // AgentLoginFailed is [agent_login_failed]: "Logging the agent in failed: {{.reason}}."
 func AgentLoginFailed(reason string) M {
 	return M{id: "agent_login_failed", vals: []val{{"reason", reason}}}
+}
+
+// AgentLoginFlag is [agent_login_flag]: "{{.flag}} doesn't go with devvm agent login {{.agent}}, because {{.agent}} has no login that takes it. Run devvm agent login {{.agent}} without it."
+func AgentLoginFlag(agent string, flag string) M {
+	return M{id: "agent_login_flag", vals: []val{{"agent", agent}, {"flag", flag}}}
+}
+
+// AgentLoginFlagOrToken is [agent_login_flag_or_token]: "{{.flag}} doesn't go with devvm agent login {{.agent}}, because {{.agent}} has no login that takes it. Run devvm agent login {{.agent}}, or devvm agent login {{.agent}} --setup-token."
+func AgentLoginFlagOrToken(agent string, flag string) M {
+	return M{id: "agent_login_flag_or_token", vals: []val{{"agent", agent}, {"flag", flag}}}
 }
 
 // AgentLoginForward is [agent_login_forward]: "Open the address {{.agent}} shows in a browser on this machine: devvm forwards localhost:{{.port}} to {{.vm}} until the login ends."
@@ -227,6 +227,11 @@ func AgentLoginNoAgent(agent string, vm string) M {
 // AgentLoginNotSaved is [agent_login_not_saved]: "{{.agent}}'s login in {{.vm}} ended, but no new login reached devvm's agent store. devvm network log shows each login the VM's proxy saved."
 func AgentLoginNotSaved(agent string, vm string) M {
 	return M{id: "agent_login_not_saved", vals: []val{{"agent", agent}, {"vm", vm}}}
+}
+
+// AgentLoginPaste is [agent_login_paste]: "Open the address {{.display}} shows in a browser on any machine and approve the login, then paste the code the browser shows here."
+func AgentLoginPaste(display string) M {
+	return M{id: "agent_login_paste", vals: []val{{"display", display}}}
 }
 
 // AgentLoginPortTaken is [agent_login_port_taken]: "A program on this machine has port {{.port}}, which the browser comes back to as you log in. Stop that program, or run devvm agent login {{.agent}} --device-code."
@@ -259,11 +264,6 @@ func AgentLoginSavedFor(agent string, email string, vm string) M {
 	return M{id: "agent_login_saved_for", vals: []val{{"agent", agent}, {"email", email}, {"vm", vm}}}
 }
 
-// AgentLoginSetupTokenAlone is [agent_login_setup_token_alone]: "--setup-token goes with devvm agent login claude. Run devvm agent login claude --setup-token."
-func AgentLoginSetupTokenAlone() M {
-	return M{id: "agent_login_setup_token_alone"}
-}
-
 // AgentLoginStdinAlone is [agent_login_stdin_alone]: "--stdin goes with --api-key. Run devvm agent login {{.agent}} --api-key --stdin."
 func AgentLoginStdinAlone(agent string) M {
 	return M{id: "agent_login_stdin_alone", vals: []val{{"agent", agent}}}
@@ -277,6 +277,21 @@ func AgentNoKeys() M {
 // AgentOnRisk is [agent_on_risk]: "While you're connected, anything in {{.vm}} can use the keys in your SSH agent."
 func AgentOnRisk(vm string) M {
 	return M{id: "agent_on_risk", vals: []val{{"vm", vm}}}
+}
+
+// AgentOwnLoginSaved is [agent_own_login_saved]: "devvm saved {{.display}}'s login in its agent store, and {{.vm}} uses it now. Every VM with {{.display}} gets it from its next launch."
+func AgentOwnLoginSaved(display string, vm string) M {
+	return M{id: "agent_own_login_saved", vals: []val{{"display", display}, {"vm", vm}}}
+}
+
+// AgentProviderRefreshFailed is [agent_provider_refresh_failed]: "Refreshing {{.display}}'s {{.provider}} login in devvm's agent store failed: {{.reason}}. Run devvm agent login {{.agent}} in a VM's folder to log in again."
+func AgentProviderRefreshFailed(agent string, display string, provider string, reason string) M {
+	return M{id: "agent_provider_refresh_failed", vals: []val{{"agent", agent}, {"display", display}, {"provider", provider}, {"reason", reason}}}
+}
+
+// AgentRefreshFailed is [agent_refresh_failed]: "Refreshing {{.display}}'s login in devvm's agent store failed: {{.reason}}. Run devvm agent login {{.agent}} in a VM's folder to log in again."
+func AgentRefreshFailed(agent string, display string, reason string) M {
+	return M{id: "agent_refresh_failed", vals: []val{{"agent", agent}, {"display", display}, {"reason", reason}}}
 }
 
 // AgentSaveAsk is [agent_save_ask]: "Save these settings from {{.vm}} into devvm's agent store, for every VM with these agents?"
@@ -594,19 +609,9 @@ func ClaudeEnvTokenWins() M {
 	return M{id: "claude_env_token_wins"}
 }
 
-// ClaudeLoginSaved is [claude_login_saved]: "devvm saved Claude Code's login in its agent store, and {{.vm}} uses it now. Every VM with Claude Code gets it from its next launch."
-func ClaudeLoginSaved(vm string) M {
-	return M{id: "claude_login_saved", vals: []val{{"vm", vm}}}
-}
-
 // ClaudeNoLogin is [claude_no_login]: "devvm has no Claude Code login any more, so the VM's proxy has none to put in. Run devvm agent login claude in the VM's folder."
 func ClaudeNoLogin() M {
 	return M{id: "claude_no_login"}
-}
-
-// ClaudeRefreshFailed is [claude_refresh_failed]: "Refreshing the Claude Code login in devvm's agent store failed: {{.reason}}. Run devvm agent login claude in a VM's folder to log in again."
-func ClaudeRefreshFailed(reason string) M {
-	return M{id: "claude_refresh_failed", vals: []val{{"reason", reason}}}
 }
 
 // ClaudeSetupTokenSaved is [claude_setup_token_saved]: "devvm saved the Claude Code token from claude setup-token with its secrets, and {{.vm}} uses it now. Every VM with Claude Code gets it from its next launch."
@@ -837,11 +842,6 @@ func CodexNoChatgpt() M {
 // CodexNoKey is [codex_no_key]: "The Codex login in devvm's agent store has no API key any more, so the VM's proxy has none to put in. Run devvm agent login codex --api-key in the VM's folder."
 func CodexNoKey() M {
 	return M{id: "codex_no_key"}
-}
-
-// CodexRefreshFailed is [codex_refresh_failed]: "Refreshing the Codex login in devvm's agent store failed: {{.reason}}. Run devvm agent login codex in a VM's folder to log in again."
-func CodexRefreshFailed(reason string) M {
-	return M{id: "codex_refresh_failed", vals: []val{{"reason", reason}}}
 }
 
 // ConfigNotCopied is [config_not_copied]: "{{.vm}} doesn't get a copy of {{.file}}, because devvm couldn't read it to take its secrets out."
@@ -3139,11 +3139,6 @@ func OpencodeImportTooMuch(vm string) M {
 	return M{id: "opencode_import_too_much", vals: []val{{"vm", vm}}}
 }
 
-// OpencodeRefreshFailed is [opencode_refresh_failed]: "Refreshing opencode's {{.provider}} login in devvm's agent store failed: {{.reason}}. Run devvm agent login opencode in a VM's folder to log in again."
-func OpencodeRefreshFailed(provider string, reason string) M {
-	return M{id: "opencode_refresh_failed", vals: []val{{"provider", provider}, {"reason", reason}}}
-}
-
 // OriginNoBoot is [origin_no_boot]: "base didn't boot from Ubuntu's cloud image {{.origin}}, so devvm tries the release before it."
 func OriginNoBoot(origin string) M {
 	return M{id: "origin_no_boot", vals: []val{{"origin", origin}}}
@@ -5017,25 +5012,28 @@ var specs = map[string]spec{
 	"agent_key_unpinned":             {fields: []string{"key"}},
 	"agent_keys_failed":              {fields: []string{"reason"}},
 	"agent_load_failed":              {fields: []string{"key"}},
-	"agent_login_claude_flag":        {fields: []string{"flag"}},
-	"agent_login_claude_paste":       {},
 	"agent_login_exited":             {fields: []string{"agent", "vm"}},
 	"agent_login_failed":             {fields: []string{"reason"}},
+	"agent_login_flag":               {fields: []string{"agent", "flag"}},
+	"agent_login_flag_or_token":      {fields: []string{"agent", "flag"}},
 	"agent_login_forward":            {fields: []string{"agent", "port", "vm"}},
 	"agent_login_imported":           {fields: []string{"agent", "file"}},
 	"agent_login_key_only":           {fields: []string{"agent"}},
 	"agent_login_no_agent":           {fields: []string{"agent", "vm"}},
 	"agent_login_not_saved":          {fields: []string{"agent", "vm"}},
+	"agent_login_paste":              {fields: []string{"display"}},
 	"agent_login_port_taken":         {fields: []string{"agent", "port"}},
 	"agent_login_provider_alone":     {fields: []string{"agents"}},
 	"agent_login_provider_needed":    {fields: []string{"agent", "providers"}},
 	"agent_login_read_failed":        {fields: []string{"file", "reason"}},
 	"agent_login_saved":              {fields: []string{"agent", "vm"}},
 	"agent_login_saved_for":          {fields: []string{"agent", "email", "vm"}},
-	"agent_login_setup_token_alone":  {},
 	"agent_login_stdin_alone":        {fields: []string{"agent"}},
 	"agent_no_keys":                  {},
 	"agent_on_risk":                  {fields: []string{"vm"}},
+	"agent_own_login_saved":          {fields: []string{"display", "vm"}},
+	"agent_provider_refresh_failed":  {fields: []string{"agent", "display", "provider", "reason"}},
+	"agent_refresh_failed":           {fields: []string{"agent", "display", "reason"}},
 	"agent_save_ask":                 {fields: []string{"vm"}},
 	"agent_save_failed":              {fields: []string{"reason"}},
 	"agent_save_kind_left_out":       {fields: []string{"path", "vm"}},
@@ -5099,9 +5097,7 @@ var specs = map[string]spec{
 	"ca_unreadable":                  {fields: []string{"file"}},
 	"checking_tools":                 {},
 	"claude_env_token_wins":          {},
-	"claude_login_saved":             {fields: []string{"vm"}},
 	"claude_no_login":                {},
-	"claude_refresh_failed":          {fields: []string{"reason"}},
 	"claude_setup_token_saved":       {fields: []string{"vm"}},
 	"claude_token_howto":             {},
 	"claude_token_invalid":           {},
@@ -5148,7 +5144,6 @@ var specs = map[string]spec{
 	"code_failed":                    {fields: []string{"reason"}},
 	"codex_no_chatgpt":               {},
 	"codex_no_key":                   {},
-	"codex_refresh_failed":           {fields: []string{"reason"}},
 	"config_not_copied":              {fields: []string{"file", "vm"}},
 	"config_redacted":                {fields: []string{"file", "keys", "vm"}},
 	"configuring":                    {fields: []string{"vm"}},
@@ -5608,7 +5603,6 @@ var specs = map[string]spec{
 	"oci_waiting":                    {},
 	"opencode_import_failed":         {fields: []string{"providers", "vm"}},
 	"opencode_import_too_much":       {fields: []string{"vm"}},
-	"opencode_refresh_failed":        {fields: []string{"provider", "reason"}},
 	"origin_no_boot":                 {fields: []string{"origin"}},
 	"origin_pinned":                  {fields: []string{"origin"}},
 	"output_failed":                  {fields: []string{"reason"}},
