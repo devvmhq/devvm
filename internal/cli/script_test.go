@@ -266,6 +266,9 @@ func sandbox(env *testscript.Env, bin, stubs string) error {
 	// testscript starts from an environment of its own, but a script's git
 	// never gets git's variables that pick a repo, whatever ran the tests.
 	env.Vars = stubtest.GitEnv(env.Vars)
+	// Nor the machine's system config, which differs between machines:
+	// Apple's sets init.defaultBranch=main, CI runners' none.
+	env.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	return nil
 }
 

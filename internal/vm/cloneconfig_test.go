@@ -233,9 +233,17 @@ func TestSeedConfig(t *testing.T) {
 		t.Errorf("user.name %q", got)
 	}
 	local := gitIn(t, vm, "config", "--local", "--list")
-	for _, never := range []string{"ghp_", "credential", "extraheader", "sshcommand", "alias", "filter", "insteadof", "remote.devvm", "remote.odd"} {
+	for _, never := range []string{"ghp_", "credential", "extraheader", "sshcommand", "alias", "filter.crypt", "insteadof", "remote.devvm", "remote.odd"} {
 		if strings.Contains(strings.ToLower(local), strings.ToLower(never)) {
 			t.Errorf("%q in the VM's config:\n%s", never, local)
+		}
+	}
+	// The only filter is git-lfs's, which the copy sets in the clone where
+	// the VM has git-lfs (here, wherever the tests' PATH has it), never
+	// one of this machine's.
+	for line := range strings.Lines(strings.ToLower(local)) {
+		if strings.HasPrefix(line, "filter.") && !strings.HasPrefix(line, "filter.lfs.") {
+			t.Errorf("a filter of this machine's in the VM's config: %s", line)
 		}
 	}
 	gitIn(t, vm, "commit", "-q", "--allow-empty", "-m", "hooked")

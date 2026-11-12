@@ -35,7 +35,7 @@ exec sh -c 'echo host > b && rm a && mkdir a && echo x > a/f'
 exec sh -c 'echo index-pack > "$STUB_DIR/shell-fails-on"'
 ! exec devvm --clone --network open
 rm $STUB_DIR/shell-fails-on
-exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" commit -q --allow-empty -m vm-own'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" symbolic-ref HEAD refs/heads/main && git -C "$c" commit -q --allow-empty -m vm-own'
 exec devvm
 stderr '^devvm: clone_kept_branches '
 stderr '^devvm: clone_uncommitted_kept dir=/\S*/app$'
