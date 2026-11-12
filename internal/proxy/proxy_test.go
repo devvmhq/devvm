@@ -45,6 +45,17 @@ func writePolicy(t *testing.T, rules string) *policy {
 	return newPolicy(nil, policyFiles(t, rules), nil, quiet())
 }
 
+// decide is p's verdict on host:port without whether a refusal is a broken deny's: the matching
+// rule's text, or why not.
+func (p *policy) decide(host string, port int) (bool, string) {
+	ok, why, _ := p.verdict(host, port)
+	return ok, why
+}
+
+// byRequest is rulesFor(host, port).byRequest, which the proxy takes from the same rulesFor as
+// its verdict (egress.checkHost).
+func (p *policy) byRequest(host string, port int) bool { return p.rulesFor(host, port).byRequest() }
+
 // testServer is a proxy of the test's own, made as Main makes one (newServer), from c with a
 // policy of rules (and the VM's name "vm" when c has none): it logs nothing, and nothing of it is
 // any other test's.

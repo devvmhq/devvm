@@ -29,14 +29,14 @@ internal/ports 91.4
 internal/project 98.5
 internal/proxy 92.8
 internal/redact 97.7
-internal/safefile 95.2
+internal/safefile 97.7
 internal/secrets 93.2
 internal/settings 96.3
 internal/shell 100.0
 internal/sshagent 84.2
 internal/sshconfig 95.0
 internal/state 94.3
-internal/stubtest 81.8
+internal/stubtest 83.4
 internal/stubtest/stub 92.9
 internal/stubtest/stubstate 91.2
 internal/testbuild 100.0

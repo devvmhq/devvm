@@ -393,25 +393,17 @@ func loadPolicy(f, b string, deniesOnly bool, l *log.Logger) policyFile {
 // openRule is what an open policy logs as the rule that allowed a request.
 const openRule = "open"
 
-// decide whether host:port may be reached. host is a name or an address literal. It returns the
-// matching rule's text, or why not.
-func (p *policy) decide(host string, port int) (bool, string) {
-	ok, why, _ := p.verdict(host, port)
-	return ok, why
-}
-
 // deniedBy starts the reason of a refusal by a deny rule, which its text follows.
 const deniedBy = "denied by "
 
-// verdict is decide, and whether a refusal is one no allow rule would lift: a broken deny's. It
-// judges host:port as a whole: a deny that narrows doesn't refuse it, as some of its requests may
-// pass, and an allow that narrows allows it, for judge to look at each request.
+// verdict is whether host:port may be reached, host a name or an address literal: the matching
+// rule's text, or why not, and whether a refusal is one no allow rule would lift: a broken deny's.
+// It judges host:port as a whole: a deny that narrows doesn't refuse it, as some of its requests
+// may pass, and an allow that narrows allows it, for judge to look at each request. The proxy's
+// own connections take the verdict and byRequest from one rulesFor (egress.checkHost).
 func (p *policy) verdict(host string, port int) (bool, string, bool) {
 	return p.rulesFor(host, port).verdict()
 }
-
-// byRequest is rulesFor(host, port).byRequest.
-func (p *policy) byRequest(host string, port int) bool { return p.rulesFor(host, port).byRequest() }
 
 // judge is rulesFor(host, port).judge(r).
 func (p *policy) judge(host string, port int, r *http.Request) (ok bool, why string, refused, narrowed bool) {

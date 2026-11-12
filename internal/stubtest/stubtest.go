@@ -28,9 +28,11 @@ type Stubs struct {
 
 // New puts every stub first on PATH for t, or only the ones named, with
 // a new folder under /tmp (short, for the sockets some stubs make in it)
-// that t's end removes.
+// that t's end removes. The stubs that run git, on their stand-in VM's
+// files, run it without git's variables that pick a repo (NoGitRepo).
 func New(t testing.TB, only ...string) *Stubs {
 	t.Helper()
+	NoGitRepo(t)
 	all := Bin(t)
 	dir, err := os.MkdirTemp("/tmp", "stub.")
 	if err != nil {

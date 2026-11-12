@@ -81,7 +81,7 @@ func buildDevvm(t *testing.T) string {
 		args = append(args, coverFlags()...)
 	}
 	cmd := exec.CommandContext(t.Context(), "go", append(args, "github.com/devvmhq/devvm/cmd/devvm")...) //nolint:gosec // go install, with the test's own flags
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOBIN="+dir)
+	cmd.Env = append(stubtest.GitEnv(os.Environ()), "CGO_ENABLED=0", "GOBIN="+dir)                       // go reads the checkout's own repo to stamp the binary
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building devvm: %v\n%s", err, out)
 	}
@@ -146,8 +146,9 @@ func stopLinkSessions(root string) {
 	}
 }
 
-// sandbox points every folder devvm uses into a new temporary folder, and puts
-// devvm and the stubs first on PATH.
+// sandbox points every folder devvm uses into a new temporary folder, puts
+// devvm and the stubs first on PATH, and leaves out git's variables that
+// pick a repo (stubtest.GitEnv).
 func sandbox(env *testscript.Env, bin, stubs string) error {
 	// /tmp keeps Lima's socket paths short.
 	root, err := os.MkdirTemp("/tmp", "dvt.")
@@ -255,6 +256,9 @@ func sandbox(env *testscript.Env, bin, stubs string) error {
 	}
 	env.Setenv("DEVVM_REPO", repo) // for the repo's own scripts (scripts/, assets/)
 	env.Setenv("PATH", strings.Join([]string{bin, stubs, env.Getenv("PATH")}, string(os.PathListSeparator)))
+	// testscript starts from an environment of its own, but a script's git
+	// never gets git's variables that pick a repo, whatever ran the tests.
+	env.Vars = stubtest.GitEnv(env.Vars)
 	return nil
 }
 

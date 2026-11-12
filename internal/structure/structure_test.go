@@ -37,10 +37,10 @@ func devvm() rules {
 			"internal/ui.UI":      {46, "the one terminal: messages and where they go, as text or names, the logo, errors with the caller's exit code, prompts and their refusals, whether the picker shows, status line, tables, run log and how many are kept, cleanups, signals"},
 		},
 		allowedVars: devvmVars(),
-		// hostgit runs git without the repo's fsmonitor, hooks or filters,
-		// over ssh only, without the environment's GIT_* and prompts.
-		commands:  map[string]string{"git": "internal/hostgit"},
-		execSites: devvmExecSites(),
+		// hostgit runs git without fsmonitor, hooks, filters, GIT_* or prompts, ssh only; tests, stubtest.Git (GitEnv).
+		commands:     map[string]string{"git": "internal/hostgit"},
+		testCommands: map[string]string{"git": "internal/stubtest"},
+		execSites:    devvmExecSites(),
 		// The registry's backends are behind its guard: only backend.As
 		// finds their other interfaces.
 		guardOwner: "internal/backend/guard.go",
@@ -284,6 +284,7 @@ func devvmExecSites() map[string]string {
 		"internal/daemon/daemon.go":            "devvm's background processes, which outlive the run and its context",
 		"internal/upgrade/upgrade.go":          "devvm upgrade: brew upgrade devvm through the UI's LoggedCmd, a new devvm's --version and ps's list, their output read",
 		"internal/stubtest/build.go":           "go build of the test stubs, once for a test process, and their names from the binary",
+		"internal/stubtest/git.go":             "tests' plain git, on their own repos, which they run and read as they like",
 		"internal/stubtest/stub/process.go":    "the stubs' stand-in VM's own commands (git on its files, tar) and the real uname and sw_vers, run in the stub's place",
 	}
 }

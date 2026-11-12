@@ -447,8 +447,6 @@ func agentCases() []ruleCase {
 }
 
 func ownerCases() []ruleCase {
-	const platform = "package platform\n\nconst TestCPUs = \"DEVVM_TEST_CPUS\"\n"
-	listed := rules{envSettings: map[string]envSetting{"DEVVM_X": {[]string{"internal/tools/a.go"}, "x"}}}
 	return []ruleCase{
 		{
 			name:  "a shell quoter outside shell",
@@ -485,6 +483,12 @@ func ownerCases() []ruleCase {
 			name:  "another hex length",
 			files: map[string]string{"internal/cli/a.go": "package cli\n\nconst re = `[0-9a-f]{12}`\n"},
 		},
+	}
+}
+
+// commandCases break and keep commands and testCommands.
+func commandCases() []ruleCase {
+	return []ruleCase{
 		{
 			name:  "git outside hostgit",
 			files: map[string]string{"internal/vm/a.go": runs("vm", "exec", `"git"`)},
@@ -508,11 +512,37 @@ func ownerCases() []ruleCase {
 		{
 			name:  "git in a test",
 			files: map[string]string{"internal/vm/a_test.go": runs("vm", "exec", `"git"`)},
+			want:  &want{ruleOwners, "a test runs git: run it through internal/stubtest"},
+		},
+		{
+			name:  "git in hostgit's test",
+			files: map[string]string{"internal/hostgit/a_test.go": runs("hostgit", "exec", `"git"`)},
+			want:  &want{ruleOwners, "a test runs git"},
+		},
+		{
+			name:  "git in stubtest",
+			files: map[string]string{"internal/stubtest/a.go": runs("stubtest", "exec", `"git"`)},
+		},
+		{
+			name:  "git in stubtest's test",
+			files: map[string]string{"internal/stubtest/a_test.go": runs("stubtest", "exec", `"git"`)},
+		},
+		{
+			name:  "another command in a test",
+			files: map[string]string{"internal/vm/a_test.go": runs("vm", "exec", `"ssh"`)},
 		},
 		{
 			name:  "another command",
 			files: map[string]string{"internal/vm/a.go": runs("vm", "exec", `"ssh"`)},
 		},
+	}
+}
+
+// envCases break and keep the owners of the environment's variables.
+func envCases() []ruleCase {
+	const platform = "package platform\n\nconst TestCPUs = \"DEVVM_TEST_CPUS\"\n"
+	listed := rules{envSettings: map[string]envSetting{"DEVVM_X": {[]string{"internal/tools/a.go"}, "x"}}}
+	return []ruleCase{
 		{
 			name:  "a DEVVM_ variable outside the overrides",
 			files: map[string]string{"internal/tools/a.go": reads("tools", "os.Getenv", `"DEVVM_X"`)},
@@ -677,7 +707,7 @@ func callerCases() []ruleCase {
 // what it allows.
 func TestRulesFail(t *testing.T) {
 	var broken []string // the layer violations' texts
-	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), agentCases(), separatorCases(), runnerCases(), pathCases(), callerCases()) {
+	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), commandCases(), envCases(), agentCases(), separatorCases(), runnerCases(), pathCases(), callerCases()) {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := fstest.MapFS{"go.mod": {Data: []byte("module example.com/m\n\ngo 1.27\n")}}
 			for name, src := range tc.files {
@@ -696,6 +726,9 @@ func TestRulesFail(t *testing.T) {
 			}
 			if r.commands == nil {
 				r.commands = devvm().commands
+			}
+			if r.testCommands == nil {
+				r.testCommands = devvm().testCommands
 			}
 			if r.envOwner == "" {
 				r.envOwner = devvm().envOwner

@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/stubtest"
 )
 
 // walked gives the fixture's protector what the walk finds now, as a
@@ -590,7 +591,7 @@ func BenchmarkNestedCheck(b *testing.B) {
 	for i := range 50 {
 		r := filepath.Join(dir, "repo"+strconv.Itoa(i))
 		for _, args := range [][]string{{"init", "-q", r}, {"-C", r, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "x"}} {
-			if out, err := exec.CommandContext(b.Context(), "git", args...).CombinedOutput(); err != nil { //nolint:gosec // the benchmark's own
+			if out, err := stubtest.Git(b.Context(), args...).CombinedOutput(); err != nil {
 				b.Fatalf("git %v: %v\n%s", args, err, out)
 			}
 		}

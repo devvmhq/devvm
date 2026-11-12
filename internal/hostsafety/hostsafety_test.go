@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/platform"
+	"github.com/devvmhq/devvm/internal/stubtest"
 )
 
 func touch(t *testing.T, paths ...string) {
@@ -221,8 +222,7 @@ func TestSSHRemote(t *testing.T) {
 	}
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", d}, args...)...) //nolint:gosec // the test's own
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := stubtest.Git(t.Context(), append([]string{"-C", d}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}

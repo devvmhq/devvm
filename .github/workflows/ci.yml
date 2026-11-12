@@ -26,15 +26,16 @@ concurrency:
 
 jobs:
   check:
-    # The tests run in UTC, then again on Linux in a zone with DST, so a
-    # test that depends on the zone fails here, not only on a laptop.
+    # The tests run on macOS in UTC and on Linux in a zone with DST, so a
+    # test that depends on the zone fails here, not only on a laptop. Lint
+    # runs on both, because golangci-lint checks only the files built for
+    # the runner's OS, such as internal/platform's *_darwin.go or *_linux.go.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, tz: UTC }
-          - { os: macos-latest, tz: UTC }
           - { os: ubuntu-latest, tz: America/Los_Angeles }
+          - { os: macos-latest, tz: UTC }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,7 +45,6 @@ jobs:
         with:
           version: 2026.10.18
       - run: mise run lint
-        if: matrix.tz == 'UTC'
       - run: mise run test
         env:
           TZ: ${{ matrix.tz }}

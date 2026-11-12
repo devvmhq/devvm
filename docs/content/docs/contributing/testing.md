@@ -279,7 +279,7 @@ To go back to the large host later in the same script, set the large values agai
 
 ## Any time zone
 
-The tests pass in any time zone and on any date, because a test that compares times counts them from an instant it parsed or fixed, or works in UTC, and never sets `time.Local`. A testscript that needs an old file uses a date far in the past, such as `touch -t 202001010000`, and one that needs a file that stays new uses a date far in the future, such as an export named `20991231-235959`, so the scripts keep passing as the calendar moves on. CI runs `mise run test` in UTC on macOS and Linux, and a third job runs it on Linux with `TZ=America/Los_Angeles`, which has daylight saving time, so a test that only passes in one zone fails in CI and not only on a laptop. To check a change the same way, run the tests with another zone, including one with an odd offset or a half-hour DST change:
+The tests pass in any time zone and on any date, because a test that compares times counts them from an instant it parsed or fixed, or works in UTC, and never sets `time.Local`. A testscript that needs an old file uses a date far in the past, such as `touch -t 202001010000`, and one that needs a file that stays new uses a date far in the future, such as an export named `20991231-235959`, so the scripts keep passing as the calendar moves on. CI runs `mise run test` on macOS in UTC and on Linux with `TZ=America/Los_Angeles`, which has daylight saving time, so a test that only passes in one zone fails in CI and not only on a laptop. To check a change the same way, run the tests with another zone, including one with an odd offset or a half-hour DST change:
 
 ```sh
 TZ=America/Los_Angeles mise run test

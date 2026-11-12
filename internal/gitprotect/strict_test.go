@@ -3,12 +3,12 @@ package gitprotect
 import (
 	"context"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/stubtest"
 )
 
 // strictAsBefore makes the fixture's VM one that an earlier devvm's
@@ -29,7 +29,7 @@ func (f *fixture) strictAsBefore(rels ...string) {
 // the repo at rel, one per line.
 func (f *fixture) ignoreIn(rel string) string {
 	f.t.Helper()
-	out, _ := exec.CommandContext(f.t.Context(), "git", "config", "--file", f.path(rel+"/.git/config"), "--get-all", "diff.ignoreSubmodules").Output() //nolint:gosec // the test's own
+	out, _ := stubtest.Git(f.t.Context(), "config", "--file", f.path(rel+"/.git/config"), "--get-all", "diff.ignoreSubmodules").Output()
 	return strings.TrimSpace(string(out))
 }
 
