@@ -73,7 +73,7 @@ func TestFixtureProxyConfig(t *testing.T) {
 		b, err := os.ReadFile(f.path)
 		must(t, err)
 		cp := filepath.Join(dir, filepath.Base(filepath.Dir(filepath.Dir(f.path)))+"-"+string(rune('a'+i)))
-		must(t, os.WriteFile(cp, b, 0o600)) //nolint:gosec // G703: a file in the test's own temp folder
+		must(t, os.WriteFile(cp, b, 0o600))
 		c, err := ReadConfig(cp)
 		if err != nil {
 			t.Errorf("%s: %v", f.path, err)

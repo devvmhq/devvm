@@ -85,7 +85,7 @@ func fixture(ts *testscript.TestScript, neg bool, args []string) {
 			if err != nil {
 				return err
 			}
-			if err := os.WriteFile(dst, []byte(r.Replace(string(b))), mode); err != nil { //nolint:gosec // the fixture's own paths, in the sandbox
+			if err := os.WriteFile(dst, []byte(r.Replace(string(b))), mode); err != nil {
 				return err
 			}
 			return os.Chmod(dst, mode)

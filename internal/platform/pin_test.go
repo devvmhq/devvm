@@ -63,7 +63,7 @@ func pinHelper(mode string, args []string) error {
 // waitPinnedAgain, in the namespace, says it's ready, waits for the test
 // to replace root/f, and checks f is pinned again, as the new file.
 func waitPinnedAgain(root string) error {
-	if err := os.WriteFile(filepath.Join(root, "ready"), nil, 0o600); err != nil { //nolint:gosec // the test's own folder
+	if err := os.WriteFile(filepath.Join(root, "ready"), nil, 0o600); err != nil {
 		return err
 	}
 	r, err := OpenRoot(root)
@@ -72,7 +72,7 @@ func waitPinnedAgain(root string) error {
 	}
 	for range 200 {
 		if b, _ := os.ReadFile(filepath.Join(root, "f")); string(b) == "new" && Pinned(r, "f", true) { //nolint:gosec // the test's own folder
-			if os.WriteFile(filepath.Join(root, "f"), []byte("guest"), 0o600) == nil { //nolint:gosec // the test's own folder
+			if os.WriteFile(filepath.Join(root, "f"), []byte("guest"), 0o600) == nil {
 				return errors.New("the new f is writable")
 			}
 			return nil

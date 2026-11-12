@@ -196,8 +196,7 @@ func TestInitCAReplaced(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(f[1], b, 0o600); err != nil { //nolint:gosec // G703: the test's own folder
-
+		if err := os.WriteFile(f[1], b, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -267,8 +266,7 @@ func TestInitCAMismatched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(ca.Key(), key, 0o600); err != nil { //nolint:gosec // the test's own folder
-
+	if err := os.WriteFile(ca.Key(), key, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := InitCA(t.Context(), ca); err != nil {

@@ -109,10 +109,10 @@ func writeGolden(t *testing.T, l *Lima, dir string, list []byte) {
 		t.Fatal(err)
 	}
 	for name, data := range map[string][]byte{"limactl-version.txt": version, "limactl-list-stopped.json": list} {
-		if err := os.MkdirAll(dir, 0o750); err != nil { //nolint:gosec // the folder e2e's --golden names
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(anonymous(string(data), filepath.Dir(l.Dirs.Home), me.Username)), 0o600); err != nil { //nolint:gosec // the folder e2e's --golden names
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(anonymous(string(data), filepath.Dir(l.Dirs.Home), me.Username)), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

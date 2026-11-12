@@ -162,7 +162,7 @@ func TestSeedNoStaleState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(msgFile, append(b, []byte("This reverts commit "+secret+".\n")...), 0o600); err != nil { //nolint:gosec // the test's own repo
+	if err := os.WriteFile(msgFile, append(b, []byte("This reverts commit "+secret+".\n")...), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	vm = seedOK(t, dir)

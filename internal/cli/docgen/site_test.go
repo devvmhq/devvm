@@ -166,7 +166,7 @@ func TestNoThirdPartyLoads(t *testing.T) {
 	}
 	own := ownHosts(t)
 	files := 0
-	err := filepath.WalkDir(site, func(path string, d fs.DirEntry, err error) error { //nolint:gosec // DOCS_SITE is the folder lint:docs built
+	err := filepath.WalkDir(site, func(path string, d fs.DirEntry, err error) error {
 		ext := filepath.Ext(path)
 		if err != nil || d.IsDir() || (ext != ".html" && ext != ".css") {
 			return err

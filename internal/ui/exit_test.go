@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 // signal to land in.
 func helper(mode string) int {
 	record := func(s string) {
-		f, err := os.OpenFile(os.Getenv("UI_TEST_RECORD"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600) //nolint:gosec // the test's own file
+		f, err := os.OpenFile(os.Getenv("UI_TEST_RECORD"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 		if err == nil {
 			_, _ = f.WriteString(s + "\n")
 			_ = f.Close()

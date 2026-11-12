@@ -73,7 +73,7 @@ func inheritedChildRun(t *testing.T) {
 // other file on fd, such as the loader's, is not it.
 func holds(t *testing.T, pid, fd int, path string) bool {
 	t.Helper()
-	want, err := os.Stat(path) //nolint:gosec // the parent test's own temp file
+	want, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}

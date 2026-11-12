@@ -148,6 +148,12 @@ linters:
       - path: ^tests/e2e/
         linters: [gosec]
         text: G204|G304|G702|G703
+      # A test's helpers write the paths its own temp folder names. gosec's
+      # taint analysis reports some of them on some runs and not others
+      # (internal/gitprotect's write), so a nolint would fail nolintlint.
+      - path: _test\.go$
+        linters: [gosec]
+        text: G703
       - path: ^internal/ui/
         linters: [forbidigo]
         text: fmt\.Print|os\.(Stdout|Stderr)|context\.(Background|TODO)
