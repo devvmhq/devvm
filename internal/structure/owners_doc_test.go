@@ -67,7 +67,7 @@ func ownerDocs() []ownerDoc {
 		{
 			check:     "forbidigo, `os.Setenv`, `os.Unsetenv`, `os.Clearenv` and `syscall`'s",
 			owner:     "each command's own environment, its `exec.Cmd`'s `Env`, because every command and background process devvm starts inherits devvm's. A VM's SSH agent is one: the finder's `target` carries its socket, which goes to the backend in `backend.ExecOpts.Agent`, `backend.ShellOpts.Agent` and `Confinement.AgentSocket`, and Lima sets `SSH_AUTH_SOCK` on that VM's `limactl` commands alone, so a run that reaches several VMs never gives one another's",
-			elsewhere: "`daemon.Ready` in `internal/daemon/status.go`, which takes the status file's name out of a background process's own environment, and tests, which use `t.Setenv`",
+			elsewhere: "`daemon.Ready` in `internal/daemon/status.go`, which takes the status file's name out of a background process's own environment; `stubtest.NoGitRepo`, which takes git's variables that pick a repo out of a test's environment until the test ends; and tests, which use `t.Setenv`",
 		},
 		{
 			check:     "the structure test's `owners`, host commands",
@@ -81,8 +81,8 @@ func ownerDocs() []ownerDoc {
 		},
 		{
 			check:     "the structure test's `owners`, git",
-			owner:     "`internal/hostgit`, which runs git without the repo's fsmonitor, hooks or filters, over ssh only, without the environment's `GIT_*` variables and prompts",
-			elsewhere: "tests, which run git to make their repos",
+			owner:     "`internal/hostgit`, which runs git without the repo's fsmonitor, hooks or filters, over ssh only, without the environment's `GIT_*` variables and prompts. In tests, which run plain git to make their repos, it's `internal/stubtest`'s `Git`, which leaves out git's variables that pick a repo, its files or its config (`GitEnv`), so a git that runs the tests, such as a hook's or `git rebase --exec`'s, never sends a test's git to the checkout itself",
+			elsewhere: "nothing else",
 		},
 		{
 			check:     "forbidigo, `os.UserHomeDir`, and the structure test's `owners`, `HOME`",
@@ -185,7 +185,7 @@ func TestOwnersDoc(t *testing.T) {
 func TestOwnersAgree(t *testing.T) {
 	r := devvm()
 	owners := []string{r.guardOwner, r.envOwner, r.pathsOwner}
-	for _, m := range []map[string]string{r.commands, r.envOwners, r.callers} {
+	for _, m := range []map[string]string{r.commands, r.testCommands, r.envOwners, r.callers} {
 		for _, o := range m {
 			owners = append(owners, o)
 		}

@@ -91,7 +91,7 @@ func buildInto(root, dir string) error {
 	bin := filepath.Join(dir, "stub")
 	cmd := exec.CommandContext(ctx, "go", "build", "-o", bin, stubPackage) //nolint:gosec // the test's own temporary folder
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	cmd.Env = append(GitEnv(os.Environ()), "CGO_ENABLED=0") // go reads the checkout's own repo to stamp the binary
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("building the stubs: %w\n%s", err, out)
 	}

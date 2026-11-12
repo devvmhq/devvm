@@ -107,14 +107,16 @@ func calls(f srcFile, fn func(*ast.CallExpr)) {
 }
 
 // checkCommands: outside tests, a host command that commands lists runs
-// only in its package. An exec.Command or exec.CommandContext naming it,
-// as a literal or a constant, runs it.
+// only in its package, or in the test-support package testCommands names
+// for it; in tests, a command that testCommands lists runs only in that
+// package. An exec.Command or exec.CommandContext naming it, as a literal
+// or a constant, runs it.
 func checkCommands(m *module, r rules) []violation {
 	var vs []violation
 	c := stringConsts(m)
 	for _, f := range m.files {
 		exec := importName(f, "os/exec")
-		if f.test || exec == "" {
+		if exec == "" {
 			continue
 		}
 		at := map[string]int{exec + ".Command": 0, exec + ".CommandContext": 1} // the command's argument
@@ -124,7 +126,15 @@ func checkCommands(m *module, r rules) []violation {
 				return
 			}
 			name, ok := c.value(m, f, call.Args[i])
-			if owner, guarded := r.commands[name]; ok && guarded && f.dir != owner {
+			if !ok {
+				return
+			}
+			owner, guarded := r.commands[name]
+			testOwner, testGuarded := r.testCommands[name]
+			switch {
+			case f.test && testGuarded && f.dir != testOwner:
+				vs = append(vs, violation{ruleOwners, m.pos(call), fmt.Sprintf("a test runs %s: run it through %s, which every test's %s goes through", name, testOwner, name)})
+			case !f.test && guarded && f.dir != owner && (!testGuarded || f.dir != testOwner):
 				vs = append(vs, violation{ruleOwners, m.pos(call), fmt.Sprintf("runs %s: run it through %s, the only package that does", name, owner)})
 			}
 		})

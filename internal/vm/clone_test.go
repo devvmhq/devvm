@@ -36,7 +36,7 @@ func gitEnv(t *testing.T) {
 // output, trimmed.
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	out, err := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...).CombinedOutput() //nolint:gosec // the test's own
+	out, err := stubtest.Git(t.Context(), append([]string{"-C", dir}, args...)...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
@@ -49,10 +49,12 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 func cloneEnv(t *testing.T) (e *Env, f *backendtest.Fake, vmfs string) {
 	t.Helper()
 	e, f, _ = upEnv(t, allNative())
+	// The stubs first, as they take git's variables that pick a repo out
+	// of the test's environment, then the test's own.
+	vmfs = stubtest.New(t, "ssh").Path("vmfs")
 	gitEnv(t)
 	gitIn(t, e.Dir, "init", "-q", "-b", "main")
 	gitIn(t, e.Dir, "commit", "-q", "--allow-empty", "-m", "one")
-	vmfs = stubtest.New(t, "ssh").Path("vmfs")
 	f.Target = backend.SSHTarget{Host: "127.0.0.1", Port: 60022, User: "u", Key: "/k"}
 	f.ExecFunc = func(_ string, argv []string, o backend.ExecOpts) error {
 		var cmd *exec.Cmd
@@ -61,7 +63,7 @@ func cloneEnv(t *testing.T) (e *Env, f *backendtest.Fake, vmfs string) {
 			_, err := io.WriteString(o.Stdout, testHostKey+"\n")
 			return err
 		case len(argv) > 3 && argv[0] == "git" && argv[1] == "-C":
-			cmd = exec.CommandContext(t.Context(), "git", append([]string{"-C", vmfs + argv[2]}, argv[3:]...)...) //nolint:gosec // the test's own
+			cmd = stubtest.Git(t.Context(), append([]string{"-C", vmfs + argv[2]}, argv[3:]...)...)
 		case len(argv) >= 5 && argv[0] == "sh" && argv[1] == "-c":
 			// A clone's script: its first argument the project folder, in
 			// vmfs, the rest relative to it.
@@ -432,6 +434,7 @@ func TestParseCloneState(t *testing.T) {
 // listed, and one outside, listed first, doesn't count towards how many
 // it looks at, so it never hides one inside.
 func TestCloneStateScript(t *testing.T) {
+	stubtest.NoGitRepo(t) // the script runs git
 	gitEnv(t)
 	outside := t.TempDir()
 	ws, _ := filepath.EvalSymlinks(t.TempDir())

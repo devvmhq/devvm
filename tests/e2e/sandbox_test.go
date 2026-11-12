@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/stubtest"
 )
 
 // sandbox is a slot's: its Lima home, state folder, Keychain service and
@@ -109,14 +111,16 @@ func newSandbox(o options) (*sandbox, error) {
 // environ is env with what e2e never inherits taken out and set's
 // variables in their place. Your SSH agent is never reached, devvm's
 // output stays plain, and no setting of yours picks its messages, mise,
-// Ubuntu's mirror or --from.
+// Ubuntu's mirror or --from. Nor does the git that e2e runs on its
+// projects get git's variables that pick a repo (stubtest.GitEnv), which a
+// git that ran e2e may have set.
 func environ(env []string, set map[string]string) []string {
 	drop := []string{
 		"DEVVM_MESSAGES", "DEVVM_UBUNTU_URL", "DEVVM_UBUNTU_RELEASE", "DEVVM_HOST_MISE", "CLAUDE_CODE_OAUTH_TOKEN",
 		"DEVVM_FROM", "SSH_AUTH_SOCK", "FORCE_COLOR", "CLICOLOR_FORCE",
 	}
 	var out []string
-	for _, kv := range env {
+	for _, kv := range stubtest.GitEnv(env) {
 		k, _, _ := strings.Cut(kv, "=")
 		if _, ok := set[k]; ok || slices.Contains(drop, k) {
 			continue

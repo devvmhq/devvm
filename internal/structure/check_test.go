@@ -30,6 +30,10 @@ type rules struct {
 	// commands are the host commands one package runs: a command's name,
 	// then the package folder that runs it.
 	commands map[string]string
+	// testCommands are the host commands that tests run only through one
+	// test-support package, which may run them outside tests too: a
+	// command's name, then that package's folder.
+	testCommands map[string]string
 	// execSites are the files that make host commands, from the module's
 	// root, each with why; nil checks none.
 	execSites map[string]string

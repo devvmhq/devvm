@@ -8,14 +8,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/stubtest"
 )
 
 // git runs plain git in dir, failing the test if it fails, and returns
 // its output, trimmed.
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...) //nolint:gosec // the test's own
-	out, err := cmd.CombinedOutput()
+	out, err := stubtest.Git(t.Context(), append([]string{"-C", dir}, args...)...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
@@ -36,6 +37,31 @@ func repo(t *testing.T) string {
 	git(t, dir, "init", "-q", "-b", "main")
 	git(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
 	return dir
+}
+
+// The tests' git works on their own repos, never on the one that a git
+// running the tests names in its environment, as a hook's or git rebase
+// --exec's does.
+func TestRepoNotTheRunners(t *testing.T) {
+	decoy := t.TempDir()
+	if out, err := stubtest.Git(t.Context(), "init", "-q", decoy).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	config := filepath.Join(decoy, ".git", "config")
+	was, err := os.ReadFile(config) //nolint:gosec // the test's own
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
+	t.Setenv("GIT_CONFIG_PARAMETERS", "'core.bare'='true'")
+	dir := repo(t)
+	git(t, dir, "config", "core.fsmonitor", "/nowhere")
+	if now, err := os.ReadFile(config); err != nil || string(now) != string(was) { //nolint:gosec // the test's own
+		t.Errorf("the decoy's config changed:\n%s", now)
+	}
+	if got := git(t, dir, "config", "--file", filepath.Join(dir, ".git", "config"), "core.fsmonitor"); got != "/nowhere" {
+		t.Errorf("the test's repo: core.fsmonitor %q", got)
+	}
 }
 
 // marker is a program that touches a file and passes its input through,
@@ -193,7 +219,7 @@ func TestCommandNoLazyFetch(t *testing.T) {
 		git(t, dir, "config", kv[0], kv[1])
 	}
 	missing := "0123456789abcdef0123456789abcdef01234567"
-	_ = exec.CommandContext(t.Context(), "git", "-C", dir, "cat-file", "-e", missing).Run() //nolint:gosec // the test's own
+	_ = stubtest.Git(t.Context(), "-C", dir, "cat-file", "-e", missing).Run()
 	if !ranOnce(ran) {
 		t.Fatal("plain git didn't fetch lazily with the repo's ssh")
 	}
@@ -210,10 +236,15 @@ func TestCommandNoLazyFetch(t *testing.T) {
 func TestCommandIgnoresGitEnv(t *testing.T) {
 	dir, other := repo(t), repo(t)
 	resolved := func(p string) string { r, _ := filepath.EvalSymlinks(p); return r }
-	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
-	t.Setenv("GIT_WORK_TREE", other)
-	if got := git(t, dir, "rev-parse", "--absolute-git-dir"); resolved(got) != resolved(filepath.Join(other, ".git")) {
-		t.Fatalf("plain git: %s", got)
+	vars := []string{"GIT_DIR=" + filepath.Join(other, ".git"), "GIT_WORK_TREE=" + other}
+	plain := stubtest.Git(t.Context(), "-C", dir, "rev-parse", "--absolute-git-dir")
+	plain.Env = append(plain.Env, vars...) // stubtest.Git's own environment leaves them out
+	if out, err := plain.Output(); err != nil || resolved(strings.TrimSpace(string(out))) != resolved(filepath.Join(other, ".git")) {
+		t.Fatalf("plain git: %s, %v", out, err)
+	}
+	for _, kv := range vars {
+		k, v, _ := strings.Cut(kv, "=")
+		t.Setenv(k, v)
 	}
 	out, err := Output(t.Context(), "-C", dir, "rev-parse", "--absolute-git-dir")
 	if got := strings.TrimSpace(string(out)); err != nil || resolved(got) != resolved(filepath.Join(dir, ".git")) {
@@ -254,7 +285,7 @@ func TestStatusNoFilters(t *testing.T) {
 				}
 			}
 			touch(1)
-			_ = exec.CommandContext(t.Context(), "git", "-C", dir, "status", "--porcelain").Run() //nolint:gosec // the test's own
+			_ = stubtest.Git(t.Context(), "-C", dir, "status", "--porcelain").Run()
 			if !ranOnce(ran) {
 				t.Fatal("plain git status didn't run the filter")
 			}
@@ -294,7 +325,7 @@ func TestStatusNoSubmodules(t *testing.T) {
 		at = at.Add(time.Second)
 	}
 	touch()
-	_ = exec.CommandContext(t.Context(), "git", "-C", dir, "status", "--porcelain").Run() //nolint:gosec // the test's own
+	_ = stubtest.Git(t.Context(), "-C", dir, "status", "--porcelain").Run()
 	if !ranOnce(ran) {
 		t.Fatal("plain git status didn't run the submodule's filter")
 	}

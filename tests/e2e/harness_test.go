@@ -227,7 +227,8 @@ func TestHarnessAnonymous(t *testing.T) {
 }
 
 func TestHarnessEnviron(t *testing.T) {
-	got := environ([]string{"PATH=/bin", "SSH_AUTH_SOCK=/a", "DEVVM_MESSAGES=names", "LIMA_HOME=/mine"}, map[string]string{"LIMA_HOME": "/sandbox", "A": "1"})
+	got := environ([]string{"PATH=/bin", "SSH_AUTH_SOCK=/a", "DEVVM_MESSAGES=names", "LIMA_HOME=/mine", "GIT_DIR=/repo/.git", "GIT_CONFIG_PARAMETERS=x"},
+		map[string]string{"LIMA_HOME": "/sandbox", "A": "1"})
 	if want := []string{"PATH=/bin", "A=1", "LIMA_HOME=/sandbox"}; !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/stubtest"
 	"github.com/devvmhq/devvm/internal/stubtest/stubstate"
 )
 
@@ -556,6 +557,7 @@ func TestShellScripts(t *testing.T) {
 // A --clone VM's git runs on the guest's files; its worktree list gives
 // the guest's paths.
 func TestCloneGit(t *testing.T) {
+	stubtest.NoGitRepo(t) // the stub runs git in this process
 	s := newSandbox(t)
 	s.ok("", "limactl", "shell", "vm", "sh", "-c", "cd '/' && exec 'git' '-C' '/w' 'status'")
 	if got := s.replaced[0]; !slices.Equal(got, []string{"git", "-C", filepath.Join(s.dir, "vmfs/w"), "status"}) {
@@ -571,7 +573,7 @@ func TestCloneGit(t *testing.T) {
 		t.Skip("no git here")
 	}
 	repo := filepath.Join(s.dir, "vmfs", "w")
-	if out, err := exec.CommandContext(t.Context(), "git", "init", "-q", repo).CombinedOutput(); err != nil { //nolint:gosec // git init in the test's own folder
+	if out, err := stubtest.Git(t.Context(), "init", "-q", repo).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 	out := s.ok("", "limactl", "shell", "vm", "cd '/' && exec 'git' '-C' '/w' 'worktree' 'list' '--porcelain' '-z'")

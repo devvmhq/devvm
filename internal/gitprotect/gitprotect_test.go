@@ -14,6 +14,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/stubtest"
 )
 
 // fixture is a project folder with a protector whose chflags and warnings
@@ -100,7 +101,7 @@ func (f *fixture) path(rel string) string { return filepath.Join(f.dir, rel) }
 
 func (f *fixture) git(dir string, args ...string) string {
 	f.t.Helper()
-	cmd := exec.CommandContext(f.t.Context(), "git", append([]string{ //nolint:gosec // the test's own
+	cmd := stubtest.Git(f.t.Context(), append([]string{
 		"-c", "user.email=a@b", "-c", "user.name=a",
 		"-c", "init.defaultBranch=main", "-c", "protocol.file.allow=always",
 	}, args...)...)
@@ -870,7 +871,7 @@ func (f *fixture) set(mode string) {
 
 func (f *fixture) ignoreSubmodules() string {
 	f.t.Helper()
-	out, _ := exec.CommandContext(f.t.Context(), "git", "config", "--file", f.path(".git/config"), "diff.ignoreSubmodules").Output() //nolint:gosec // the test's own
+	out, _ := stubtest.Git(f.t.Context(), "config", "--file", f.path(".git/config"), "diff.ignoreSubmodules").Output()
 	return strings.TrimSpace(string(out))
 }
 
