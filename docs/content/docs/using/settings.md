@@ -96,7 +96,10 @@ A mirror can't give base a package that Ubuntu didn't publish. apt checks every 
 
 ### The paste folder
 
-`paste-dir` is the folder in every VM that [devvm paste](coding-agents.md#pasting-images) puts images, PDFs and copied files in, `/tmp/devvm-paste` unless you set it. Each launch makes the folder in the VM when it's missing, mode 700 and the VM's user's own. It leaves a folder that's there as it is, so a folder of your own, such as `/home/USER/pastes` where `USER` is your user in the VM, keeps its mode and its other files. When what's at the path is a symbolic link, isn't a folder or isn't the VM's user's, a launch warns and devvm paste refuses the folder. A launch also warns when it can't make the folder, as under a file, and in each case the launch goes on.
+`paste-dir` is the folder in every VM that [devvm paste](coding-agents.md#pasting-images) puts images, PDFs and copied files in, `/tmp/devvm-paste` unless you set it. Each launch makes the folder in the VM when it's missing, mode 700 and the VM's user's own. It leaves a folder that's there as it is, so a folder of your own, such as `/home/USER/pastes` where `USER` is your user in the VM, keeps its mode and its other files. A launch warns, and goes on, when:
+
+- what's at the path is a symbolic link, isn't a folder or isn't the VM's user's, and devvm paste then refuses the folder;
+- it can't make the folder, as under a file.
 
 It's one fixed path for every VM so that you can allow it once in an agent's settings. Give it as an absolute path without a trailing slash, made of letters, digits and `.`, `_` and `-`, and devvm refuses anything else (`config.toml` names the line), because the path goes into a shell in the VM and onto your clipboard. A change applies to each VM at its next launch, which makes the new folder, and devvm paste uses the new folder at once. No command saves it, so it's only ever in `config.toml`.
 
