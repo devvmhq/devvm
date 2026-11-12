@@ -1,0 +1,73 @@
+# --clone copies the repo's initialised submodules, nested ones too: each
+# gets a clone of its own at its path in the VM, at the commit the repo
+# has checked out there, so git submodule status there is as here, with a
+# remote for the VM in the submodule's repo here; each is recorded in the
+# VM's state. An uninitialised submodule stays an empty folder. devvm
+# clone fetch fetches each submodule's branches, and rm checks each one
+# for work not fetched. (The stubs keep the VM's files in
+# $STUB_DIR/vmfs.)
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always
+exec git init -q -b main $WORK/deep
+exec git -C $WORK/deep commit -q --allow-empty -m deep
+exec git init -q -b main $WORK/lib
+exec git -C $WORK/lib commit -q --allow-empty -m lib
+exec git -C $WORK/lib submodule add -q $WORK/deep deep
+exec git -C $WORK/lib commit -q -m with-deep
+exec git init -q -b main $WORK/other
+exec git -C $WORK/other commit -q --allow-empty -m other
+
+cd $WORK/app
+exec git init -q -b main
+exec git add a
+exec git commit -q -m one
+exec git submodule add -q $WORK/lib lib
+exec git submodule add -q $WORK/other other
+exec git commit -q -m subs
+exec git submodule update -q --init --recursive
+exec git submodule deinit -q other
+
+exec devvm --clone --network open
+stdout '^==> copying_submodule path=lib$'
+stdout '^==> copying_submodule path=lib/deep$'
+! stdout 'copying_submodule path=other'
+stdout '^==> clone_ready branch=main remote=devvm$'
+
+# In the VM: lib and lib/deep at the commits checked out here, so git
+# submodule status there shows them initialised and as here; other is an
+# empty folder.
+exec sh -c 'git submodule status --recursive | grep -v other'
+cp stdout $WORK/host-status-initialised
+stdout '^ [0-9a-f]+ lib '
+exec sh -c 'cd "$STUB_DIR/vmfs$(pwd -P)" && git submodule status --recursive | grep -v other'
+cmp stdout $WORK/host-status-initialised
+exec sh -c 'ls -A "$STUB_DIR/vmfs$(pwd -P)/other" | wc -l | tr -d " "'
+stdout '^0$'
+exec git -C lib remote get-url devvm
+stdout '^devvm-app-[0-9a-f]{14}:/\S*/app/lib$'
+vm_name APP app
+vm_state $APP_dir/vm.json
+stdout '^clone\.made\.submodules\.0\.path=lib$'
+stdout '^clone\.made\.submodules\.0\.seeded=true$'
+stdout '^clone\.made\.submodules\.0\.submodules\.0\.path=deep$'
+
+# Work in the VM's lib comes back with devvm clone fetch, into lib's
+# repo here.
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)/lib" checkout -q -b vm-work && git -C "$STUB_DIR/vmfs$(pwd -P)/lib" commit -q --allow-empty -m from-vm'
+exec devvm clone fetch
+stdout '^vm-work: lib$'
+exec git -C lib log --format=%s -1 devvm/vm-work
+stdout '^from-vm$'
+
+# Work there not fetched: rm without a terminal names lib's, and keeps
+# the VM; --no-clone-check deletes it and removes lib's remote too.
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)/lib/deep" checkout -q -b deep-work && git -C "$STUB_DIR/vmfs$(pwd -P)/lib/deep" commit -q --allow-empty -m deep-vm'
+! exec devvm rm --force
+stdout '^unfetched_commits_in refs="deep-work" repo=lib/deep$'
+stderr '^devvm: no_terminal_fetch_repos command=devvm rm$'
+exec devvm rm --force --no-export --no-clone-check
+! exec git -C lib remote get-url devvm
+! exec git -C lib/deep remote get-url devvm
+
+-- app/a --
+a

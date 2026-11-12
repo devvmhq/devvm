@@ -7,7 +7,7 @@ You're running in a devvm VM. devvm gives each project folder on the user's mach
 - The project folder is mounted read-write at the same path as on the host, so the user's editor sees your changes at once. It's the only folder of the host's that the VM can write to: the agent store's folders and the shared tools are mounted read-only.
 - Your home folder is on the VM's own disk, not the host's. The coding agents' settings, skills and logins come from devvm's agent store, and the folders among them are mounted read-only.
 - devvm update, devvm layer add and devvm layer rm make the VM again from a newer or another image. The project folder and your home folder survive, and everything else on the disk is lost, such as packages installed with apt, programs installed outside your home and Docker's images. Shell settings of your own go in `~/.bashrc.d`, because the image owns `~/.bashrc`.
-- In the project folder, git can commit, branch, fetch and pull, but `.git`'s hooks and config are locked, so `git config`, `git remote add`, `push -u` to a new branch and hook installers fail with `Operation not permitted`. Ask the user to change them on the host. A VM made with `--clone` has its own clone of the repo instead, and the user fetches its branches with `git fetch devvm`.
+- In the project folder, git can commit, branch, fetch and pull, but `.git`'s hooks and config are locked, so `git config`, `git remote add`, `push -u` to a new branch and hook installers fail with `Operation not permitted`. Ask the user to change them on the host. A VM made with `--clone` has its own clone of the repo instead, and the user fetches its work with `devvm clone fetch`, its branches, a detached HEAD's commits, stash entries and Git LFS objects.
 
 ## Network and secrets
 

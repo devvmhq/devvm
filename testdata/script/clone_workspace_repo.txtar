@@ -53,7 +53,7 @@ stdout '^==> clone_added path=\. remote=devvm$'
 exec sh -c 'v="$STUB_DIR/vmfs$(pwd -P)"; mkdir -p "$v/.worktrees/x" && echo f > "$v/.worktrees/x/f" && git -C "$v" status --porcelain'
 ! stdout .
 
-# A copy whose push landed but whose remote couldn't be added, then work
+# A copy that landed but whose remote couldn't be added, then work
 # in the VM: devvm clone add again adds the remote, and leaves the VM's
 # work as it is.
 exec git init -q -b main tools
@@ -119,9 +119,9 @@ exec devvm rm --force --no-export
 cd $WORK/outside
 exec devvm rm --force --no-export
 
-# Repos --clone can't copy, each with why: a detached HEAD with no default
-# branch, a .git that points into another repo, and one that's no repo;
-# past the walk's 100, how many more.
+# Repos --clone can't copy, each with why: a .git that points into
+# another repo, and one that's no repo; past the walk's 100, how many
+# more. A detached HEAD with no branch at all is copied, detached.
 mkdir $WORK/many
 cd $WORK/many
 exec git init -q -b main a
@@ -138,9 +138,10 @@ ttyin -stdin $WORK/enter.txt
 exec devvm --clone --network open --tools none --agents none --layers none --ports none --cpus 2 --memory 4 --disk 100 --ssh-config
 stdout '\[ \] broken +workspace_reason_not_repo'
 stdout '\[ \] elsewhere +workspace_reason_elsewhere'
-stdout '\[ \] nobranch +workspace_reason_no_branch'
+stdout '\[x\] nobranch'
 stderr '^devvm: workspace_repos_past count=4 max=100$'
-stdout '^==> workspace_ready count=1$'
+stdout '^==> workspace_detached path=nobranch$'
+stdout '^==> workspace_ready count=2$'
 env DEVVM_PICK_ON_PIPE=
 exec devvm rm --force --no-export
 
@@ -150,10 +151,10 @@ rm -r z elsewhere broken nobranch
 exec git init -q -b main b
 exec git -C b commit -q --allow-empty -m b
 rm $STUB_DIR/vmfs
-exec sh -c 'touch "$STUB_DIR/ssh-fails"'
+exec sh -c 'echo index-pack > "$STUB_DIR/shell-fails-on"'
 ! exec devvm --clone --network open --repos all
 stderr '^devvm: clone_seed_failed vm=devvm-many-[0-9a-f]{14}$'
-rm $STUB_DIR/ssh-fails
+rm $STUB_DIR/shell-fails-on
 mv b/.git b-git
 exec devvm
 stderr '^devvm: workspace_repo_dropped path=b$'

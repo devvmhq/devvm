@@ -1,0 +1,96 @@
+# --clone of a repo in the middle of a rebase stopped on a conflict,
+# started with --autostash, with a stash of two entries, one of them git
+# stash --all's: the VM's clone is in the same rebase, git rebase
+# --continue there finishes it and brings the autostashed change back, and
+# its stash is this repo's but for the --all entry, which holds ignored
+# files and is named. Then rm names the VM's own stash entry, never the
+# ones copied in, and once devvm clone fetch has saved it as
+# saved/devvm/stash-0, rm without a terminal deletes the VM. (The stubs
+# keep the VM's files in $STUB_DIR/vmfs.)
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+cd $WORK/web
+exec git init -q -b main
+exec git add .
+exec git commit -q -m base
+exec git checkout -q -b topic
+exec sh -c 'echo topic > f && git commit -q -am topic'
+exec git checkout -q main
+exec sh -c 'echo main > f && git commit -q -am main'
+exec git checkout -q topic
+exec sh -c 'echo one > g && git stash push -q -m one'
+exec sh -c 'echo secret > x.log && echo all > g && git stash push -q --all -m all'
+exec sh -c 'echo wip > g'
+! exec git rebase --autostash main
+exec git status --short
+stdout '^UU f$'
+
+exec devvm --clone --network open
+stderr '^devvm: clone_stash_all_kept count=1 dir=/\S*/web entries="stash@\{0\}"$'
+stdout '^==> clone_ready_detached remote=devvm$'
+exec sh -c 'cd "$STUB_DIR/vmfs$(pwd -P)" && git status --short && git stash list --format=%gs && test ! -e x.log && echo no-log'
+stdout '^UU f$'
+stdout '^On topic: one$'
+! stdout 'On topic: all'
+stdout '^no-log$'
+exec sh -c 'cd "$STUB_DIR/vmfs$(pwd -P)" && echo resolved > f && git add f && git -c core.editor=true rebase --continue >/dev/null 2>&1 && git log --format=%s -2 && cat g'
+stdout '^topic\nmain\nwip$'
+
+# rm and clone off: the stash entry the VM made is its work, as is the
+# rebased topic; the entry copied in isn't. (internal/vm's
+# TestRmFetchesStash fetches one, which needs a yes.)
+exec sh -c 'cd "$STUB_DIR/vmfs$(pwd -P)" && git checkout -q -- . && echo vm > g && echo planted > site.pth && git stash push -q -u -m mine'
+! exec devvm rm --force --no-export
+stdout '^unfetched_commits refs="topic" "stash-0"$'
+stderr '^devvm: no_terminal_fetch command=devvm rm$'
+! stdout 'stash-1'
+! exec devvm clone off --force --no-input
+stderr 'no_terminal_fetch'
+
+# devvm clone fetch, as the refusal says: the rebased topic as devvm/topic,
+# the VM's stash entry as saved/devvm/stash-0, not the one copied in; the
+# JSON names it. Its untracked file, which git ignores here, goes apart, to
+# saved/devvm/stash-0-untracked, named, so git stash apply doesn't write
+# it. Then rm finds nothing to lose.
+exec sh -c 'echo "*.pth" >> .git/info/exclude'
+exec devvm clone fetch --json
+stdout '"saved": \[\n\s+"saved/devvm/stash-0"\n\s+\]'
+! stdout 'stash-1'
+stderr '^devvm: clone_stash_untracked branch=saved/devvm/stash-0 count=1 files="site.pth" untracked=saved/devvm/stash-0-untracked$'
+stderr '^devvm: clone_stash_untracked_ignored count=1 files="site.pth" untracked=saved/devvm/stash-0-untracked$'
+exec git stash list --format=%gs
+stdout '^On topic: one$'
+exec sh -c 'git log --format=%s -1 saved/devvm/stash-0 && git rev-parse saved/devvm/stash-0^2 >/dev/null && ! git rev-parse -q --verify saved/devvm/stash-0^3 && git show --name-only --format= saved/devvm/stash-0-untracked'
+stdout '^On topic: mine$'
+stdout '^site\.pth$'
+exec git stash show --include-untracked --name-only saved/devvm/stash-0
+stdout '^g$'
+! stdout site.pth
+exec devvm rm --force --no-export
+stdout '^==> deleted vm=devvm-web-[0-9a-f]{14}$'
+
+# A cherry-pick of two commits stopped on the first, whose second only
+# its todo list names, which no ref reaches: the VM's clone lacks it, and
+# devvm names it, as that step will fail there.
+cd $WORK/pick
+exec git init -q -b main
+exec git add .
+exec git commit -q -m base
+exec git checkout -q -b gone
+exec sh -c 'echo gone > f && git commit -q -am gone && echo later > h && git add h && git commit -q -m later'
+exec sh -c 'git rev-parse --short HEAD > $WORK/later && git rev-parse HEAD~ > $WORK/first'
+exec git checkout -q main
+exec git branch -q -D gone
+exec sh -c 'echo main > f && git commit -q -am main'
+! exec sh -c 'git cherry-pick $(cat $WORK/first) $(cat $WORK/later)'
+exec devvm --clone --network open
+stderr '^devvm: clone_todo_missing commits="[0-9a-f]+" count=1 dir=/\S*/pick$'
+exec devvm rm --force --no-export --no-clone-check
+
+-- pick/f --
+base
+-- web/f --
+base
+-- web/g --
+g
+-- web/.gitignore --
+*.log

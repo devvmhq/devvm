@@ -440,6 +440,12 @@ func agentCases() []ruleCase {
 			want:  &want{ruleOwners, `is "pnpm", a name internal/image owns, so use its image.SharedTools entry`},
 		},
 		{
+			name:  "git push in a clone's seed",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\nvar args = []string{\"push\", \"-q\"}\n"},
+			r:     rules{allowedVars: map[string]string{"internal/vm.args": table}},
+			want:  &want{ruleOwners, `is "push", a name internal/hostgit owns, so use no git push, and copy into a --clone VM through the backend's Exec`},
+		},
+		{
 			name:  "a toolchain's name in image",
 			files: map[string]string{"internal/image/a.go": "package image\n\nconst n = \"rust\"\n"},
 		},

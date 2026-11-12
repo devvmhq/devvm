@@ -131,15 +131,13 @@ func opencodeClean() string {
 
 // opencodeCleanAll is the shell loop that runs devvm_opencode_clean on
 // each of opencode's databases in the folder dir (shell-quoted), from the
-// current folder, then runs then with $db, the database, and $n, its
-// name, for the copy it made. When there's no copy, or then fails, it
-// says so and runs otherwise. A database that's a symbolic link is never
-// read.
+// current folder, then runs then with $db, the database, for the copy it
+// made. When there's no copy, or then fails, it says so and runs
+// otherwise. A database that's a symbolic link is never read.
 func opencodeCleanAll(dir, then, otherwise string) string {
 	return strings.Join([]string{
 		"for db in " + dir + "/" + opencodeDBs[0] + "; do",
 		`  [ -f "$db" ] && [ ! -L "$db" ] || continue`,
-		`  n=${db##*/}`,
 		`  if ! command -v sqlite3 >/dev/null; then echo "devvm: left out $db: the VM has no sqlite3" >&2`,
 		`  elif devvm_opencode_clean "$db" && ` + then + "; then continue",
 		`  else echo "devvm: left out $db: its copy without opencode's logins failed" >&2`,
@@ -176,7 +174,7 @@ func historyExport() string {
 		`mkdir "$t/devvm-clean" && cd "$t" || exit 1`,
 		"add=()",
 		opencodeCleanAll(`"$HOME"/`+shell.Quote(opencodeData),
-			`mv clean.db "devvm-clean/$n" && add=(${add[@]+"${add[@]}"} "devvm-clean/$n")`, ":"),
+			`mv clean.db "devvm-clean/${db##*/}" && add=(${add[@]+"${add[@]}"} "devvm-clean/${db##*/}")`, ":"),
 		`[ "${#add[@]}" -eq 0 ] || add=(-C "$t" "${add[@]}")`,
 		"cd ~ && ls -d " + strings.Join(agents.History(), " ") + " 2>/dev/null | tar -czf - " + shell.QuoteJoin(excludes) +
 			" " + shell.Quote("--transform=flags=r;s,^devvm-clean/,"+opencodeData+"/,") + ` -T - ${add[@]+"${add[@]}"}`,

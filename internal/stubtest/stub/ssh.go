@@ -39,8 +39,9 @@ func listenOnce(path string) (int, error) {
 // work, but for a forward whose ADDRESS:PORT is a line of
 // $STUB_DIR/link-taken, which the VM refuses. Either master outlives the
 // process that started it, as ssh's does, for 5 minutes (TestScript
-// stops its sandbox's). Host git pushing to and fetching from a --clone
-// VM runs its git-receive-pack or git-upload-pack on the guest's files.
+// stops its sandbox's). Host git fetching from a --clone VM, or a test's
+// own git push to it, runs its git-upload-pack or git-receive-pack on the
+// guest's files.
 // With $STUB_DIR/ssh-fails, or for anything else, it fails as ssh does
 // (255).
 func ssh(c *call) int {
@@ -73,7 +74,8 @@ func ssh(c *call) int {
 	case c.has("-M"):
 		return g.ports()
 	}
-	if cmd := c.last(); strings.HasPrefix(cmd, "git-receive-pack ") || strings.HasPrefix(cmd, "git-upload-pack ") {
+	if cmd := c.last(); strings.HasPrefix(cmd, "git-receive-pack ") || strings.HasPrefix(cmd, "git-upload-pack ") ||
+		strings.HasPrefix(cmd, "git -c ") && (strings.Contains(cmd, " upload-pack ") || strings.Contains(cmd, " receive-pack ")) {
 		return g.pack(cmd)
 	}
 	return 255

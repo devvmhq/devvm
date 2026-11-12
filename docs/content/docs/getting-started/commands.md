@@ -52,9 +52,8 @@ These options are for a new VM, so a VM that exists ignores them with a warning,
 
 | | |
 | --- | --- |
-| `devvm --clone` | make this folder's VM with its own clone of the repo, copy your branches into it and open a shell in the clone ([details](../using/clone.md)) |
-| `git fetch devvm` | on this machine, fetch the VM's work as `devvm/<branch>`, to review before you merge it ([details](../using/clone.md#fetching-the-vms-work)) |
-| `devvm clone fetch [--json]` | fetch the VM's work into every repo it has a clone of, and list the new or moved branches, each with its repos ([details](../using/clone.md#fetching-the-vms-work)) |
+| `devvm --clone` | make this folder's VM with its own clone of the repo, copy your repo into it and open a shell in the clone ([details](../using/clone.md)) |
+| `devvm clone fetch [--json]` | on this machine, fetch the VM's work as `devvm/<branch>` into every repo it has a clone of, with its Git LFS objects, to review before you merge it, and list the new or moved branches, each with its repos ([details](../using/clone.md#fetching-the-vms-work)) |
 | `devvm clone add PATH` | copy one more repo of a folder of repos into the VM, at the same path ([details](../using/clone.md#adding-a-repo)) |
 | `devvm rm` | delete the VM, first offering to keep the work you haven't fetched as `saved/devvm/<branch>` branches ([details](../using/clone.md#deleting-the-vm)) |
 | `devvm clone on\|off` | make an existing VM again with its own clone of the repo, or with the folder mounted once devvm has offered to keep the clone's work as `devvm rm` does ([details](../using/clone.md#switching-a-vm-that-exists)) |

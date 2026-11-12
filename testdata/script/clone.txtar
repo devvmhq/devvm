@@ -1,6 +1,6 @@
 # --clone: the VM gets its own clone of the repo instead of the folder
-# mounted. The host's branches are pushed into it over devvm's ssh config,
-# the repo gets a devvm remote, and nothing of .git is locked. rm checks
+# mounted. The host's branches are copied into it through the VM's own
+# command, the repo gets a devvm remote, and nothing of .git is locked. rm checks
 # the clone for commits the repo hasn't fetched and uncommitted changes,
 # in the clone and its worktrees, keeps fetched work as local branches and removes the remote. (The stubs
 # keep the VM's files in
@@ -9,8 +9,8 @@ env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EM
 mkdir $WORK/web/sub
 cd $WORK/web
 
-# Not a repo, not its top folder, no commits, HEAD detached: refused
-# before anything is built.
+# Not a repo, not its top folder, no commits: refused before anything is
+# built. (A detached HEAD is copied as it is: clone_refs.)
 ! exec devvm --clone --network open
 stderr '^devvm: clone_not_top dir=/\S*/web$'
 exec git init -q -b main
@@ -21,10 +21,6 @@ cd ..
 ! exec devvm --clone --network open
 stderr '^devvm: clone_no_commits$'
 exec git commit -q --allow-empty -m one
-exec git checkout -q --detach
-! exec devvm --clone --network open
-stderr '^devvm: clone_detached$'
-exec git checkout -q main
 
 # Objects borrowed from another repo (alternates), or a .git file that
 # points into one: refused.
@@ -44,12 +40,13 @@ stub_calls
 ! exists $VMS
 
 # A new VM: nothing mounted but the shared tools; its clone made at the
-# folder's path, every branch pushed into it through devvm's ssh config,
-# main checked out; the remote added. The repo's url.*.insteadOf, which
-# rewrites the VM's URL to another host, doesn't change where the push
-# goes: devvm's ssh connects to the VM alone. Not a terminal: the Include line
-# isn't added, and devvm says how to fetch until it is. Uncommitted
-# changes aren't copied, and devvm says so.
+# folder's path, every branch copied into it through the VM's own command,
+# never git push, main checked out; the remote added. The repo's
+# url.*.insteadOf, which rewrites the VM's URL to another host, doesn't
+# change where devvm clone fetch goes: devvm's ssh connects to the VM
+# alone. Not a terminal: the Include line isn't added, and devvm says how
+# to fetch until it is. The uncommitted change is copied too
+# (clone_uncommitted has the rest).
 exec sh -c 'echo x > tracked && git add tracked && git commit -qm two && echo y > tracked'
 exec git config url.elsewhere.example:/x.insteadOf devvm-web-
 stub_reset
@@ -59,14 +56,18 @@ stdout '^==> clone_ready branch=main remote=devvm$'
 stdout '^ssh_include_needed line=Include /\S*/data/devvm/ssh_config$'
 stderr '^devvm: ssh_include_yourself$'
 stderr '^devvm: fetch_until file=/\S*/data/devvm/ssh_config remote=devvm$'
-stderr '^devvm: uncommitted_not_copied branch=main dir=/\S*/web remote=devvm$'
-! stderr 'git_protect|ssh_remote_hint'
+! stderr 'git_protect|ssh_remote_hint|uncommitted'
 stub_calls
 stdout '^limactl clone --tty=false devvm-img-[0-9a-f]{12} devvm-web-[0-9a-f]{14} --mount-none --set \.mounts = \[\{"location":"[^"]*/data/devvm/tools","mountPoint":"/mnt/devvm-tools","writable":false\}\] '
-stdout '^ssh -F none -T -o BatchMode=yes .* -o UserKnownHostsFile=/\S*/data/devvm/vms/[0-9a-f]{14}/run/known_hosts -o GlobalKnownHostsFile=/dev/null -o HostKeyAlias=devvm-web-[0-9a-f]{14} -o StrictHostKeyChecking=yes .* -o ForwardAgent=no .* -o ClearAllForwardings=yes .* -p 60022 -l stub 127\.0\.0\.1 git-receive-pack ''/\S*/web''$'
+! stdout 'git-receive-pack'
 ! stdout elsewhere
 stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
 ! stdout chflags
+stub_reset
+exec devvm clone fetch
+stderr '^devvm: clone_remote_elsewhere path=\. remote=devvm$'
+stub_calls
+! stdout '^ssh '
 vm_name WEB web
 vm_state $WEB_dir/vm.json
 stdout '^clone.on=true$'
@@ -79,6 +80,10 @@ stdout '^devvm-web-[0-9a-f]{14}:/\S*/web$'
 exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" branch --show-current && git -C "$c" branch --format="%(refname:short)" && cat "$c/tracked"'
 cmp stdout $WORK/vm-branches
 ! exists $HOME/.ssh/config
+stub_reset
+exec devvm clone fetch
+stub_calls
+stdout '^ssh -F none -T -o BatchMode=yes .* -o UserKnownHostsFile=/\S*/data/devvm/vms/[0-9a-f]{14}/run/known_hosts -o GlobalKnownHostsFile=/dev/null -o HostKeyAlias=devvm-web-[0-9a-f]{14} -o StrictHostKeyChecking=yes .* -o ForwardAgent=no .* -o ClearAllForwardings=yes .* -p 60022 -l stub 127\.0\.0\.1 git -c uploadpack\.allowAnySHA1InWant=true upload-pack ''/\S*/web''$'
 
 # Opened again: not copied again. --clone on it is fine.
 stub_reset
@@ -87,8 +92,9 @@ exec devvm --clone
 stub_calls
 ! stdout '^ssh '
 
-# rm: nothing unfetched, nothing uncommitted (the host's own uncommitted
-# change was never copied): deleted, and the remote removed.
+# rm: nothing unfetched, and the one uncommitted change is the copied
+# one, still as it came, though it's undone here since: deleted, and the
+# remote removed.
 exec git checkout -q -- tracked
 exec devvm rm --force
 stdout '^==> deleted vm=devvm-web-[0-9a-f]{14}$'
@@ -106,7 +112,7 @@ stdout '^https://example.com/other.git$'
 exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" commit -q --allow-empty -m from-vm'
 ! exec devvm rm --force
 stdout '^unfetched_commits refs="main"$'
-stderr '^devvm: no_terminal_fetch command=devvm rm remote=devvm-web$'
+stderr '^devvm: no_terminal_fetch command=devvm rm$'
 vm_name WEB web
 exec git remote get-url devvm-web
 
@@ -154,14 +160,14 @@ stdout '^https://example.com/mine.git$'
 exec git remote remove devvm-web
 exec git remote remove devvm
 
-# Copying fails (ssh can't reach it): the VM stays unseeded, and the next
-# launch copies again.
+# Copying fails (the VM's command applying it fails): the VM stays
+# unseeded, and the next launch copies again.
 rm $STUB_DIR/vmfs
-exec sh -c 'touch "$STUB_DIR/ssh-fails"'
+exec sh -c 'echo index-pack > "$STUB_DIR/shell-fails-on"'
 ! exec devvm --clone --network open
 stderr '^devvm: clone_seed_failed vm=devvm-web-[0-9a-f]{14}$'
 ! exec git remote get-url devvm
-rm $STUB_DIR/ssh-fails
+rm $STUB_DIR/shell-fails-on
 exec devvm
 stdout '^==> clone_ready branch=main remote=devvm$'
 
@@ -189,4 +195,4 @@ exec devvm rm --force --no-export
 main
 main
 other
-x
+y

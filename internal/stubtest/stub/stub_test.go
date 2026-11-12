@@ -598,9 +598,16 @@ func TestSSH(t *testing.T) {
 		t.Errorf("ports %q", out)
 	}
 	s.ok("", "ssh", "vm", "git-receive-pack '/w'")
-	if got := s.replaced[0]; !slices.Equal(got, []string{"git", "receive-pack", filepath.Join(s.dir, "vmfs/w")}) {
+	// Without GIT_PROTOCOL, as a VM gets none: git's protocol v0.
+	if got := s.replaced[0]; !slices.Equal(got, []string{"env", "-u", "GIT_PROTOCOL", "git", "receive-pack", filepath.Join(s.dir, "vmfs/w")}) {
 		t.Errorf("pack ran %q", got)
 	}
+	// As a --clone VM's fetch runs upload-pack: git, its -c, then the path.
+	s.ok("", "ssh", "vm", "git -c uploadpack.allowAnySHA1InWant=true upload-pack '/w'")
+	if got := s.replaced[1]; !slices.Equal(got, []string{"env", "-u", "GIT_PROTOCOL", "git", "-c", "uploadpack.allowAnySHA1InWant=true", "upload-pack", filepath.Join(s.dir, "vmfs/w")}) {
+		t.Errorf("pack ran %q", got)
+	}
+	s.fails(255, "ssh", "vm", "git -c x=y log '/w'")
 	s.fails(255, "ssh", "vm", "git-upload-pack")
 	s.fails(255, "ssh", "vm", "uptime")
 	s.fails(255, "ssh", "-M", "-N", "-S", filepath.Join(s.dir, "no", "such", "ctl"))

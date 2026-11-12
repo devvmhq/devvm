@@ -12,7 +12,8 @@
 // it at another repo or config, finds no program in a relative PATH
 // folder, never asks on the terminal (GIT_TERMINAL_PROMPT=0), fetches
 // no object lazily and reaches no host over ssh unless its caller names
-// the ssh (GIT_SSH_COMMAND), and starts no gc or maintenance.
+// the ssh (GIT_SSH_COMMAND), starts no gc or maintenance, runs no
+// signing program (gpg.*program), and sees no replace refs or grafts.
 package hostgit
 
 import (
@@ -38,7 +39,10 @@ func HookEvents() []string {
 	}
 }
 
-// hardened is what every host git command runs with, as config pairs.
+// hardened is what every host git command runs with, as config pairs: no
+// signature is checked or made, so no log or reflog command runs the
+// signing program a repo's config names (gpg.*program), even with
+// log.showSignature on.
 func hardened() [][2]string {
 	kv := [][2]string{
 		{"core.fsmonitor", "false"},
@@ -48,6 +52,12 @@ func hardened() [][2]string {
 		{"protocol.ssh.allow", "always"},
 		{"maintenance.auto", "false"},
 		{"gc.auto", "0"},
+		{"log.showSignature", "false"},
+		{"gpg.program", "false"},
+		{"gpg.ssh.program", "false"},
+		{"gpg.x509.program", "false"},
+		// command's GIT_GRAFT_FILE would make git warn on every walk.
+		{"advice.graftFileDeprecated", "false"},
 	}
 	for _, h := range HookEvents() {
 		kv = append(kv, [2]string{"hook." + h + ".enabled", "false"})
@@ -73,12 +83,12 @@ func Output(ctx context.Context, args ...string) ([]byte, error) {
 	return Command(ctx, args...).Output()
 }
 
-// Status returns git status in dir with args, hardened, taking no
+// DiffFiles returns git diff-files in dir with args, hardened, taking no
 // optional locks (so it writes no index, and no post-index-change hook
-// has anything to run for) and not entering submodules, whose own config
-// could name filters of its own.
-func Status(ctx context.Context, dir string, args ...string) *exec.Cmd {
-	return Command(ctx, append([]string{"-C", dir, "--no-optional-locks", "status", "--ignore-submodules=all"}, args...)...)
+// has anything to run for) and entering no submodule or embedded repo,
+// whose own config could name filters that git would run there.
+func DiffFiles(ctx context.Context, dir string, args ...string) *exec.Cmd {
+	return Command(ctx, append([]string{"-C", dir, "--no-optional-locks", "diff-files", "--ignore-submodules=all"}, args...)...)
 }
 
 // command is git with args and the config pairs kv, given in the
@@ -89,11 +99,15 @@ func Status(ctx context.Context, dir string, args ...string) *exec.Cmd {
 // (GIT_NO_LAZY_FETCH), and its ssh is false, which reaches nothing, in
 // place of a repo's core.sshCommand, unless the caller sets
 // GIT_SSH_COMMAND after it; that ssh is ssh's own (GIT_SSH_VARIANT),
-// whatever the repo's ssh.variant says.
+// whatever the repo's ssh.variant says. It sees a repo's objects as they
+// are, not as its replace refs (GIT_NO_REPLACE_OBJECTS) or a grafts file
+// (GIT_GRAFT_FILE) would show them, so what it walks, packs or looks up
+// is the repo's real history.
 func command(ctx context.Context, kv [][2]string, args []string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // devvm's own arguments
 	env := append(environ(os.Environ()), "GIT_TERMINAL_PROMPT=0", "GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=ssh",
-		"GIT_SSH_COMMAND=false", "GIT_SSH_VARIANT=ssh", "GIT_CONFIG_COUNT="+strconv.Itoa(len(kv)))
+		"GIT_SSH_COMMAND=false", "GIT_SSH_VARIANT=ssh", "GIT_NO_REPLACE_OBJECTS=1", "GIT_GRAFT_FILE="+os.DevNull,
+		"GIT_CONFIG_COUNT="+strconv.Itoa(len(kv)))
 	for i, p := range kv {
 		n := strconv.Itoa(i)
 		env = append(env, "GIT_CONFIG_KEY_"+n+"="+p[0], "GIT_CONFIG_VALUE_"+n+"="+p[1])

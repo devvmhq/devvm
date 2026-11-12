@@ -10,7 +10,7 @@ import (
 )
 
 // ownSSH is how devvm's own ssh reaches a running VM, for links and a
-// --clone VM's push and fetch: its backend's ssh (reviewed), with the
+// --clone VM's fetch: its backend's ssh (reviewed), with the
 // VM's own key and the host keys devvm pinned for its current start, read
 // as they are (vmssh.Checked, vmssh.ReadKeys).
 func (e *Env) ownSSH(ctx context.Context, b backend.Backend, vm string) (vmssh.SSH, error) {

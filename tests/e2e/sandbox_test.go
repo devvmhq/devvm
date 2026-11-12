@@ -100,6 +100,12 @@ func newSandbox(o options) (*sandbox, error) {
 		"XDG_DATA_HOME": sb.data(), "XDG_CONFIG_HOME": sb.config(),
 		// Never checked for newer shared tools but by the tools section.
 		"DEVVM_NO_TOOL_CHECK": "1",
+		// The harness's own git commands (commit, tag -a, merge) need an
+		// identity, which a host with no global git config (or none git
+		// can guess) lacks. devvm's own git ignores every GIT_ variable, so
+		// what it reads of your identity, from git config, is the same.
+		"GIT_AUTHOR_NAME": "devvm e2e", "GIT_AUTHOR_EMAIL": "e2e@devvm.invalid",
+		"GIT_COMMITTER_NAME": "devvm e2e", "GIT_COMMITTER_EMAIL": "e2e@devvm.invalid",
 	}
 	if !o.newest {
 		set["DEVVM_UBUNTU_RELEASE"] = e2eUbuntuRelease

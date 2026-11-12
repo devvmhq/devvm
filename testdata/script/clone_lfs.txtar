@@ -1,0 +1,48 @@
+# --clone of a repo that uses Git LFS: the LFS objects its checked-out
+# pointers name go into the VM's clone's .git/lfs/objects, where the VM's
+# git-lfs checks the files out; and devvm clone fetch brings back the
+# objects the VM's new pointers name, each checked against its oid: one
+# that isn't what its pointer names stays out, named. No git-lfs runs on
+# this machine. (The stubs keep the VM's files in $STUB_DIR/vmfs.)
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+cd $WORK/web
+exec git init -q -b main
+exec sh -c 'mkdir -p .git/lfs/objects/5e/46 && cp $WORK/big .git/lfs/objects/5e/46/5e46266be5fda8508117bfafcbb22d0e177a3b476ed603a39e47f1586b2ef4a3'
+exec git add .
+exec git commit -q -m one
+
+exec devvm --clone --network open
+stdout '^==> clone_ready branch=main remote=devvm$'
+exec sh -c 'cat "$STUB_DIR/vmfs$(pwd -P)/.git/lfs/objects/5e/46/5e46266be5fda8508117bfafcbb22d0e177a3b476ed603a39e47f1586b2ef4a3"'
+cmp stdout $WORK/big
+
+# The VM's work: a new LFS file, whose object comes back checked, and
+# one whose object in the VM isn't what its pointer names, which stays
+# out, named.
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; mkdir -p "$c/.git/lfs/objects/17/f5" "$c/.git/lfs/objects/76/7d" && cp $WORK/vm-good "$c/.git/lfs/objects/17/f5/17f5e1e11b0b12b7f25ba37fd0f635b916dc2225b88f1a9b95f62c27b2bc9730" && echo tampered > "$c/.git/lfs/objects/76/7d/767dc1e95ae4bb096a9f89d5f1b761543835e328f1b3785be0347fc6b75a0b57" && cp $WORK/good.ptr "$c/good.bin" && cp $WORK/bad.ptr "$c/bad.bin" && git -C "$c" checkout -q -b vm-lfs && git -C "$c" add -A && git -C "$c" commit -q -m lfs'
+exec devvm clone fetch
+stdout '^vm-lfs: \.$'
+stderr '^devvm: clone_lfs_kept count=1 objects="767dc1e95ae4" path=\.$'
+exec cat .git/lfs/objects/17/f5/17f5e1e11b0b12b7f25ba37fd0f635b916dc2225b88f1a9b95f62c27b2bc9730
+cmp stdout $WORK/vm-good
+! exists .git/lfs/objects/76/7d/767dc1e95ae4bb096a9f89d5f1b761543835e328f1b3785be0347fc6b75a0b57
+exec devvm rm --force --no-export --no-clone-check
+
+-- web/.gitattributes --
+*.bin filter=lfs diff=lfs merge=lfs -text
+-- web/big.bin --
+version https://git-lfs.github.com/spec/v1
+oid sha256:5e46266be5fda8508117bfafcbb22d0e177a3b476ed603a39e47f1586b2ef4a3
+size 4
+-- big --
+big
+-- vm-good --
+vm good
+-- good.ptr --
+version https://git-lfs.github.com/spec/v1
+oid sha256:17f5e1e11b0b12b7f25ba37fd0f635b916dc2225b88f1a9b95f62c27b2bc9730
+size 8
+-- bad.ptr --
+version https://git-lfs.github.com/spec/v1
+oid sha256:767dc1e95ae4bb096a9f89d5f1b761543835e328f1b3785be0347fc6b75a0b57
+size 14

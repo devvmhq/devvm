@@ -169,7 +169,7 @@ func TestSetCloneOff(t *testing.T) {
 			t.Errorf("%s: not kept, %q", what, f.Methods())
 		}
 	}
-	if err := off(); msg.NamesOf(err) != "no_terminal_fetch command=devvm clone off remote=devvm" {
+	if err := off(); msg.NamesOf(err) != "no_terminal_fetch command=devvm clone off" {
 		t.Errorf("unfetched, no terminal: %v", msg.NamesOf(err))
 	}
 	kept("unfetched")

@@ -337,9 +337,21 @@ func agentHomePaths(defs []agents.Def) []string {
 // Def and no copy of a list of them goes stale. The toolchains' names and
 // their members' are internal/image's, whose SharedTools holds every
 // toolchain, so a new toolchain is an entry there: code elsewhere asks it
-// (image.Def, its Installer, its fields) rather than naming one.
+// (image.Def, its Installer, its fields) rather than naming one. And git
+// push is no command of devvm's: a --clone VM's seed goes through the
+// backend's Exec (internal/vm's cloneseed.go), never git's transport,
+// whose receive-pack refuses what a user's repo can be (a shallow one, a
+// SHA-256 one), so only internal/hostgit, which runs every host git
+// command, may name it. Nor may any other package name git diff-files,
+// which enters submodules, whose own config can run a filter, but through
+// hostgit.DiffFiles, which doesn't.
 func devvmNames() map[string]literalOwner {
-	names := map[string]literalOwner{}
+	names := map[string]literalOwner{
+		"push": {"internal/hostgit", "no git push, and copy into a --clone VM through the backend's Exec, as internal/vm's cloneseed.go does"},
+		// It reads each submodule's working tree, where that repo's own
+		// config can name a filter git runs, unless --ignore-submodules.
+		"diff-files": {"internal/hostgit", "hostgit.DiffFiles, which enters no submodule or embedded repo"},
+	}
 	for _, n := range slices.Concat(agents.Names(), agents.LoginKinds()) {
 		names[n] = literalOwner{"internal/agents", "its constant in internal/agents"}
 	}

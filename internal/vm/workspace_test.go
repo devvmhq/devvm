@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -34,27 +35,6 @@ func TestDefaultBranch(t *testing.T) {
 	} {
 		if name, from := defaultBranch(c.head, c.refs); name != c.name || from != c.from {
 			t.Errorf("defaultBranch(%q, %q) = %q, %q; want %q, %q", c.head, c.refs, name, from, c.name, c.from)
-		}
-	}
-}
-
-// A workspace repo's seed: its current branch checked out and pushed, and
-// its default branch; a detached HEAD checks out the default; nothing to
-// copy without either.
-func TestBranchPlan(t *testing.T) {
-	for _, c := range []struct {
-		cur, def, from, checkout string
-		refs                     []string
-	}{
-		{"dev", "main", "refs/heads/main", "dev", []string{"refs/heads/dev:refs/heads/dev", "refs/heads/main:refs/heads/main"}},
-		{"main", "main", "refs/heads/main", "main", []string{"refs/heads/main:refs/heads/main"}},
-		{"dev", "", "", "dev", []string{"refs/heads/dev:refs/heads/dev"}},
-		{"", "main", "refs/remotes/origin/main", "main", []string{"refs/remotes/origin/main:refs/heads/main"}},
-		{"", "", "", "", nil},
-	} {
-		checkout, refs := branchPlan(c.cur, c.def, c.from)
-		if checkout != c.checkout || !slices.Equal(refs, c.refs) {
-			t.Errorf("branchPlan(%q, %q) = %q, %q", c.cur, c.def, checkout, refs)
 		}
 	}
 }
@@ -169,7 +149,8 @@ func TestFindRepos(t *testing.T) {
 	for _, r := range found {
 		got = append(got, r.Path+" "+r.Reason.ID())
 	}
-	want := []string{"a workspace_reason_no_branch", "deep/er/b ", "empty workspace_reason_no_commits", "line\nbreak workspace_reason_name", "not workspace_reason_not_repo"}
+	// a's HEAD is detached with no branch: copied as it is.
+	want := []string{"a ", "deep/er/b ", "empty workspace_reason_no_commits", "line\nbreak workspace_reason_name", "not workspace_reason_not_repo"}
 	if !slices.Equal(got, want) || more != 0 {
 		t.Errorf("found %q, %d more", got, more)
 	}
@@ -177,7 +158,7 @@ func TestFindRepos(t *testing.T) {
 		t.Errorf("a workspace without a terminal: %s", msg.NamesOf(err))
 	}
 	c, err := clones{e}.planClone(t.Context(), ws, ReposAll, "")
-	if err != nil || !c.On || !c.Workspace || len(c.Repos) != 1 || c.Repos[0].Path != "deep/er/b" {
+	if err != nil || !c.On || !c.Workspace || len(c.Repos) != 2 || c.Repos[0].Path != "a" || c.Repos[1].Path != "deep/er/b" {
 		t.Errorf("all: %+v, %v", c, err)
 	}
 	// Its own repo alone: a clone of the folder's own, which needs a commit.
@@ -382,7 +363,7 @@ func TestCloneRepos(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"on":true,"made":{"remote":"devvm-web","seeded":true}}`), &old); err != nil {
 		t.Fatal(err)
 	}
-	if got := old.repos(); !slices.Equal(got, []cloneRepo{{Path: ".", Remote: "devvm-web", Seeded: true}}) {
+	if got := old.repos(); !reflect.DeepEqual(got, []cloneRepo{{Path: ".", Remote: "devvm-web", Seeded: true}}) {
 		t.Errorf("0.1.0's: %+v", got)
 	}
 	old.setRepo(".", func(r *cloneRepo) { r.Remote = "devvm" })
@@ -398,7 +379,7 @@ func TestCloneRepos(t *testing.T) {
 	// devvm clone add on a clone of the folder's own repo: a workspace
 	// clone of it, then the new repo.
 	addRepo(&old, "lib")
-	if !old.Workspace || !slices.Equal(old.repos(), []cloneRepo{{Path: ".", Remote: "devvm", Seeded: true}, {Path: "lib"}}) || !old.Made.Seeded || !old.Made.Files {
+	if !old.Workspace || !reflect.DeepEqual(old.repos(), []cloneRepo{{Path: ".", Remote: "devvm", Seeded: true}, {Path: "lib"}}) || !old.Made.Seeded || !old.Made.Files {
 		t.Errorf("added: %+v", old)
 	}
 }

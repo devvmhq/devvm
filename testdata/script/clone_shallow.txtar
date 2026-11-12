@@ -1,0 +1,128 @@
+# --clone of repos a push couldn't copy: a shallow clone (git clone
+# --depth 1, which a push refused with "shallow update not allowed") and a
+# SHA-256 repo. The seed sends the repo's refs, its shallow file and a
+# pack through the VM's own command, so the VM's clone is shallow as this
+# machine's is, and its work fetches back with this repo's shallow file
+# unchanged. A grafts file is refused before a VM is made (a partial
+# clone is clone_partial's). A seed that fails runs again in full at the next launch, keeping
+# the VM's own files and naming them. An empty SHA-1 repo that devvm
+# 0.1.0 or rc.2 left is made again, once the user agrees. (The stubs keep
+# the VM's files in $STUB_DIR/vmfs.)
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+exec git init -q -b main $WORK/src
+exec sh -c 'cd "$WORK/src" && for n in 1 2 3; do echo $n > f$n && git add . && git commit -qm c$n; done'
+exec git -C $WORK/src config uploadpack.allowFilter true
+
+# A repo with a grafts file: refused before anything is built.
+exec git clone -q file://$WORK/src $WORK/grafted
+cd $WORK/grafted
+exec sh -c 'git rev-parse HEAD > .git/info/grafts'
+! exec devvm --clone --network open
+stderr '^devvm: clone_grafts path=/\S*/grafted/\.git/info/grafts$'
+stub_calls
+! stdout 'limactl (create|clone)'
+! exists $VMS
+
+# A shallow clone. The first copy fails as the VM applies it; the VM, as
+# an agent might, writes a file its clone tracks. The next launch copies
+# again: the clone has the one commit, shallow as here, the VM's file
+# kept and named, and nothing pushed.
+exec git clone -q --depth 1 file://$WORK/src $WORK/web
+cd $WORK/web
+cp .git/shallow $WORK/shallow-before
+exec sh -c 'echo index-pack > "$STUB_DIR/shell-fails-on"'
+! exec devvm --clone --network open
+stderr '^devvm: clone_seed_failed vm=devvm-web-[0-9a-f]{14}$'
+! exec git remote get-url devvm
+rm $STUB_DIR/shell-fails-on
+exec sh -c 'echo the-vms > "$STUB_DIR/vmfs$(pwd -P)/f1"'
+stub_reset
+exec devvm
+stdout '^==> copying_branches$'
+stderr '^devvm: clone_kept_files count=1 dir=/\S*/web files="f1"$'
+stdout '^==> clone_ready branch=main remote=devvm$'
+! stderr 'clone_seed_failed|clone_kept_branches'
+stub_calls
+! stdout 'git-receive-pack'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" log --format=%s && git -C "$c" rev-parse --is-shallow-repository && cat "$c/.git/devvm-seeded" "$c/f1" "$c/f3" && git -C "$c" status --porcelain && cmp .git/shallow "$c/.git/shallow"'
+cmp stdout $WORK/vm-web
+
+# The VM's work fetches back; this repo's shallow file stays as it was.
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" commit -q --allow-empty -m from-vm'
+exec devvm clone fetch
+exec git log --format=%s -1 devvm/main
+stdout '^from-vm$'
+cmp .git/shallow $WORK/shallow-before
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" checkout -q -- f1'
+exec devvm rm --force --no-export
+stdout '^==> deleted vm=devvm-web-[0-9a-f]{14}$'
+
+# A copy that failed, then work in the VM's pending repo: the remote is
+# recorded before the copy, and rm checks the clone, never seeded or not,
+# so it names the VM's commits and, without a terminal, keeps the VM.
+exec git clone -q file://$WORK/src $WORK/pend
+cd $WORK/pend
+exec sh -c 'echo index-pack > "$STUB_DIR/shell-fails-on"'
+! exec devvm --clone --network open
+stderr '^devvm: clone_seed_failed vm=devvm-pend-[0-9a-f]{14}$'
+rm $STUB_DIR/shell-fails-on
+vm_name PEND pend
+vm_state $PEND_dir/vm.json
+stdout '^clone.made.remote=devvm$'
+! stdout '^clone.made.seeded'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" checkout -q -b agent/x && git -C "$c" commit -q --allow-empty -m from-vm'
+! exec devvm rm --force --no-export
+stdout '^unfetched_commits refs="agent/x"$'
+stderr '^devvm: no_terminal_fetch command=devvm rm$'
+exec devvm rm --force --no-export --no-clone-check
+stdout '^==> deleted vm=devvm-pend-[0-9a-f]{14}$'
+
+# A SHA-256 repo. Its first copy fails, and the VM's repo is then as
+# devvm 0.1.0 left one whose push failed: empty, SHA-1, unmarked. Without
+# a terminal devvm leaves it, saying what to do; in one, no leaves it too,
+# and yes makes it again and copies the repo into it.
+exec git init -q -b main --object-format=sha256 $WORK/s256
+cd $WORK/s256
+exec git commit -q --allow-empty -m one
+exec sh -c 'echo index-pack > "$STUB_DIR/shell-fails-on"'
+! exec devvm --clone --network open
+stderr '^devvm: clone_seed_failed vm=devvm-s256-[0-9a-f]{14}$'
+rm $STUB_DIR/shell-fails-on
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; rm -rf "$c/.git" && git init -q "$c"'
+! exec devvm
+stderr '^devvm: clone_repo_format_kept paths="\." vm=devvm-s256-[0-9a-f]{14}$'
+ttyin -stdin $WORK/no.txt
+! exec devvm
+stderr '^clone_repo_format paths="\." vm=devvm-s256-[0-9a-f]{14} \[y/N\] '
+stderr 'devvm: clone_repo_format_kept paths="\." vm=devvm-s256-[0-9a-f]{14}$'
+ttyin -stdin $WORK/yes.txt
+exec devvm
+stdout '^==> clone_ready branch=main remote=devvm$'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" rev-parse --show-object-format && git -C "$c" log --format=%s'
+stdout '^sha256\none\n$'
+exec devvm rm --force --no-export
+
+# A folder of repos: a shallow one and a partial clone are both copied.
+mkdir $WORK/ws
+exec git clone -q --depth 1 file://$WORK/src $WORK/ws/app
+exec git clone -q --filter=blob:none file://$WORK/src $WORK/ws/part
+cd $WORK/ws
+exec devvm --clone --network open --repos all
+! stderr workspace_skipped
+stdout '^==> workspace_ready count=2$'
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)/app" rev-parse --is-shallow-repository'
+stdout '^true$'
+exec devvm rm --force --no-export
+
+-- vm-web --
+c3
+true
+done
+the-vms
+3
+ M f1
+-- yes.txt --
+y
+-- no.txt --
+n
+

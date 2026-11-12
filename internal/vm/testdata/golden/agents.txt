@@ -190,9 +190,8 @@ mkdir "$t/devvm-clean" && cd "$t" || exit 1
 add=()
 for db in "$HOME"/'.local/share/opencode'/opencode*.db; do
   [ -f "$db" ] && [ ! -L "$db" ] || continue
-  n=${db##*/}
   if ! command -v sqlite3 >/dev/null; then echo "devvm: left out $db: the VM has no sqlite3" >&2
-  elif devvm_opencode_clean "$db" && mv clean.db "devvm-clean/$n" && add=(${add[@]+"${add[@]}"} "devvm-clean/$n"); then continue
+  elif devvm_opencode_clean "$db" && mv clean.db "devvm-clean/${db##*/}" && add=(${add[@]+"${add[@]}"} "devvm-clean/${db##*/}"); then continue
   else echo "devvm: left out $db: its copy without opencode's logins failed" >&2
   fi
   :
@@ -234,7 +233,6 @@ for f in "$o"/opencode*.db; do if [ -L "$f" ] || { [ -e "$f" ] && [ ! -f "$f" ];
 cd "$t" || exit 1
 for db in "$o"/opencode*.db; do
   [ -f "$db" ] && [ ! -L "$db" ] || continue
-  n=${db##*/}
   if ! command -v sqlite3 >/dev/null; then echo "devvm: left out $db: the VM has no sqlite3" >&2
   elif devvm_opencode_clean "$db" && mv clean.db "$db"; then continue
   else echo "devvm: left out $db: its copy without opencode's logins failed" >&2

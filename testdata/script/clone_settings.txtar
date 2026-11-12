@@ -1,0 +1,75 @@
+# --clone copies the repo's own settings that make sense in the VM: its
+# remotes, with their URLs as git resolves them and no credentials, the
+# branches' upstreams and its own identity; and its hooks, as they are.
+# Never a credential helper, an extra header, an alias or a filter. A
+# remote whose URL is of another kind, and a hook that's a link, stay on
+# this machine, named. (The stubs keep the VM's files in $STUB_DIR/vmfs.)
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+cd $WORK/web
+exec git init -q -b main
+exec git add .
+exec git commit -q -m one
+exec git remote add origin https://u:ghp_TOKEN@github.com/x/web.git
+exec git remote add odd 'ext::sh -c x'
+exec git config branch.main.remote origin
+exec git config branch.main.merge refs/heads/main
+exec git config user.name 'Repo Person'
+exec git config credential.helper store
+exec git config http.extraHeader 'Authorization: Bearer ghp_HEADER'
+exec git config alias.st status
+exec sh -c 'printf "#!/bin/sh\necho ran > hook-ran\n" > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && ln -s /etc/passwd .git/hooks/pre-push'
+
+exec devvm --clone --network open
+stderr '^devvm: clone_urls_kept count=1 dir=/\S*/web remotes="odd"$'
+stderr '^devvm: clone_hooks_kept count=1 dir=/\S*/web hooks="pre-push"$'
+stdout '^==> clone_ready branch=main remote=devvm$'
+
+# In the VM: origin without its token, main's upstream, the identity;
+# none of the rest; the pre-commit hook, which runs.
+exec sh -c 'cd "$STUB_DIR/vmfs$(pwd -P)" && git remote get-url origin && git config branch.main.remote && git config user.name'
+cmp stdout $WORK/vm-config
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" config --local --list'
+! stdout 'ghp_|credential|extraheader|alias|remote\.odd'
+exec sh -c 'cd "$STUB_DIR/vmfs$(pwd -P)" && test ! -e .git/hooks/pre-push && git commit -q --allow-empty -m hooked && cat hook-ran'
+stdout '^ran$'
+exec devvm rm --force --no-export --no-clone-check
+
+# A core.hooksPath outside the repo: neither it nor any hook goes, and
+# devvm names it. A remote whose push URLs all stay goes without them,
+# named.
+cd $WORK/app
+exec git init -q -b main
+exec git add .
+exec git commit -q -m one
+exec git config core.hooksPath /etc/githooks
+exec git remote add m https://example.com/m.git
+exec git config remote.m.pushurl 'ext::sh -c x'
+exec devvm --clone --network open
+stderr '^devvm: clone_hooks_path_kept dir=/\S*/app path=/etc/githooks$'
+stderr '^devvm: clone_push_urls_kept count=1 dir=/\S*/app remotes="m"$'
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" config core.hooksPath || echo none'
+stdout '^none$'
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" remote get-url --push m'
+stdout '^https://example.com/m.git$'
+exec devvm rm --force --no-export --no-clone-check
+
+# A repo without a hooks folder: devvm names it.
+cd $WORK/lib
+exec git init -q -b main
+exec git add .
+exec git commit -q -m one
+exec rm -rf .git/hooks
+exec devvm --clone --network open
+stderr '^devvm: clone_hooks_dir_kept dir=/\S*/lib path=/\S*/lib/.git/hooks$'
+exec devvm rm --force --no-export --no-clone-check
+
+-- lib/a --
+a
+-- app/a --
+a
+-- web/a --
+a
+-- vm-config --
+https://github.com/x/web.git
+origin
+Repo Person

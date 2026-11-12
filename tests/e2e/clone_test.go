@@ -15,7 +15,8 @@ import (
 
 // cloneSection: --clone, a VM with its own clone of a throwaway repo; rm's
 // checks of its unfetched and uncommitted work; a git worktree's clone;
-// devvm clone on and off. Host git and devvm run with a home of their
+// devvm clone on and off; a folder of repos; repos git push couldn't
+// copy (shallow, SHA-256, reftable). Host git and devvm run with a home of their
 // own: no ~/.ssh/config, so nothing of yours is read or offered the
 // Include line, and none of your git settings.
 func cloneSection(s *S) {
@@ -30,7 +31,7 @@ func cloneSection(s *S) {
 	if err == nil {
 		err = g.repo(c)
 	}
-	// The repo's url.*.insteadOf rewrites the VM's URL to another host, which devvm's push ignores.
+	// The repo's url.*.insteadOf rewrites the VM's URL to another host, which devvm's copy never uses.
 	var vm string
 	var out Res
 	if err == nil {
@@ -74,6 +75,12 @@ func cloneSection(s *S) {
 	cloneWorktree(s, g, c)
 	cloneSwitch(s, g)
 	cloneWorkspace(s, g)
+	cloneShapes(s, g)
+	cloneRefs(s, g)
+	cloneInProgress(s, g)
+	clonePartial(s, g)
+	cloneSubmodules(s, g)
+	cloneLFS(s, g)
 }
 
 // cloneGit runs host git and devvm in the clone section's home.
@@ -106,12 +113,18 @@ func (g cloneGit) devvm(dir, input string, args ...string) (Res, error) {
 }
 
 // repo makes dir a repo of one commit on main, with a branch besides it.
+// A folder that's a repo already, made with --object-format or
+// --ref-format, isn't made again: git 2.54's git init of a reftable repo
+// drops its extensions.refStorage, and its next commit fails.
 func (g cloneGit) repo(dir string) error {
 	steps := [][]string{
 		{"init", "-q", "-b", "main"},
 		{"add", "a"},
 		{"-c", "user.email=e@e", "-c", "user.name=e", "commit", "-qm", "one"},
 		{"branch", "other"},
+	}
+	if Exists(filepath.Join(dir, ".git")) {
+		steps[0] = []string{"rev-parse", "--git-dir"}
 	}
 	for i, st := range steps {
 		if i == 1 {
@@ -197,7 +210,7 @@ func cloneRm(s *S, g cloneGit, vm, c string) {
 		switch {
 		case err == nil:
 			return errors.New("rm succeeded")
-		case !g.said(r, "no_terminal_fetch", "command=devvm rm", "remote=devvm"):
+		case !g.said(r, "no_terminal_fetch", "command=devvm rm"):
 			return errors.New("rm didn't say there are commits to fetch")
 		case !g.listed(vm):
 			return errors.New(vm + " is gone")
@@ -264,12 +277,16 @@ func cloneRm(s *S, g cloneGit, vm, c string) {
 }
 
 // cloneWorktree: a git worktree of the repo, on a branch of its own whose
-// upstream is main: its VM's clone has only those two, not the repo's
-// other branches.
+// upstream is main, the default branch: its VM's clone has those two and
+// the repo's tags, not the repo's other local branches (other, and
+// saved/devvm/main from cloneRm), and devvm says so.
 func cloneWorktree(s *S, g cloneGit, c string) {
 	var wvm string
 	var out Res
 	w, err := s.NewProject("cloned-wt")
+	if err == nil {
+		_, err = g.git(c, "tag", "wt-tag")
+	}
 	if err == nil {
 		_, err = g.git(c, "worktree", "add", "-q", "-b", "wtb", w, "main")
 	}
@@ -280,15 +297,21 @@ func cloneWorktree(s *S, g cloneGit, c string) {
 		out, _ = g.devvm(w, "git branch --show-current\n", "--clone", "--network", "open")
 		wvm = g.made(w)
 	}
-	s.Check("a git worktree's VM has a clone of only its branch and that branch's upstream", func() error {
+	s.Check("a git worktree's VM has a clone of its branch, its upstream, the default branch and the tags, not the repo's other branches, and devvm says so", func() error {
 		switch {
 		case wvm == "" || g.branches(wvm, w) != "main wtb ":
 			return errors.New("the worktree's VM hasn't a clone of main and wtb alone")
 		case !HasLine(out.Out, "wtb"):
 			return errors.New("the shell didn't open on wtb")
+		case !g.said(out, "clone_worktree_tips"):
+			return errors.New("devvm didn't say the worktree's clone leaves the other branches out")
+		}
+		if r, err := s.InVM(wvm, "git -C "+shell.Quote(w)+" tag"); err != nil || !HasLine(r.Stdout, "wt-tag") {
+			return errors.New("the worktree's VM hasn't the repo's tag")
 		}
 		return nil
 	})
+	_, _ = g.git(c, "tag", "-d", "wt-tag")
 	_, _ = g.devvm(w, "", "rm", "--force", "--no-export")
 	_, _ = g.git(c, "worktree", "remove", "--force", w)
 }
@@ -353,7 +376,7 @@ func cloneSwitch(s *S, g cloneGit) {
 		switch {
 		case err == nil:
 			return errors.New("clone off succeeded")
-		case !g.said(r, "no_terminal_fetch", "command=devvm clone off", "remote=devvm"):
+		case !g.said(r, "no_terminal_fetch", "command=devvm clone off"):
 			return errors.New("clone off didn't say there are commits to fetch")
 		case st("clone.on") != "true" || !g.listed(svm):
 			return errors.New("the clone is gone")

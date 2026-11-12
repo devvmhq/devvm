@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -26,7 +27,8 @@ import (
 
 // --clone: the VM works on its own clone of the repo instead of mounting
 // the folder, so nothing in the VM can reach the working tree or .git.
-// The host pushes its branches into the VM once, and the repo gets a git
+// The host copies its branches into the VM once (the seed, cloneseed.go),
+// and the repo gets a git
 // remote to fetch the VM's work from, by the VM's full name in devvm's ssh
 // config. The clone is at the folder's path in the VM, so shells and
 // editors open in the same place.
@@ -62,18 +64,13 @@ func hostGit(ctx context.Context, dir string, args ...string) (string, error) {
 }
 
 // checkCloneRepo refuses --clone for a folder that isn't the top of a git
-// repo of its own (cloneSource) with a commit and a branch checked out.
+// repo of its own (cloneSource) with a commit (checkRepoTop). A detached
+// HEAD is copied as it is.
 func checkCloneRepo(ctx context.Context, dir string) error {
 	if err := needGit(); err != nil {
 		return err
 	}
-	if err := checkRepoTop(ctx, dir); err != nil {
-		return err
-	}
-	if _, err := hostGit(ctx, dir, "symbolic-ref", "-q", "HEAD"); err != nil {
-		return msg.CloneDetached()
-	}
-	return nil
+	return checkRepoTop(ctx, dir)
 }
 
 // needGit refuses --clone on a machine without git.
@@ -85,29 +82,79 @@ func needGit() error {
 }
 
 // checkRepoTop refuses a folder that isn't the top of a git repo of its
-// own (cloneSource) with a commit: what --clone checks of every repo it
-// copies, a workspace's too, whose HEAD may be detached (seedBranches).
-func checkRepoTop(ctx context.Context, dir string) error {
+// own (cloneSource) that the seed can copy (checkShape) with HEAD at a
+// commit, which the seed checks out, on a branch or detached: what
+// --clone checks of every repo it copies, a workspace's too.
+func checkRepoTop(ctx context.Context, dir string) error { return checkRepoTopOf(ctx, dir, false) }
+
+// checkRepoTopOf is checkRepoTop, of a submodule of a --clone repo when
+// sub (repoSource).
+func checkRepoTopOf(ctx context.Context, dir string, sub bool) error {
 	if top, err := hostGit(ctx, dir, "rev-parse", "--show-toplevel"); err != nil || top != dir {
 		return msg.CloneNotTop(dir)
 	}
-	if _, err := cloneSource(ctx, dir); err != nil {
+	if _, err := repoSource(ctx, dir, sub); err != nil {
 		return err
 	}
-	if _, err := hostGit(ctx, dir, "rev-parse", "-q", "--verify", "HEAD"); err != nil {
+	if err := checkShape(ctx, dir); err != nil {
+		return err
+	}
+	if _, err := hostGit(ctx, dir, "rev-parse", "-q", "--verify", "HEAD^{commit}"); err != nil {
 		return msg.CloneNoCommits()
 	}
 	return nil
 }
 
+// checkShape refuses a repo, the top of one of its own at dir, that the
+// seed can't copy: one with a grafts file, which gives its commits other
+// parents than their own.
+func checkShape(_ context.Context, dir string) error {
+	_, common, err := gitprotect.OwnRepo(dir)
+	if err != nil {
+		return err
+	}
+	if grafts := filepath.Join(common, "info", "grafts"); exists(grafts) {
+		return msg.CloneGrafts(grafts)
+	}
+	return nil
+}
+
+// exists reports whether there's anything at p, a link included.
+func exists(p string) bool {
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
+// partialClone reports whether the repo at dir is a partial clone: its
+// config names a promisor remote, as git 2.54's partial clone does
+// (remote.NAME.promisor), or as older ones did (extensions.partialClone)
+// (hostPromisors).
+func partialClone(ctx context.Context, dir string) bool {
+	return len(hostPromisors(ctx, dir)) > 0
+}
+
 // cloneSource checks that what git reads in dir, a repo's top folder, is
 // that repo's own (gitprotect.OwnRepo), and that git run there reads the
 // same git dir and common dir. It reports whether dir is a linked
-// worktree of a repo elsewhere.
+// worktree of a repo elsewhere. A submodule's folder, whose .git file
+// leads into its parent's .git/modules, isn't a repo of its own here
+// (clone_git_elsewhere): a VM that mounts the parent's folder, or the
+// main repo's of a linked worktree parent, could swap that git dir under
+// host git, which mountingVM, looking at dir and a worktree's common dir,
+// doesn't see. Only as a submodule of a --clone repo is it copied
+// (repoSource with sub).
 func cloneSource(ctx context.Context, dir string) (worktree bool, err error) {
+	return repoSource(ctx, dir, false)
+}
+
+// repoSource is cloneSource, taking a submodule's folder when sub.
+func repoSource(ctx context.Context, dir string, sub bool) (worktree bool, err error) {
 	gitDir, common, err := gitprotect.OwnRepo(dir)
 	if err != nil {
 		return false, err
+	}
+	if fi, lerr := os.Lstat(filepath.Join(dir, ".git")); !sub && gitDir == common && (lerr != nil || !fi.IsDir()) {
+		return false, msg.CloneGitElsewhere(filepath.Join(dir, ".git"))
 	}
 	out, err := hostGit(ctx, dir, "rev-parse", "--path-format=absolute", "--absolute-git-dir", "--git-common-dir")
 	got := strings.Split(out, "\n")
@@ -126,21 +173,6 @@ func resolved(p string) string {
 	return r
 }
 
-// seedRefs are what the seed push sends: every branch of a repo; of a
-// linked worktree, whose repo is elsewhere, only its branch and that
-// branch's upstream, if it has one and it's one ref (the repo's config
-// can make it a pattern, which would push every branch).
-func seedRefs(ctx context.Context, dir, branch string, worktree bool) []string {
-	if !worktree {
-		return []string{"--all"}
-	}
-	refs := []string{"refs/heads/" + branch + ":refs/heads/" + branch}
-	if up, err := hostGit(ctx, dir, "for-each-ref", "--format=%(upstream)", "refs/heads/"+branch); err == nil && strings.HasPrefix(up, "refs/") && up != "refs/heads/"+branch && validRef(ctx, dir, up) {
-		refs = append(refs, up+":"+up)
-	}
-	return refs
-}
-
 // gitSSH is host git (hostgit) run in dir, the repo of t's clone at that
 // path (t's project folder, or a workspace clone's repo), with its ssh
 // (gitSSHCommand) reaching t's running VM alone (target.ownSSH), and the
@@ -155,7 +187,7 @@ func (e clones) gitSSH(ctx context.Context, t *target, dir string, args ...strin
 	return cmd, nil
 }
 
-// gitSSHCommand is git's ssh for a --clone VM's push and fetch: a shell
+// gitSSHCommand is git's ssh for a --clone VM's fetch: a shell
 // function, as git runs GIT_SSH_COMMAND through sh -c with its own
 // arguments after it. It ignores the host, port and options git passes,
 // so no url.*.insteadOf or remote URL in the repo's config can send it
@@ -164,31 +196,30 @@ func (e clones) gitSSH(ctx context.Context, t *target, dir string, args ...strin
 // under HostKeyAlias, BatchMode, nothing forwarded). There it runs
 // git-receive-pack or git-upload-pack, whichever git's last argument
 // asks for, on the clone at dir, whatever path git asked for; anything
-// else fails.
+// else fails. Its upload-pack serves any commit asked for by name
+// (uploadPack), so a stash entry, which no ref names, can be fetched.
 func gitSSHCommand(s vmssh.SSH, dir string) string {
 	run := func(verb string) string {
 		return "exec " + shell.QuoteJoin(append([]string{"ssh"}, s.CommandArgs(verb+" "+shell.Quote(dir))...))
 	}
 	return `f() { for c; do :; done; case $c in "git-receive-pack "*) ` + run("git-receive-pack") +
-		` ;; "git-upload-pack "*) ` + run("git-upload-pack") + ` ;; esac; exit 1; }; f`
+		` ;; "git-upload-pack "*) ` + run(uploadPack) + ` ;; esac; exit 1; }; f`
 }
 
-// seedClone makes the running VM's clone: a new repo at the folder's path
-// that takes pushes to its checked-out branch, every branch of the
-// host's pushed into it, the host's checked out, and a remote for it in
-// the host's repo. Then it offers the ~/.ssh/config line that remote
-// needs, and warns about uncommitted changes, which aren't copied. It
-// needs the VM's ssh config entry. Its command in the VM carries the
-// VM's agent (target.exec).
-func (e clones) seedClone(ctx context.Context, t *target) error {
+// seedClone makes the running VM's clone: a repo at the folder's path
+// (initRepos) with the host's refs and uncommitted changes copied into it
+// (seed), checked out as the host's, and a remote for it in the host's
+// repo. Then it offers the ~/.ssh/config line that remote needs. Its
+// commands in the VM carry the VM's
+// agent (target.exec). A clone an earlier launch copied already (an
+// earlier devvm's push too) gets only its remote.
+func (e seeder) seedClone(ctx context.Context, t *target) error {
 	vm, st, f, dir := t.f.Name, t.st, t.f, t.f.Dir
-	branch, err := hostGit(ctx, dir, "symbolic-ref", "--short", "HEAD")
-	if err != nil {
-		return msg.CloneDetached()
-	}
 	// Checked again, as the folder may have changed since the VM was made.
-	worktree, err := cloneSource(ctx, dir)
-	if err != nil {
+	if _, err := cloneSource(ctx, dir); err != nil {
+		return err
+	}
+	if err := checkShape(ctx, dir); err != nil {
 		return err
 	}
 	if other := e.mountingVM(dir, vm); other != "" {
@@ -198,38 +229,36 @@ func (e clones) seedClone(ctx context.Context, t *target) error {
 	if err != nil {
 		return err
 	}
-	const initRepo = `sudo mkdir -p -- "$1" && sudo chown -- "$(id -u):$(id -g)" "$1" && cd -- "$1" &&
-git init -q && git config receive.denyCurrentBranch updateInstead && git symbolic-ref HEAD "refs/heads/$2"`
-	log := e.vmLog()
-	if err := t.exec(ctx, []string{"sh", "-c", initRepo, "sh", dir, branch}, backend.ExecOpts{Stdout: log, Stderr: log}); err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return backend.Logged(msg.CloneSeedFailed(vm))
-	}
-	e.Info(msg.CopyingBranches())
-	push := append([]string{"push", "-q", "--no-verify", "--no-recurse-submodules", "--no-signed", cloneURL(vm, dir)}, seedRefs(ctx, dir, branch, worktree)...)
-	cmd, err := e.gitSSH(ctx, t, dir, push...)
+	s, err := planSeed(ctx, ".", dir)
 	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
 		return msg.CloneSeedFailed(vm).Because(err)
 	}
-	if err := e.LoggedCmd(ctx, msg.CopyingBranches(), cmd); err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return backend.Logged(msg.CloneSeedFailed(vm))
-	}
-	// Recorded first: rm and an interrupt remove it, if it's the VM's.
+	branch := strings.TrimPrefix(s.head, "refs/heads/")
+	// Recorded before the copy, as a workspace repo's is (seedRepo): rm
+	// checks the clone, and removes the remote once it's the VM's.
 	if err := update(ctx, st, cloneSection, func(c *cloneInVM) error { c.Made.Remote = remote; return nil }); err != nil {
 		return err
+	}
+	seeds := []repoSeed{s}
+	if err := e.initRepos(ctx, t, seeds, nil); err != nil {
+		return err
+	}
+	if !seeds[0].landed {
+		sayHow(e.Info, s, false)
+		e.Info(msg.CopyingBranches())
+		if err := e.seed(ctx, t, s, msg.CopyingBranches()); err != nil {
+			return err
+		}
 	}
 	if _, ok := remoteURL(ctx, dir, remote); !ok {
 		if _, err := hostGit(ctx, dir, "remote", "add", remote, cloneURL(vm, dir)); err != nil {
 			return msg.RemoteAddFailed(remote)
 		}
+	}
+	// Before the clone is recorded as made, so a try again copies those
+	// it didn't.
+	if err := e.seedSubmodules(ctx, t, "."); err != nil {
+		return err
 	}
 	if err := update(ctx, st, cloneSection, func(c *cloneInVM) error { c.Made.Seeded = true; return nil }); err != nil {
 		return err
@@ -239,8 +268,9 @@ git init -q && git config receive.denyCurrentBranch updateInstead && git symboli
 	} else if !ok {
 		e.Warn(msg.FetchUntil(e.Dirs.SSHConfig(), remote))
 	}
-	if dirty, _ := hostgit.Status(ctx, dir, "--porcelain", "--untracked-files=no").Output(); len(bytes.TrimSpace(dirty)) > 0 {
-		e.Warn(msg.UncommittedNotCopied(branch, dir, remote))
+	if s.head == "" {
+		e.Info(msg.CloneReadyDetached(remote))
+		return nil
 	}
 	e.Info(msg.CloneReady(branch, remote))
 	return nil
@@ -279,12 +309,35 @@ func (e clones) showChanges(status []byte, n int) int {
 	return i
 }
 
-// unfetchedRefs returns, from the VM's for-each-ref lines ("SHA
-// refs/heads/BRANCH"), the branches with commits no ref in dir's repo
-// has, as the VM named them: untrusted, so checked (validBranch) before
-// use and quoted when shown.
-func unfetchedRefs(ctx context.Context, dir string, refs []byte) []string {
-	var out []string
+// uploadPack is git upload-pack as a --clone VM's fetch runs it in the
+// VM: allowing any commit asked for by name, which only the VM's own
+// repo serves, so the host can fetch a stash entry by its commit, which
+// no ref names. The fetch speaks git's protocol v0, as devvm's ssh
+// command passes no GIT_PROTOCOL to the VM, and v0 refuses a commit no
+// ref names without this.
+const uploadPack = "git -c uploadpack.allowAnySHA1InWant=true upload-pack"
+
+// fetchRef is what the VM has that the host lacks, as unfetchedRefs
+// gives it: its name, shown and saved by (a branch's, HEAD, or stash-N
+// for a stash entry), what git fetches it from (src: the branch's full
+// name, HEAD, or a stash entry's commit), and whether it's a stash entry
+// (saveStash).
+type fetchRef struct {
+	name, src string
+	stash     bool
+}
+
+// unfetchedRefs returns, from the VM's lines ("SHA refs/heads/BRANCH",
+// "SHA HEAD" for a detached HEAD, "SHA stash@{N}" for a stash entry), the
+// branches with commits no ref in dir's repo has, as the VM named them,
+// HEAD for a detached HEAD's, and stash-N for a stash entry: untrusted,
+// so checked (validBranch) before use and quoted when shown. A stash
+// entry is fetched by its commit, so one whose name or commit isn't
+// git's is left out, and so is one the repo has as an object already: a
+// stash entry is saved without its untracked files (saveStash), so no
+// ref reaches the entry itself.
+func unfetchedRefs(ctx context.Context, dir string, refs []byte) []fetchRef {
+	var out []fetchRef
 	s := bufio.NewScanner(bytes.NewReader(refs))
 	for s.Scan() {
 		sha, ref, _ := strings.Cut(strings.TrimSpace(s.Text()), " ")
@@ -296,7 +349,35 @@ func unfetchedRefs(ctx context.Context, dir string, refs []byte) []string {
 				continue
 			}
 		}
-		out = append(out, strings.TrimPrefix(ref, "refs/heads/"))
+		if n, ok := stashIndex(ref); ok {
+			if objectName.MatchString(sha) && !hasCommit(ctx, dir, sha) {
+				out = append(out, fetchRef{name: "stash-" + n, src: sha, stash: true})
+			}
+			continue
+		}
+		if ref == "HEAD" {
+			out = append(out, fetchRef{name: "HEAD", src: "HEAD"})
+			continue
+		}
+		name := strings.TrimPrefix(ref, "refs/heads/")
+		out = append(out, fetchRef{name: name, src: "refs/heads/" + name})
+	}
+	return out
+}
+
+// stashIndex is N of a stash entry's name, stash@{N}.
+func stashIndex(ref string) (string, bool) {
+	n, ok := strings.CutPrefix(ref, "stash@{")
+	n, ok2 := strings.CutSuffix(n, "}")
+	digits := n != "" && len(n) <= 9 && strings.Trim(n, "0123456789") == ""
+	return n, ok && ok2 && digits
+}
+
+// names are refs' names.
+func names(refs []fetchRef) []string {
+	out := make([]string, len(refs))
+	for i, r := range refs {
+		out[i] = r.name
 	}
 	return out
 }
@@ -304,14 +385,18 @@ func unfetchedRefs(ctx context.Context, dir string, refs []byte) []string {
 // fetchArgs is git fetch of refspecs from the clone of the repo at dir in
 // vm: no tags, no submodules, and --refmap= , so only the refspecs given
 // update refs, never a remote's of the same URL, whose own could update
-// other branches. Every fetch from a clone VM is one.
+// other branches, and every object checked as it comes
+// (transfer.fsckObjects). Every fetch from a clone VM is one.
 func fetchArgs(vm, dir string, refspecs ...string) []string {
-	return append([]string{"fetch", "--no-tags", "--no-recurse-submodules", "--refmap=", cloneURL(vm, dir)}, refspecs...)
+	return append([]string{"-c", "transfer.fsckObjects=true", "fetch", "--no-tags", "--no-recurse-submodules", "--refmap=", cloneURL(vm, dir)}, refspecs...)
 }
 
 // fetchInto runs git fetch (fetchArgs) of refspecs into the repo at dir
-// from its clone in t's VM, as step, failing with fail.
-func (e clones) fetchInto(ctx context.Context, t *target, dir string, step, fail msg.M, refspecs ...string) error {
+// from its clone in t's VM, as step, failing with fail; then brings the
+// Git LFS objects what it fetched names, which git's fetch doesn't
+// (fetchLFS). strict, as for a VM about to go, fails with fail too when
+// an LFS object the VM's clone may have didn't come.
+func (e clones) fetchInto(ctx context.Context, t *target, dir string, strict bool, step, fail msg.M, refspecs ...string) error {
 	cmd, err := e.gitSSH(ctx, t, dir, fetchArgs(t.f.Name, dir, refspecs...)...)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -323,7 +408,23 @@ func (e clones) fetchInto(ctx context.Context, t *target, dir string, step, fail
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		// The VM's upload-pack may have needed an object its partial
+		// clone lacks, which it never fetches to send it.
+		if partialClone(ctx, dir) {
+			rel, err := filepath.Rel(t.f.Dir, dir)
+			if err != nil {
+				rel = dir
+			}
+			e.Warn(msg.CloneFetchPartial(rel))
+		}
 		return backend.Logged(fail)
+	}
+	lost, err := e.fetchLFS(ctx, t, dir, fetchHead(ctx, dir))
+	switch {
+	case err != nil:
+		return err
+	case lost && strict:
+		return fail
 	}
 	return nil
 }
@@ -383,9 +484,10 @@ func quoted(names []string) string {
 }
 
 // removeRemotes removes each repo's remote for the deleted VM, whose
-// clone section is c and project folder ws (removeRemote).
+// clone section is c and project folder ws (removeRemote), its recorded
+// submodules' too (allRepos).
 func (e clones) removeRemotes(ctx context.Context, ws, vm string, c cloneInVM) {
-	for _, r := range c.repos() {
+	for _, r := range c.allRepos() {
 		e.removeRemote(ctx, repoDir(ws, r.Path), vm, r.Remote)
 	}
 }
@@ -637,7 +739,7 @@ func (e remaking) unmountFolder(ctx context.Context, t *target) {
 		if _, ok := remoteURL(ctx, at, r.Remote); ok {
 			continue
 		}
-		if err := e.clones.stillRepo(ctx, t, r.Path); err != nil {
+		if err := e.clones.stillRepo(ctx, t, r.Path, r.submodule); err != nil {
 			e.Warn(msg.CloneRepoChanged(r.Path).Because(err))
 			continue
 		}

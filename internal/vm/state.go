@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 
@@ -77,46 +78,145 @@ type cloneMade struct {
 	// Files: a workspace clone's copy of the folder's files outside its
 	// repos is in the VM (workspaceFiles), made once.
 	Files bool `json:"files,omitempty"`
+	// Submodules: the folder's own repo's submodules the VM has a clone
+	// of, as a workspace repo's are (cloneRepo's).
+	Submodules []cloneRepo `json:"submodules,omitempty"`
 }
 
 // cloneRepo is one repo of a workspace clone: its folder, relative to the
 // project folder ("." for the folder's own), the repo's remote for the
 // VM, recorded before it's added, and whether its branches are in the VM.
+// Submodules are its initialised submodules the VM has a clone of, each
+// recorded before its copy as the repo is, with its folder relative to
+// the repo's, and its own, nested; a submodule recorded here stays
+// checked by rm and fetched whatever the host's repo holds since.
 type cloneRepo struct {
-	Path   string `json:"path"`
-	Remote string `json:"remote,omitempty"`
-	Seeded bool   `json:"seeded,omitempty"`
+	Path       string      `json:"path"`
+	Remote     string      `json:"remote,omitempty"`
+	Seeded     bool        `json:"seeded,omitempty"`
+	Submodules []cloneRepo `json:"submodules,omitempty"`
+	// submodule: allRepos' entry is a submodule's, not written.
+	submodule bool
 }
 
 // repos are the clone's repos: a workspace clone's Repos, each at a
 // local path in the folder (a path that isn't one is passed over: host
 // git runs in each), else the one repo of the folder's own, at ".", with
-// Made's remote and seed.
+// Made's remote, seed and submodules.
 func (c cloneInVM) repos() []cloneRepo {
 	if c.Workspace {
 		return slices.DeleteFunc(slices.Clone(c.Repos), func(r cloneRepo) bool { return r.Path != "." && !filepath.IsLocal(r.Path) })
 	}
-	return []cloneRepo{{Path: ".", Remote: c.Made.Remote, Seeded: c.Made.Seeded}}
+	return []cloneRepo{{Path: ".", Remote: c.Made.Remote, Seeded: c.Made.Seeded, Submodules: c.Made.Submodules}}
 }
 
-// setRepo changes the clone's repo at path as change says: a workspace
-// clone's entry in Repos, else Made's remote and seed for ".". A path it
-// hasn't is left alone.
-func (c *cloneInVM) setRepo(path string, change func(*cloneRepo)) {
-	if !c.Workspace {
-		if path == "." {
-			r := cloneRepo{Path: ".", Remote: c.Made.Remote, Seeded: c.Made.Seeded}
-			change(&r)
-			c.Made.Remote, c.Made.Seeded = r.Remote, r.Seeded
+// allRepos are the clone's repos (repos) and, after each, its submodules
+// (cloneRepo's), nested ones too, each with its path in the project
+// folder and no submodules of its own: those fetch, rm's check and the
+// remotes' removal go over. A submodule whose path isn't local to its
+// repo's is passed over.
+func (c cloneInVM) allRepos() []cloneRepo {
+	var out []cloneRepo
+	var add func(base string, rs []cloneRepo)
+	add = func(base string, rs []cloneRepo) {
+		for _, r := range rs {
+			path := r.Path
+			if base != "" {
+				if !filepath.IsLocal(r.Path) {
+					continue
+				}
+				path = filepath.Join(base, r.Path)
+			}
+			out = append(out, cloneRepo{Path: path, Remote: r.Remote, Seeded: r.Seeded, submodule: base != ""})
+			add(path, r.Submodules)
 		}
-		return
 	}
+	add("", c.repos())
+	return out
+}
+
+// setRepo changes the clone's repo at path, in the project folder, as
+// change says: a workspace clone's entry in Repos, else Made's remote,
+// seed and submodules for "."; or a submodule's entry, found below its
+// repo's. It reports whether it had one; a path it hasn't is left alone.
+func (c *cloneInVM) setRepo(path string, change func(*cloneRepo)) bool {
+	if !c.Workspace {
+		r := cloneRepo{Path: ".", Remote: c.Made.Remote, Seeded: c.Made.Seeded, Submodules: c.Made.Submodules}
+		found := path == "."
+		if found {
+			change(&r)
+		} else {
+			found = setSubmodule(&r, path, change)
+		}
+		c.Made.Remote, c.Made.Seeded, c.Made.Submodules = r.Remote, r.Seeded, r.Submodules
+		return found
+	}
+	found := false
 	for i := range c.Repos {
 		if c.Repos[i].Path == path {
 			change(&c.Repos[i])
+			found = true
+		} else if setSubmodule(&c.Repos[i], path, change) {
+			found = true
 		}
 	}
+	return found
 }
+
+// setSubmodule changes the submodule of r, the repo at r.Path in the
+// project folder, at path in it, as change says, nested ones too, and
+// reports whether it had one.
+func setSubmodule(r *cloneRepo, path string, change func(*cloneRepo)) bool {
+	rel, err := filepath.Rel(r.Path, path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return false
+	}
+	for i := range r.Submodules {
+		s := &r.Submodules[i]
+		if s.Path == rel {
+			change(s)
+			return true
+		}
+		// Below it: a nested one, its path in the project folder.
+		nested := cloneRepo{Path: filepath.Join(r.Path, s.Path), Submodules: s.Submodules}
+		if setSubmodule(&nested, path, change) {
+			s.Submodules = nested.Submodules
+			return true
+		}
+	}
+	return false
+}
+
+// addSubmodule records the submodule at sub, relative to its repo's
+// folder, of the clone's repo at parent, in the project folder, once,
+// with its remote: before its copy, so a retry, rm and an interrupt
+// find it. A parent it hasn't is an error, never a record lost.
+func (c *cloneInVM) addSubmodule(parent, sub, remote string) error {
+	if !c.setRepo(parent, func(r *cloneRepo) {
+		for i := range r.Submodules {
+			if r.Submodules[i].Path == sub {
+				r.Submodules[i].Remote = remote
+				return
+			}
+		}
+		r.Submodules = append(r.Submodules, cloneRepo{Path: sub, Remote: remote})
+	}) {
+		return errNoParent
+	}
+	return nil
+}
+
+// dropSubmodule takes the record of the submodule at sub, relative to its
+// repo's folder, of the clone's repo at parent out: one whose copy
+// didn't go in, which the VM has nothing of to check.
+func (c *cloneInVM) dropSubmodule(parent, sub string) {
+	c.setRepo(parent, func(r *cloneRepo) {
+		r.Submodules = slices.DeleteFunc(r.Submodules, func(s cloneRepo) bool { return s.Path == sub })
+	})
+}
+
+// errNoParent is addSubmodule's error for a parent repo the clone hasn't.
+var errNoParent = errors.New("the clone records no such repo")
 
 // devcontainerInVM is a VM's devcontainer section: the devcontainer.json
 // it was made from, what that maps to of the VM's own (its variables, its

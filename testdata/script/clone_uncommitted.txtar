@@ -1,0 +1,109 @@
+# --clone copies the repo's uncommitted changes: what's staged, as the
+# index has it, and what isn't, deletions and intent-to-add files
+# included, so git status in the VM's clone matches this one's. Untracked
+# and ignored files stay on this machine, and so does anything below a
+# tracked file that became a folder, or in an embedded repo, whose .git
+# never goes. A file a filter (git-crypt, say) changes goes as git stores
+# it, and devvm says it may differ. (The stubs keep the VM's files in
+# $STUB_DIR/vmfs.)
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+cd $WORK/web
+exec git init -q -b main
+exec git config filter.rot.clean 'tr a-z n-za-m'
+exec git config filter.rot.smudge 'tr a-z n-za-m'
+exec ln -s a link
+exec git add .
+exec git commit -q -m one
+exec git init -q -b main emb
+exec git -C emb commit -q --allow-empty -m e
+exec git -C emb remote add origin https://u:ghp_EMBTOKEN@github.com/x/emb.git
+
+# The changes: staged a, unstaged b, deleted c, intent-to-add n, a link
+# changed, a filtered file changed, foo turned into a folder, an embedded
+# repo staged with an untracked file in it; .env untracked.
+exec sh -c 'echo staged > a && git add a && echo unstaged > b && rm c && echo new > n && git add -N n'
+exec sh -c 'rm link && ln -s b link && echo changed > secret'
+exec sh -c 'rm foo && mkdir foo && echo AWS=topsecret > foo/.env'
+exec sh -c 'echo LIBSECRET=x > emb/.env && git add emb 2>/dev/null; echo SECRET=1 > .env'
+exec sh -c 'git update-index --skip-worktree local.yml && echo password=hidden > local.yml'
+exec git status --porcelain --untracked-files=no
+cmp stdout $WORK/host-status
+
+exec devvm --clone --network open
+stderr '^devvm: clone_filtered_kept count=1 dir=/\S*/web files="secret"$'
+stderr '^devvm: clone_typechange_kept count=1 dir=/\S*/web files="foo"$'
+stderr '^devvm: clone_skip_worktree_kept count=1 dir=/\S*/web files="local.yml"$'
+! stderr 'uncommitted_not_copied|clone_kept_files'
+stdout '^==> clone_ready branch=main remote=devvm$'
+
+# In the VM: the same status but foo, which is gone there; a, b, n as
+# here; secret as git stores it; link the new link; none of .env,
+# foo/.env, emb/.env or emb/.git.
+exec sh -c 'cd "$STUB_DIR/vmfs$(pwd -P)" && git status --porcelain --untracked-files=no'
+cmp stdout $WORK/vm-status
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; cat "$c/a" "$c/b" "$c/n" "$c/secret"; readlink "$c/link"; git -C "$c" diff --cached --name-only'
+cmp stdout $WORK/vm-files
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; ls -a "$c" "$c/emb"'
+! stdout '\.env'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; test ! -e "$c/foo" && test ! -e "$c/emb/.git" && test ! -e "$c/.env" && echo clean'
+stdout '^clean$'
+exec sh -c 'grep -r EMBTOKEN "$STUB_DIR/vmfs" || echo none'
+stdout '^none$'
+
+# local.yml, skip-worktree here, is in the VM as the index has it.
+exec sh -c 'cat "$STUB_DIR/vmfs$(pwd -P)/local.yml"'
+stdout '^committed$'
+
+# rm: the copied changes aren't the VM's work while the VM leaves them as
+# they came, even once they change here; b changed in the VM is, and rm
+# without a terminal refuses, naming b alone.
+exec sh -c 'echo again > b && echo more > a'
+exec sh -c 'echo vm > "$STUB_DIR/vmfs$(pwd -P)/b"'
+! exec devvm rm --force --no-export
+stdout '^clone_dirty$'
+stderr '^devvm: no_terminal_delete command=devvm rm$'
+stdout '^ M b$'
+! stdout '^(M  a| D c|A  emb| D foo| M link| A n)$'
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" checkout -q -- b'
+exec devvm rm --force --no-export
+stdout '^==> deleted vm='
+
+-- web/a --
+a
+-- web/b --
+b
+-- web/c --
+c
+-- web/local.yml --
+committed
+-- web/foo --
+foo
+-- web/secret --
+plaintext
+-- web/.gitattributes --
+secret filter=rot
+-- host-status --
+M  a
+ M b
+ D c
+A  emb
+ D foo
+ M link
+ A n
+ M secret
+-- vm-status --
+M  a
+ M b
+ D c
+A  emb
+ D foo
+ M link
+ A n
+-- vm-files --
+staged
+unstaged
+new
+cynvagrkg
+b
+a
+emb

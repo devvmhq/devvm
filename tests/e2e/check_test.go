@@ -182,6 +182,12 @@ func (s *S) Skip(title, why string) {
 	r.out.line("  SKIP  [%d/%s] %s (%s)", r.n, r.total, title, why)
 }
 
+// Note prints a line of what the run found, such as a version, which
+// isn't a check.
+func (s *S) Note(text string) {
+	s.r.out.line("  NOTE  %s", text)
+}
+
 // Section prints a section's heading.
 func (s *S) Section(name string) {
 	s.r.out.line("")

@@ -29,10 +29,7 @@ func userPageDirs() []string {
 // proseExempt are user pages that another branch is rewriting, each with
 // why. Take a page out once its branch lands.
 func proseExempt() map[string]string {
-	return map[string]string{
-		"using/clone.md":         "the clone stack rewrites it",
-		"using/coding-agents.md": "the agents stack rewrites it",
-	}
+	return map[string]string{}
 }
 
 // A block of a page's prose: a paragraph (kind 'p') or a list item ('l').

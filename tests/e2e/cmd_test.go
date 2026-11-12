@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -40,7 +41,8 @@ func (r Res) Has(line string) bool { return HasLine(r.Out, line) }
 // Run runs c in the window open now, its output in the check's log too
 // (the heartbeat's and a failure's lines). It runs in a process group of
 // its own, which gets TERM when the window runs out, then KILL 30 s later.
-// Its error is the command and its exit status.
+// Its error is the command and its exit status, and for git, the end of
+// what it wrote on stderr (gitSaid).
 func (s *S) Run(c Cmd) (Res, error) {
 	w := s.r.window()
 	cmd := exec.CommandContext(w.ctx, c.Args[0], c.Args[1:]...)
@@ -60,8 +62,8 @@ func (s *S) Run(c Cmd) (Res, error) {
 		return Res{}, err
 	}
 	defer log.Close()
-	all, out := &lockedBuffer{}, &bytes.Buffer{}
-	cmd.Stdout, cmd.Stderr = io.MultiWriter(all, out, log), io.MultiWriter(all, log)
+	all, out, errOut := &lockedBuffer{}, &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.Stdout, cmd.Stderr = io.MultiWriter(all, out, log), io.MultiWriter(all, errOut, log)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
 	cmd.WaitDelay = killAfter
@@ -71,9 +73,29 @@ func (s *S) Run(c Cmd) (Res, error) {
 	}
 	res := Res{Out: all.String(), Stdout: out.String()}
 	if err != nil {
-		err = fmt.Errorf("%s: %w", strings.Join(c.Args, " "), err)
+		err = fmt.Errorf("%s: %w%s", strings.Join(c.Args, " "), err, gitSaid(c.Args[0], errOut.String()))
 	}
 	return res, err
+}
+
+// gitSaidMax is the most of a failed git's errors a failure line holds.
+const gitSaidMax = 500
+
+// gitSaid is what a failed git command (prog) wrote on stderr, its end,
+// at most gitSaidMax bytes on one line, for its error: "" for another
+// command, or none.
+func gitSaid(prog, stderr string) string {
+	if filepath.Base(prog) != "git" {
+		return ""
+	}
+	s := strings.Join(strings.Fields(stderr), " ")
+	if s == "" {
+		return ""
+	}
+	if len(s) > gitSaidMax {
+		s = "…" + strings.ToValidUTF8(s[len(s)-gitSaidMax:], "")
+	}
+	return " (git said: " + s + ")"
 }
 
 // lockedBuffer is a buffer two writers share.

@@ -42,7 +42,7 @@ stdout '^from-vm$'
 exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" commit -q --allow-empty -m from-vm-2'
 ! exec devvm rm --force
 stdout '^unfetched_commits refs="agent/x"$'
-stderr '^devvm: no_terminal_fetch command=devvm rm remote=devvm$'
+stderr '^devvm: no_terminal_fetch command=devvm rm$'
 exec devvm clone fetch
 exec sh -c 'echo z > "$STUB_DIR/vmfs$(pwd -P)/new"'
 ! exec devvm rm --force
@@ -67,6 +67,9 @@ stdout '^clone\.repos\.1\.path=sub$'
 stdout '^clone\.repos\.1\.seeded=true$'
 ! stdout '^clone\.made\.remote'
 stdout '^clone\.made\.seeded=true$'
+# 0.1.0 recorded no submodules: fetch, rm's check and clone add above
+# went over its one repo and the one added, as ever.
+! stdout 'submodules'
 
 # devvm clone off: the clone checked, then the VM made again mounting
 # the folder.

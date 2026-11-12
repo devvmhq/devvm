@@ -15,12 +15,12 @@ internal/desktop 77.2
 internal/devcontainer 96.8
 internal/fetch 96.6
 internal/from 91.3
-internal/gitprotect 94.7
+internal/gitprotect 94.8
 internal/hostgit 100.0
 internal/hostsafety 95.9
 internal/image 99.4
 internal/jsonc 97.1
-internal/msg 72.0
+internal/msg 72.1
 internal/msg/gen 93.3
 internal/netpolicy 91.6
 internal/paths 98.1

@@ -41,8 +41,21 @@
 //     and secrets.
 //   - Links (links.go): links between VMs and published ports; Groups
 //     (groups.go): the links a group makes.
-//   - --clone (clone.go): the clone, rm's check (clonecheck.go: every
-//     repo read in one command) and devvm clone's switch; a workspace
+//   - --clone (clone.go): the clone, its seed (cloneseed.go's seeder: the
+//     repos made in one command, then each repo's refs and pack sent
+//     through the backend's Exec, never git push; its uncommitted changes
+//     are cloneworktree.go's seedTree: the index normalised, each working
+//     copy read through a safefile root, folder by folder, never through a
+//     link, and the record of what went; its operation in progress and
+//     stash are clonestate.go's seedState, its settings and hooks
+//     cloneconfig.go's seedConfig, a partial clone's pack and warnings
+//     clonepartial.go's, each initialised submodule's own clone, recorded
+//     before its copy, clonesub.go's, Git LFS objects both ways, each
+//     checked against its oid, clonelfs.go's, saving a VM's stash entry
+//     clonesave.go's), rm's check (clonecheck.go:
+//     every repo read in one command, the seed's record read back, the
+//     VM's own stash entries fetched by commit) and
+//     devvm clone's switch; a workspace
 //     clone of a folder of repos (workspace.go: finding and choosing
 //     them, their seeds, devvm clone fetch and devvm clone add;
 //     workspacefiles.go: the folder's own files, copied once).

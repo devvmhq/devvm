@@ -54,6 +54,23 @@ func TestHarnessOptions(t *testing.T) {
 	}
 }
 
+// A failed git's error carries the end of its stderr, on one line and
+// bounded; another command's carries nothing more.
+func TestHarnessGitSaid(t *testing.T) {
+	long := strings.Repeat("x", gitSaidMax+50)
+	for _, c := range []struct{ prog, stderr, want string }{
+		{"git", "fatal: cannot lock ref 'HEAD'\n", " (git said: fatal: cannot lock ref 'HEAD')"},
+		{"/usr/bin/git", "hint: a\nfatal:  b\n", " (git said: hint: a fatal: b)"},
+		{"git", "", ""},
+		{"devvm", "devvm: no\n", ""},
+		{"git", long, " (git said: …" + long[50:] + ")"},
+	} {
+		if got := gitSaid(c.prog, c.stderr); got != c.want {
+			t.Errorf("gitSaid(%q, %q) = %q", c.prog, c.stderr, got)
+		}
+	}
+}
+
 func TestHarnessNewestTier(t *testing.T) {
 	o := options{every: true, newest: true}
 	if got := o.tier(); got != "features-newest" {
@@ -231,6 +248,25 @@ func TestHarnessEnviron(t *testing.T) {
 		map[string]string{"LIMA_HOME": "/sandbox", "A": "1"})
 	if want := []string{"PATH=/bin", "A=1", "LIMA_HOME=/sandbox"}; !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// The sandbox's git has an identity of its own, whatever the host's git
+// config holds, so the harness's commits and annotated tags work on a
+// host with none, and yours never goes into them.
+func TestHarnessGitIdentity(t *testing.T) {
+	t.Setenv("GIT_AUTHOR_NAME", "mine")
+	sb, err := newSandbox(options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kv := range []string{"GIT_AUTHOR_NAME=devvm e2e", "GIT_AUTHOR_EMAIL=e2e@devvm.invalid", "GIT_COMMITTER_NAME=devvm e2e", "GIT_COMMITTER_EMAIL=e2e@devvm.invalid"} {
+		if !slices.Contains(sb.env, kv) {
+			t.Errorf("no %s", kv)
+		}
+	}
+	if slices.Contains(sb.env, "GIT_AUTHOR_NAME=mine") {
+		t.Error("the host's identity is in the sandbox")
 	}
 }
 

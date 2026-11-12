@@ -62,9 +62,11 @@ stdout '^==> clone_ready branch=main remote=devvm$'
 stub_calls
 stdout 'limactl rename --tty=false devvm-web-[0-9a-f]{14} devvm-[0-9a-f]{14}-old\n'
 stdout '^limactl clone --tty=false devvm-img-[0-9a-f]{12} devvm-web-[0-9a-f]{14} --mount-none --set \.mounts = \[\{"location":"[^"]*/data/devvm/tools","mountPoint":"/mnt/devvm-tools","writable":false\}\] '
-stdout 'git-receive-pack ''/\S*/web''$'
+! stdout 'git-receive-pack'
 stdout 'limactl delete -f devvm-[0-9a-f]{14}-old\n'
 [darwin] stdout 'limactl delete -f devvm-[0-9a-f]{14}-old\n(.*\n)*chflags -R -P nouchg /\S*/web/\.git/config\n'
+exec sh -c 'cat "$STUB_DIR/vmfs$(pwd -P)/.git/devvm-seeded"'
+stdout '^done$'
 vm_state $WEB_dir/vm.json
 stdout '^clone.on=true$'
 stdout '^clone.made.remote=devvm$'
@@ -103,7 +105,7 @@ exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" commit -q --allow-empty -m from-vm'
 stub_reset
 ! exec devvm clone off --force
 stdout '^unfetched_commits refs="main"$'
-stderr '^devvm: no_terminal_fetch command=devvm clone off remote=devvm$'
+stderr '^devvm: no_terminal_fetch command=devvm clone off$'
 stub_calls
 ! stdout 'limactl (rename|clone)'
 

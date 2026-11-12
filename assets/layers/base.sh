@@ -9,6 +9,9 @@ mise_sha256_arm64=a9a2a66bbbe87ea9cc849e1f006606ae2b34f3d3ba56a54d5cd5d64b6557d1
 mise_sha256_amd64=c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
 mise_sha256_arm64_musl=78c87fb8c8af031755f9241cbcd1886cd458c75e8f324020015445a776789e38
 mise_sha256_amd64_musl=72f1cb4591ee2ba90150022c3ee8aea4dd88fadac10c56d04ede4faffb5a1b03
+git_lfs_version=3.8.1
+git_lfs_sha256_arm64=67895dd77b63329796bc5efdd47b57f218e1f7b98717ebaf936a8238dbcaec0f
+git_lfs_sha256_amd64=e72cf723a4a660438862282e8aecf3885fc8123e88bfcad534cf6b941a354b75
 
 export DEBIAN_FRONTEND=noninteractive
 # Alpine (--from alpine): apk, OpenRC and musl. Its packages come from the release's repositories,
@@ -92,6 +95,16 @@ m=${devvm_arch/amd64/x64}; [[ $devvm_libc == gnu ]] || m+=-musl
 devvm-fetch "https://github.com/jdx/mise/releases/download/v$mise_version/mise-v$mise_version-linux-$m" "$(devvm_sha mise)" /tmp/mise
 sudo install -m 755 /tmp/mise /usr/local/bin/mise
 rm /tmp/mise
+
+# git-lfs: a --clone VM's clone of a repo that uses Git LFS gets the repo's LFS objects, and git there
+# checks out each LFS file's content through git-lfs's filter, which the copy sets in that clone's own
+# config, never the system's, so a VM that mounts its folder keeps the pointers as they are. One static
+# build for glibc and musl.
+devvm-fetch "https://github.com/git-lfs/git-lfs/releases/download/v$git_lfs_version/git-lfs-linux-$devvm_arch-v$git_lfs_version.tar.gz" \
+  "$(devvm_sha git_lfs)" /tmp/git-lfs.tar.gz
+tar -xzf /tmp/git-lfs.tar.gz -C /tmp "git-lfs-$git_lfs_version/git-lfs"
+sudo install -m 755 "/tmp/git-lfs-$git_lfs_version/git-lfs" /usr/local/bin/git-lfs
+rm -rf /tmp/git-lfs.tar.gz "/tmp/git-lfs-$git_lfs_version"
 # Every shell finds the tools: login shells through profile.d, interactive ones through mise activate
 # (it follows `cd` into projects with other versions), and the rest (`bash -c` from agents, editors
 # over SSH) through BASH_ENV and mise's shims. Read-only installs can't take global packages or update

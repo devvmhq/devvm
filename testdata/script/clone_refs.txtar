@@ -1,0 +1,142 @@
+# --clone copies every ref a repo has worth having: its branches, tags
+# (annotated ones as tag objects), notes, replace refs and remote-tracking
+# branches, origin/HEAD as a symref, but no devvm VM's remote-tracking
+# branches and nothing else, such as refs/original. A detached HEAD is
+# copied detached, at the same commit, and rm names a commit only the
+# VM's detached HEAD has and fetches it as saved/devvm/HEAD. A linked
+# worktree's VM gets its branch, its upstream, the default branch, the
+# remote-tracking branches and the tags, not the repo's other local
+# branches, and devvm says so. A workspace repo whose HEAD is detached is
+# detached in the VM too. (The stubs keep the VM's files in
+# $STUB_DIR/vmfs.)
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+exec git init -q -b main $WORK/up
+exec git -C $WORK/up commit -q --allow-empty -m one
+exec git -C $WORK/up branch feature
+exec git clone -q $WORK/up $WORK/web
+cd $WORK/web
+exec git commit -q --allow-empty -m two
+exec git tag v1
+exec git tag -a v2 -m v2
+exec git notes add -m note HEAD
+exec git branch side
+exec git replace --graft HEAD
+exec git remote add devvm-old devvm-old-0123456789abcd:/elsewhere
+exec git update-ref refs/remotes/devvm-old/main HEAD
+exec git update-ref refs/original/refs/heads/main HEAD
+exec git checkout -q --detach
+exec git commit -q --allow-empty -m detached-work
+
+# A detached HEAD: copied, detached at the same commit, with every ref
+# but the VM remote's and refs/original.
+exec devvm --clone --network open
+stdout '^==> clone_ready_detached remote=devvm$'
+! stderr 'clone_detached|clone_kept'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" for-each-ref --format="%(refname) %(objecttype)%(if)%(symref)%(then) %(symref)%(end)" | sed "s#^refs/replace/[0-9a-f]* #refs/replace/REPLACED #"'
+cmp stdout $WORK/vm-refs
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" symbolic-ref -q HEAD || git -C "$c" log -1 --format=%s HEAD'
+stdout '^detached-work$'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" status --porcelain && git -C "$c" notes show main'
+stdout '^note$'
+
+# devvm clone fetch brings back a commit only the VM's detached HEAD has,
+# as saved/devvm/HEAD, which no fetch of its branches would; again, with
+# nothing new, it brings nothing.
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" commit -q --allow-empty -m vm-detached'
+exec devvm clone fetch
+stdout '^==> saved_branches branches="saved/devvm/HEAD"$'
+exec git log --format=%s -1 saved/devvm/HEAD
+stdout '^vm-detached$'
+exec devvm clone fetch
+stdout '^==> clone_fetched_none$'
+! stdout saved_branches
+exec devvm clone fetch --json
+stdout '"repos": \[\]'
+
+# rm: another commit on the VM's detached HEAD is named, and without a
+# terminal the VM is kept.
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" commit -q --allow-empty -m vm-detached-2'
+! exec devvm rm --force --no-export
+stdout '^unfetched_commits refs="HEAD"$'
+stderr '^devvm: no_terminal_fetch command=devvm rm$'
+
+# With a worktree in the VM detached at a commit of its own too: in a
+# terminal, rm fetches the HEAD's commit as saved/devvm-2/HEAD (saved/devvm
+# is taken), then names the worktree as it names uncommitted changes and
+# asks, and with no answer keeps the VM; without a terminal it refuses.
+# The worktree's HEAD alone, once the clone's is back on main: no
+# unfetched commits, the worktree named.
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" worktree add -q --detach .worktrees/w && echo .worktrees/ >> "$c/.git/info/exclude" && git -C "$c/.worktrees/w" commit -q --allow-empty -m wt-own'
+ttyin -stdin $WORK/yes.txt
+! exec devvm rm --force --no-export
+stdout '^==> saved_branches branches="saved/devvm-2/HEAD"$'
+stdout '^clone_worktree_detached path=/\S*/web/\.worktrees/w$'
+exec git log --format=%s -1 saved/devvm-2/HEAD
+stdout '^vm-detached-2$'
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" checkout -q main'
+! exec devvm rm --force --no-export
+! stdout unfetched_commits
+stdout '^clone_worktree_detached path=/\S*/web/\.worktrees/w$'
+stderr '^devvm: no_terminal_delete command=devvm rm$'
+exec devvm rm --force --no-export --no-clone-check
+stdout '^==> deleted vm=devvm-web-[0-9a-f]{14}$'
+
+# A linked worktree, its upstream a remote-tracking branch: what's
+# published (the default branch, origin's branches, the tags) and its own
+# branch, not the repo's other local branches (side, saved/*), its notes
+# or its replace refs; devvm says so.
+exec git checkout -q main
+exec git worktree add -q -b wtb $WORK/wt main
+exec git -C $WORK/wt branch -q --set-upstream-to=origin/feature
+cd $WORK/wt
+exec devvm --clone --network open
+stdout '^==> clone_worktree_tips$'
+stdout '^==> clone_ready branch=wtb remote=devvm$'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" for-each-ref --format="%(refname)" && git -C "$c" symbolic-ref HEAD'
+cmp stdout $WORK/wt-refs
+exec devvm rm --force --no-export
+cd $WORK/web
+exec git worktree remove --force $WORK/wt
+
+# A folder of repos: a repo whose HEAD is detached is detached in the VM
+# at the same commit, with every branch and tag; devvm says so.
+exec git init -q -b main $WORK/ws/a
+exec git -C $WORK/ws/a commit -q --allow-empty -m a1
+exec git -C $WORK/ws/a branch other
+exec git -C $WORK/ws/a tag t1
+exec git -C $WORK/ws/a checkout -q --detach
+exec git -C $WORK/ws/a commit -q --allow-empty -m a-detached
+cd $WORK/ws
+exec devvm --clone --network open --repos all
+stdout '^==> workspace_detached path=a$'
+stdout '^==> workspace_ready count=1$'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)/a"; git -C "$c" for-each-ref --format="%(refname)" && { git -C "$c" symbolic-ref -q HEAD || git -C "$c" log -1 --format=%s HEAD; }'
+cmp stdout $WORK/ws-refs
+exec devvm rm --force --no-export
+
+-- vm-refs --
+refs/heads/main commit
+refs/heads/side commit
+refs/notes/commits commit
+refs/remotes/origin/HEAD commit refs/remotes/origin/main
+refs/remotes/origin/feature commit
+refs/remotes/origin/main commit
+refs/replace/REPLACED commit
+refs/tags/v1 commit
+refs/tags/v2 tag
+-- wt-refs --
+refs/heads/main
+refs/heads/wtb
+refs/remotes/origin/HEAD
+refs/remotes/origin/feature
+refs/remotes/origin/main
+refs/tags/v1
+refs/tags/v2
+refs/heads/wtb
+-- ws-refs --
+refs/heads/main
+refs/heads/other
+refs/tags/t1
+a-detached
+-- yes.txt --
+y

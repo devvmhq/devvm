@@ -2240,9 +2240,6 @@ other = "--clone needs the top folder of a git repo, and {{.dir}} isn't one. Run
 [clone_no_commits]
 other = "--clone needs a commit, and this repo has none yet. Make a first commit, then run devvm --clone again."
 
-[clone_detached]
-other = "--clone needs a branch checked out, and HEAD is detached. Check out a branch, then run devvm --clone again."
-
 [clone_git_elsewhere]
 description = "path is the .git file, commondir or gitdir file that points elsewhere"
 other = "--clone takes only a repo of the folder's own or a git worktree of one, and {{.path}} points into another repo. Run devvm --clone in that repo's own folder."
@@ -2250,6 +2247,129 @@ other = "--clone takes only a repo of the folder's own or a git worktree of one,
 [clone_alternates]
 description = "path is the repo's objects/info/alternates file"
 other = "--clone copies only a repo's own objects, and {{.path}} borrows objects from another repo. Run git repack -a -d, delete that file, then run devvm --clone again."
+
+[clone_grafts]
+description = "path is the repo's info/grafts file"
+other = "--clone copies a repo's commits with their own parents, and {{.path}} gives some of them others. Run git replace --convert-graft-file, then run devvm --clone again."
+
+[clone_partial_blocked]
+description = "dir is the repo's folder, remote the promisor remote's name, host its URL's host, with its port when that isn't 80 or 443, as devvm network allow takes it (github.com:22)"
+other = "{{.dir}} is a partial clone, and the VM's allowlist blocks {{.host}}, where {{.remote}} is, so git there can't fetch the objects it lacks. To allow it, run devvm network allow {{.host}}."
+
+[clone_partial_blocked_none]
+description = "dir is the repo's folder, remote the promisor remote's name, host its URL's host, with its port when that isn't 80 or 443, as devvm network allow takes it (github.com:22)"
+other = "{{.dir}} is a partial clone, and the VM's none tier blocks {{.host}}, where {{.remote}} is, so git there can't fetch the objects it lacks. To reach it, run devvm network allowlist, then devvm network allow {{.host}}."
+
+[clone_partial_denied]
+description = "dir is the repo's folder, remote the promisor remote's name, host its URL's host"
+other = "{{.dir}} is a partial clone, and the VM can't reach {{.host}}, where {{.remote}} is, as a deny rule blocks it or it's a private address, so git there can't fetch the objects it lacks."
+
+[clone_partial_unreachable]
+description = "dir is the repo's folder, remote the promisor remote's name, url its URL"
+other = "{{.dir}} is a partial clone, and {{.remote}} is {{.url}} on this machine, which the VM can't reach, so git there can't fetch the objects it lacks."
+
+[clone_partial_promisor_kept]
+description = "dir is the repo's folder, remotes a space-separated list of at most 20 quoted promisor remotes, and count how many there are in all"
+one = "{{.dir}} is a partial clone, and {{.remotes}}, the remote with the objects it lacks, stays on this machine, so git in the VM can't fetch them."
+other = "{{.dir}} is a partial clone, and {{.count}} remotes with the objects it lacks, such as {{.remotes}}, stay on this machine, so git in the VM can't fetch them."
+
+[clone_partial_refs_kept]
+description = "dir is the repo's folder, refs a space-separated list of at most 20 quoted refs, and count how many there are in all"
+one = "{{.refs}} in {{.dir}} points to an object this partial clone hasn't fetched, so the VM's clone doesn't get it."
+other = "{{.count}} refs in {{.dir}}, such as {{.refs}}, point to objects this partial clone hasn't fetched, so the VM's clone doesn't get them."
+
+[clone_ref_no_object]
+description = "ref is the ref, such as refs/tags/v1"
+other = "{{.ref}} points to an object the repo doesn't have, and it isn't a partial clone, so the repo is broken. Run git fsck there to see what's missing."
+
+[clone_fetch_partial]
+description = "path is the repo's folder, relative to the project folder"
+other = "{{.path}} is a partial clone, so the VM's clone may lack an object its work needs, and git there won't fetch one just to send it. In the VM's clone, run a command that reads the work's objects, such as git show of its commits, then fetch again."
+
+[clone_vm_git_old]
+description = "version is what git --version printed in the VM, or unknown"
+other = "This repo names its objects with SHA-256, which needs git 2.29 or newer in the VM, and {{.vm}} has {{.version}}. Run devvm rm, then make the VM again from an image with a newer git."
+
+[clone_repo_format]
+description = "paths is a space-separated list of quoted folders, relative to the project folder"
+other = "An older devvm made an empty repo at {{.paths}} in {{.vm}} that can't take this repo's SHA-256 objects.\nDelete that empty repo's .git and make it again?"
+
+[clone_repo_format_kept]
+description = "paths is a space-separated list of quoted folders, relative to the project folder"
+other = "The empty repo at {{.paths}} in {{.vm}} stays as it is, so it has none of your branches. Run devvm in a terminal to make it again, or run devvm rm, then devvm --clone."
+
+[clone_kept_branches]
+description = "branches is a space-separated list of at most 20 quoted branch names, and count how many there are in all"
+one = "The VM has commits of its own on {{.branches}} in {{.dir}}, so devvm left that branch as it is instead of moving it to this machine's."
+other = "The VM has commits of its own on {{.count}} branches in {{.dir}}, such as {{.branches}}, so devvm left them as they are instead of moving them to this machine's."
+
+[clone_kept_files]
+description = "files is a space-separated list of at most 20 quoted paths, relative to dir, and count how many there are in all"
+one = "The VM had its own copy of {{.files}} in {{.dir}}, so devvm kept it, and git status in the VM shows how it differs."
+other = "The VM had its own copies of {{.count}} tracked files in {{.dir}}, such as {{.files}}, so devvm kept them, and git status in the VM shows how they differ."
+
+[clone_kept_head]
+other = "HEAD in the VM's clone of {{.dir}} stays where the VM put it, not where it is on this machine, because the VM moved it or checked out something else."
+
+[clone_uncommitted_kept]
+other = "The uncommitted changes in {{.dir}} stay on this machine, because HEAD in the VM's clone isn't where it is here, so they'd apply to something else. To give them to the VM, commit them, then run git push to the VM's remote."
+
+[clone_stash_all_kept]
+description = "entries is a space-separated list of at most 20 quoted stash entries, such as \"stash@{1}\", and count how many there are in all"
+one = "The stash entry {{.entries}} in {{.dir}} stays on this machine, because it may hold files git ignores, as git stash --all makes."
+other = "{{.count}} stash entries in {{.dir}}, such as {{.entries}}, stay on this machine, because they may hold files git ignores, as git stash --all makes."
+
+[clone_stash_over_kept]
+description = "entries is a space-separated list of at most 20 quoted stash entries, such as \"stash@{1000}\", count how many there are in all, and max how many devvm copies"
+one = "The stash entry {{.entries}} in {{.dir}} stays on this machine, because devvm copies only the newest {{.max}}."
+other = "{{.count}} stash entries in {{.dir}}, such as {{.entries}}, stay on this machine, because devvm copies only the newest {{.max}}."
+
+[clone_stash_untracked]
+description = "branch is the saved stash entry's branch, untracked the branch its untracked files went to, files a space-separated list of at most 20 of their quoted paths, and count how many there are in all"
+one = "The VM's stash entry {{.branch}} also held an untracked file, {{.files}}, which devvm saved apart as {{.untracked}}, so git stash apply won't write it. Look at it with git show {{.untracked}} before you use it."
+other = "The VM's stash entry {{.branch}} also held {{.count}} untracked files, such as {{.files}}, which devvm saved apart as {{.untracked}}, so git stash apply won't write them. Look at them with git show {{.untracked}} before you use them."
+
+[clone_stash_untracked_ignored]
+description = "untracked is the branch the VM's stash entry's untracked files went to, files a space-separated list of at most 20 quoted paths among them that git on this machine ignores, and count how many there are in all"
+one = "Of those, {{.files}} in {{.untracked}} is a file git ignores here, which a tool may run on its own, such as a virtualenv's, so check it before you copy it in."
+other = "Of those, {{.count}} files in {{.untracked}}, such as {{.files}}, are files git ignores here, which a tool may run on its own, such as a virtualenv's, so check them before you copy them in."
+
+[clone_stash_fetch_failed]
+description = "entry is the stash entry, as stash-N"
+other = "devvm couldn't fetch the VM's stash entry {{.entry}}, so it's still only in the VM."
+
+[clone_urls_kept]
+description = "remotes is a space-separated list of at most 20 quoted remotes or submodule keys, and count how many there are in all"
+one = "A URL of {{.remotes}} in {{.dir}} stays on this machine, because it isn't of a kind devvm copies: an http, https, ssh or file URL or a path, with no token in it, that doesn't reach a devvm VM."
+other = "URLs of {{.count}} remotes in {{.dir}}, such as {{.remotes}}, stay on this machine, because they aren't of a kind devvm copies: http, https, ssh or file URLs or paths, with no token in them, that don't reach a devvm VM."
+
+[clone_urls_unread]
+description = "remotes is a space-separated list of at most 20 quoted remotes, and count how many there are in all"
+one = "git couldn't give the URLs of the remote {{.remotes}} in {{.dir}}, so its clone in the VM doesn't have that remote."
+other = "git couldn't give the URLs of {{.count}} remotes in {{.dir}}, such as {{.remotes}}, so its clone in the VM doesn't have them."
+
+[clone_push_urls_kept]
+description = "remotes is a space-separated list of at most 20 quoted remotes, and count how many there are in all"
+one = "The push URLs of the remote {{.remotes}} in {{.dir}} stay on this machine, because none is of a kind devvm copies, so git push to it from the VM's clone goes to its URL instead."
+other = "The push URLs of {{.count}} remotes in {{.dir}}, such as {{.remotes}}, stay on this machine, because none is of a kind devvm copies, so git push to them from the VM's clone goes to their URLs instead."
+
+[clone_hooks_kept]
+description = "hooks is a space-separated list of at most 20 quoted hook names, and count how many there are in all"
+one = "The hook {{.hooks}} in {{.dir}} stays on this machine, because it isn't a file, or it's bigger than devvm copies."
+other = "{{.count}} hooks in {{.dir}}, such as {{.hooks}}, stay on this machine, because they aren't files, or they're bigger than devvm copies."
+
+[clone_hooks_path_kept]
+description = "path is the core.hooksPath git uses in the repo, as the config that sets it has it"
+other = "The hooks in {{.path}}, which {{.dir}} runs through core.hooksPath, stay on this machine, because that folder isn't inside the repo, or a file the repo's config includes sets it."
+
+[clone_hooks_dir_kept]
+description = "path is the repo's hooks folder"
+other = "No hook of {{.dir}} goes to its clone in the VM, because its hooks folder, {{.path}}, is missing, a link or unreadable."
+
+[clone_todo_missing]
+description = "commits is a space-separated list of at most 20 quoted commits, as the todo list names them, and count how many there are in all"
+one = "The VM's clone of {{.dir}} lacks the commit {{.commits}}, which its rebase or cherry-pick still has to pick, so that step will fail there. Push or fetch the commit into the VM's clone first, or skip it."
+other = "The VM's clone of {{.dir}} lacks {{.count}} commits, such as {{.commits}}, which its rebase or cherry-pick still has to pick, so those steps will fail there. Push or fetch them into the VM's clone first, or skip them."
 
 [clone_needs_new_vm]
 other = "{{.vm}} mounts this folder, so --clone doesn't change it. To give it its own clone of the repo, run devvm clone on."
@@ -2280,19 +2400,41 @@ other = "Adding the git remote {{.remote}} failed. Run devvm again to retry."
 description = "file is devvm's ssh config"
 other = "Until ~/.ssh/config includes devvm's ssh config, fetch the VM's work with GIT_SSH_COMMAND='ssh -F {{.file}}' git fetch {{.remote}}."
 
-[uncommitted_not_copied]
-other = "The uncommitted changes in {{.dir}} stay on this machine. To give them to the VM, commit them, then run git push {{.remote}} {{.branch}}."
+[clone_skip_worktree_kept]
+description = "files is a space-separated list of at most 20 quoted paths, relative to dir, the repo's folder, and count how many there are in all"
+one = "{{.files}} in {{.dir}} is marked skip-worktree, so the VM has it as git's index has it, and your edits to it stay on this machine."
+other = "{{.count}} files in {{.dir}}, such as {{.files}}, are marked skip-worktree, so the VM has them as git's index has them, and your edits to them stay on this machine."
+
+[clone_filtered_kept]
+description = "files is a space-separated list of at most 20 quoted paths, relative to dir, and count how many there are in all"
+one = "{{.files}} in {{.dir}} goes through a git filter, such as git-crypt's, so the VM has it as git stores it, and a change you haven't committed to it stays on this machine."
+other = "{{.count}} files in {{.dir}}, such as {{.files}}, go through a git filter, such as git-crypt's, so the VM has them as git stores them, and changes you haven't committed to them stay on this machine."
+
+[clone_typechange_kept]
+description = "files is a space-separated list of at most 20 quoted paths, relative to dir, and count how many there are in all"
+one = "{{.files}} in {{.dir}} is tracked as a file but isn't one of that kind here, such as a folder, so the VM doesn't have it, nor anything in it."
+other = "{{.count}} paths in {{.dir}}, such as {{.files}}, are tracked as files but aren't ones of that kind here, such as folders, so the VM doesn't have them, nor anything in them."
 
 [clone_ready]
 other = "The VM has its own clone of your branches, without untracked or ignored files.\nTo get its work, run git fetch {{.remote}}, then review it with git log -p {{.branch}}..{{.remote}}/{{.branch}} before you merge."
 
+[clone_ready_detached]
+other = "The VM has its own clone of your branches, detached at the commit you have checked out, without untracked or ignored files.\nTo get its work, run devvm clone fetch, which fetches its branches as {{.remote}}/<branch>, and its detached HEAD's own commits too, then review them with git log -p before you merge."
+
+[clone_worktree_tips]
+other = "This folder is a git worktree, so its clone in the VM gets its own branch, the default branch, the remote-tracking branches and the tags, but not the repo's other local branches or its stash."
+
+[workspace_worktree_tips]
+description = "path is the repo's folder relative to the project folder"
+other = "{{.path}} is a git worktree, so its clone in the VM gets its own branch, the default branch, the remote-tracking branches and the tags, but not the repo's other local branches or its stash."
+
 [unfetched_commits]
-description = "refs is a space-separated list of quoted branch names"
+description = "refs is a space-separated list of quoted branch names, HEAD for a detached HEAD, and stash-N for a stash entry"
 other = "The VM has commits on {{.refs}} that this repo hasn't fetched."
 
 [no_terminal_fetch]
 description = "command is the command that would lose the clone, as typed: devvm rm, devvm clone off"
-other = "There's no way to ask here whether to fetch the clone's work, so devvm kept the VM as it is. Run git fetch {{.remote}} first, or {{.command}} in a terminal without --no-input to choose."
+other = "There's no way to ask here whether to fetch the clone's work, so devvm kept the VM as it is. Run devvm clone fetch first, or {{.command}} in a terminal without --no-input to choose."
 
 [branch_names_invalid]
 description = "refs is a space-separated list of quoted branch names"
@@ -2301,6 +2443,9 @@ other = "These branches have names git refuses, so devvm skips them in the VM: {
 [saved_names_taken]
 description = "command is the command that would lose the clone, as typed: devvm rm, devvm clone off"
 other = "This repo has no free branch names from saved/{{.remote}}/* to saved/{{.remote}}-99/* to keep the VM's branches under, so devvm kept {{.vm}} as it is. Rename or delete some of those branches, then run {{.command}} again."
+
+[saved_names_taken_fetch]
+other = "This repo has no free branch names from saved/{{.remote}}/* to saved/{{.remote}}-99/* to keep the commits of the VM's detached HEAD under. Rename or delete some of those branches, then run devvm clone fetch again."
 
 [fetch_before_delete]
 other = "Fetch them into local branches {{.prefix}}/* before the clone goes?"
@@ -2337,6 +2482,10 @@ other = "The VM's clone has uncommitted changes, which will be lost:"
 [clone_worktree_dirty]
 description = "path is the worktree's path in the VM"
 other = "The worktree {{.path}} in the VM's clone has uncommitted changes, which will be lost:"
+
+[clone_worktree_detached]
+description = "path is the worktree's path in the VM"
+other = "The worktree {{.path}} in the VM's clone has commits on its detached HEAD that no branch has, which will be lost. To keep them, run git switch -c NAME in that worktree, then fetch the branch."
 
 [clone_worktrees_unchecked]
 other = "The VM's clone has more than {{.max}} worktrees, and devvm checked only the first {{.max}} for uncommitted changes."
@@ -2385,6 +2534,10 @@ other = "its .git reads another repo's objects or refs"
 [workspace_reason_no_commits]
 other = "no commits yet"
 
+
+[workspace_reason_grafts]
+other = "a grafts file gives its commits other parents"
+
 [workspace_reason_name]
 other = "its folder's name has a character a terminal can't show, such as a line break"
 
@@ -2410,9 +2563,6 @@ other = "{{.vm}} mounts it, and could swap it under devvm's git"
 description = "path is the repo's folder, relative to the project folder; vm is another VM that mounts it"
 other = "{{.vm}} mounts {{.path}}, so code in it could swap that repo under devvm's git, and devvm leaves it alone. Delete that VM, or move the repo out of its folder, then run the command again."
 
-[workspace_reason_no_branch]
-other = "HEAD is detached, and there's no default branch to check out"
-
 [workspace_repos_past]
 one = "The picker lists at most {{.max}} repos, and this folder has {{.count}} more, which the VM doesn't get. Run devvm clone add PATH for it once the VM is made."
 other = "The picker lists at most {{.max}} repos, and this folder has {{.count}} more, which the VM doesn't get. Run devvm clone add PATH for each one you need once the VM is made."
@@ -2426,14 +2576,62 @@ description = "path is the repo's folder, relative to the project folder"
 other = "{{.path}} no longer passes --clone's checks, or its remote names are all taken, so the VM doesn't get it. Run devvm clone add {{.path}} to see why."
 
 [workspace_detached]
-other = "HEAD is detached in {{.path}}, so its clone in the VM checks out its default branch, {{.branch}}."
+other = "HEAD is detached in {{.path}}, so its clone in the VM is detached at the same commit."
 
 [copying_repo]
 other = "copying {{.path}}'s branches into the VM"
 
-[uncommitted_not_copied_repos]
-description = "repos is a space-separated list of quoted folders, relative to the project folder"
-other = "The uncommitted changes in {{.repos}} stay on this machine. To give them to the VM, commit them, then push them to the repo's remote for the VM, such as with git push devvm BRANCH."
+[copying_submodule]
+description = "path is the submodule's folder, relative to the project folder"
+other = "copying the submodule {{.path}} into the VM"
+
+[clone_submodule_kept]
+description = "path is the submodule's folder, relative to the project folder"
+other = "The submodule {{.path}} stays on this machine, because devvm couldn't copy it, so its folder in the VM is empty."
+
+[clone_submodules_kept]
+description = "path is the repo's folder, relative to the project folder"
+other = "The submodules of {{.path}} stay on this machine, because devvm couldn't read which are initialised, so their folders in the VM are empty."
+
+[clone_submodule_unchecked]
+description = "path is the submodule's folder, relative to the project folder"
+other = "The submodule {{.path}} isn't a repo of its own here any more, such as after git submodule deinit, so devvm can't fetch from its clone in the VM or check it for work you haven't fetched. To do either, run git submodule update --init {{.path}} first."
+
+[clone_lfs_kept]
+description = "path is the repo's folder, relative to the project folder; objects a space-separated list of at most 20 quoted LFS oids, each cut to 12 characters, and count how many there are in all"
+one = "The Git LFS object {{.objects}}, which the VM's work in {{.path}} names, didn't come back, so that file is only a pointer here. The VM's clone may lack it, or what it sent wasn't what the pointer names."
+other = "{{.count}} Git LFS objects that the VM's work in {{.path}} names, such as {{.objects}}, didn't come back, so those files are only pointers here. The VM's clone may lack them, or what it sent wasn't what their pointers name."
+
+[clone_lfs_bad]
+description = "path is the repo's folder, relative to the project folder; objects a space-separated list of at most 20 quoted LFS oids, each cut to 12 characters, and count how many there are in all"
+one = "The Git LFS object {{.objects}} in {{.path}} isn't what its pointer names, so it stays on this machine, and its file is only a pointer in the VM."
+other = "{{.count}} Git LFS objects in {{.path}}, such as {{.objects}}, aren't what their pointers name, so they stay on this machine, and their files are only pointers in the VM."
+
+[clone_lfs_failed]
+description = "path is the repo's folder, relative to the project folder"
+other = "Bringing back the Git LFS objects of the VM's work in {{.path}} failed, so some of its files may be only pointers here. Run devvm clone fetch again, and the run log has the reason."
+
+[clone_lfs_setup_failed]
+description = "path is the repo's folder, relative to the project folder"
+other = "Setting up Git LFS in the VM's clone of {{.path}} failed, so its LFS files may be pointers there, and git status there may show them as changed. Run git lfs install --local in the VM's clone."
+
+[clone_lfs_storage]
+description = "path is the repo's folder, relative to the project folder"
+other = "{{.path}} keeps its Git LFS objects outside .git, as its lfs.storage setting says, so devvm copies none of them between it and the VM."
+
+[clone_lfs_unfetched]
+description = "path is the repo's folder, relative to the project folder; objects a space-separated list of at most 20 quoted LFS oids, each cut to 12 characters, and count how many there are in all"
+one = "The VM's clone of {{.path}} has the Git LFS object {{.objects}}, which its work names and this machine lacks. devvm clone fetch brings it here."
+other = "The VM's clone of {{.path}} has {{.count}} Git LFS objects that its work names and this machine lacks, such as {{.objects}}. devvm clone fetch brings them here."
+
+[clone_lfs_large]
+description = "size is how many GiB the objects come to, with one decimal; path is the repo's folder, relative to the project folder"
+other = "The Git LFS objects that the VM's work in {{.path}} names come to {{.size}} GiB. Bring them all to this machine?"
+
+[no_terminal_lfs_large]
+description = "size is how many GiB the objects come to, with one decimal; path is the repo's folder, relative to the project folder"
+other = "There's no way to ask here whether to bring {{.size}} GiB of Git LFS objects back from the VM's clone of {{.path}}, so devvm brought none of them. Run devvm clone fetch in a terminal."
+
 
 [workspace_ready]
 one = "The VM has its own clone of {{.count}} repo, with its current and default branches, without untracked or ignored files.\nTo get its work, run devvm clone fetch, then review each branch it lists before you merge it."
@@ -2447,7 +2645,7 @@ one = "{{.count}} of this folder's files stays on this machine, as it's a link t
 other = "{{.count}} of this folder's files stay on this machine, as they're links that lead out of the folder, special files, or past the size limits."
 
 [unfetched_commits_in]
-description = "repo is the repo's folder, relative to the project folder; refs is a space-separated list of quoted branch names"
+description = "repo is the repo's folder, relative to the project folder; refs is a space-separated list of quoted branch names, HEAD for a detached HEAD, and stash-N for a stash entry"
 other = "The VM's clone of {{.repo}} has commits on {{.refs}} that the repo on this machine hasn't fetched."
 
 [clone_repo_dirty]

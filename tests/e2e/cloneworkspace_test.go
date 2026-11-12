@@ -12,8 +12,8 @@ import (
 )
 
 // cloneWorkspace: --clone in a folder of repos, without a repo of its
-// own. One VM gets a clone of each repo at its own path, with the repo's
-// current and default branches, and the folder's own file; an agent's
+// own. One VM gets a clone of each repo at its own path, with every
+// branch of the repo, and the folder's own file; an agent's
 // commit in two repos comes back with devvm clone fetch, listed by branch;
 // devvm clone add copies a third repo; rm refuses with unfetched work in
 // any repo.
@@ -38,12 +38,12 @@ func cloneWorkspace(s *S, g cloneGit) {
 		vm = g.made(ws)
 	}
 	in := func(r string) string { return filepath.Join(ws, r) }
-	s.Check("a folder of repos gets one VM with a clone of each, at its path, with its current and default branch only, the folder's own file, and nothing mounted but the shared tools", func() error {
+	s.Check("a folder of repos gets one VM with a clone of each, at its path, with every branch, the folder's own file, and nothing mounted but the shared tools", func() error {
 		switch {
 		case vm == "" || MountLine(s, vm) != s.Paths.Share+" ":
 			return errors.New("the VM mounts more than the shared tools")
-		case g.branches(vm, in("frontend")) != "main " || g.branches(vm, in("backend")) != "main ":
-			return errors.New("a repo's clone hasn't main alone")
+		case g.branches(vm, in("frontend")) != "main other " || g.branches(vm, in("backend")) != "main other ":
+			return errors.New("a repo's clone hasn't main and other")
 		case !g.inVMHas(vm, in("backend"), "one"):
 			return errors.New("the backend clone hasn't the repo's commit")
 		case !HasLine(out.Out, ws):

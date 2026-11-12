@@ -113,6 +113,129 @@ func TestOwnRepo(t *testing.T) {
 	check("symlinked packed refs", repo, "clone_git_elsewhere path="+g+"/packed-refs")
 }
 
+// OwnRepo takes a submodule, nested ones too, whose .git file names its
+// git dir in its parent's, modules/<name>, through no link below it, with
+// no commondir and a core.worktree back to it; and refuses each way one
+// could point elsewhere.
+func TestOwnRepoSubmodule(t *testing.T) {
+	needGit(t)
+	f := newFixture(t, "app")
+	root, app := f.root, f.dir
+	for _, name := range []string{"libsrc", "deepsrc"} {
+		src := filepath.Join(root, name)
+		f.git(root, "init", "-q", src)
+		f.git(src, "commit", "-q", "--allow-empty", "-m", "one")
+	}
+	f.git(filepath.Join(root, "libsrc"), "submodule", "add", "-q", filepath.Join(root, "deepsrc"), "deep")
+	f.git(filepath.Join(root, "libsrc"), "commit", "-q", "-m", "deep")
+	f.git(app, "init", "-q")
+	f.git(app, "submodule", "add", "-q", filepath.Join(root, "libsrc"), "lib")
+	f.git(app, "commit", "-q", "-m", "lib")
+	f.git(app, "submodule", "update", "-q", "--init", "--recursive")
+	lib, deep := filepath.Join(app, "lib"), filepath.Join(app, "lib", "deep")
+	mod := filepath.Join(app, ".git", "modules", "lib")
+	deepMod := filepath.Join(mod, "modules", "deep")
+
+	check := func(name, dir, want string) {
+		t.Helper()
+		gd, cd, err := OwnRepo(dir)
+		got := msg.NamesOf(err)
+		if err == nil {
+			got = gd + " " + cd
+		}
+		if got != want {
+			t.Errorf("%s: %q, want %q", name, got, want)
+		}
+	}
+	// set writes data to path for one check, then puts back what was there.
+	set := func(path, data string, fn func()) {
+		t.Helper()
+		old, err := os.ReadFile(path) //nolint:gosec // the test's own file
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		write(t, path, data)
+		fn()
+		if old == nil {
+			_ = os.Remove(path)
+			return
+		}
+		write(t, path, string(old))
+	}
+	elsewhere := "clone_git_elsewhere path=" + lib + "/.git"
+	check("a submodule", lib, mod+" "+mod)
+	check("a nested submodule", deep, deepMod+" "+deepMod)
+
+	other := filepath.Join(root, "other")
+	f.git(root, "init", "-q", other)
+	set(filepath.Join(lib, ".git"), "gitdir: "+filepath.Join(other, ".git")+"\n", func() {
+		check("a git dir outside the parent's", lib, elsewhere)
+	})
+	set(filepath.Join(lib, ".git"), "gitdir: ../.git\n", func() {
+		check("the parent's own git dir", lib, elsewhere)
+	})
+	stray := filepath.Join(app, ".git", "stray")
+	if err := os.Rename(mod, stray); err != nil {
+		t.Fatal(err)
+	}
+	set(filepath.Join(lib, ".git"), "gitdir: ../.git/stray\n", func() {
+		check("not below modules", lib, elsewhere)
+	})
+	// A link below the parent's git dir to a git dir outside it.
+	outside := filepath.Join(root, "outside")
+	if err := os.Rename(stray, outside); err != nil {
+		t.Fatal(err)
+	}
+	symlink(t, outside, mod)
+	check("modules/lib a link out", lib, elsewhere)
+	if err := os.Remove(mod); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(outside, mod); err != nil {
+		t.Fatal(err)
+	}
+	set(filepath.Join(mod, "commondir"), filepath.Join(other, ".git")+"\n", func() {
+		check("a commondir", lib, elsewhere)
+	})
+	cfg := filepath.Join(mod, "config")
+	orig, err := os.ReadFile(cfg) //nolint:gosec // the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	set(cfg, "[core]\n\tbare = false\n", func() {
+		check("no core.worktree", lib, elsewhere)
+	})
+	set(cfg, "[core]\n\tworktree = ../../../../other\n", func() {
+		check("a core.worktree elsewhere", lib, elsewhere)
+	})
+	set(cfg, string(orig)+"[core]\n\tworktree = ../../../lib\n", func() {
+		check("two core.worktree", lib, elsewhere)
+	})
+	set(cfg, string(orig)+"[include]\n\tpath = x\n", func() {
+		check("an include", lib, elsewhere)
+	})
+	set(filepath.Join(mod, "objects", "info", "alternates"), filepath.Join(other, ".git", "objects")+"\n", func() {
+		check("alternates", lib, "clone_alternates path="+mod+"/objects/info/alternates")
+	})
+	refs := filepath.Join(mod, "refs", "heads")
+	if err := os.Rename(refs, refs+".away"); err != nil {
+		t.Fatal(err)
+	}
+	symlink(t, filepath.Join(other, ".git", "refs", "heads"), refs)
+	check("symlinked refs", lib, "clone_git_elsewhere path="+refs)
+	if err := os.Remove(refs); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(refs+".away", refs); err != nil {
+		t.Fatal(err)
+	}
+	// The parent itself not its own: its submodules aren't either.
+	set(filepath.Join(app, ".git", "commondir"), filepath.Join(other, ".git")+"\n", func() {
+		check("a parent that isn't its own", lib, elsewhere)
+	})
+	check("all put back", lib, mod+" "+mod)
+}
+
 // absentFanout returns a loose objects' fan-out folder in objects that
 // none of the repo's own objects use, so the test can make it.
 func absentFanout(t *testing.T, objects string) string {

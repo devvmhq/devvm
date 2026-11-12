@@ -1,8 +1,9 @@
 # --clone in a folder of repos: a workspace clone. devvm finds the repos
 # below the folder, the user picks them (all ticked first; those --clone
 # can't copy shown with why), or --repos answers without a terminal. The
-# VM gets a clone of each at its own path, with its current and default
-# branches, each repo a remote of its own, and a copy of the folder's
+# VM gets a clone of each at its own path, with every branch, checked out
+# as here (tools detached), each repo a remote of its own, and a copy of
+# the folder's
 # files outside them, made once. devvm clone fetch fetches every repo's
 # branches and lists them by name; devvm clone add copies one more repo;
 # rm checks every repo. Inside a repo the workspace clone has, devvm uses
@@ -61,7 +62,7 @@ stdout '\[x\] frontend'
 stdout '\[x\] tools'
 stdout '(?s)workspace_pick_cannot\r\n.*empty +workspace_reason_no_commits'
 env DEVVM_PICK_ON_PIPE=
-stdout '^==> workspace_detached branch=main path=tools$'
+stdout '^==> workspace_detached path=tools$'
 stdout '^==> workspace_ready count=2$'
 vm_name WS ws
 vm_state $WS_dir/vm.json
@@ -83,8 +84,8 @@ stdout '^all:$'
 exec devvm rm --force
 
 # --repos all, without a terminal: every repo --clone can copy, empty
-# named as left out. Each repo's clone at its path in the VM, with its
-# current and default branches, and a remote for it; the folder's own
+# named as left out. Each repo's clone at its path in the VM, with every
+# branch, and a remote for it; the folder's own
 # files copied, but not a package folder, a link out of the folder, nor
 # what's in a repo.
 rm $STUB_DIR/vmfs
@@ -131,7 +132,7 @@ exec git -C frontend log --format=%s -1 devvm/agent/x
 stdout '^from the VM$'
 exec devvm clone fetch
 stdout '^==> clone_fetched_none$'
-exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)/tools" commit -q --allow-empty -m t2'
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)/tools" checkout -q main && git -C "$STUB_DIR/vmfs$(pwd -P)/tools" commit -q --allow-empty -m t2'
 exec devvm clone fetch --json
 stdout '"path": "tools"'
 stdout '"name": "main"'
@@ -141,10 +142,10 @@ stdout '"name": "main"'
 # refused.
 exec git init -q -b main deep/lib
 exec git -C deep/lib commit -q --allow-empty -m l1
-exec sh -c 'touch "$STUB_DIR/ssh-fails"'
+exec sh -c 'echo index-pack > "$STUB_DIR/shell-fails-on"'
 ! exec devvm clone add deep/lib
 stderr '^devvm: clone_seed_failed vm=devvm-ws-[0-9a-f]{14}$'
-rm $STUB_DIR/ssh-fails
+rm $STUB_DIR/shell-fails-on
 vm_state $WS_dir/vm.json
 stdout '^clone\.repos\.3\.path=deep/lib$'
 ! stdout '^clone\.repos\.3\.seeded'
@@ -222,6 +223,6 @@ notes
 -- outside --
 secret
 -- vm-branches --
-frontend: main main
+frontend: main feature main
 backend: dev dev main
-tools: main main
+tools: (no branch) main

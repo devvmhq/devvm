@@ -231,6 +231,69 @@ func TestCommandNoLazyFetch(t *testing.T) {
 	}
 }
 
+// Command's git runs none of the signing programs a repo's config names,
+// which a log of a signed commit runs with log.showSignature on.
+func TestCommandNoSignaturePrograms(t *testing.T) {
+	dir := repo(t)
+	prog, ran := marker(t)
+	tree := git(t, dir, "rev-parse", "HEAD^{tree}")
+	signed := "tree " + tree + "\nauthor t <t@t> 1 +0000\ncommitter t <t@t> 1 +0000\n" +
+		"gpgsig -----BEGIN PGP SIGNATURE-----\n \n x\n -----END PGP SIGNATURE-----\n\nsigned\n"
+	cmd := stubtest.Git(t.Context(), "-C", dir, "hash-object", "-t", "commit", "-w", "--stdin")
+	cmd.Stdin = strings.NewReader(signed)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sha := strings.TrimSpace(string(out))
+	for _, k := range []string{"gpg.program", "gpg.ssh.program", "gpg.x509.program"} {
+		git(t, dir, "config", k, prog)
+	}
+	git(t, dir, "config", "log.showSignature", "true")
+	git(t, dir, "log", "-1", sha)
+	if !ranOnce(ran) {
+		t.Fatal("plain git didn't run gpg.program")
+	}
+	if out, err := Output(t.Context(), "-C", dir, "log", "-1", "--format=%s", sha); err != nil || strings.TrimSpace(string(out)) != "signed" {
+		t.Fatalf("log %q, %v", out, err)
+	}
+	if ranOnce(ran) {
+		t.Error("ran the repo's gpg.program")
+	}
+}
+
+// Command's git sees a repo's real objects and history: not a replace
+// ref's object in place of the one it replaces, nor the parents a grafts
+// file gives a commit.
+func TestCommandRealHistory(t *testing.T) {
+	dir := repo(t)
+	git(t, dir, "commit", "-q", "--allow-empty", "-m", "two")
+	head := git(t, dir, "rev-parse", "HEAD")
+	one := git(t, dir, "rev-parse", "HEAD~")
+	git(t, dir, "replace", one, head)
+	git(t, dir, "config", "advice.graftFileDeprecated", "false")
+	if err := os.WriteFile(filepath.Join(dir, ".git", "info", "grafts"), []byte(head+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := git(t, dir, "log", "--format=%s", "-1", one); got != "two" {
+		t.Fatalf("plain git: replace ref unused: %q", got)
+	}
+	if got := git(t, dir, "rev-list", "--count", head); got != "1" {
+		t.Fatalf("plain git: grafts unused: %q", got)
+	}
+	if out, _ := Output(t.Context(), "-C", dir, "log", "--format=%s", "-1", one); strings.TrimSpace(string(out)) != "one" {
+		t.Errorf("log of the replaced commit: %q", out)
+	}
+	if out, _ := Output(t.Context(), "-C", dir, "rev-list", "--count", head); strings.TrimSpace(string(out)) != "2" {
+		t.Errorf("rev-list --count with grafts: %q", out)
+	}
+	// And no hint about grafts, in a repo with none either.
+	plain := repo(t)
+	if out, err := Command(t.Context(), "-C", plain, "log", "--format=%s").CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "one" {
+		t.Errorf("log: %q, %v", out, err)
+	}
+}
+
 // Command's git ignores the git variables of devvm's environment, such
 // as a GIT_DIR naming another repo.
 func TestCommandIgnoresGitEnv(t *testing.T) {
@@ -256,10 +319,10 @@ func TestCommandIgnoresGitEnv(t *testing.T) {
 	}
 }
 
-// Status runs none of the repo's filter drivers on a file whose stat
-// changed, whatever its name or kind, a required one included, and
-// shows the file unchanged.
-func TestStatusNoFilters(t *testing.T) {
+// Host git runs none of the repo's filter drivers on a file whose stat
+// changed, whatever its name or kind, a required one included, and finds
+// the file unchanged.
+func TestNoFilters(t *testing.T) {
 	for _, c := range []struct{ name, kind, required string }{
 		{"x", "clean", ""}, {"a.b", "process", ""}, {"lfs", "clean", "true"}, {"a=b", "clean", ""}, {"Up", "clean", ""},
 	} {
@@ -290,9 +353,9 @@ func TestStatusNoFilters(t *testing.T) {
 				t.Fatal("plain git status didn't run the filter")
 			}
 			touch(2)
-			out, err := Status(t.Context(), dir, "--porcelain").Output()
-			if err != nil || len(out) != 0 {
-				t.Errorf("status %q, %v", out, err)
+			// A refresh hashes the file again, as git status does.
+			if out, err := Output(t.Context(), "-C", dir, "update-index", "-q", "--refresh"); err != nil || len(out) != 0 {
+				t.Errorf("update-index --refresh %q, %v", out, err)
 			}
 			if ranOnce(ran) {
 				t.Error("ran the repo's filter")
@@ -301,9 +364,9 @@ func TestStatusNoFilters(t *testing.T) {
 	}
 }
 
-// Status doesn't enter a submodule, whose own config names filters of
+// DiffFiles doesn't enter a submodule, whose own config names filters of
 // its own.
-func TestStatusNoSubmodules(t *testing.T) {
+func TestDiffFilesNoSubmodules(t *testing.T) {
 	dir, sub := repo(t), repo(t)
 	prog, ran := marker(t)
 	if err := os.WriteFile(filepath.Join(sub, ".gitattributes"), []byte("f filter=s\n"), 0o600); err != nil {
@@ -330,8 +393,8 @@ func TestStatusNoSubmodules(t *testing.T) {
 		t.Fatal("plain git status didn't run the submodule's filter")
 	}
 	touch()
-	if out, err := Status(t.Context(), dir, "--porcelain").Output(); err != nil || len(out) != 0 {
-		t.Errorf("status %q, %v", out, err)
+	if out, err := DiffFiles(t.Context(), dir, "--name-only").Output(); err != nil || len(out) != 0 {
+		t.Errorf("diff-files %q, %v", out, err)
 	}
 	if ranOnce(ran) {
 		t.Error("ran the submodule's filter")

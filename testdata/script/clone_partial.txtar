@@ -1,0 +1,54 @@
+# --clone of a partial clone (git clone --filter=blob:none): its clone in
+# the VM has what it has, in a promisor pack, with its promisor remote,
+# whose git fetches the rest when it needs it. devvm says when the VM
+# can't: a promisor on this machine (a file:// URL), or a host the VM's
+# network policy blocks. A partial plus sparse clone is copied too.
+# (The stubs keep the VM's files in $STUB_DIR/vmfs.)
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+exec git init -q -b main $WORK/src
+exec sh -c 'cd "$WORK/src" && echo old > old && mkdir a b && echo a > a/f && echo b > b/f && git add . && git commit -qm one && git rm -q old && git commit -qm two'
+exec git -C $WORK/src config uploadpack.allowFilter true
+
+# A promisor on this machine: copied, and named, as the VM can't reach it.
+exec git clone -q --filter=blob:none file://$WORK/src $WORK/web
+cd $WORK/web
+exec devvm --clone --network open
+stderr '^devvm: clone_partial_unreachable dir=/\S*/web remote=origin url=file:///\S*/src$'
+stdout '^==> clone_ready branch=main remote=devvm$'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" log --format=%s && git -C "$c" config remote.origin.promisor && ls "$c"/.git/objects/pack/*.promisor >/dev/null && git -C "$c" status --porcelain && echo ok'
+stdout '^two\none\ntrue\nok$'
+
+# Work in the VM that names a blob neither side has doesn't come back, as
+# the VM's upload-pack fetches nothing to send it: devvm says what to do.
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; b=$(git -C "$WORK/src" rev-parse HEAD~1:old) && t=$(printf "100644 blob %s\tcopy\n" "$b" | git -C "$c" mktree --missing) && x=$(git -C "$c" commit-tree "$t" -p HEAD -m needs) && git -C "$c" update-ref refs/heads/needs "$x"'
+! exec devvm clone fetch
+stderr '^devvm: clone_fetch_partial path=\.$'
+exec devvm rm --force --no-export --no-clone-check
+
+# A promisor the VM's allowlist doesn't have: named, with how to allow it.
+# Sparse too: only a/ is checked out, here and in the VM.
+exec git clone -q --filter=blob:none --sparse file://$WORK/src $WORK/app
+cd $WORK/app
+exec git sparse-checkout set a
+exec git remote set-url origin https://git.example.com/x/src.git
+exec devvm --clone --network allowlist
+stderr '^devvm: clone_partial_blocked dir=/\S*/app host=git\.example\.com remote=origin$'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; test -e "$c/a/f" && test ! -e "$c/b/f" && git -C "$c" status --porcelain && echo sparse'
+stdout '^sparse$'
+exec devvm rm --force --no-export --no-clone-check
+
+# A folder of repos with a partial clone in it, on the none tier: the
+# partial one is copied, named with how to reach its promisor; a promisor
+# remote that stays (a URL of a kind devvm doesn't copy) is named.
+mkdir $WORK/ws
+exec git clone -q --filter=blob:none file://$WORK/src $WORK/ws/part
+exec git -C $WORK/ws/part remote set-url origin https://git.example.com/x/src.git
+exec git clone -q --filter=blob:none file://$WORK/src $WORK/ws/odd
+exec git -C $WORK/ws/odd remote set-url origin 'ext::sh -c x'
+cd $WORK/ws
+exec devvm --clone --repos all --network none
+stderr '^devvm: clone_partial_blocked_none dir=/\S*/ws/part host=git\.example\.com remote=origin$'
+stderr '^devvm: clone_partial_promisor_kept count=1 dir=/\S*/ws/odd remotes="origin"$'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c/part" config remote.origin.promisor && git -C "$c/part" log --format=%s'
+stdout '^true\ntwo\none$'
+exec devvm rm --force --no-export --no-clone-check

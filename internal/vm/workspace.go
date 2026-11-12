@@ -13,7 +13,6 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/gitprotect"
-	"github.com/devvmhq/devvm/internal/hostgit"
 	"github.com/devvmhq/devvm/internal/hostsafety"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
@@ -64,8 +63,8 @@ func (e clones) findRepos(ctx context.Context, dir, self string) (repos []wsRepo
 	}
 	for _, rel := range append(rels, found.Dirs...) {
 		at := repoDir(dir, rel)
-		if worktreeIn(at, dir) {
-			continue
+		if worktreeIn(at, dir) || rel != "." && isSubmodule(ctx, at, dir) {
+			continue // its repo's clone has it
 		}
 		r := wsRepo{Path: rel, Reason: repoReason(ctx, at)}
 		if !plainPath(rel) {
@@ -87,21 +86,21 @@ func worktreeIn(at, dir string) bool {
 
 // repoReason is why --clone can't copy the repo at dir, as the picker
 // says it: not a repo's top folder, a .git that reads another repo's
-// objects or refs (cloneSource), no commits, or no branch to check out
-// (branchPlan); the zero message when it can.
+// objects or refs (cloneSource), a grafts file (checkShape), or no
+// commits; the zero message when it can. A detached
+// HEAD is copied as it is.
 func repoReason(ctx context.Context, dir string) msg.M {
 	err := checkRepoTop(ctx, dir)
 	m, _ := errors.AsType[msg.M](err)
 	switch {
 	case err == nil:
-		if _, refs := branchPlan(currentBranch(ctx, dir)); len(refs) == 0 {
-			return msg.WorkspaceReasonNoBranch()
-		}
 		return msg.M{}
 	case m.ID() == msg.CloneNoCommits().ID():
 		return msg.WorkspaceReasonNoCommits()
 	case m.ID() == msg.CloneNotTop("").ID():
 		return msg.WorkspaceReasonNotRepo()
+	case m.ID() == msg.CloneGrafts("").ID():
+		return msg.WorkspaceReasonGrafts()
 	}
 	return msg.WorkspaceReasonElsewhere()
 }
@@ -156,8 +155,8 @@ func (e clones) planClone(ctx context.Context, dir, repos, self string) (cloneIn
 
 // ownClone is the clone section of self, a --clone VM of the folder dir's
 // own repo, once --clone takes the repo (checkCloneRepo) and no other VM
-// mounts it (mountingVM: clone_folder_mounted), as its seed's push runs
-// host git there.
+// mounts it (mountingVM: clone_folder_mounted), as its seed runs host git
+// there.
 func (e clones) ownClone(ctx context.Context, dir, self string) (cloneInVM, error) {
 	if err := checkCloneRepo(ctx, dir); err != nil {
 		return cloneInVM{}, err
@@ -258,27 +257,23 @@ func (e clones) pickRepos(dir string, found []wsRepo) ([]string, error) {
 	return chosen, nil
 }
 
-// currentBranch is the branch checked out in the repo at dir, and its
-// default branch's name and the ref it's pushed from (defaultBranch);
-// cur is "" for a detached HEAD.
-func currentBranch(ctx context.Context, dir string) (cur, def, from string) {
-	if ref, err := hostGit(ctx, dir, "symbolic-ref", "-q", "HEAD"); err == nil {
-		cur, _ = strings.CutPrefix(ref, "refs/heads/")
-	}
+// defaultBranchOf is the repo at dir's default branch's name and the
+// ref it's copied from (defaultBranch), "" for none.
+func defaultBranchOf(ctx context.Context, dir string) (def, from string) {
 	head, _ := hostGit(ctx, dir, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
 	list, _ := hostGit(ctx, dir, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin")
 	def, from = defaultBranch(head, strings.Fields(list))
 	if def != "" && !validBranch(ctx, dir, def) {
 		def, from = "", ""
 	}
-	return cur, def, from
+	return def, from
 }
 
 // defaultBranch is a repo's default branch, from origin/HEAD (originHead,
 // the ref it points to: "" for none) and the repo's branches and origin's
 // remote-tracking branches (refs): origin/HEAD's branch, else main, else
 // master, the first of them it has, as a local branch, else as origin's,
-// with the ref it's pushed from. "" for none.
+// with the ref it's copied from. "" for none.
 func defaultBranch(originHead string, refs []string) (name, from string) {
 	var names []string
 	if n, ok := strings.CutPrefix(originHead, "refs/remotes/origin/"); ok && n != "HEAD" {
@@ -294,64 +289,84 @@ func defaultBranch(originHead string, refs []string) (name, from string) {
 	return "", ""
 }
 
-// branchPlan is what a workspace clone's seed copies of a repo: the
-// branch its clone checks out, the current one (cur), else, for a
-// detached HEAD, its default branch (def, pushed from the ref from), and
-// the refspecs its push sends, the current branch and the default one.
-// No refspecs: neither, so nothing to copy.
-func branchPlan(cur, def, from string) (checkout string, refs []string) {
-	checkout = cur
-	if cur != "" {
-		refs = append(refs, "refs/heads/"+cur+":refs/heads/"+cur)
-	} else {
-		checkout = def
-	}
-	if def != "" && def != cur {
-		refs = append(refs, from+":refs/heads/"+def)
-	}
-	return checkout, refs
+// repoSeed is how a --clone VM's seed copies one repo into the VM: its
+// path, relative to the project folder ("." for the folder's own), and
+// folder, its object format, what its clone checks out (head: a branch's
+// full name, "" for a detached HEAD, which it's detached at), the refs
+// its seed sends (seedTips), and whether the repo is a linked worktree of
+// a repo elsewhere, which sends less.
+type repoSeed struct {
+	path, dir, format, head string
+	refs                    []refPair
+	worktree                bool
+	// landed: the VM has the repo seeded already, by an earlier copy
+	// (initRepos), so only its remote is left to add.
+	landed bool
 }
 
-// repoSeed is how a workspace clone's seed copies one repo into the VM:
-// its path, relative to the project folder, and folder, the branch its
-// clone checks out and the refspecs its push sends (branchPlan), and
-// whether its HEAD was detached.
-type repoSeed struct {
-	path, dir, checkout string
-	refs                []string
-	detached            bool
-	// landed: the VM has the repo with a commit already, an earlier
-	// copy's push (initRepos), so only its remote is left to add.
-	landed bool
+// planSeed is how the repo at dir, path in the project folder, is copied,
+// once it's checked: what it has checked out (headOf), its object format,
+// and the refs it sends (seedTips).
+func planSeed(ctx context.Context, path, dir string) (repoSeed, error) {
+	return planSeedOf(ctx, path, dir, false)
+}
+
+// planSeedOf is planSeed, of a submodule of a --clone repo when sub
+// (repoSource).
+func planSeedOf(ctx context.Context, path, dir string, sub bool) (repoSeed, error) {
+	worktree, err := repoSource(ctx, dir, sub)
+	if err != nil {
+		return repoSeed{}, err
+	}
+	s := repoSeed{path: path, dir: dir, head: headOf(ctx, dir), worktree: worktree}
+	if s.format, err = objectFormat(ctx, dir); err != nil {
+		return repoSeed{}, err
+	}
+	if s.refs, err = seedTips(ctx, dir, s.head, worktree); err != nil {
+		return repoSeed{}, err
+	}
+	return s, nil
 }
 
 // prepareSeed checks the repo at path in t's folder as --clone checks a
 // repo it copies (stillRepo), again, as the folder may have changed since
-// the VM was made, and returns how it's copied: a repo with no branch to
-// copy, or whose remote names are all taken, is refused.
-func (e clones) prepareSeed(ctx context.Context, t *target, rel string) (repoSeed, error) {
+// the VM was made, and returns how it's copied (planSeed): a repo whose
+// remote names are all taken is refused.
+func (e seeder) prepareSeed(ctx context.Context, t *target, rel string) (repoSeed, error) {
 	dir := repoDir(t.f.Dir, rel)
-	if err := e.stillRepo(ctx, t, rel); err != nil {
+	if err := e.stillRepo(ctx, t, rel, false); err != nil {
 		return repoSeed{}, err
-	}
-	cur, def, from := currentBranch(ctx, dir)
-	checkout, refs := branchPlan(cur, def, from)
-	if len(refs) == 0 {
-		return repoSeed{}, msg.CloneDetached()
 	}
 	if _, err := freeRemote(ctx, t.f, dir); err != nil {
 		return repoSeed{}, err
 	}
-	return repoSeed{path: rel, dir: dir, checkout: checkout, refs: refs, detached: cur == ""}, nil
+	return planSeed(ctx, rel, dir)
+}
+
+// sayHow says, with info, what's particular about how s is copied: a
+// linked worktree's seed sends less (clone_worktree_tips, or
+// workspace_worktree_tips for a workspace repo), and a workspace repo's
+// detached HEAD is detached in the VM too (workspace_detached).
+func sayHow(info func(msg.M), s repoSeed, workspace bool) {
+	switch {
+	case s.worktree && workspace:
+		info(msg.WorkspaceWorktreeTips(s.path))
+	case s.worktree:
+		info(msg.CloneWorktreeTips())
+	}
+	if workspace && s.head == "" {
+		info(msg.WorkspaceDetached(s.path))
+	}
 }
 
 // stillRepo checks, before host git reads or writes the repo at rel in
 // t's workspace clone's folder, that it's still the top of a repo of its
 // own (checkRepoTop: its error), and that no other VM mounts it, which
-// could swap it (finder.mountsRepo: clone_repo_mounted).
-func (e clones) stillRepo(ctx context.Context, t *target, rel string) error {
+// could swap it (finder.mountsRepo: clone_repo_mounted); sub, a
+// submodule of a --clone repo (checkRepoTopOf).
+func (e clones) stillRepo(ctx context.Context, t *target, rel string, sub bool) error {
 	dir := repoDir(t.f.Dir, rel)
-	if err := checkRepoTop(ctx, dir); err != nil {
+	if err := checkRepoTopOf(ctx, dir, sub); err != nil {
 		return err
 	}
 	if vm := e.mountingVM(dir, t.f.Name); vm != "" {
@@ -375,57 +390,68 @@ func (e clones) mountingVM(dir, self string) string {
 	return ""
 }
 
-// initRepos is the script that makes a workspace clone's repos in the VM,
-// all in one command: the project folder ($1), the user's; whether ($2)
-// the folder's own repo's info/exclude gets what's on stdin; then for
-// each repo its path relative to it and the branch it checks out, a new
-// repo there (the folders between the user's too) that takes pushes to
-// its checked-out branch. A repo there already with a commit, an earlier
-// copy's push landed, is left as it is (its HEAD may be the VM's work
-// now) and its path printed, a line each.
-const initRepos = `ws=$1; ex=$2; shift 2
-sudo mkdir -p -- "$ws" && sudo chown -- "$(id -u):$(id -g)" "$ws" || exit 1
-while [ "$#" -ge 2 ]; do
-  d=$ws/$1
-  if [ -e "$d/.git" ] && git -C "$d" rev-parse -q --verify HEAD >/dev/null 2>&1; then
-    printf '%s\n' "$1"; shift 2; continue
-  fi
-  mkdir -p -- "$d" && git -C "$d" init -q && git -C "$d" config receive.denyCurrentBranch updateInstead &&
-    git -C "$d" symbolic-ref HEAD "refs/heads/$2" || exit 1
-  shift 2
-done
-if [ "$ex" = exclude ]; then
-  mkdir -p -- "$ws/.git/info" && cat >> "$ws/.git/info/exclude" || exit 1
-fi`
-
 // initRepos makes the project folder and the repos of seeds, if any, in
 // t's running VM (initRepos), its command carrying the VM's agent
 // (target.exec), and, when the clone has the folder's own repo, adds
-// exclude (repoExcludes) to that repo's info/exclude in the VM. Each
-// seed the VM has with a commit already is marked landed, so its push
-// isn't sent again (seedRepo); the VM's answer names only seeds' paths.
-func (e clones) initRepos(ctx context.Context, t *target, seeds []repoSeed, exclude []byte) error {
+// exclude (repoExcludes) to that repo's info/exclude in the VM. Each seed
+// the VM has seeded already is marked landed, so it isn't sent again
+// (seedRepo). A VM whose git can't make a SHA-256 repo is refused, naming
+// its git. An empty repo an earlier devvm made with another object
+// format is made again once the user agrees (askRemake).
+func (e seeder) initRepos(ctx context.Context, t *target, seeds []repoSeed, exclude []byte) error {
+	a, err := e.runInit(ctx, t, seeds, exclude, nil)
+	if err == nil && len(a.format) > 0 {
+		if err := e.askRemake(t.f.Name, a.format); err != nil {
+			return err
+		}
+		// exclude went in already, unless into the folder's own repo,
+		// which is made again.
+		again := exclude
+		if !slices.Contains(a.format, ".") {
+			again = nil
+		}
+		a, err = e.runInit(ctx, t, seeds, again, a.format)
+		if err == nil && len(a.format) > 0 {
+			err = msg.CloneSeedFailed(t.f.Name)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	for i := range seeds {
+		seeds[i].landed = slices.Contains(a.landed, seeds[i].path)
+	}
+	return nil
+}
+
+// runInit runs initRepos in t's VM for seeds, remaking the empty repos at
+// the paths remake names, and returns the VM's answer.
+func (e seeder) runInit(ctx context.Context, t *target, seeds []repoSeed, exclude []byte, remake []string) (initAnswer, error) {
 	ex := "-"
 	if exclude != nil {
 		ex = "exclude"
 	}
 	argv := []string{"sh", "-c", initRepos, "sh", t.f.Dir, ex}
 	for _, s := range seeds {
-		argv = append(argv, s.path, s.checkout)
+		how := "-"
+		if slices.Contains(remake, s.path) {
+			how = "remake"
+		}
+		argv = append(argv, s.path, s.format, how)
 	}
 	log := e.vmLog()
 	out := &bounded{max: cloneOutMax}
-	if err := t.exec(ctx, argv, backend.ExecOpts{Stdin: bytes.NewReader(exclude), Stdout: out, Stderr: log}); err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return backend.Logged(msg.CloneSeedFailed(t.f.Name))
+	err := t.exec(ctx, argv, backend.ExecOpts{Stdin: bytes.NewReader(exclude), Stdout: out, Stderr: log})
+	a := parseInit(out.String(), seeds)
+	switch {
+	case ctx.Err() != nil:
+		return a, ctx.Err()
+	case a.oldGit != "":
+		return a, msg.CloneVMGitOld(a.oldGit, t.f.Name)
+	case err != nil:
+		return a, backend.Logged(msg.CloneSeedFailed(t.f.Name))
 	}
-	had := strings.Split(out.String(), "\n")
-	for i := range seeds {
-		seeds[i].landed = slices.Contains(had, seeds[i].path)
-	}
-	return nil
+	return a, nil
 }
 
 // excludeMax is the most of the host repo's info/exclude repoExcludes
@@ -485,14 +511,13 @@ func plainPath(p string) bool {
 // seedRepo copies one repo into t's running VM, whose repo initRepos
 // made: checked again just before (stillRepo), its remote chosen once the
 // earlier repos' are added (freeRemote: two worktrees of one repo share a
-// config), its branches pushed (s.refs) unless an earlier copy's push
-// landed (s.landed: a push again would be refused once the VM's branch
-// moved on), then its remote for the VM added, each recorded in the clone
-// section as it's done, so a retry, rm and an interrupt find it. It
-// returns the remote.
-func (e clones) seedRepo(ctx context.Context, t *target, s repoSeed) (string, error) {
+// config), its branches sent (seed) unless an earlier copy landed
+// (s.landed: the VM's branches may have moved on since), then its remote
+// for the VM added, each recorded in the clone section as it's done, so a
+// retry, rm and an interrupt find it. It returns the remote.
+func (e seeder) seedRepo(ctx context.Context, t *target, s repoSeed) (string, error) {
 	vm, st := t.f.Name, t.st
-	if err := e.stillRepo(ctx, t, s.path); err != nil {
+	if err := e.stillRepo(ctx, t, s.path, false); err != nil {
 		return "", err
 	}
 	remote, err := freeRemote(ctx, t.f, s.dir)
@@ -506,7 +531,7 @@ func (e clones) seedRepo(ctx context.Context, t *target, s repoSeed) (string, er
 		return "", err
 	}
 	if !s.landed {
-		if err := e.pushSeed(ctx, t, s); err != nil {
+		if err := e.seed(ctx, t, s, msg.CopyingRepo(s.path)); err != nil {
 			return "", err
 		}
 	}
@@ -515,31 +540,15 @@ func (e clones) seedRepo(ctx context.Context, t *target, s repoSeed) (string, er
 			return "", msg.RemoteAddFailed(remote)
 		}
 	}
+	// Before the repo is recorded as copied, so a try again copies those
+	// it didn't.
+	if err := e.seedSubmodules(ctx, t, s.path); err != nil {
+		return "", err
+	}
 	return remote, update(ctx, st, cloneSection, func(c *cloneInVM) error {
 		c.setRepo(s.path, func(r *cloneRepo) { r.Seeded = true })
 		return nil
 	})
-}
-
-// pushSeed pushes s's branches (s.refs) into its repo in t's running VM,
-// over devvm's own ssh to the VM alone (gitSSH).
-func (e clones) pushSeed(ctx context.Context, t *target, s repoSeed) error {
-	vm := t.f.Name
-	push := append([]string{"push", "-q", "--no-verify", "--no-recurse-submodules", "--no-signed", cloneURL(vm, s.dir)}, s.refs...)
-	cmd, err := e.gitSSH(ctx, t, s.dir, push...)
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return msg.CloneSeedFailed(vm).Because(err)
-	}
-	if err := e.LoggedCmd(ctx, msg.CopyingRepo(s.path), cmd); err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return backend.Logged(msg.CloneSeedFailed(vm))
-	}
-	return nil
 }
 
 // seedWorkspace makes a workspace clone in t's running VM, as seedClone
@@ -548,9 +557,8 @@ func (e clones) pushSeed(ctx context.Context, t *target, s repoSeed) error {
 // made at once (initRepos), then copied one by one (seedRepo), the
 // folder's files outside them copied once (copyFiles), and the clone
 // recorded as made. Then it offers the ~/.ssh/config line that the
-// remotes need, and names the repos with uncommitted changes, which
-// aren't copied.
-func (e clones) seedWorkspace(ctx context.Context, t *target) error {
+// remotes need.
+func (e seeder) seedWorkspace(ctx context.Context, t *target) error {
 	st := t.st
 	c := sectionOf[cloneInVM](st, cloneSection)
 	var seeds []repoSeed
@@ -583,8 +591,8 @@ func (e clones) seedWorkspace(ctx context.Context, t *target) error {
 	}
 	remote := ""
 	for _, s := range seeds {
-		if s.detached {
-			e.Info(msg.WorkspaceDetached(s.checkout, s.path))
+		if !s.landed {
+			sayHow(e.Info, s, true)
 		}
 		r, err := e.seedRepo(ctx, t, s)
 		if err != nil {
@@ -607,15 +615,6 @@ func (e clones) seedWorkspace(ctx context.Context, t *target) error {
 	} else if !ok && remote != "" {
 		e.Warn(msg.FetchUntil(e.Dirs.SSHConfig(), remote))
 	}
-	var dirty []string
-	for _, s := range seeds {
-		if out, _ := hostgit.Status(ctx, s.dir, "--porcelain", "--untracked-files=no").Output(); len(bytes.TrimSpace(out)) > 0 {
-			dirty = append(dirty, s.path)
-		}
-	}
-	if len(dirty) > 0 {
-		e.Warn(msg.UncommittedNotCopiedRepos(quoted(dirty)))
-	}
 	e.Info(msg.WorkspaceReady(len(sectionOf[cloneInVM](st, cloneSection).Repos)))
 	return nil
 }
@@ -624,7 +623,7 @@ func (e clones) seedWorkspace(ctx context.Context, t *target) error {
 // it (workspaceFiles) into its running VM, at the same paths, once, and
 // says how many it left out. A folder that's a repo itself has no files
 // of its own outside it: its files are its repo's, chosen or not.
-func (e clones) copyFiles(ctx context.Context, t *target) error {
+func (e seeder) copyFiles(ctx context.Context, t *target) error {
 	if hasGit(t.f.Dir) {
 		return nil
 	}
@@ -665,11 +664,14 @@ type Fetched struct {
 }
 
 // FetchedRepo is one repo's fetch: its path relative to the project
-// folder ("." for the folder's own), its remote, and the branches new or
-// moved, as the VM named them.
+// folder ("." for the folder's own), its remote, the branches new or
+// moved, as the VM named them, and the local branches it saved the VM's
+// own work into, which no branch has: its detached HEAD's commits
+// (saved/<remote>/HEAD) and its stash entries (saved/<remote>/stash-N).
 type FetchedRepo struct {
 	Path, Remote string
 	Branches     []string
+	Saved        []string
 }
 
 // FetchedBranch is a branch name and the repos it's new or moved in.
@@ -701,8 +703,9 @@ func (f Fetched) ByBranch() []FetchedBranch {
 // Fetch fetches the VM's branches into each repo of the folder's --clone
 // VM, starting it if it's stopped: every branch into its remote's
 // remote-tracking branches (fetchInto, as rm's fetch does), and returns
-// those new or moved. A repo whose remote was removed gets it again; one
-// whose remote points elsewhere now is left alone and named.
+// those new or moved, its recorded submodules' too (allRepos), each by
+// its path. A repo whose remote was removed gets it again; one whose
+// remote points elsewhere now is left alone and named.
 func (e Clone) Fetch(ctx context.Context) (Fetched, error) {
 	t, err := e.finder.target(ctx, need{has: hasMade})
 	if err != nil {
@@ -716,8 +719,8 @@ func (e Clone) Fetch(ctx context.Context) (Fetched, error) {
 		return Fetched{}, err
 	}
 	var out Fetched
-	for _, r := range sectionOf[cloneInVM](t.st, cloneSection).repos() {
-		// A remote is recorded before its push: one whose copy didn't
+	for _, r := range sectionOf[cloneInVM](t.st, cloneSection).allRepos() {
+		// A remote is recorded before its copy: one whose copy didn't
 		// finish may have the VM's work too.
 		if r.Remote == "" {
 			continue
@@ -729,7 +732,7 @@ func (e Clone) Fetch(ctx context.Context) (Fetched, error) {
 		if got.Path != "" { // fetched from, not left alone
 			out.Checked++
 		}
-		if len(got.Branches) > 0 {
+		if len(got.Branches) > 0 || len(got.Saved) > 0 {
 			out.Repos = append(out.Repos, got)
 		}
 	}
@@ -742,10 +745,13 @@ func (e Clone) fetchRepo(ctx context.Context, t *target, r cloneRepo) (FetchedRe
 	url := cloneURL(vm, dir)
 	// Fetched into only while it's still that repo, not one above it or
 	// put in its place, and no other VM can swap it.
-	if err := e.clones.stillRepo(ctx, t, r.Path); err != nil {
-		if m, ok := errors.AsType[msg.M](err); ok && m.ID() == msg.CloneRepoMounted("", "").ID() {
+	if err := e.clones.stillRepo(ctx, t, r.Path, r.submodule); err != nil {
+		switch m, ok := errors.AsType[msg.M](err); {
+		case ok && m.ID() == msg.CloneRepoMounted("", "").ID():
 			e.Warn(m)
-		} else {
+		case r.submodule:
+			e.Warn(msg.CloneSubmoduleUnchecked(r.Path))
+		default:
 			e.Warn(msg.CloneRepoChanged(r.Path))
 		}
 		return FetchedRepo{}, nil
@@ -761,7 +767,7 @@ func (e Clone) fetchRepo(ctx context.Context, t *target, r cloneRepo) (FetchedRe
 	}
 	before := trackingRefs(ctx, dir, r.Remote)
 	fail := msg.CloneFetchFailed(r.Path, vm)
-	if err := e.clones.fetchInto(ctx, t, dir, msg.FetchingRepo(r.Path), fail, "+refs/heads/*:refs/remotes/"+r.Remote+"/*"); err != nil {
+	if err := e.clones.fetchInto(ctx, t, dir, false, msg.FetchingRepo(r.Path), fail, "+refs/heads/*:refs/remotes/"+r.Remote+"/*"); err != nil {
 		return FetchedRepo{}, err
 	}
 	out := FetchedRepo{Path: r.Path, Remote: r.Remote}
@@ -771,7 +777,70 @@ func (e Clone) fetchRepo(ctx context.Context, t *target, r cloneRepo) (FetchedRe
 		}
 	}
 	slices.Sort(out.Branches)
-	return out, nil
+	saved, err := e.fetchOwn(ctx, t, dir, r.Remote, fail)
+	out.Saved = saved
+	return out, err
+}
+
+// ownWork is the script that prints what the clone at $1 has that no
+// branch fetch brings: "SHA HEAD" for the commit its HEAD is detached at,
+// when no branch has it, and "SHA stash@{N}" for each stash entry its
+// seed didn't store (seedStashRecord), as cloneState does.
+const ownWork = `if ! git -C "$1" symbolic-ref -q HEAD >/dev/null 2>&1 && [ -n "$(git -C "$1" rev-list -n1 HEAD --not --branches 2>/dev/null)" ]; then
+  printf '%s HEAD\n' "$(git -C "$1" rev-parse -q --verify HEAD)"
+fi
+if git -C "$1" rev-parse -q --verify refs/stash >/dev/null 2>&1; then
+  git -C "$1" reflog show --format=%H refs/stash -- | {
+    n=0
+    while read -r h; do
+      grep -qxF -- "$h" "$1/.git/` + seedStashRecord + `" 2>/dev/null || printf '%s stash@{%s}\n' "$h" "$n"
+      n=$((n+1))
+    done
+  }
+fi`
+
+// fetchOwn brings back what only the clone at dir in t's VM has, which a
+// fetch of its branches doesn't (ownWork): when the repo on this machine
+// lacks them, the commits of a detached HEAD into a new local branch,
+// saved/<remote>/HEAD, and each of the VM's own stash entries into
+// saved/<remote>/stash-N (savedPrefix, savedNames), never over one that
+// exists, as rm does. It returns those branches, none when there was
+// nothing to bring.
+func (e Clone) fetchOwn(ctx context.Context, t *target, dir, remote string, fail msg.M) ([]string, error) {
+	out := &bounded{max: cloneOutMax}
+	if err := t.exec(ctx, []string{"sh", "-c", ownWork, "sh", dir}, backend.ExecOpts{Stdout: out, Stderr: e.vmLog()}); err != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if out.over {
+		return nil, fail
+	}
+	own, _ := savedNames(ctx, dir, unfetchedRefs(ctx, dir, ownLines(out.Bytes())))
+	if len(own) == 0 {
+		return nil, nil
+	}
+	prefix, ok := savedPrefix(ctx, dir, remote)
+	if !ok {
+		return nil, msg.SavedNamesTakenFetch(remote)
+	}
+	saved, err := e.clones.fetchSaved(ctx, t, dir, prefix, own, false, msg.Fetching(prefix), fail)
+	if len(saved) > 0 {
+		e.Info(msg.SavedBranches(quoted(saved)))
+	}
+	return saved, err
+}
+
+// ownLines are those of the lines ownWork printed that it prints: "SHA
+// HEAD" and "SHA stash@{N}", so the VM can't have devvm clone fetch save
+// a branch of any other name.
+func ownLines(out []byte) []byte {
+	var b bytes.Buffer
+	for line := range bytes.Lines(out) {
+		_, ref, _ := strings.Cut(strings.TrimSpace(string(line)), " ")
+		if _, stash := stashIndex(ref); ref == "HEAD" || stash {
+			b.Write(line)
+		}
+	}
+	return b.Bytes()
 }
 
 // trackingRefs are remote's remote-tracking branches in the repo at dir,
@@ -810,14 +879,18 @@ func (e Clone) Add(ctx context.Context, dir string) error {
 	}
 	c := sectionOf[cloneInVM](t.st, cloneSection)
 	i := slices.IndexFunc(c.repos(), func(r cloneRepo) bool { return r.Path == rel })
-	if i >= 0 && c.repos()[i].Seeded {
+	// A submodule recorded below its repo is the clone's already, copied
+	// or to be copied with its repo, never a repo of its own besides.
+	sub := slices.ContainsFunc(c.allRepos(), func(r cloneRepo) bool { return r.submodule && r.Path == rel })
+	if i >= 0 && c.repos()[i].Seeded || sub {
 		e.Info(msg.CloneAddAlready(rel, vm))
 		return nil
 	}
 	if err := needGit(); err != nil {
 		return err
 	}
-	s, err := e.clones.prepareSeed(ctx, t, rel)
+	sd := seeder{e.clones}
+	s, err := sd.prepareSeed(ctx, t, rel)
 	if err != nil {
 		return err
 	}
@@ -843,14 +916,14 @@ func (e Clone) Add(ctx context.Context, dir string) error {
 		exclude = repoExcludes(ws, c, all, true)
 	}
 	seeds := []repoSeed{s}
-	if err := e.clones.initRepos(ctx, t, seeds, exclude); err != nil {
+	if err := sd.initRepos(ctx, t, seeds, exclude); err != nil {
 		return err
 	}
 	s = seeds[0]
-	if s.detached {
-		e.Info(msg.WorkspaceDetached(s.checkout, s.path))
+	if !s.landed {
+		sayHow(e.Info, s, true)
 	}
-	remote, err := e.clones.seedRepo(ctx, t, s)
+	remote, err := sd.seedRepo(ctx, t, s)
 	if err != nil {
 		return err
 	}

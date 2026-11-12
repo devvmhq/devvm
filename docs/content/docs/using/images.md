@@ -138,7 +138,7 @@ A row that's greyed out, such as a part a flag gave or a VM's layers in `devvm t
 
 ## Base
 
-`base` is the image that every other image is built on. It is Ubuntu 26.04's cloud image with git, build-essential, ripgrep, jq, sqlite3 and mise added, followed by the optional [features](customizing.md#base-image-features) you chose, such as oh-my-bash and fzf. Docker comes as a [layer of devvm's](#built-in-layers), so you choose it when you customize a new VM, or give `devvm --layers docker`. With `--from`, base starts from a container image instead of Ubuntu's ([details](from.md)). A VM made from base gets 4 CPUs, 8 GiB of memory and a 100 GiB disk unless you give it another size, and on a small machine it gets fewer CPUs and less memory ([size and ports](ports-size.md#size-and-ports)).
+`base` is the image that every other image is built on. It is Ubuntu 26.04's cloud image with git, git-lfs, build-essential, ripgrep, jq, sqlite3 and mise added, followed by the optional [features](customizing.md#base-image-features) you chose, such as oh-my-bash and fzf. Docker comes as a [layer of devvm's](#built-in-layers), so you choose it when you customize a new VM, or give `devvm --layers docker`. With `--from`, base starts from a container image instead of Ubuntu's ([details](from.md)). A VM made from base gets 4 CPUs, 8 GiB of memory and a 100 GiB disk unless you give it another size, and on a small machine it gets fewer CPUs and less memory ([size and ports](ports-size.md#size-and-ports)).
 
 Your VMs use Ubuntu's live archive, and base keeps no package lists, so run `sudo apt update` in a VM before you install a package, and `apt upgrade` then gets the current updates:
 

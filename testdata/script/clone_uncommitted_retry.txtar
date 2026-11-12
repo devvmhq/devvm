@@ -1,0 +1,55 @@
+# A copy of uncommitted changes that runs again after a failed one. The
+# VM's own file at a path changed here stays, and devvm names it, though
+# the path differs here too. A VM that committed on its branch keeps its
+# HEAD, so the changes here, which would apply to something else, aren't
+# copied, and devvm says so instead of naming the ones it would have
+# left out. (The stubs keep the VM's files in $STUB_DIR/vmfs.)
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+
+# The VM writes b, which is changed here, between the tries.
+cd $WORK/web
+exec git init -q -b main
+exec git add .
+exec git commit -q -m one
+exec sh -c 'echo host > b && rm a && mkdir a && echo x > a/f'
+exec sh -c 'echo index-pack > "$STUB_DIR/shell-fails-on"'
+! exec devvm --clone --network open
+stderr '^devvm: clone_seed_failed vm=devvm-web-[0-9a-f]{14}$'
+rm $STUB_DIR/shell-fails-on
+exec sh -c 'echo the-vms > "$STUB_DIR/vmfs$(pwd -P)/b"'
+exec devvm
+stderr '^devvm: clone_kept_files count=1 dir=/\S*/web files="b"$'
+stderr '^devvm: clone_typechange_kept count=1 dir=/\S*/web files="a"$'
+! stderr 'clone_uncommitted_kept'
+exec sh -c 'cat "$STUB_DIR/vmfs$(pwd -P)/b"'
+stdout '^the-vms$'
+exec devvm rm --force --no-export --no-clone-check
+
+# The VM commits on main between the tries: its HEAD and branch stay, and
+# the changes here aren't copied.
+cd $WORK/app
+exec git init -q -b main
+exec git add .
+exec git commit -q -m one
+exec sh -c 'echo host > b && rm a && mkdir a && echo x > a/f'
+exec sh -c 'echo index-pack > "$STUB_DIR/shell-fails-on"'
+! exec devvm --clone --network open
+rm $STUB_DIR/shell-fails-on
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" commit -q --allow-empty -m vm-own'
+exec devvm
+stderr '^devvm: clone_kept_branches '
+stderr '^devvm: clone_uncommitted_kept dir=/\S*/app$'
+! stderr 'clone_typechange_kept|clone_filtered_kept'
+exec sh -c 'c="$STUB_DIR/vmfs$(pwd -P)"; git -C "$c" log --format=%s -1; test -e "$c/b" || echo no-b'
+stdout '^vm-own$'
+stdout '^no-b$'
+exec devvm rm --force --no-export --no-clone-check
+
+-- web/a --
+a
+-- web/b --
+b
+-- app/a --
+a
+-- app/b --
+b

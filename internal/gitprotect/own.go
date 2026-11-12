@@ -13,11 +13,13 @@ import (
 // OwnRepo checks that what git reads in dir, the top folder of a repo,
 // is that repo's own, for --clone, whose push sends it into a VM. dir's
 // .git is a folder, or the .git file of a linked worktree whose link git
-// made both ways (linkedWorktree); and nothing in its git dir or common
-// dir points into another repo: no commondir in a .git folder, no
-// alternates, and no objects or refs that are symlinks. It returns the
-// git dir and the common dir, resolved (the same for a .git folder), or
-// the message naming what points elsewhere.
+// made both ways (linkedWorktree), or of a submodule whose git dir is in
+// its parent repo's (submoduleGitDir); and nothing in its git dir or
+// common dir points into another repo: no commondir in a .git folder or
+// a submodule's git dir, no alternates, and no objects or refs that are
+// symlinks. It returns the git dir and the common dir, resolved (the
+// same for a .git folder or a submodule), or the message naming what
+// points elsewhere.
 func OwnRepo(dir string) (gitDir, commonDir string, err error) {
 	g := filepath.Join(dir, ".git")
 	fi, err := os.Lstat(g)
@@ -31,9 +33,13 @@ func OwnRepo(dir string) (gitDir, commonDir string, err error) {
 		}
 		commonDir = gitDir
 	case fi.Mode().IsRegular():
-		if gitDir, commonDir = linkedWorktree(dir); gitDir == "" {
+		if gitDir, commonDir = linkedWorktree(dir); gitDir != "" {
+			break
+		}
+		if gitDir = submoduleGitDir(dir); gitDir == "" {
 			return "", "", msg.CloneGitElsewhere(g)
 		}
+		commonDir = gitDir
 	default:
 		return "", "", msg.CloneGitElsewhere(g)
 	}
@@ -81,6 +87,94 @@ func linkedWorktree(dir string) (gitDir, commonDir string) {
 		return "", ""
 	}
 	return t, repo
+}
+
+// submoduleGitDir returns the git dir of the submodule dir, resolved, when
+// it's one git made: dir's .git file names a folder below its parent
+// repo's own git dir, modules/<name> (the parent is the nearest folder
+// above dir with a .git, itself its own repo, OwnRepo, so a nested
+// submodule's is <parent's git dir>/modules/<name> too), resolved, so
+// no symbolic link leads it out of that git dir; that folder has no
+// commondir, and
+// its config's core.worktree, its only one and with no include in the
+// file, leads back to dir. Else it returns "".
+func submoduleGitDir(dir string) string {
+	target := gitdirOf(filepath.Join(dir, ".git"), dir)
+	parent := filepath.Dir(dir)
+	for ; parent != filepath.Dir(parent); parent = filepath.Dir(parent) {
+		if _, err := os.Lstat(filepath.Join(parent, ".git")); err == nil {
+			break
+		}
+	}
+	if target == "" || parent == filepath.Dir(parent) {
+		return ""
+	}
+	parentGit, _, err := OwnRepo(parent)
+	if err != nil {
+		return ""
+	}
+	rel, err := filepath.Rel(parentGit, target)
+	name, ok := strings.CutPrefix(filepath.ToSlash(rel), "modules/")
+	if err != nil || !ok || name == "" || !filepath.IsLocal(rel) {
+		return ""
+	}
+	// The guard is the Rel above: target is resolved, so a link anywhere
+	// on its way can only have led inside the parent's git dir. Each part
+	// below that git dir is checked to be a folder.
+	at := parentGit
+	for part := range strings.SplitSeq(filepath.ToSlash(rel), "/") {
+		at = filepath.Join(at, part)
+		if fi, err := os.Lstat(at); err != nil || !fi.IsDir() {
+			return ""
+		}
+	}
+	if c, ok := commonOf(target); !ok || c != target {
+		return ""
+	}
+	wt, ok := coreWorktree(filepath.Join(target, "config"))
+	if !ok {
+		return ""
+	}
+	if !filepath.IsAbs(wt) {
+		wt = filepath.Join(target, wt)
+	}
+	back, err := filepath.EvalSymlinks(wt)
+	own, err2 := filepath.EvalSymlinks(dir)
+	if err != nil || err2 != nil || back != own {
+		return ""
+	}
+	return target
+}
+
+// coreWorktree is the core.worktree a git config file sets, read as
+// plain text, and whether it sets exactly one and includes no other
+// file, which this can't follow, so a submodule's git dir with one is
+// refused rather than guessed at.
+func coreWorktree(path string) (string, bool) {
+	data, err := gitFile(path)
+	if err != nil {
+		return "", false
+	}
+	var values []string
+	section := ""
+	for line := range strings.SplitSeq(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			section = strings.ToLower(strings.TrimSpace(strings.Trim(line, "[]")))
+			if strings.HasPrefix(section, "include") {
+				return "", false
+			}
+			continue
+		}
+		key, value, found := strings.Cut(line, "=")
+		if section == "core" && found && strings.EqualFold(strings.TrimSpace(key), "worktree") {
+			values = append(values, strings.Trim(strings.TrimSpace(value), `"`))
+		}
+	}
+	if len(values) != 1 || values[0] == "" {
+		return "", false
+	}
+	return values[0], true
 }
 
 // ownObjects refuses a git dir d that reads objects or refs from

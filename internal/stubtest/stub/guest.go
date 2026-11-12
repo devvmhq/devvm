@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -23,7 +24,8 @@ import (
 // $STUB_DIR/history-in.tgz. Its switches, in $STUB_DIR:
 //
 //	shell-fails         every shell fails
-//	shell-fails-on      a shell whose arguments hold its text fails (a home folder's copy too)
+//	shell-fails-on      a shell whose arguments hold its text fails (a home folder's copy and
+//	                    a --clone VM's git too)
 //	shell-hangs         every shell hangs (touching hanging first)
 //	shell-waits-on      a shell whose arguments hold its text touches waiting, then waits
 //	                    until this file is gone and carries on
@@ -71,7 +73,7 @@ func (l *lima) shell() int {
 	}
 	_ = g.put("shell-agent", []byte(g.agent()+"\n"))
 	if line := g.last(); g.cloneGit(line) {
-		if g.on("shell-fails") {
+		if g.on("shell-fails") || g.mentions("shell-fails-on") {
 			return 1
 		}
 		return g.git(shellWords(strings.TrimPrefix(line, shellPrefix)))
@@ -86,16 +88,19 @@ func (l *lima) shell() int {
 }
 
 // cloneGit reports whether line is a --clone VM's git: git -C DIR, the
-// script that makes its clone's repos, the one that reads them for the
-// clone check, or a workspace clone's copy of the folder's files (a tar
-// read from stdin into the folder).
+// script that makes its clone's repos, the seed's that applies its pack
+// (git index-pack), the one that reads them for the clone check, devvm
+// clone fetch's of a detached HEAD (rev-list … --not --branches), a
+// tar read from stdin (a seed's, or a workspace clone's copy of the
+// folder's files), or the read of Git LFS objects (devvm-lfs-send).
 func (g *guest) cloneGit(line string) bool {
 	if strings.HasPrefix(line, shellPrefix+"'git' '-C' ") {
 		return true
 	}
 	return strings.HasPrefix(line, shellPrefix+"'sh' '-c' ") &&
 		(strings.Contains(line, "receive.denyCurrentBranch") || strings.Contains(line, "status --porcelain") ||
-			strings.Contains(line, "--no-same-owner"))
+			strings.Contains(line, "--no-same-owner") || strings.Contains(line, "index-pack") ||
+			strings.Contains(line, "--not --branches") || strings.Contains(line, "devvm-lfs-send"))
 }
 
 // vmfs is the guest's files on the host, under the stubs' folder.
@@ -371,11 +376,19 @@ func (g *guest) ports() int {
 }
 
 // pack runs git's receive-pack or upload-pack on the guest's files, for
-// host git's push to and fetch from a --clone VM over ssh.
+// host git's fetch from a --clone VM over ssh, or a test's own push to it:
+// git-upload-pack DIR, or git -c NAME=VALUE ... upload-pack DIR. It runs
+// without GIT_PROTOCOL, which host git sets for its ssh but devvm's ssh
+// to a VM doesn't pass on, so it speaks git's protocol v0, as a VM does.
 func (g *guest) pack(command string) int {
 	words := shellWords(command)
 	if len(words) < 2 {
 		return 255
 	}
-	return g.replace([]string{"git", strings.TrimPrefix(words[0], "git-"), g.vmfs(words[1])}, nil)
+	argv := []string{"git", strings.TrimPrefix(words[0], "git-"), g.vmfs(words[1])}
+	if words[0] == "git" {
+		last := len(words) - 1
+		argv = append(slices.Clone(words[:last]), g.vmfs(words[last]))
+	}
+	return g.replace(append([]string{"env", "-u", "GIT_PROTOCOL"}, argv...), nil)
 }

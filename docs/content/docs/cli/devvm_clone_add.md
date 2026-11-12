@@ -7,7 +7,7 @@ Copy one more repo into this folder's --clone VM
 
 ## Synopsis
 
-Copy the repo at PATH, a folder in this folder's --clone VM's folder, into the VM at the same path, with its current and default branches, starting the VM if it's stopped. The repo gets a remote for the VM, as each of the VM's repos has.
+Copy the repo at PATH, a folder in this folder's --clone VM's folder, into the VM at the same path, with its branches, tags and remote-tracking branches, checked out as it is here, starting the VM if it's stopped. The repo gets a remote for the VM, as each of the VM's repos has.
 
 ```text
 devvm clone add PATH [flags]

@@ -81,7 +81,7 @@ func ownerDocs() []ownerDoc {
 		},
 		{
 			check:     "the structure test's `owners`, git",
-			owner:     "`internal/hostgit`, which runs git without the repo's fsmonitor, hooks or filters, over ssh only, without the environment's `GIT_*` variables and prompts. In tests, which run plain git to make their repos, it's `internal/stubtest`'s `Git`, which leaves out git's variables that pick a repo, its files or its config (`GitEnv`), so a git that runs the tests, such as a hook's or `git rebase --exec`'s, never sends a test's git to the checkout itself",
+			owner:     "`internal/hostgit`, which runs git without the repo's fsmonitor, hooks, filters or signing programs, over ssh only, without the environment's `GIT_*` variables, prompts, replace refs or grafts. It's also the only package whose string literals may be `\"push\"`, whole (`names`), and none is: a `--clone` VM's copy goes through the backend's `Exec` (`internal/vm/cloneseed.go`), never git's transport, whose receive-pack refuses shallow and SHA-256 repos. Nor may any other package's be `\"diff-files\"`, which enters each submodule, where that repo's own config can name a filter: `hostgit.DiffFiles` doesn't. In tests, which run plain git to make their repos, it's `internal/stubtest`'s `Git`, which leaves out git's variables that pick a repo, its files or its config (`GitEnv`), so a git that runs the tests, such as a hook's or `git rebase --exec`'s, never sends a test's git to the checkout itself",
 			elsewhere: "nothing else",
 		},
 		{

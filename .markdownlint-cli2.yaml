@@ -3,3 +3,7 @@ config:
   MD013: false
   # Lists may follow a paragraph directly.
   MD032: false
+  # A heading may repeat under another parent, as each release's Fixed
+  # does in CHANGELOG.md.
+  MD024:
+    siblings_only: true

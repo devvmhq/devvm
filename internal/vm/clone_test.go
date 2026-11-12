@@ -45,7 +45,7 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 
 // cloneEnv is upEnv with the folder a repo with a commit on main, and a
 // VM whose files are vmfs: the fake backend runs a clone's git there, and
-// ssh is the ssh stub, which pushes and fetches there too.
+// ssh is the ssh stub, which fetches from there too.
 func cloneEnv(t *testing.T) (e *Env, f *backendtest.Fake, vmfs string) {
 	t.Helper()
 	e, f, _ = upEnv(t, allNative())
@@ -78,12 +78,16 @@ func cloneEnv(t *testing.T) (e *Env, f *backendtest.Fake, vmfs string) {
 }
 
 // A --clone VM: nothing of the folder's mounted, nor .git protected; its
-// clone has the host's branches with the host's checked out, and the
-// repo a devvm remote for it. Opened again, it isn't copied again.
+// clone has the host's branches with the host's checked out, marked
+// seeded, and the repo a devvm remote for it. The seed goes through the
+// backend's Exec alone, never git's ssh, so no url.*.insteadOf in the
+// repo can send it anywhere. Opened again, it isn't copied again.
 func TestUpClone(t *testing.T) {
 	e, f, vmfs := cloneEnv(t)
 	gitIn(t, e.Dir, "branch", "other")
+	gitIn(t, e.Dir, "config", "url.elsewhere.example:/x.insteadOf", "devvm-web-")
 	st := existingVM(t, e, Options{Network: "open", Clone: true})
+	gitIn(t, e.Dir, "config", "--unset", "url.elsewhere.example:/x.insteadOf")
 	vm := st.Name()
 	if spec, _ := call(f, "CreateVM").Args[1].(backend.VMSpec); spec.Project != "" || spec.ProjectID != "" || spec.Tools == "" {
 		t.Errorf("spec %+v", spec)
@@ -103,33 +107,28 @@ func TestUpClone(t *testing.T) {
 	if got := gitIn(t, clone, "symbolic-ref", "--short", "HEAD"); got != "main" {
 		t.Errorf("clone's HEAD %q", got)
 	}
+	if b, err := os.ReadFile(filepath.Join(clone, ".git", seedMarker)); err != nil || string(b) != "done\n" { //nolint:gosec // the test's own files
+
+		t.Errorf("marker %q, %v", b, err)
+	}
+	seeded := gitIn(t, clone, "rev-parse", "main")
+	gitIn(t, e.Dir, "commit", "-q", "--allow-empty", "-m", "two")
 	if err := (Launch{e}).Up(t.Context(), Options{Clone: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
+	if got := gitIn(t, clone, "rev-parse", "main"); got != seeded {
+		t.Errorf("copied again: main %s, was %s", got, seeded)
+	}
 	// The ssh stub's folder is the one vmfs is in.
 	calls := strings.Join((&stubtest.Stubs{Dir: filepath.Dir(vmfs)}).Calls(t), "\n")
-	if n := strings.Count(calls, "git-receive-pack"); n != 1 {
-		t.Errorf("pushed %d times:\n%s", n, calls)
+	if strings.Contains(calls, "git-receive-pack") || strings.Contains(calls, "elsewhere") {
+		t.Errorf("pushed:\n%s", calls)
 	}
 }
 
-// The seed push goes to the VM itself, whatever host and path the repo's
-// url.*.insteadOf rewrites the VM's URL to.
-func TestUpCloneInsteadOf(t *testing.T) {
-	e, _, vmfs := cloneEnv(t)
-	gitIn(t, e.Dir, "config", "url.elsewhere.example:/x.insteadOf", "devvm-web-")
-	existingVM(t, e, Options{Network: "open", Clone: true})
-	if got := gitIn(t, vmfs+e.Dir, "branch", "--format=%(refname:short)"); got != "main" {
-		t.Errorf("clone's branches %q", got)
-	}
-	calls := strings.Join((&stubtest.Stubs{Dir: filepath.Dir(vmfs)}).Calls(t), "\n")
-	if !strings.Contains(calls, " -p 60022 -l u 127.0.0.1 git-receive-pack '"+e.Dir+"'") || strings.Contains(calls, "elsewhere") {
-		t.Errorf("ssh calls:\n%s", calls)
-	}
-}
-
-// git's ssh for a --clone VM runs only receive-pack or upload-pack, on
-// the clone, over ssh to the VM; anything else fails without ssh.
+// git's ssh for a --clone VM runs only receive-pack or upload-pack (which
+// serves any commit asked for, as a stash entry is), on the clone, over
+// ssh to the VM; anything else fails without ssh.
 func TestGitSSHCommand(t *testing.T) {
 	stubs := stubtest.New(t, "ssh")
 	s := vmssh.SSH{VM: "devvm-web-0123456789abcd", User: "u", Key: "/k", KnownHosts: "/kh", Port: 60022}
@@ -138,7 +137,7 @@ func TestGitSSHCommand(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"-p", "22", "evil.example", "git-upload-pack '/elsewhere'"}, ` 127.0.0.1 git-upload-pack '/p/it'\''s'`},
+		{[]string{"-p", "22", "evil.example", "git-upload-pack '/elsewhere'"}, ` 127.0.0.1 git -c uploadpack.allowAnySHA1InWant=true upload-pack '/p/it'\''s'`},
 		{[]string{"-o", "SendEnv=GIT_PROTOCOL", "evil.example", "git-receive-pack '/elsewhere'"}, ` 127.0.0.1 git-receive-pack '/p/it'\''s'`},
 		{[]string{"evil.example", "touch /tmp/x"}, ""},
 		{nil, ""},
@@ -240,11 +239,23 @@ func TestCloneRm(t *testing.T) {
 	// Known commits on any ref are fetched; unknown, dangling or not
 	// object names aren't.
 	dangling := gitIn(t, e.Dir, "commit-tree", "-m", "dangling", gitIn(t, e.Dir, "rev-parse", "HEAD^{tree}"))
-	refs := []byte("0123456789abcdef0123456789abcdef01234567 refs/heads/known\n$(touch-x) refs/heads/evil\nnot-hex\n\n" +
-		gitIn(t, e.Dir, "rev-parse", "HEAD") + " refs/heads/main\n" + dangling + " refs/heads/dangling\n")
+	unknown := "0123456789abcdef0123456789abcdef01234567"
+	refs := []byte(unknown + " refs/heads/known\n$(touch-x) refs/heads/evil\nnot-hex\n\n" +
+		gitIn(t, e.Dir, "rev-parse", "HEAD") + " refs/heads/main\n" + dangling + " refs/heads/dangling\n" +
+		// A stash entry goes by its commit, so only an object name's.
+		unknown + " stash@{0}\n$(x) stash@{1}\n" + unknown + " stash@{-1}\n" + dangling + " HEAD\n")
 	got := unfetchedRefs(t.Context(), e.Dir, refs)
-	if !slices.Equal(got, []string{"known", "evil", "", "dangling"}) {
-		t.Errorf("unfetched %q", got)
+	wantRefs := []fetchRef{
+		{"known", "refs/heads/known", false},
+		{"evil", "refs/heads/evil", false},
+		{"", "refs/heads/", false},
+		{"dangling", "refs/heads/dangling", false},
+		{"stash-0", unknown, true},
+		{"stash@{-1}", "refs/heads/stash@{-1}", false},
+		{"HEAD", "HEAD", false},
+	}
+	if !slices.Equal(got, wantRefs) {
+		t.Errorf("unfetched %v", got)
 	}
 }
 
@@ -381,16 +392,19 @@ func rec(kind string, i int, body string) string {
 // not kept.
 func TestParseCloneState(t *testing.T) {
 	const ws = "/p/ws"
+	sha := strings.Repeat("a", 40)
 	good := rec("refs", 0, "abc refs/heads/main\n") + rec("status", 0, "") +
 		rec("path", 0, ".worktrees/a/api") + rec("wstatus", 0, "?? x\n") +
+		rec("path", 0, ".worktrees/b/api") + rec("whead", 0, sha+"\n") + rec("wstatus", 0, "") +
 		rec("gone", 1, "") +
 		rec("refs", 2, "") + rec("status", 2, " M y\n")
 	got, err := parseCloneState([]byte(good), ws, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got[0].refs) != "abc refs/heads/main\n" || len(got[0].trees) != 1 || got[0].trees[0].path != ws+"/.worktrees/a/api" ||
-		string(got[0].trees[0].status) != "?? x\n" || got[1].refs != nil || string(got[2].status) != " M y\n" {
+	if string(got[0].refs) != "abc refs/heads/main\n" || len(got[0].trees) != 2 || got[0].trees[0].path != ws+"/.worktrees/a/api" ||
+		string(got[0].trees[0].status) != "?? x\n" || got[0].trees[0].head != "" || got[0].trees[1].head != sha ||
+		got[1].refs != nil || string(got[2].status) != " M y\n" {
 		t.Errorf("got %+v", got)
 	}
 	for name, bad := range map[string]string{
@@ -407,6 +421,9 @@ func TestParseCloneState(t *testing.T) {
 		"its status failed": rec("refs", 0, "") + rec("status", 0, "") + rec("path", 0, "a") + rec("wfail", 0, ""),
 		"same twice":        rec("refs", 0, "") + rec("status", 0, "") + rec("path", 0, "a") + rec("wstatus", 0, "") + rec("path", 0, "a") + rec("wstatus", 0, ""),
 		"unknown":           rec("refs", 0, "") + rec("status", 0, "") + rec("what", 0, ""),
+		"head of none":      rec("refs", 0, "") + rec("status", 0, "") + rec("whead", 0, sha),
+		"head no sha":       rec("refs", 0, "") + rec("status", 0, "") + rec("path", 0, "a") + rec("whead", 0, "main\n") + rec("wstatus", 0, ""),
+		"head twice":        rec("refs", 0, "") + rec("status", 0, "") + rec("path", 0, "a") + rec("whead", 0, sha) + rec("whead", 0, sha) + rec("wstatus", 0, ""),
 		"too many branches": rec("refs", 0, strings.Repeat("x\n", cloneRefsMax+1)) + rec("status", 0, ""),
 	} {
 		if _, err := parseCloneState([]byte(bad), ws, 1); err == nil {
@@ -471,6 +488,47 @@ func TestCloneStateScript(t *testing.T) {
 			got[0].trees[0].path != ws+"/.worktrees/x/api" || string(got[0].trees[0].status) != "?? new\n" || !got[1].gone {
 			t.Errorf("looking at %s: got %+v\n%s", limit, got, out)
 		}
+		if strings.Contains(string(got[0].refs), " HEAD\n") {
+			t.Errorf("a HEAD on a branch reported: %s", got[0].refs)
+		}
+	}
+	// A detached HEAD: its commit, as HEAD, with the branches.
+	gitIn(t, api, "checkout", "-q", "--detach")
+	gitIn(t, api, "commit", "-q", "--allow-empty", "-m", "detached")
+	out, err := exec.CommandContext(t.Context(), "sh", "-c", cloneState, "sh", ws, "101", "api").Output() //nolint:gosec // the test's own
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := parseCloneState(out, ws, 1)
+	if err != nil || !strings.HasSuffix(string(got[0].refs), gitIn(t, api, "rev-parse", "HEAD")+" HEAD\n") {
+		t.Errorf("detached: %+v, %v", got, err)
+	}
+	if refs := unfetchedRefs(t.Context(), api, got[0].refs); len(refs) != 0 {
+		t.Errorf("the host has it: %v", refs)
+	}
+	state := func() repoInVM {
+		t.Helper()
+		out, err := exec.CommandContext(t.Context(), "sh", "-c", cloneState, "sh", ws, "101", "api").Output() //nolint:gosec // the test's own
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := parseCloneState(out, ws, 1)
+		if err != nil {
+			t.Fatalf("%v:\n%s", err, out)
+		}
+		return got[0]
+	}
+	// Detached at a branch's commit: nothing of its own, not reported.
+	gitIn(t, api, "checkout", "-q", "--detach", "main")
+	if g := state(); strings.Contains(string(g.refs), " HEAD\n") || g.trees[0].head != "" {
+		t.Errorf("detached at main: %+v", g)
+	}
+	// A worktree detached at a commit of its own: its head, besides its status.
+	wt := filepath.Join(ws, ".worktrees", "x", "api")
+	gitIn(t, wt, "checkout", "-q", "--detach")
+	gitIn(t, wt, "commit", "-q", "--allow-empty", "-m", "worktree's own")
+	if g := state(); len(g.trees) != 1 || g.trees[0].head != gitIn(t, wt, "rev-parse", "HEAD") || string(g.trees[0].status) != "?? new\n" {
+		t.Errorf("a worktree detached: %+v", g)
 	}
 }
 
@@ -512,7 +570,11 @@ func TestFetchUnfetchedInvalid(t *testing.T) {
 	check := cloneCheck{clones: clones{e}, command: "devvm clone off", remakes: true}
 	tg := e.newTarget(project.Folder{Dir: e.Dir, Name: "devvm-web-0123456789abcd"}, nil, f)
 	work := func(branches ...string) []unfetchedIn {
-		return []unfetchedIn{{repo: cloneRepo{Path: ".", Remote: "devvm"}, dir: e.Dir, branches: branches}}
+		refs := make([]fetchRef, len(branches))
+		for i, b := range branches {
+			refs[i] = fetchRef{name: b, src: "refs/heads/" + b}
+		}
+		return []unfetchedIn{{repo: cloneRepo{Path: ".", Remote: "devvm"}, dir: e.Dir, branches: refs}}
 	}
 	if err := check.fetchUnfetched(t.Context(), tg, false, work("a..b", "x y", "-x:refs/heads/main")); err != nil {
 		t.Fatal(msg.NamesOf(err))
@@ -582,8 +644,8 @@ func TestCheckCloneRepo(t *testing.T) {
 	}
 	gitIn(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
 	gitIn(t, dir, "checkout", "-q", "--detach")
-	if got := check(dir); got != "clone_detached" {
-		t.Errorf("detached: %s", got)
+	if got := check(dir); got != "" {
+		t.Errorf("detached, copied as it is: %s", got)
 	}
 	gitIn(t, dir, "checkout", "-q", "main")
 	if got := check(dir); got != "" {
@@ -640,9 +702,12 @@ func TestCheckCloneRepoPointers(t *testing.T) {
 	}
 }
 
-// A linked worktree's seed push sends only its branch and that branch's
-// upstream; a repo's, every branch.
-func TestSeedRefs(t *testing.T) {
+// A repo's seed sends every ref of its namespaces but a devvm VM's
+// remote-tracking branches, and nothing else (refs/original, refs/stash);
+// a linked worktree's, its branch and that branch's upstream (one ref,
+// not its own nor a pattern), the default branch, the remote-tracking
+// branches and the tags, not the repo's other branches or notes.
+func TestSeedTips(t *testing.T) {
 	gitEnv(t)
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -651,35 +716,67 @@ func TestSeedRefs(t *testing.T) {
 	main, wt := filepath.Join(root, "main"), filepath.Join(root, "wt")
 	gitIn(t, root, "init", "-q", "-b", "main", main)
 	gitIn(t, main, "commit", "-q", "--allow-empty", "-m", "one")
+	gitIn(t, main, "branch", "other")
+	gitIn(t, main, "tag", "t1")
+	gitIn(t, main, "notes", "add", "-m", "n", "HEAD")
+	gitIn(t, main, "remote", "add", "origin", "https://example.com/r.git")
+	gitIn(t, main, "update-ref", "refs/remotes/origin/main", "HEAD")
+	gitIn(t, main, "remote", "add", "devvm", "devvm-main-0123456789abcd:"+main)
+	gitIn(t, main, "update-ref", "refs/remotes/devvm/main", "HEAD")
+	gitIn(t, main, "update-ref", "refs/original/refs/heads/main", "HEAD")
+	gitIn(t, main, "update-ref", "refs/stash", "HEAD")
 	gitIn(t, main, "worktree", "add", "-q", "-b", "wt", wt)
-	for _, c := range []struct {
-		dir      string
-		worktree bool
-		want     []string
-	}{
-		{main, false, []string{"--all"}},
-		{wt, true, []string{"refs/heads/wt:refs/heads/wt"}},
-	} {
-		got, err := cloneSource(t.Context(), c.dir)
-		if err != nil || got != c.worktree {
-			t.Errorf("%s: worktree %v, %v", c.dir, got, err)
+	same := func(refs ...string) []refPair {
+		var p []refPair
+		for _, r := range refs {
+			p = append(p, refPair{r, r})
 		}
-		if refs := seedRefs(t.Context(), c.dir, filepath.Base(c.dir), got); !slices.Equal(refs, c.want) {
-			t.Errorf("%s: %q", c.dir, refs)
+		return p
+	}
+	tips := func(dir string) []refPair {
+		t.Helper()
+		worktree, err := cloneSource(t.Context(), dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		refs, err := seedTips(t.Context(), dir, headOf(t.Context(), dir), worktree)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return refs
+	}
+	if got := tips(main); !slices.Equal(got, same("refs/heads/main", "refs/heads/other", "refs/heads/wt", "refs/notes/commits", "refs/remotes/origin/main", "refs/tags/t1")) {
+		t.Errorf("repo: %q", got)
+	}
+	published := same("refs/heads/main", "refs/remotes/origin/main", "refs/tags/t1")
+	if got := tips(wt); !slices.Equal(got, append(same("refs/heads/wt"), published...)) {
+		t.Errorf("worktree: %q", got)
+	}
+	gitIn(t, wt, "branch", "-q", "--set-upstream-to=other")
+	if got := tips(wt); !slices.Equal(got, append(same("refs/heads/wt", "refs/heads/other"), published...)) {
+		t.Errorf("with its upstream: %q", got)
+	}
+	for _, merge := range []string{"refs/heads/wt", "refs/heads/*"} {
+		gitIn(t, wt, "config", "branch.wt.merge", merge)
+		if got := tips(wt); !slices.Equal(got, append(same("refs/heads/wt"), published...)) {
+			t.Errorf("upstream %s: %q", merge, got)
 		}
 	}
-	gitIn(t, wt, "branch", "-q", "--set-upstream-to=main")
-	if refs := seedRefs(t.Context(), wt, "wt", true); !slices.Equal(refs, []string{"refs/heads/wt:refs/heads/wt", "refs/heads/main:refs/heads/main"}) {
-		t.Errorf("with its upstream: %q", refs)
+	// An upstream that's another VM's remote-tracking branch, or outside
+	// the namespaces (refs/stash, through branch.wt.remote=.): not sent.
+	for _, up := range [][2]string{{"devvm", "refs/heads/main"}, {".", "refs/stash"}} {
+		gitIn(t, wt, "config", "branch.wt.remote", up[0])
+		gitIn(t, wt, "config", "branch.wt.merge", up[1])
+		if got := tips(wt); !slices.Equal(got, append(same("refs/heads/wt"), published...)) {
+			t.Errorf("upstream %s %s: %q", up[0], up[1], got)
+		}
 	}
-	gitIn(t, wt, "config", "branch.wt.merge", "refs/heads/wt")
-	if refs := seedRefs(t.Context(), wt, "wt", true); !slices.Equal(refs, []string{"refs/heads/wt:refs/heads/wt"}) {
-		t.Errorf("its own upstream: %q", refs)
-	}
-	// An upstream that's a pattern would push every branch: not one.
-	gitIn(t, wt, "config", "branch.wt.merge", "refs/heads/*")
-	if refs := seedRefs(t.Context(), wt, "wt", true); !slices.Equal(refs, []string{"refs/heads/wt:refs/heads/wt"}) {
-		t.Errorf("a pattern as its upstream: %q", refs)
+	gitIn(t, wt, "config", "--unset", "branch.wt.remote")
+	gitIn(t, wt, "config", "--unset", "branch.wt.merge")
+	// A detached worktree: what's published alone.
+	gitIn(t, wt, "checkout", "-q", "--detach")
+	if got := tips(wt); !slices.Equal(got, published) {
+		t.Errorf("detached worktree: %q", got)
 	}
 }
 

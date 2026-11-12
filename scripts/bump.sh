@@ -5,7 +5,7 @@
 # Ubuntu's cloud image release in tests/e2e/sandbox_test.go, and CI's Lima in .github/workflows/e2e.yml).
 #   scripts/bump.sh --check     show current and latest for every pin; change nothing
 #   scripts/bump.sh [tool...]   update the given tools (default: all) and print a summary
-# Tools: docker nix direnv nix-direnv mise rustup crane omb eza tealdeer e2e-tools e2e-from e2e-ubuntu e2e-lima
+# Tools: docker nix direnv nix-direnv mise git-lfs rustup crane omb eza tealdeer e2e-tools e2e-from e2e-ubuntu e2e-lima
 #   mise: base's, and the one devvm runs on the host to resolve the shared tools' versions
 #   e2e-tools: the shared tools' versions every e2e section but tools uses
 #   e2e-from: the container images e2e's --from checks start from, by digest
@@ -19,7 +19,7 @@
 # `devvm gc`.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-all="docker nix direnv nix-direnv mise rustup crane omb eza tealdeer e2e-tools e2e-from e2e-ubuntu e2e-lima"
+all="docker nix direnv nix-direnv mise git-lfs rustup crane omb eza tealdeer e2e-tools e2e-from e2e-ubuntu e2e-lima"
 
 check=false
 if [[ ${1:-} == --check ]]; then check=true; shift; fi
@@ -222,6 +222,17 @@ bump_rustup() {
     "$(fetch "$u/x86_64-unknown-linux-gnu/rustup-init.sha256" | cut -c1-64)"
   set_var $f rustup_sha256_arm64_musl "$(fetch "$u/aarch64-unknown-linux-musl/rustup-init.sha256" | cut -c1-64)"
   set_var $f rustup_sha256_amd64_musl "$(fetch "$u/x86_64-unknown-linux-musl/rustup-init.sha256" | cut -c1-64)"
+}
+
+# git-lfs in base, from the release's published sha256sums.asc (its checksums; its signature isn't
+# checked here: verify it with the Git LFS team's keys when bumping by hand).
+bump_git-lfs() {
+  local f=assets/layers/base.sh cur new sums
+  cur=$(get $f git_lfs_version); new=$(gh_latest git-lfs/git-lfs); new=${new#v}
+  report git-lfs "$cur" "$new" || return 0
+  sums=$(fetch "https://github.com/git-lfs/git-lfs/releases/download/v$new/sha256sums.asc")
+  pin3 $f git_lfs "$new" "$(awk -v n="*git-lfs-linux-arm64-v$new.tar.gz" '$2 == n { print $1 }' <<<"$sums")" \
+    "$(awk -v n="*git-lfs-linux-amd64-v$new.tar.gz" '$2 == n { print $1 }' <<<"$sums")"
 }
 
 bump_eza() {

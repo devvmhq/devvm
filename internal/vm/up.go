@@ -706,9 +706,9 @@ func (e Launch) setUpVM(ctx context.Context, t *target, conf backend.Confinement
 		return err
 	}
 	if c := sectionOf[cloneInVM](st, cloneSection); c.On && !c.Made.Seeded {
-		seed := e.clones.seedClone
+		seed := seeder{e.clones}.seedClone
 		if c.Workspace {
-			seed = e.clones.seedWorkspace
+			seed = seeder{e.clones}.seedWorkspace
 		}
 		if err := seed(ctx, t); err != nil {
 			return err

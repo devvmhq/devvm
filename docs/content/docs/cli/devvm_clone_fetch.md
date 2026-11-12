@@ -7,7 +7,7 @@ Fetch the work of this folder's --clone VM into each of its repos
 
 ## Synopsis
 
-Fetch every branch of each repo in this folder's --clone VM into the repo on this machine, as remote-tracking branches of its remote for the VM, such as devvm/main, starting the VM if it's stopped. Then list the branches that are new or moved, each with the repos it's in.
+Fetch every branch of each repo in this folder's --clone VM into the repo on this machine, as remote-tracking branches of its remote for the VM, such as devvm/main, starting the VM if it's stopped. When a repo's HEAD in the VM is detached at commits no branch has, fetch those into a new local branch, saved/devvm/HEAD, and each stash entry the VM made into saved/devvm/stash-N. Then list the branches that are new or moved, each with the repos it's in.
 
 ```text
 devvm clone fetch [flags]

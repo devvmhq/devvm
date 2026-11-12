@@ -67,11 +67,14 @@ type cloneFetchOutput struct {
 }
 
 // cloneFetchRepo is one repo's fetch: its path relative to the folder
-// ("." for the folder's own), its remote and its new or moved branches.
+// ("." for the folder's own), its remote, its new or moved branches, and
+// the local branches the VM's own work went to: its detached HEAD's
+// commits and its stash entries.
 type cloneFetchRepo struct {
 	Path     string   `json:"path"`
 	Remote   string   `json:"remote"`
 	Branches []string `json:"branches"`
+	Saved    []string `json:"saved,omitempty"`
 }
 
 // cloneFetchBranch is a branch name and the repos it's new or moved in.
@@ -88,6 +91,7 @@ func newCloneFetchCmd(a *app) *cobra.Command {
 		Annotations: about{docs: "using/clone#fetching-the-vms-work"}.annotations(),
 		Short:       "Fetch the work of this folder's --clone VM into each of its repos",
 		Long: "Fetch every branch of each repo in this folder's --clone VM into the repo on this machine, as remote-tracking branches of its remote for the VM, such as devvm/main, starting the VM if it's stopped. " +
+			"When a repo's HEAD in the VM is detached at commits no branch has, fetch those into a new local branch, saved/devvm/HEAD, and each stash entry the VM made into saved/devvm/stash-N. " +
 			"Then list the branches that are new or moved, each with the repos it's in.",
 		Example: examples(
 			"devvm clone fetch", "fetch every repo's branches, and list what's new",
@@ -119,7 +123,7 @@ func printFetched(a *app, got vm.Fetched, asJSON bool) error {
 	if asJSON {
 		out := cloneFetchOutput{Repos: []cloneFetchRepo{}, Branches: []cloneFetchBranch{}}
 		for _, r := range got.Repos {
-			out.Repos = append(out.Repos, cloneFetchRepo{Path: r.Path, Remote: r.Remote, Branches: r.Branches})
+			out.Repos = append(out.Repos, cloneFetchRepo{Path: r.Path, Remote: r.Remote, Branches: append([]string{}, r.Branches...), Saved: append([]string(nil), r.Saved...)})
 		}
 		for _, b := range byBranch {
 			out.Branches = append(out.Branches, cloneFetchBranch{Name: b.Name, Repos: b.Repos})
@@ -127,8 +131,9 @@ func printFetched(a *app, got vm.Fetched, asJSON bool) error {
 		return printJSON(a.u, out)
 	}
 	if len(byBranch) == 0 {
-		// Every repo left alone has been named: nothing was looked at.
-		if got.Checked > 0 {
+		// Every repo left alone has been named: nothing was looked at. A
+		// detached HEAD's commits saved were named as they were.
+		if got.Checked > 0 && len(got.Repos) == 0 {
 			a.u.Info(msg.CloneFetchedNone())
 		}
 		return nil
@@ -150,7 +155,7 @@ func newCloneAddCmd(a *app) *cobra.Command {
 		Use:         "add PATH",
 		Annotations: about{docs: "using/clone#adding-a-repo", noJSON: "it changes the VM"}.annotations(),
 		Short:       "Copy one more repo into this folder's --clone VM",
-		Long: "Copy the repo at PATH, a folder in this folder's --clone VM's folder, into the VM at the same path, with its current and default branches, starting the VM if it's stopped. " +
+		Long: "Copy the repo at PATH, a folder in this folder's --clone VM's folder, into the VM at the same path, with its branches, tags and remote-tracking branches, checked out as it is here, starting the VM if it's stopped. " +
 			"The repo gets a remote for the VM, as each of the VM's repos has.",
 		Example: examples(
 			"devvm clone add tools", "copy the repo in ./tools into the VM",
