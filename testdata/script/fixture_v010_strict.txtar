@@ -13,10 +13,8 @@ exec git commit -q --allow-empty -m one
 fixture v0.1.0
 vm_name APP app
 
-# Host ports of its own, as fixture_v010.txtar launches app with 0.1.0's
-# at the same time; then strict, as 0.1.0 recorded and set it.
-free_port APP_PROXY APP_SSH
-json_set $APP_dir/vm.json ports.host.proxy:=$APP_PROXY ports.host.ssh:=$APP_SSH git.mode=strict
+# Strict, as 0.1.0 recorded and set it.
+json_set $APP_dir/vm.json git.mode=strict
 exec git config --file .git/config diff.ignoreSubmodules all
 
 exec devvm ls

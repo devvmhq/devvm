@@ -435,13 +435,32 @@ func freePort(ts *testscript.TestScript, neg bool, args []string) {
 		}
 		ts.Fatalf("free_port: no two free ports in a row")
 	}
-	for _, v := range args {
-		port, ok := listen(0)
-		if !ok {
-			ts.Fatalf("free_port: no free port")
-		}
-		ts.Setenv(v, strconv.Itoa(port))
+	for i, port := range freePorts(ts, len(args)) {
+		ts.Setenv(args[i], strconv.Itoa(port))
 	}
+}
+
+// freePorts returns n different ports nothing on the host listens on now,
+// on any address: the system's choice, from its ephemeral range, which
+// devvm never chooses from (platform.ChoosablePorts), so no devvm the
+// tests run takes one of them meanwhile.
+func freePorts(ts *testscript.TestScript, n int) []int {
+	ports := make([]int, 0, n)
+	held := make([]net.Listener, 0, n)
+	defer func() {
+		for _, l := range held {
+			_ = l.Close()
+		}
+	}()
+	for range n {
+		l, err := net.Listen("tcp", ":0") //nolint:noctx,gosec // every address, so the port is free on each; closed once all are chosen
+		if err != nil {
+			ts.Fatalf("no free port: %v", err)
+		}
+		held = append(held, l)
+		ports = append(ports, l.Addr().(*net.TCPAddr).Port)
+	}
+	return ports
 }
 
 // stubCalls writes the calls the stubs logged to stdout, one per line.

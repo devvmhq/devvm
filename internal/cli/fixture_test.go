@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -29,8 +30,8 @@ func fixtureDir(repo, version string) string {
 }
 
 // fixtureVM is what a fixture's vm.json says that depends on where it was
-// made: its folder, that folder's and its .git's identities, and where its
-// backend kept it.
+// made: its folder, that folder's and its .git's identities, where its
+// backend kept it, and the host's ports it had.
 type fixtureVM struct {
 	Name      string `json:"name"`
 	Dir       string `json:"dir"`
@@ -41,13 +42,16 @@ type fixtureVM struct {
 			GitID string `json:"git_id"`
 		} `json:"made"`
 	} `json:"git"`
+	Ports struct {
+		Host map[string]int `json:"host"`
+	} `json:"ports"`
 }
 
 // fixture VERSION puts the state devvm VERSION left (testdata/VERSION/GOOS)
 // into the sandbox, as that devvm would have left it here: its sandbox's
 // folder becomes this one, and each VM's name's hash, its folder's and
-// .git's identities and its backend's place become what they are here.
-// Nothing else changes. The VMs' folders must exist first. What that
+// .git's identities and its backend's place become what they are here,
+// and its host ports ones free here. Nothing else changes. The VMs' folders must exist first. What that
 // devvm's --json printed goes in $WORK/fixture/json, changed the same way.
 func fixture(ts *testscript.TestScript, neg bool, args []string) {
 	if neg || len(args) != 1 {
@@ -96,7 +100,7 @@ func fixture(ts *testscript.TestScript, neg bool, args []string) {
 
 // fixtureReplacer replaces what the fixture at src says of where it was
 // made with what it is in the sandbox at root.
-func fixtureReplacer(ts *testscript.TestScript, src, root string) *strings.Replacer {
+func fixtureReplacer(ts *testscript.TestScript, src, root string) fixtureRewrite {
 	lines := strings.Fields(ts.ReadFile(filepath.Join(src, "root")))
 	if len(lines) != 2 {
 		ts.Fatalf("%s/root: not the sandbox's folder and its physical path", src)
@@ -107,6 +111,7 @@ func fixtureReplacer(ts *testscript.TestScript, src, root string) *strings.Repla
 	pairs := []string{lines[1], physical, lines[0], root}
 	where := func(dir string) string { return strings.NewReplacer(pairs...).Replace(dir) }
 	lima := ts.Getenv("DEVVM_LIMA_HOME")
+	var ports []string
 	states, err := filepath.Glob(filepath.Join(src, "data", "devvm", "vms", "*", "vm.json"))
 	ts.Check(err)
 	for _, s := range states {
@@ -130,8 +135,44 @@ func fixtureReplacer(ts *testscript.TestScript, src, root string) *strings.Repla
 			}
 			pairs = append(pairs, vm.BackendAt, locationHash(lima))
 		}
+		for _, p := range vm.Ports.Host {
+			ports = append(ports, strconv.Itoa(p))
+		}
 	}
-	return strings.NewReplacer(pairs...)
+	return fixtureRewrite{where: strings.NewReplacer(pairs...), ports: portsFreeHere(ts, ports), number: regexp.MustCompile(`\b[0-9]+\b`)}
+}
+
+// portsFreeHere maps each of the host ports a fixture's VMs had (ports.host)
+// to a different one nothing listens on here (freePorts): the release made
+// its fixture with ports free on its machine, which a program here may
+// have, or another run of these tests, so a launch would find them taken
+// and choose others, editing the VM's config.
+func portsFreeHere(ts *testscript.TestScript, had []string) map[string]string {
+	free := freePorts(ts, len(had))
+	m := make(map[string]string, len(had))
+	for i, p := range had {
+		m[p] = strconv.Itoa(free[i])
+	}
+	return m
+}
+
+// A fixtureRewrite changes a fixture's file, or a path in it, from where
+// it was made to the sandbox: the paths, identities and hashes (where),
+// then each host port, a number on its own (ports), not a part of a hash.
+type fixtureRewrite struct {
+	where  *strings.Replacer
+	ports  map[string]string
+	number *regexp.Regexp
+}
+
+// Replace rewrites s.
+func (f fixtureRewrite) Replace(s string) string {
+	return f.number.ReplaceAllStringFunc(f.where.Replace(s), func(n string) string {
+		if p, ok := f.ports[n]; ok {
+			return p
+		}
+		return n
+	})
 }
 
 // locationHash is a backend's place as a VM's state records it
@@ -282,6 +323,26 @@ func TestFixtureScripts(t *testing.T) {
 	}
 	if len(named) == 0 {
 		t.Error("no script runs fixture")
+	}
+}
+
+// A fixture's host port becomes this sandbox's wherever it stands on its
+// own, in JSON, YAML, URLs and sandbox profiles, and never where its digits
+// are part of a hash or a longer number.
+func TestFixtureRewritePorts(t *testing.T) {
+	f := fixtureRewrite{where: strings.NewReplacer("/made", "/here"), ports: map[string]string{"28662": "50001"}, number: regexp.MustCompile(`\b[0-9]+\b`)}
+	for in, want := range map[string]string{
+		`"ssh": 28662,`:                  `"ssh": 50001,`,
+		`"ssh.localPort": "28662"`:       `"ssh.localPort": "50001"`,
+		`"http://192.168.5.2:28662"`:     `"http://192.168.5.2:50001"`,
+		`(remote ip "localhost:28662"))`: `(remote ip "localhost:50001"))`,
+		"127.0.0.1:28662\n":              "127.0.0.1:50001\n",
+		`"key": "a28662b", "n": 128662`:  `"key": "a28662b", "n": 128662`,
+		`/made/28662`:                    `/here/50001`,
+	} {
+		if got := f.Replace(in); got != want {
+			t.Errorf("Replace(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

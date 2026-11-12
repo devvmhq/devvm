@@ -17,10 +17,6 @@ exec git init -q
 fixture v0.1.0
 vm_name APP app
 cd $HOME/src/app
-# Host ports of its own, as fixture_v010.txtar launches app with 0.1.0's at
-# the same time.
-free_port PROXY SSH
-json_set $APP_dir/vm.json ports.host.proxy:=$PROXY ports.host.ssh:=$SSH
 
 # devvm's own rules allow api.github.com whole, so an allow by method
 # narrows nothing on app, and devvm says so and names the deny.

@@ -19,12 +19,6 @@ fixture v0.1.0
 vm_name WEB web
 vm_name SCRATCH scratch
 
-# Host ports of their own, as fixture_v010.txtar launches web and scratch
-# with 0.1.0's at the same time.
-free_port WEB_PROXY WEB_SSH SCRATCH_PROXY SCRATCH_SSH
-json_set $WEB_dir/vm.json ports.host.proxy:=$WEB_PROXY ports.host.ssh:=$WEB_SSH
-json_set $SCRATCH_dir/vm.json ports.host.proxy:=$SCRATCH_PROXY ports.host.ssh:=$SCRATCH_SSH
-
 # web's clone as 0.1.0 left it: the repo's devvm remote for the VM, and
 # the VM's clone at the folder's path, with an agent's branch.
 cd $HOME/src/web

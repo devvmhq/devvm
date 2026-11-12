@@ -35,12 +35,8 @@ stub_calls
 vm_state $WEB_dir/vm.json
 stdout '^clone\.on=true$'
 
-# app: host ports of its own, as fixture_v010.txtar launches app with
-# 0.1.0's at the same time; on macOS, strict, as 0.1.0's devvm
-# git-protect strict left it.
+# app: on macOS, strict, as 0.1.0's devvm git-protect strict left it.
 cd $HOME/src/app
-free_port APP_PROXY APP_SSH
-json_set $APP_dir/vm.json ports.host.proxy:=$APP_PROXY ports.host.ssh:=$APP_SSH
 [darwin] json_set $APP_dir/vm.json git.mode=strict
 [darwin] exec git config --file .git/config diff.ignoreSubmodules all
 exec sh -c 'sed -n "s/^  \"id\": \"\(.*\)\",$/\1/p" "$1"' sh $APP_dir/vm.json
