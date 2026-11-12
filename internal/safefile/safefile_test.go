@@ -248,6 +248,30 @@ func TestSwapDuringOpen(t *testing.T) {
 	}
 }
 
+// A Root's Open, without Follow, refuses a file swapped for another between its look at the name
+// and its open, and opens the file when nothing changed: TestSwapDuringOpen's swaps land there
+// only by chance.
+func TestRootOpenSwappedAfterLook(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	p, other := filepath.Join(dir, "f"), filepath.Join(dir, "g")
+	must(t, os.WriteFile(p, []byte("f"), 0o600))
+	root, err := OpenRoot(dir)
+	must(t, err)
+	defer func() { _ = root.Close() }()
+	root.looked = func() {
+		must(t, os.WriteFile(other, []byte("g"), 0o600))
+		must(t, os.Rename(other, p))
+	}
+	if b, err := root.Read("f", 64, Opts{}); !errors.Is(err, ErrNotRegular) {
+		t.Errorf("swapped after the look: %q, %v, want ErrNotRegular", b, err)
+	}
+	root.looked = func() {}
+	if b, err := root.Read("f", 64, Opts{}); err != nil || string(b) != "g" {
+		t.Errorf("unchanged: %q, %v", b, err)
+	}
+}
+
 // OpenDir opens a folder, never a link to one, in the root or out of it,
 // nor a file; and a folder swapped for a link to another while it's
 // opened is never the one opened, so a walk from it reads only what's

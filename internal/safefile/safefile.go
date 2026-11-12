@@ -115,7 +115,12 @@ func (f *File) ReadAll(limit int64) ([]byte, error) {
 
 // Root is a folder whose files are opened beneath it (os.Root's): no name, and no symbolic link
 // on the way, leads out of it.
-type Root struct{ root *os.Root }
+type Root struct {
+	root *os.Root
+	// looked, when a test sets it, runs in Open between its look at name and its open, so the
+	// test can swap the file there as a VM could.
+	looked func()
+}
 
 // OpenRoot opens the folder dir as a Root, which its caller closes.
 func OpenRoot(dir string) (*Root, error) {
@@ -144,6 +149,9 @@ func (r *Root) Open(name string, o Opts) (*File, error) {
 			return nil, fmt.Errorf("%s: %w", path, ErrNotRegular)
 		}
 		was = fi
+		if r.looked != nil {
+			r.looked()
+		}
 	}
 	f, err := r.root.OpenFile(name, o.flags(), 0)
 	file, err := checked(path, f, err, o)

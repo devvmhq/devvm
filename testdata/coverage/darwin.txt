@@ -29,7 +29,7 @@ internal/ports 91.4
 internal/project 98.5
 internal/proxy 92.8
 internal/redact 97.7
-internal/safefile 95.2
+internal/safefile 97.7
 internal/secrets 93.2
 internal/settings 96.3
 internal/shell 100.0
