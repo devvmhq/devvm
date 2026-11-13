@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/fetch"
+	"github.com/devvmhq/devvm/internal/proxy"
 )
 
 // DockerHub is the registry of references that name none.
@@ -153,38 +154,10 @@ func publicOnly(_, address string, _ syscall.RawConn) error {
 		return fmt.Errorf("%w: %w", ErrNotFound, err)
 	}
 	ip, err := netip.ParseAddr(host)
-	if err != nil || !publicAddr(ip) {
+	if err != nil || !proxy.Public(ip) {
 		return fmt.Errorf("%w: %s isn't on the internet", ErrNotFound, host)
 	}
 	return nil
-}
-
-// nonPublic returns the IPv4 blocks besides Go's own classes that no
-// registry anyone reaches is in: "this network", shared address space
-// (carrier-grade NAT), IETF protocol assignments,
-// benchmarking, and reserved.
-func nonPublic() []netip.Prefix {
-	return []netip.Prefix{
-		netip.MustParsePrefix("0.0.0.0/8"), netip.MustParsePrefix("100.64.0.0/10"),
-		netip.MustParsePrefix("192.0.0.0/24"), netip.MustParsePrefix("198.18.0.0/15"),
-		netip.MustParsePrefix("240.0.0.0/4"),
-	}
-}
-
-// publicAddr reports whether ip is an internet address: not loopback,
-// private, link-local, multicast, unspecified or otherwise reserved.
-func publicAddr(ip netip.Addr) bool {
-	ip = ip.Unmap()
-	if !ip.IsValid() || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
-		return false
-	}
-	for _, p := range nonPublic() {
-		if p.Contains(ip) {
-			return false
-		}
-	}
-	return true
 }
 
 // Digest returns the digest (sha256:…) of the image a reference names,

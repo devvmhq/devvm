@@ -112,6 +112,8 @@ linters:
           msg: ask msg.Safe which characters reach the terminal (msg.Printable and msg.OneLine drop the rest); a check that isn't about the terminal says why in a nolint.
         - pattern: ^(os\.(Open|OpenFile|ReadFile|OpenRoot|OpenInRoot|DirFS)|os\.Root\.(Open|OpenFile|ReadFile|FS))$
           msg: read a file a VM can write through internal/safefile (Read, Open, OpenRoot), which never waits on a FIFO or follows a link it wasn't asked to, and reads only a regular file within its cap; what opens a file to write, or a folder, says why in a nolint.
+        - pattern: ^netip\.Addr\.IsPrivate$
+          msg: ask proxy.Public whether an address is on the internet, the one table of the ranges that aren't.
     nolintlint:
       require-explanation: true
       require-specific: true
@@ -163,6 +165,10 @@ linters:
       - path: ^internal/cli/
         linters: [forbidigo]
         text: testbuild\.On
+      # proxy.Public is the judge of internet addresses.
+      - path: ^internal/proxy/
+        linters: [forbidigo]
+        text: ask proxy\.Public
       # daemon and platform signal processes; tests signal their own
       # children (exec.Cmd's Process).
       - path: ^internal/(daemon|platform)/

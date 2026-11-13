@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"os"
 	"runtime"
 	"syscall"
@@ -54,3 +55,5 @@ func setsEnv() error { return os.Setenv("SSH_AUTH_SOCK", "/s") } // want forbidi
 func unsetsEnv() error { return os.Unsetenv("SSH_AUTH_SOCK") } // want forbidigo
 
 func shows(r rune) bool { return unicode.IsGraphic(r) } // want forbidigo
+
+func private(a netip.Addr) bool { return a.IsPrivate() } // want forbidigo

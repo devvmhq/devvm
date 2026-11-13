@@ -211,6 +211,8 @@ func TestRegistryThroughProxy(t *testing.T) {
 	}
 }
 
+// A registry's address is judged as the proxy judges any (proxy.Public): a NAT64 or 6to4 form of
+// a private address, or a range of IPv6's that isn't the internet, is no registry's either.
 func TestPublicAddr(t *testing.T) {
 	t.Parallel()
 	for s, want := range map[string]bool{
@@ -219,9 +221,13 @@ func TestPublicAddr(t *testing.T) {
 		"169.254.169.254": false, "fe80::1": false, "fd00::1": false, "100.96.0.1": false, "0.0.0.0": false,
 		"0.1.2.3": false, "::": false, "::ffff:127.0.0.1": false, "::ffff:10.0.0.1": false, "224.0.0.1": false,
 		"198.18.0.1": false, "255.255.255.255": false,
+		"64:ff9b::10.0.0.1": false, "2002:a00:1::1": false, "fec0::1": false, "2001:db8::1": false,
 	} {
-		if got := publicAddr(netip.MustParseAddr(s)); got != want {
-			t.Errorf("publicAddr(%s) = %v", s, got)
+		if got := publicHost(s); got != want {
+			t.Errorf("publicHost(%s) = %v", s, got)
+		}
+		if err := publicOnly("tcp", netip.AddrPortFrom(netip.MustParseAddr(s), 443).String(), nil); (err == nil) != want {
+			t.Errorf("publicOnly(%s) = %v", s, err)
 		}
 	}
 }

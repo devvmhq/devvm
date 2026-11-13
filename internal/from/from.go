@@ -24,6 +24,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
 )
@@ -207,7 +208,7 @@ func publicHost(host string) bool {
 		return false
 	}
 	if ip, err := netip.ParseAddr(host); err == nil {
-		return publicAddr(ip)
+		return proxy.Public(ip)
 	}
 	return true
 }

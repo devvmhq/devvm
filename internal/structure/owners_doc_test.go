@@ -55,6 +55,11 @@ func ownerDocs() []ownerDoc {
 			elsewhere: "`internal/proxy`, which is the standard library only, and tests, which make their own servers' clients",
 		},
 		{
+			check:     "forbidigo, `netip.Addr`'s `IsPrivate`",
+			owner:     "`proxy.Public` in `internal/proxy/proxy.go`, the one judge of whether an address is on the internet: netip's classes, the table of the other ranges that aren't (`notPublic`), and the IPv4 address in a NAT64 or 6to4 address. The proxy's floor, `devvm network lock`, a `--clone` VM's partial-clone remotes and `--from`'s registries all ask it, so a range added to it holds for each",
+			elsewhere: "`internal/proxy`",
+		},
+		{
 			check:     "forbidigo, `os.WriteFile`, `os.Create` and `os.O_TRUNC`",
 			owner:     "`internal/state`, whose `WriteFile` and `WriteFileMode` write a file whole through a temporary file in its folder, renamed over it, so a reader never sees half of it",
 			elsewhere: "`internal/proxy`, which imports only the standard library and has its own writer, `writeAtomic`; `internal/msg/gen`, which imports no devvm package; `internal/stubtest`; tests; and, with a `nolint` saying why, a file written another way: a log that a process writes as it runs, a download that streams into its file, and `internal/daemon`'s pid and status files, each written in one write that a reader takes as missing until its line ends",
