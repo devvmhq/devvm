@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -317,6 +318,26 @@ func agentFiles(home, agent string) []string {
 		}
 	}
 	return files
+}
+
+// agentLinks returns the links in a WholeFolder agent's (opencode's)
+// folder in home, relative to home, but those named as no file or folder
+// of its settings could be (folderSetting, fileSetting): agentDirs and
+// agentFiles leave links out, so devvm agent import reads these as it
+// reads a link among another agent's settings, which it copies or leaves
+// out with a warning, never without one.
+func agentLinks(home, agent string) []string {
+	d := agents.Of(agent)
+	if !d.WholeFolder {
+		return nil
+	}
+	var links []string
+	for _, e := range readDir(filepath.Join(home, d.Folder)) {
+		if e.Type()&fs.ModeSymlink != 0 && folderSetting(e.Name()) && fileSetting(e.Name()) {
+			links = append(links, d.Folder+"/"+e.Name())
+		}
+	}
+	return links
 }
 
 // readDir returns a folder's entries, but those whose names have a

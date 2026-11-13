@@ -231,7 +231,7 @@ func (im AgentImport) readOpencode2(ctx context.Context, h *hostAgent) error {
 func (im AgentImport) readSettings(h *hostAgent, folder string) error {
 	home := filepath.Join(im.Dirs.Home, folder)
 	var inner []string
-	for _, rel := range slices.Concat(agentDirs(im.Dirs.Home, h.agent), agentFiles(im.Dirs.Home, h.agent)) {
+	for _, rel := range slices.Concat(agentDirs(im.Dirs.Home, h.agent), agentFiles(im.Dirs.Home, h.agent), agentLinks(im.Dirs.Home, h.agent)) {
 		if in, ok := strings.CutPrefix(rel, folder+"/"); ok {
 			inner = append(inner, in)
 		}

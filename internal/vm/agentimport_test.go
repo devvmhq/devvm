@@ -213,6 +213,58 @@ func TestAgentImportLinks(t *testing.T) {
 	}
 }
 
+// opencode's folder, which import copies whole, treats its links as the
+// other agents' folders do: one to a file inside is copied as that file,
+// and one out of the folder, or to a folder, is left out with a warning,
+// never dropped without one. A link named as a lock file or node_modules
+// is no setting, so it's left out without one.
+func TestAgentImportOpencodeLinks(t *testing.T) {
+	im := newImporter(t)
+	home := im.Dirs.Home
+	write(t, home, map[string]string{
+		".config/opencode/opencode.json": "{}",
+		".config/opencode/mine/a.md":     "a",
+		"dotfiles/AGENTS.md":             "notes",
+		"dotfiles/agents/b.md":           "b",
+	})
+	folder := filepath.Join(home, ".config/opencode")
+	links := map[string]string{
+		"inside.json":  "opencode.json",
+		"AGENTS.md":    filepath.Join(home, "dotfiles/AGENTS.md"),
+		"agents":       filepath.Join(home, "dotfiles/agents"),
+		"local":        "mine",
+		"bun.lock":     filepath.Join(home, "dotfiles/AGENTS.md"),
+		"node_modules": filepath.Join(home, "dotfiles/agents"),
+	}
+	for name, target := range links {
+		if err := os.Symlink(target, filepath.Join(folder, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := im.Run(t.Context(), []string{"opencode"}, false); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	store := filepath.Join(agentStore(im.Dirs, "opencode"), ".config/opencode")
+	if got := readFile(t, filepath.Join(store, "inside.json")); got != "{}" {
+		t.Errorf("a link to a file inside = %q", got)
+	}
+	for _, n := range []string{"AGENTS.md", "agents", "local", "bun.lock", "node_modules"} {
+		if _, err := os.Lstat(filepath.Join(store, n)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s copied: %v", n, err)
+		}
+	}
+	for _, n := range []string{"AGENTS.md", "agents", "local"} {
+		if !slices.Contains(im.got, "agent_import_link_left_out path="+filepath.Join(folder, n)) {
+			t.Errorf("no warning for %s: %q", n, im.got)
+		}
+	}
+	for _, n := range []string{"bun.lock", "node_modules", "inside.json"} {
+		if slices.Contains(im.got, "agent_import_link_left_out path="+filepath.Join(folder, n)) {
+			t.Errorf("a warning for %s: %q", n, im.got)
+		}
+	}
+}
+
 // A settings folder that is itself a link is left out with a warning,
 // whether it leads out of the agent's folder or to a folder inside it.
 func TestAgentImportFolderLink(t *testing.T) {

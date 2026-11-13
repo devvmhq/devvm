@@ -29,6 +29,7 @@
 
 ### Fixed
 
+- **opencode's links at `devvm agent import`:** a link in `~/.config/opencode` was dropped without a word. It now gets what the other agents' links get: a link to a file inside the folder is copied as that file, and any other link is left out with a warning that names it ([importing from this machine](https://next.devvm.dev/docs/using/coding-agents/#importing-from-this-machine)).
 - **`--clone` of a shallow or SHA-256 repo:** a repo from `git clone --depth 1` failed after devvm made the VM, with `shallow update not allowed`, and a SHA-256 repo with `the receiving end does not support this repository's hash algorithm`. devvm now copies the branches without `git push`, so both work, and a VM whose copy failed gets its clone the next time you run devvm in its folder ([a copy that didn't finish](https://next.devvm.dev/docs/using/clone/#a-copy-that-didnt-finish)).
 - **dotnet on the allowlist tier:** when NuGet couldn't fetch DigiCert's revocation list, it asked DigiCert's OCSP responder, which the allowlist blocked. `ocsp.digicert.com` on port 80 is on dotnet's allowlist now ([dotnet](https://next.devvm.dev/docs/using/toolchains/#dotnet)).
 - **History you packed on a Mac:** `devvm history import FILE` refused a `.tar.gz` made with macOS's `tar`, because its AppleDouble `._` files, which hold files' extended attributes, sit outside the agents' history. The import now leaves them out ([importing history](https://next.devvm.dev/docs/using/coding-agents/#importing-history)).
