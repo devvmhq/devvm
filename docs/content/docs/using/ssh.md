@@ -99,6 +99,8 @@ devvm ssh-agent off                     # stop forwarding from the VM's next sta
 
 ```mermaid
 flowchart TD
+  accTitle: The SSH agent a VM gets
+  accDescr: With devvm ssh-agent off, the default, the VM has no agent, so git over SSH fails. With on, it has your agent while you're connected, and with devvm, it has devvm's own agent, with only the keys you added.
   choice{{"devvm ssh-agent"}}
   choice -- "off, the default" --> off["no agent:<br>git over SSH fails"]
   choice -- "on" --> on["your agent, while<br>you're connected"]

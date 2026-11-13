@@ -29,15 +29,15 @@ config:
     minNodeWidth: 0
 ---
 flowchart TB
+  accTitle: What a VM can do with what's on this machine
+  accDescr: The VM reaches the project folder, read-write, or its own clone with --clone, and what its network tier allows, through the proxy. It gets the shared tools and devvm's agent store's folders read-only, and copies of its settings files, minus your secrets. Out of its reach are the rest of your home folder, the .git hooks and config, which are locked, your SSH agent, unless you turn it on, and your secrets, which stay on this machine.
   %% Narrower nodes than other diagrams' and labels of at most 12 characters a line, so three
-  %% columns fit the page. Mermaid lays the columns out from right to left, so the last one comes first.
-  subgraph out["Out of reach"]
+  %% columns fit the page. The columns are laid out from left to right in the order they're written.
+  subgraph reach["The VM reaches"]
     direction TB
-    home["the rest of<br>your home<br>folder"]
-    git[".git hooks<br>and config,<br>locked"]
-    agent["your SSH<br>agent,<br>unless you<br>turn it on"]
-    secrets["your secrets<br>stay on this<br>machine"]
-    home ~~~ git ~~~ agent ~~~ secrets
+    folder["the project<br>folder,<br>read-write,<br>or its own<br>clone with<br>--clone"]
+    hosts["what its<br>network tier<br>allows,<br>through the<br>proxy"]
+    folder ~~~ hosts
   end
   subgraph copied["Read-only or copied"]
     direction TB
@@ -46,11 +46,13 @@ flowchart TB
     files["copies of<br>its settings<br>files, minus<br>your secrets"]
     tools ~~~ folders ~~~ files
   end
-  subgraph reach["The VM reaches"]
+  subgraph out["Out of reach"]
     direction TB
-    folder["the project<br>folder,<br>read-write,<br>or its own<br>clone with<br>--clone"]
-    hosts["what its<br>network tier<br>allows,<br>through the<br>proxy"]
-    folder ~~~ hosts
+    home["the rest of<br>your home<br>folder"]
+    git[".git hooks<br>and config,<br>locked"]
+    agent["your SSH<br>agent,<br>unless you<br>turn it on"]
+    secrets["your secrets<br>stay on this<br>machine"]
+    home ~~~ git ~~~ agent ~~~ secrets
   end
 ```
 

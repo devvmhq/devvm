@@ -73,6 +73,8 @@ Each VM gets its agents' settings and logins from the store, but never your hist
 
 ```mermaid
 flowchart TD
+  accTitle: The agent store and a VM
+  accDescr: devvm agent import copies the agents' files from your home folder into devvm's agent store, but never your history. The store's settings folders are mounted into each VM read-only, and its settings files and logins are copied in on every launch, without your secrets. devvm agent save brings changed copies back after a diff and a yes. Each VM's own history goes to a .tar.gz on this machine with devvm history export or devvm rm, and comes back with devvm history import, or with yes when a new VM offers it.
   home["the agents' files<br>in your home folder"]
   subgraph store["devvm's agent store"]
     folders["settings folders:<br>skills, plugins…"]

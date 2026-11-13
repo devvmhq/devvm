@@ -29,6 +29,8 @@ A new VM takes each of these from the first place that sets it.
 
 ```mermaid
 flowchart TD
+  accTitle: Where a new VM's ports and base come from
+  accDescr: A new VM's ports are --ports, or else your ports with the file's forwardPorts added. Its base starts from --from, or else the file's image, or else $DEVVM_FROM, or else Ubuntu's cloud image.
   subgraph ports["Its ports"]
     direction TB
     flag["--ports"] -- "or else" --> fwd["your ports, with<br>forwardPorts added"]

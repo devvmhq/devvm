@@ -8,6 +8,8 @@ Every VM is a copy of an image. An image is `base` with your choice of layers on
 
 ```mermaid
 flowchart TD
+  accTitle: Images, VMs and the shared tools
+  accDescr: Ubuntu's cloud image, or a --from image, is the start of base, with the features you chose, and docker is a layer on base. Each VM is a copy of one image, and the shared tools, such as node and claude, are mounted into each VM read-only.
   ubuntu["Ubuntu's cloud image,<br>or a --from image"] --> base["base, with<br>the features you chose"]
   base --> docker["docker, a layer<br>on base"]
   base -. "a copy" .-> vm1["VM of base,<br>with node"]
@@ -19,6 +21,8 @@ flowchart TD
 
 ```mermaid
 flowchart TD
+  accTitle: What a new VM gets
+  accDescr: devvm starts from the defaults, the folder's toolchains and devvm setup's agents and layers, each flag given replaces its part, and the summary says what the VM gets. In a terminal, without --no-input and with something left to choose, devvm asks whether to customize it, and y opens the list, the tier, the CPUs, memory and disk. Then devvm builds the image if it isn't built and makes the VM as a copy of it, with its shared tools mounted.
   run["devvm in a folder<br>without a VM"] --> defaults["the defaults: the folder's toolchains,<br>devvm setup's agents and layers"]
   defaults --> flags["each flag given replaces its part:<br>--tools, --agents, --layers, --network, --cpus, --memory"]
   flags --> summary["the summary says what the VM gets"]

@@ -5,4 +5,6 @@ dist/
 docs/public/
 docs/resources/
 docs/.hugo_build.lock
+docs/.build/
+docs/node_modules/
 /devvm

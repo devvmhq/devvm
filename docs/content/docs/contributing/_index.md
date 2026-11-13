@@ -38,7 +38,7 @@ mise installs every tool at the version pinned in `mise.toml`, checked against `
 | goreleaser | release builds ([Maintaining](maintaining.md#releasing)) |
 | hugo-extended | the docs site |
 | vale, markdownlint-cli2, lychee | linting the docs |
-| node | running markdownlint-cli2 |
+| node | running markdownlint-cli2, and drawing the docs site's diagrams with pele, which `docs/package.json` pins ([diagrams](docs.md#writing-docs)) |
 | shellcheck | linting shell scripts |
 | actionlint, zizmor | linting the GitHub workflows, and checking them for security problems |
 | minisign | signing releases |
@@ -50,14 +50,15 @@ Run the tasks with `mise run <task>`:
 | `fmt` | formats Go code |
 | `lint` | runs `lint:code` and `lint:docs` |
 | `lint:code` | runs golangci-lint, shellcheck, actionlint and zizmor |
-| `lint:docs` | runs the docs linters, the message link check, the command line check and the user pages' prose check, and builds the site, which fails on any warning |
+| `lint:docs` | draws the diagrams (`docs:diagrams`), runs the docs linters, the message link check, the command line check and the user pages' prose check, and builds the site, which fails on any warning |
 | `test` | runs the tests with the race detector, then checks each package's coverage against its [baseline](tests.md#coverage) |
 | `coverage` | runs the tests, then raises each package's coverage baseline to what they reach (`scripts/test.sh --raise`) |
 | `vuln` | runs govulncheck on the code as built for Linux and as built for macOS |
 | `nilaway` | reports where a nil value may be dereferenced in devvm's own code, not the tests', and the findings that `testdata/nilaway-baseline.txt` hasn't triaged ([Nil checks](#nil-checks)) |
 | `deadcode` | lists functions nothing calls outside the tests: only `backendtest`'s, `stubtest`'s, `upgradetest`'s, `msg.IDOf`, `msg.NamesOf`, `msg.Recorder` and `msg.Fake`, which the tests use, and anything else it lists gets a caller or goes |
 | `cli-docs` | generates the CLI reference |
-| `docs` | generates the CLI reference, then serves the docs site |
+| `docs:diagrams` | installs pele with `npm ci` and draws the docs site's diagrams, which every build of the site needs first; it's skipped when no page, the script or pele's pins changed, reinstalls pele only when the lock changed and draws only the diagrams that changed ([diagrams](docs.md#writing-docs)) |
+| `docs` | generates the CLI reference and draws the diagrams, then serves the docs site |
 | `e2e` | runs the end-to-end tests against real VMs |
 
 `mise run test` needs a C compiler for the race detector: Xcode Command Line Tools on macOS, gcc on Linux. It gives each package 30 minutes rather than go test's 10, because the CLI tests run the built binary against many stubs and take far longer on a busy machine. Both test tasks run `scripts/test.sh`, which gives the tests a throwaway `HOME`.

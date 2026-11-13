@@ -1,0 +1,21 @@
+{{- /* A mermaid code block: the SVG that render-diagrams.mjs drew for it before the build, inlined, in
+  place of Hextra's hook, so no page loads Mermaid. hugo.yaml mounts the drawings' folder at
+  assets/diagrams. Each one's files are named for its key, the first 16 hex digits of the SHA-256 of
+  the salt the script wrote there (a hash of pele's version and the script), a newline and the
+  block's text. A missing one fails the build: run mise run docs:diagrams first. The wrapper gets the
+  diagram's height, for custom.css's content-visibility, which skips drawing a diagram until it nears
+  the screen, and its width, with which custom.css lets a wide one reach into the page's margin. */ -}}
+{{- $salt := resources.Get "diagrams/salt" -}}
+{{- if not $salt -}}
+  {{- errorf "%s: no drawings of the diagrams (diagrams/salt): run mise run docs:diagrams" .Position -}}
+{{- else -}}
+  {{- $key := substr (sha256 (printf "%s\n%s" $salt.Content .Inner)) 0 16 -}}
+  {{- $svg := resources.Get (printf "diagrams/%s.svg" $key) -}}
+  {{- $size := resources.Get (printf "diagrams/%s.json" $key) -}}
+  {{- if not (and $svg $size) -}}
+    {{- errorf "%s: no drawing of this diagram (diagrams/%s.svg): run mise run docs:diagrams" .Position $key -}}
+  {{- else -}}
+    {{- $m := $size | transform.Unmarshal -}}
+    <div class="devvm-diagram" style="contain-intrinsic-block-size: auto {{ $m.height }}px; --devvm-diagram-width: {{ $m.width }}px">{{ $svg.Content | safeHTML }}</div>
+  {{- end -}}
+{{- end -}}

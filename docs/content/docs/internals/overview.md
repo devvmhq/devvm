@@ -12,6 +12,8 @@ When you run `devvm` in a folder that has no VM, devvm makes one in these steps:
 
 ```mermaid
 flowchart TD
+  accTitle: How devvm makes a VM
+  accDescr: Until the first shell opens, devvm checks everything first, checks the shared tools for newer versions if due, builds the image if it isn't built, writes the VM's state, makes the VM from its image, locks .git unless --clone, starts its proxy and then the VM, runs the self-check, and sets the VM up, then the clone and devcontainer.json's commands. Then it opens the shell. If it's interrupted before then, devvm deletes the VM and what it made for it, and unlocks .git.
   subgraph before["until the first shell opens"]
     check["checks everything first:<br>image, size, ports,<br>network tier, SSH agent,<br>features, devcontainer.json"] --> tools["checks the shared tools<br>for newer versions, if due"]
     tools --> build["builds the image,<br>if it isn't built"]

@@ -44,6 +44,14 @@ jobs:
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           version: 2026.11.8
+      # npm's downloads for the docs' diagrams (lint:docs runs docs:diagrams), keyed on the lock. npm ci
+      # checks each package against the lock's integrity, and the Docs workflow, which publishes, keeps
+      # no cache.
+      - name: Cache npm downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('docs/package-lock.json') }}
       - run: mise run lint
       - run: mise run test
         env:

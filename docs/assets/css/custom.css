@@ -1165,31 +1165,69 @@ html.dark .highlight .chroma .go {
   }
 }
 
-/* Diagrams (mermaid code blocks, themed in layouts/_partials/scripts/mermaid.html): at their own size,
-   centered, scrolled sideways when wider than the page. */
-.content pre.mermaid {
+/* Diagrams (mermaid code blocks, drawn before the build by render-diagrams.mjs and inlined by
+   layouts/_markup/render-codeblock-mermaid.html): at their own size, centered. One wider than the
+   text reaches into the article's padding on the right, the page's right margin, as far as it needs,
+   and when that's not enough, into the padding on the left for the rest; the hook sets its width
+   (--devvm-diagram-width), and 100% in a margin is the text's width. One wider than the text and both
+   paddings scrolls sideways. The browser skips drawing one until it nears the screen
+   (content-visibility), and keeps its place at its height, which the hook sets
+   (contain-intrinsic-block-size), so the page doesn't jump. pele's variables give them the palette:
+   panels on the surface color with blue borders, lime lines and arrows, and text in Departure Mono,
+   which render-diagrams.mjs measures. */
+.content .devvm-diagram {
+  /* Hextra's article padding: 1.5rem, and 3rem from its md breakpoint. */
+  --devvm-diagram-reach: 1.5rem;
+  --devvm-diagram-over: max(0px, calc(var(--devvm-diagram-width, 0px) - 100%));
   display: flex;
   justify-content: safe center;
   overflow-x: auto;
-  margin: 1.5rem 0;
-  padding: 0;
-  font-family: var(--devvm-font-pixel);
-  font-size: 14px;
+  margin-block: 1.5rem;
+  margin-inline-end: calc(-1 * min(var(--devvm-diagram-reach), var(--devvm-diagram-over)));
+  margin-inline-start: calc(-1 * min(var(--devvm-diagram-reach), max(0px, calc(var(--devvm-diagram-over) - var(--devvm-diagram-reach)))));
+  content-visibility: auto;
   font-synthesis: none;
+  --pele-bg: var(--devvm-bg);
+  --pele-fg: var(--devvm-text);
+  --pele-fg-on-dark: var(--devvm-text);
+  --pele-muted: var(--devvm-text-secondary);
+  --pele-line: var(--devvm-accent);
+  --pele-accent: var(--devvm-accent);
+  --pele-surface: var(--devvm-surface);
+  --pele-surface-alt: var(--devvm-bg);
+  --pele-border: var(--devvm-blue);
+  --pele-font: var(--devvm-font-pixel);
+  --pele-font-mono: var(--devvm-font-pixel);
+  --pele-radius: 0;
 }
 
-.content pre.mermaid svg {
+@media (min-width: 768px) {
+  .content .devvm-diagram {
+    --devvm-diagram-reach: 3rem;
+  }
+}
+
+.content .devvm-diagram svg {
   flex: none;
 }
 
-/* Labels' lines on the font's cell, 18px at 14px, not the page's line height. Mermaid measures them in
-   the page, so their boxes fit. */
-.content pre.mermaid foreignObject p {
-  margin: 0;
-  line-height: 18px;
+/* Subgraphs and sequence diagrams' lifelines in the darker border color. */
+.content .devvm-diagram .pele-cluster > rect,
+.content .devvm-diagram .pele-lifeline {
+  stroke: var(--devvm-border);
 }
 
-.content pre.mermaid rect {
+/* Notes on black, in that border, with secondary text. */
+.content .devvm-diagram .pele-note > rect {
+  fill: var(--devvm-bg);
+  stroke: var(--devvm-border);
+}
+
+.content .devvm-diagram .pele-note > text {
+  fill: var(--devvm-text-secondary);
+}
+
+.content .devvm-diagram rect {
   shape-rendering: crispEdges;
 }
 

@@ -14,6 +14,8 @@ A VM is running or stopped from the time devvm makes it until you delete it.
 
 ```mermaid
 flowchart TD
+  accTitle: A VM's states
+  accDescr: devvm makes a VM, which is then running. devvm restart and devvm update keep it running, devvm stop stops it, and devvm, devvm restart or devvm update start it again. devvm rm deletes it, running or stopped. When its image changes, a VM is outdated, and it keeps its image until devvm update.
   none(["no VM"]) -- "devvm" --> running(["running"])
   running -- "devvm restart,<br>devvm update" --> running
   running -- "devvm stop" --> stopped(["stopped"])

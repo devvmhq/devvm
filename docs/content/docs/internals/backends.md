@@ -71,6 +71,8 @@ devvm checks each feature an image or a VM needs this way:
 
 ```mermaid
 flowchart TD
+  accTitle: How devvm checks a feature
+  accDescr: A feature that the image or the VM needs is allowed when the backend has it natively, or emulates it and the emulation is reviewed. An unreviewed emulation, or none, is refused, and devvm stops and names the VM, the feature and the backend, except egress-proxy for a new open VM, which is made open, as asked.
   need["a feature the image<br>or the VM needs"] --> how{{"how the backend has it"}}
   how -- "native" --> ok["allowed"]
   how -- "emulated, reviewed" --> ok

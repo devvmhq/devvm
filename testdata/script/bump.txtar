@@ -171,9 +171,18 @@ grep 'uses: actions/checkout@cccccccccccccccccccccccccccccccccccccccc # v[0-9]\.
 grep '^mise exec -- actionlint$' mise.calls
 grep '^mise exec -- zizmor --offline \.$' mise.calls
 
-# mermaid, only when named, takes its major too.
-exec repo/scripts/bump.sh mermaid
-grep '/npm/mermaid@99\.0\.0/' repo/docs/hugo.yaml
+# pele, only when named, takes its major too: npm install writes it into
+# docs/package.json and its lock, without install scripts, then the
+# diagrams are drawn again, whose self-check catches a pele that draws
+# them differently. --check reports it and installs nothing.
+exec bash repo.sh
+exec repo/scripts/bump.sh --check pele
+stdout '^\[docs\]$'
+stdout '^  pele +1\.13\.0 +-> 99\.0\.0 \(major\)$'
+! exists mise.calls
+exec repo/scripts/bump.sh pele
+grep '^mise exec -- npm install --prefix docs --save-exact --ignore-scripts --no-audit --no-fund pele@99\.0\.0$' mise.calls
+grep '^mise run docs:diagrams$' mise.calls
 
 -- repo.sh --
 # A copy of the files bump.sh edits, and upstream's good answers.
@@ -185,6 +194,7 @@ cp "$DEVVM_REPO"/.github/workflows/*.yml repo/.github/workflows/
 cp "$DEVVM_REPO/.github/dependabot.yml" repo/.github/
 cp "$DEVVM_REPO/mise.toml" repo/
 cp "$DEVVM_REPO/docs/hugo.yaml" repo/docs/
+cp "$DEVVM_REPO/docs/package.json" repo/docs/
 cp go.mod.fixture repo/go.mod
 cp docs-go.mod.fixture repo/docs/go.mod
 mkdir up/latest
@@ -226,20 +236,20 @@ for a in "$@"; do case $a in
   https://proxy.golang.org/github.com/spf13/pflag/@v/list) printf 'v1.0.10\nv1.1.0\n'; exit ;;
   https://proxy.golang.org/golang.org/x/tools/@v/list) printf 'v0.52.0\nv0.999.0\n'; exit ;;
   https://proxy.golang.org/github.com/imfing/hextra/@v/list) printf 'v0.13.0\nv0.999.0\n'; exit ;;
-  https://registry.npmjs.org/mermaid/latest) echo '{"version":"99.0.0"}'; exit ;;
+  https://registry.npmjs.org/pele/latest) echo '{"version":"99.0.0"}'; exit ;;
 esac; done
 exit 22
 -- bin/mise --
 #!/bin/bash
-# mise latest from $WORK/up/latest/, else mise.toml's own version; lock and
-# exec succeed. Every call goes in $WORK/mise.calls.
+# mise latest from $WORK/up/latest/, else mise.toml's own version; lock,
+# exec and run succeed. Every call goes in $WORK/mise.calls.
 echo "mise $*" >> "$WORK/mise.calls"
 case $1 in
   latest)
     f=$WORK/up/latest/${2//[@\/:]/_}
     if [[ -f $f ]]; then cat "$f"; exit; fi
     awk -F' = ' -v k="${2%@*}" '{ g = $1; gsub(/"/, "", g) } g == k { v = $2; gsub(/"/, "", v); print v; exit }' "$WORK/repo/mise.toml" ;;
-  lock | exec) ;;
+  lock | exec | run) ;;
   *) exit 1 ;;
 esac
 -- bin/go --

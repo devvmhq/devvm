@@ -15,6 +15,14 @@ module:
     min: "0.146.0"
   imports:
     - path: github.com/imfing/hextra
+  # The diagrams that render-diagrams.mjs draws before the build (mise run docs:diagrams), which git
+  # ignores, as assets/diagrams for the mermaid render hook. A mount of assets replaces Hugo's own, so
+  # assets is mounted too.
+  mounts:
+    - source: assets
+      target: assets
+    - source: .build/diagrams
+      target: assets/diagrams
 
 markup:
   highlight:
@@ -71,9 +79,6 @@ params:
   editURL:
     enable: true
     base: https://github.com/devvmhq/devvm/edit/main/docs/content
-  # Mermaid, for diagrams: a pinned version, fetched when the site is built (layouts/_partials/scripts/mermaid.html).
-  mermaid:
-    base: https://cdn.jsdelivr.net/npm/mermaid@12.2.0/dist
   highlight:
     copy:
       enable: true

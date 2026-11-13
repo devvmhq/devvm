@@ -63,6 +63,7 @@ jobs:
           install_args: go hugo-extended node markdownlint-cli2 vale lychee
           # The workflow publishes, so no job in it reads a cache another run could have written.
           cache: false
+      # It draws the diagrams first (docs:diagrams), which the build below uses too.
       - run: mise run lint:docs
       # The site's address is baseURL in docs/hugo.yaml.
       - run: hugo -s docs --minify
@@ -91,9 +92,11 @@ jobs:
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           version: 2026.11.8
-          install_args: go hugo-extended
+          install_args: go hugo-extended node
           # What's published is built from no cache.
           cache: false
+      # The diagrams, drawn before the build (docs/render-diagrams.mjs).
+      - run: mise run docs:diagrams
       # docs/next.yaml over docs/hugo.yaml: next.devvm.dev's address, the banner and noindex.
       - run: hugo -s docs --minify --config hugo.yaml,next.yaml -d "$RUNNER_TEMP/next"
       # The key is checked out only after the build, which never sees it.
@@ -157,9 +160,15 @@ jobs:
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           version: 2026.11.8
-          install_args: go hugo-extended
+          install_args: go hugo-extended node
           # What's published is built from no cache.
           cache: false
+      # The tag's diagrams, drawn before the build, when its docs draw them (docs/render-diagrams.mjs);
+      # an older tag's pages load Mermaid instead.
+      - run: |
+          if [ -f docs/render-diagrams.mjs ]; then
+            mise run docs:diagrams
+          fi
       # The tag's docs/hugo.yaml, whose baseURL is devvm.dev.
       - run: hugo -s docs --minify
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

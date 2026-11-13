@@ -45,6 +45,8 @@ A connection to a forwarded port, such as 5173, takes this path:
 
 ```mermaid
 flowchart TD
+  accTitle: A connection to a forwarded port
+  accDescr: Your browser on this machine connects to localhost:5173, where devvm's forwarder, on this machine, takes it over ssh, with a key and a host key devvm pins, to the VM's sshd, which connects to your server on the VM's own loopback, 127.0.0.1:5173.
   browser["your browser, on this machine,<br>where every connection starts"] -- "localhost:5173" --> fwd["devvm's forwarder,<br>on this machine"]
   fwd -- "ssh, with a key and<br>a host key devvm pins" --> sshd["the VM's sshd"]
   sshd -- "127.0.0.1:5173,<br>its own loopback" --> server["your server, in the VM"]
@@ -104,6 +106,8 @@ A program in the client that connects to `db:5432` takes this path:
 
 ```mermaid
 flowchart TD
+  accTitle: A connection over a link
+  accDescr: Your program in the client connects to db:5432, which /etc/hosts names as 127.77.0.1. The client's sshd passes it over the link session's ssh, which this machine opened, to devvm _links on this machine, which connects over ssh, with the target's key and pinned host key, to the target's sshd, and so to the server on the target's own loopback, 127.0.0.1:5432.
   app["your program, in the client"] -- "db:5432, which /etc/hosts<br>names as 127.77.0.1" --> csshd["the client's sshd"]
   csshd -- "the link session's ssh,<br>which this machine opened" --> links["devvm _links,<br>on this machine"]
   links -- "ssh, with the target's key<br>and pinned host key" --> tsshd["the target's sshd"]

@@ -8,6 +8,8 @@ Every VM goes through a proxy that devvm runs for it on this machine, and the VM
 
 ```mermaid
 sequenceDiagram
+  accTitle: A VM's requests through its proxy
+  accDescr: The VM sends GET /user with a placeholder to its proxy on this machine, which finds api.github.com on the allowlist and sends the request on with your GitHub token, then passes the response back. A CONNECT to example.com:443 gets a 403, because that host isn't on the allowlist.
   participant P as The VM
   participant X as Its proxy,<br>on this machine
   participant H as api.github.com

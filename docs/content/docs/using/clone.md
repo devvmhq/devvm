@@ -14,6 +14,8 @@ git log -p main..devvm/main
 
 ```mermaid
 sequenceDiagram
+  accTitle: A clone's life
+  accDescr: devvm --clone copies your repo into the VM, where you or an agent commit. devvm clone fetch brings the VM's commits into your repo as a devvm/ branch, for you to review and merge. devvm rm looks for commits not fetched and fetches them into a saved/devvm/ branch, then deletes the VM and removes its remote.
   participant R as Your repo
   participant V as The VM's clone
   R->>V: devvm --clone copies<br>your repo

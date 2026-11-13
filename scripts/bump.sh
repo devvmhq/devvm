@@ -1,7 +1,7 @@
 #!/bin/bash
 # Update every version and checksum pinned in the repo: the downloads in assets/ and devvm's host mise,
 # the end-to-end tests' own pins, Go and its modules, the dev tools in mise.toml, the workflows' actions
-# and the docs site's theme and Mermaid.
+# and the docs site's theme and pele, which draws its diagrams.
 #   scripts/bump.sh --check     show current and latest for every pin, by group, with whether a bump is
 #                               a patch, minor or major; change nothing
 #   scripts/bump.sh             apply every safe bump: patches and minors, never a major or a held pin,
@@ -31,9 +31,10 @@
 #   ci: ci-mise actions
 #     ci-mise: the mise the workflows install (jdx/mise-action's version), base's mise
 #     actions: every workflow's uses:, by its release's tag's commit, then actionlint and zizmor
-#   docs: hextra mermaid
+#   docs: hextra pele
 #     hextra: the docs site's theme, docs/go.mod
-#     mermaid (only when named): docs/hugo.yaml's Mermaid; its diagrams need a look after a bump
+#     pele (only when named): docs/package.json's pele, which draws the site's diagrams, through npm
+#       install, then draws them again; they need a look after a bump
 # Holds: a pin that never moves past a version. Go modules and actions take Dependabot's ignore
 # list (.github/dependabot.yml: pflag stays below 1.1.0, whose help prints every boolean flag with
 # [=true|false]); the rest are holds below.
@@ -46,16 +47,17 @@ holds="node 25" # NAME BOUND...: node stays on its major, 24, which is an LTS re
 #   testdata/mise.lock and testdata/v<release>/: fixed for the tests, and frozen
 #   skills-lock.json: the vendored security-audit skill's hash, from the skills tool
 #   docs/static's fonts and docs/assets/icons: files copied in, with their versions in comments
-#   docs/layouts' copies of Hextra's files (the hero button, Mermaid's partial): checked by hand
-#     against Hextra's after a hextra bump
+#   docs/layouts' copy of Hextra's hero button: checked by hand against Hextra's after a hextra bump;
+#     its mermaid render hook replaces Hextra's mermaid hook: check it still has that name
 #   assets/layers/ubuntu-*.gpg and internal/ubuntu's Series: keys and a release, moved by hand
 #     (contributing/maintaining.md)
 #   tests/e2e/tools_test.go's cowsay@1.6.0: any version works, it only installs one
 # Pins: each pin internal/structure's TestBumpCoversPins finds (assets/'s <tool>_version, _commit and
 # _sha256 lines and its mise.toml's versions, mise.toml, the go.mod files, the workflows' uses: and
-# version values, tests/e2e-mise.lock, tests/e2e's pinned consts and docs/hugo.yaml), as KEY and the
-# tool that moves it, or "-" and why it's left. A KEY ending in * is every key it starts. A pin
-# found and not here fails the test, and so does a line here that finds nothing.
+# version values, tests/e2e-mise.lock, tests/e2e's pinned consts, docs/hugo.yaml and
+# docs/package.json's dependencies), as KEY and the tool that moves it, or "-" and why it's left. A KEY
+# ending in * is every key it starts. A pin found and not here fails the test, and so does a line here
+# that finds nothing.
 # pin assets/features/cli-tools.sh:eza eza
 # pin assets/features/cli-tools.sh:tealdeer tealdeer
 # pin assets/features/omb.sh:omb omb
@@ -92,17 +94,17 @@ holds="node 25" # NAME BOUND...: node stays on its major, 24, which is an LTS re
 # pin tests/e2e:fromUbuntuDigest e2e-from
 # pin tests/e2e:curlImage e2e-curl
 # pin tests/e2e:dotnetOther - an SDK other than the shared one for a global.json to ask for: any older one works
-# pin docs/hugo.yaml:mermaid mermaid
+# pin docs/package.json:npm:pele pele
 # pin docs/hugo.yaml:min - Hextra's oldest Hugo, which Hugo checks; mise.toml pins the Hugo that builds the site
-# Needs curl and jq, and per group mise (dev-tools, go, e2e lock checks), go (go-mods, hextra when
-# applied) and gh (actions). Checksums come from upstream's published sums where there are any;
+# Needs curl and jq, and per group mise (dev-tools, go, e2e lock checks, pele when applied), go
+# (go-mods, hextra when applied) and gh (actions). Checksums come from upstream's published sums where there are any;
 # otherwise they're computed from the download (said so in the output). Edited scripts change image
 # keys, so the affected images rebuild on next use: test with `devvm build <image>`, then `devvm gc`.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-every="docker nix direnv nix-direnv mise git-lfs rustup crane omb eza tealdeer cursor e2e-tools e2e-from e2e-curl e2e-ubuntu e2e-lima go go-minor go-mods deadcode dev-tools ci-mise actions hextra mermaid"
+every="docker nix direnv nix-direnv mise git-lfs rustup crane omb eza tealdeer cursor e2e-tools e2e-from e2e-curl e2e-ubuntu e2e-lima go go-minor go-mods deadcode dev-tools ci-mise actions hextra pele"
 # Applied only when named: --check reports them.
-named_only="cursor go-minor mermaid"
+named_only="cursor go-minor pele"
 # Naming one of these applies its major too.
 legacy="docker nix direnv nix-direnv mise git-lfs rustup crane omb eza tealdeer e2e-tools e2e-from e2e-curl e2e-ubuntu e2e-lima"
 
@@ -699,18 +701,20 @@ bump_hextra() {
   mod_bump hextra "$mod" "$cur" || return 0
   valid hextra_version "$target"
   docs_gets+=("$mod@$target")
-  notes+=("hextra: compare docs/layouts' copies of Hextra's files (the hero button, Mermaid's partial) with $target's, and build the site: mise run docs")
+  notes+=("hextra: compare docs/layouts' copy of Hextra's hero button with $target's; docs/layouts' mermaid render hook replaces Hextra's mermaid hook: check it still has that name; then build the site: mise run docs")
 }
 
-# docs/hugo.yaml's Mermaid, npm's newest, only when named: its diagrams need a look.
-bump_mermaid() {
+# docs/package.json's pele, npm's newest, only when named, through npm install in docs/, which writes
+# package.json and package-lock.json, then mise run docs:diagrams, whose self-check fails when pele no
+# longer draws small text as render-diagrams.mjs expects. Its diagrams need a look.
+bump_pele() {
   local cur new
-  cur=$(sed -n 's|.*/npm/mermaid@\([0-9.]*\)/.*|\1|p' "$root/docs/hugo.yaml")
-  new=$(fetch https://registry.npmjs.org/mermaid/latest | jq -r .version)
-  report mermaid "$cur" "$new" || return 0
-  valid mermaid_version "$new"
-  set_text docs/hugo.yaml text "/npm/mermaid@$cur/" "/npm/mermaid@$new/"
-  notes+=("mermaid: look at the diagrams on the docs site (mise run docs) before committing")
+  cur=$(jq -r '.dependencies.pele' "$root/docs/package.json")
+  new=$(fetch https://registry.npmjs.org/pele/latest | jq -r .version)
+  report pele "$cur" "$new" || return 0
+  valid pele_version "$new"
+  npm_installs+=("pele@$new")
+  notes+=("pele: look at every diagram on the docs site (mise run docs) before committing")
 }
 
 # mise_spec TOOL: mise.toml's version for TOOL in [tools], an inline table's version included.
@@ -775,7 +779,7 @@ bump_actions() {
   done < <(sed -n 's/^ *\(- \)\{0,1\}uses: \([^@ ]*\)@\([0-9a-f]\{40\}\) # \([^ ]*\)$/\2 \3 \4/p' "$root"/.github/workflows/*.yml | sort -u)
 }
 
-mise_locks=() go_gets=() docs_gets=() workflows_changed=false
+mise_locks=() go_gets=() docs_gets=() npm_installs=() workflows_changed=false
 # run_logged STEP CMD...: run CMD in the repo, its output shown only when it fails.
 run_logged() {
   local step=$1
@@ -793,7 +797,7 @@ for cur_tool in $tools; do
     go | go-minor | go-mods | deadcode) g=go ;;
     dev-tools) g=dev-tools ;;
     ci-mise | actions) g=ci ;;
-    hextra | mermaid) g=docs ;;
+    hextra | pele) g=docs ;;
     *) g=images ;;
   esac
   [[ $g == "$group" ]] || { group=$g; echo "[$g]"; }
@@ -821,6 +825,12 @@ if (( ${#docs_gets[@]} > 0 )); then
   run_logged "go get ${docs_gets[*]} (docs)" sh -c 'cd docs && exec go get "$@"' sh "${docs_gets[@]}"
   # go.sum keeps the old version's lines; Hugo's tidy, not Go's, which would drop the module.
   run_logged "hugo mod tidy (docs)" sh -c 'cd docs && exec mise exec -- hugo mod tidy'
+fi
+if (( ${#npm_installs[@]} > 0 )); then
+  need mise
+  # The exact version, and no package's install scripts.
+  run_logged "npm install ${npm_installs[*]} (docs)" mise exec -- npm install --prefix docs --save-exact --ignore-scripts --no-audit --no-fund "${npm_installs[@]}"
+  run_logged "mise run docs:diagrams" mise run docs:diagrams
 fi
 if $workflows_changed; then
   need mise

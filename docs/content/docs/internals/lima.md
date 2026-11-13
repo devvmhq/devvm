@@ -44,6 +44,8 @@ On each host, the VM's traffic passes through one process that devvm confines:
 
 ```mermaid
 flowchart TD
+  accTitle: The process that confines a VM's traffic
+  accDescr: On Linux, the VM's traffic goes through QEMU, with restrict=on, which reaches only its proxy at 192.168.5.4:3128. On macOS, it goes through its Lima hostagent, which is sandboxed, so it reaches only its ssh port, its proxy, its Lima sockets and its SSH agent, and everything else is denied.
   subgraph linux["Linux"]
     vm2["the VM"] --> q["QEMU,<br>restrict=on"]
   end

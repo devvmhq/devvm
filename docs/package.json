@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "description": "The docs site's build: render-diagrams.mjs draws its diagrams with pele. Installed with npm ci by mise run docs:diagrams; scripts/bump.sh pele moves the pin.",
+  "type": "module",
+  "dependencies": {
+    "pele": "1.13.0"
+  }
+}

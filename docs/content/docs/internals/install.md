@@ -25,6 +25,8 @@ At the end, when `~/.local/bin` is on `PATH`, the script looks up which devvm `P
 
 ```mermaid
 flowchart TD
+  accTitle: How each install checks the release
+  accDescr: In the GitHub release, install.sh, with the public key, checks the signature on SHA256SUMS, signed in .minisig, and SHA256SUMS checks the archive for this machine. Homebrew's formula, in a repository of its own, checks the same archive against its own checksum.
   subgraph release["the GitHub release"]
     script["install.sh, with<br>the public key"] -- "checks the signature" --> sums["SHA256SUMS,<br>signed in .minisig"]
     sums -- "checks the checksum" --> archive["the archive<br>for this machine"]

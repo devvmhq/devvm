@@ -50,6 +50,8 @@ A `CONNECT` tunnel meets the proxy's checks in this order:
 
 ```mermaid
 flowchart TD
+  accTitle: The proxy's checks on a CONNECT tunnel
+  accDescr: The proxy checks a CONNECT tunnel from the VM in order: the VM's password, else 407, a host name or an address, else 400, and fewer than 1024 tunnels open, else 503. transparent.devvm.proxy takes the host from its first bytes, TLS's SNI or each HTTP Host, and closes the tunnel when there's none, and devvm.proxy, its names and 198.18.0.1 get 403. One of the VM's links goes to the link's socket untouched, and a transparent connection to one is refused. Any other host must be on the allowlist and not denied, else 403, which a transparent TLS connection gets over the VM's CA, and it must be public and not this machine's or an address a rule names, and on port 443 when rules judge its requests, else 403. A bound host, on port 443, or one whose requests are judged, is intercepted with the VM's CA, where each request must name the host, else 421, and be allowed by the rules, else 403, before its placeholder is swapped for the real value. Any other tunnel passes untouched when its TLS SNI names the CONNECT host, or it isn't TLS.
   conn["CONNECT host:port from the VM"] --> pw["the VM's password?<br>no: 407"]
   pw --> name["a host name or an address?<br>no: 400"]
   name --> room["fewer than 1024 tunnels open?<br>no: 503"]
@@ -59,7 +61,7 @@ flowchart TD
   reserved -- "no" --> own["devvm.proxy or under it,<br>or 198.18.0.1?<br>yes: 403"]
   own --> link{{"one of the VM's links?"}}
   link -- "yes" --> linked["the link's socket,<br>tunneled untouched<br>(transparent: refused)"]
-  link -- "no" --> allow["on the allowlist, and not denied?<br>no: 403<br>(transparent TLS: 403 over the VM's CA)"]
+  link -- "no" --> allow["on the allowlist, and not denied?<br>no: 403<br>(transparent TLS: 403<br>over the VM's CA)"]
   allow --> floor["public and not this machine's,<br>or an address a rule names?<br>no: 403"]
   floor --> narrowed["rules by method and path<br>judge its requests:<br>on port 443?<br>no: 403"]
   narrowed --> bound{{"a bound host, on port 443,<br>or its requests judged?"}}
@@ -389,6 +391,8 @@ This is the check, and what devvm does when it fails:
 
 ```mermaid
 flowchart TD
+  accTitle: The self-check on every launch
+  accDescr: On every launch, devvm checks that the VM runs on the process devvm started and that a direct connection from it fails. If either isn't so, the check is unenforced. A VM started confined is then stopped, because it has another way out. Otherwise, without a terminal, devvm stops the VM without a shell, and the next devvm starts it confined. In a terminal, devvm offers to restart it confined, and warns and goes on if you say no, or stops it if the check still fails after the restart.
   launch["every launch"] --> proc["on the process<br>devvm started?"]
   proc -- "yes" --> direct["a direct connection<br>from the VM fails?"]
   direct -- "yes" --> ok["check: ok"]

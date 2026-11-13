@@ -49,6 +49,9 @@ func pinPatterns() []pinPattern {
 		{"tests/e2e/*.go", "", "", regexp.MustCompile(`(?m)^const (\w+) = ".*(?:sha256:[0-9a-f]{64}|release-[0-9]{8}|[0-9]+\.[0-9]+\.[0-9]+).*"$`)},
 		{"docs/hugo.yaml", "", "", regexp.MustCompile(`([A-Za-z0-9_.-]+)@` + version)},
 		{"docs/hugo.yaml", "", "", regexp.MustCompile(`(?m)^\s*([A-Za-z_]+): ["']?` + version + `\.[0-9]+["']?\s*$`)},
+		// The docs build's npm packages: each "name": "version" in
+		// docs/package.json (its lock follows npm install).
+		{"docs/package.json", "", "npm:", regexp.MustCompile(`(?m)^\s*"([^"]+)": "[~^]?[0-9]+\.[0-9]+[^"]*",?$`)},
 	}
 }
 

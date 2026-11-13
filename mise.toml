@@ -59,6 +59,8 @@ run = [
 
 [tasks."lint:docs"]
 description = "Lint the docs"
+# The site's build needs its diagrams drawn.
+depends = ["docs:diagrams"]
 run = [
   # Every Markdown file but the vendored security-audit skill's.
   "markdownlint-cli2 'docs/content/**/*.md' '*.md' 'assets/**/*.md' 'internal/**/*.md' '.agents/skills/docs-voice/*.md' '.agents/skills/cli/*.md'",
@@ -115,9 +117,28 @@ run = "go run golang.org/x/tools/cmd/deadcode@v0.52.0 ./..."
 description = "Generate the CLI reference (docs/content/docs/cli) and the pages' generated blocks"
 run = "go run ./internal/cli/docgen ."
 
+[tasks."docs:diagrams"]
+description = "Draw the docs site's diagrams (docs/render-diagrams.mjs), which every build of the site needs first"
+# Skipped when the drawings' folder is newer than every source; the script then draws only the
+# diagrams it has no drawing of.
+sources = ["docs/content/**/*.md", "docs/render-diagrams.mjs", "docs/package.json", "docs/package-lock.json"]
+outputs = ["docs/.build/diagrams"]
+run = [
+  # pele, at the version and integrity docs/package-lock.json pins, and no package's install scripts:
+  # installed again only when the lock's SHA-256 differs from the one node_modules records.
+  '''
+  lock=$({ sha256sum docs/package-lock.json 2>/dev/null || shasum -a 256 docs/package-lock.json; } | cut -c1-64)
+  stamp=docs/node_modules/.devvm-lock-sha256
+  if [ -z "$lock" ] || [ "$(cat "$stamp" 2>/dev/null)" != "$lock" ]; then
+    npm ci --prefix docs --ignore-scripts --no-audit --no-fund && printf '%s\n' "$lock" > "$stamp"
+  fi
+  ''',
+  "node docs/render-diagrams.mjs",
+]
+
 [tasks.docs]
 description = "Serve the docs site"
-depends = ["cli-docs"]
+depends = ["cli-docs", "docs:diagrams"]
 run = "hugo server -s docs"
 
 [tasks.e2e]

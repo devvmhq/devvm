@@ -37,6 +37,8 @@ Each key hashes its parent's, so a new key anywhere in the chain changes the key
 
 ```mermaid
 flowchart TD
+  accTitle: Image keys in a chain
+  accDescr: Each image's key hashes its parent's key, as in base, then foo, then foo+bar. After foo.sh is edited, or devvm rebuild foo, base keeps its key and is reused, and foo and foo+bar get new keys and are built again.
   subgraph next["after foo.sh is edited,<br>or devvm rebuild foo"]
     b2["base<br>key 1a2b3c4d5e6f<br>reused"] -- "its key" --> f2["foo<br>key 9a0b1c2d3e4f<br>built again"]
     f2 -- "its key" --> fb2["foo+bar<br>key 5a6b7c8d9e0f<br>built again"]
