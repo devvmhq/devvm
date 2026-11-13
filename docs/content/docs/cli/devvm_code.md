@@ -38,7 +38,7 @@ devvm code [flags]
 
 ## Docs
 
-[The docs page for devvm code](../using/ssh.md#vs-code) explains it in full.
+[The docs page for devvm code](../using/ssh.md#vs-code-and-cursor) explains it in full.
 
 ## See also
 

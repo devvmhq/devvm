@@ -396,24 +396,88 @@ func checkLiterals(m *module, r rules) []violation {
 
 // checkNames: outside tests and r.namesFree's folders, a string literal
 // that is a name names lists, whole, is in its owner's package: one
-// anywhere else is code of its own for what that package owns.
+// anywhere else is code of its own for what that package owns. The value
+// of a constant r.nameFree lists passes where it's declared, the constant
+// is used in its files alone (checkNameFreeUses), and one that passes
+// nothing fails.
 func checkNames(m *module, r rules) []violation {
 	var vs []violation
+	used := map[string]bool{}
 	for _, f := range m.files {
 		if f.test || slices.ContainsFunc(r.namesFree, func(d string) bool { return f.dir == d || strings.HasPrefix(f.dir, d+"/") }) {
 			continue
 		}
+		declared := constValues(f)
 		ast.Inspect(f.ast, func(n ast.Node) bool {
 			lit, ok := n.(*ast.BasicLit)
 			if !ok {
 				return true
 			}
-			if v, ok := literal(lit); ok {
-				if o, named := r.names[v]; named && f.dir != o.dir {
-					vs = append(vs, violation{ruleOwners, m.pos(lit), fmt.Sprintf("is %q, a name %s owns, so use %s", v, o.dir, o.use)})
+			v, ok := literal(lit)
+			o, named := r.names[v]
+			if !ok || !named || f.dir == o.dir {
+				return true
+			}
+			if key := declared[lit]; key != "" && r.nameFree[key].why != "" {
+				used[key] = true
+				return true
+			}
+			vs = append(vs, violation{ruleOwners, m.pos(lit), fmt.Sprintf("is %q, a name %s owns, so use %s", v, o.dir, o.use)})
+			return true
+		})
+	}
+	for _, free := range slices.Sorted(maps.Keys(r.nameFree)) {
+		if !used[free] {
+			vs = append(vs, violation{ruleOwners, "nameFree", free + " passes nothing: take it out"})
+		}
+	}
+	return append(vs, checkNameFreeUses(m, r)...)
+}
+
+// constValues are f's constants' literal values, each with its constant,
+// as its folder.Name.
+func constValues(f srcFile) map[*ast.BasicLit]string {
+	out := map[*ast.BasicLit]string{}
+	for _, d := range f.ast.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		for _, s := range gd.Specs {
+			spec, ok := s.(*ast.ValueSpec)
+			if !ok || len(spec.Values) != len(spec.Names) {
+				continue
+			}
+			for i, name := range spec.Names {
+				if lit, ok := spec.Values[i].(*ast.BasicLit); ok {
+					out[lit] = f.dir + "." + name.Name
 				}
 			}
-			return true
+		}
+	}
+	return out
+}
+
+// checkNameFreeUses: outside tests, a constant r.nameFree lists is used
+// in its files alone, so the name it frees stays what it was freed for.
+func checkNameFreeUses(m *module, r rules) []violation {
+	var vs []violation
+	c := stringConsts(m)
+	for _, f := range m.files {
+		if f.test {
+			continue
+		}
+		ast.Inspect(f.ast, func(n ast.Node) bool {
+			e, ok := n.(ast.Expr)
+			if !ok {
+				return true
+			}
+			key := c.name(m, f, e)
+			if free, listed := r.nameFree[key]; listed && !slices.Contains(free.files, f.name) {
+				vs = append(vs, violation{ruleOwners, m.pos(e), fmt.Sprintf("uses %s, which only %s use: %s", key, strings.Join(free.files, " and "), free.why)})
+			}
+			_, sel := n.(*ast.SelectorExpr)
+			return !sel // a selector's own name isn't a use of its package's constant
 		})
 	}
 	return vs

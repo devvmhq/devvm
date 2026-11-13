@@ -279,7 +279,7 @@ func TestUpFlagsAreUpsAlone(t *testing.T) {
 // the VM of this folder's own path.
 func folderCommands() []string {
 	return []string{
-		"devvm", "devvm restart", "devvm stop", "devvm update", "devvm rm", "devvm code", "devvm desktop", "devvm host",
+		"devvm", "devvm restart", "devvm stop", "devvm update", "devvm rm", "devvm code", "devvm cursor", "devvm desktop", "devvm host",
 		"devvm history export", "devvm history import", "devvm tools", "devvm tools add", "devvm tools rm", "devvm tools update", "devvm size",
 		"devvm mount-cache", "devvm ports", "devvm ports add", "devvm ports rm", "devvm network", "devvm network allow", "devvm network deny",
 		"devvm network rm", "devvm network log", "devvm network lock", "devvm network transparent", "devvm ssh-agent", "devvm git-protect", "devvm clone",

@@ -952,16 +952,18 @@ func TestMise(t *testing.T) {
 	}
 }
 
-// The host's other stand-ins: open, code, qemu-img, sw_vers, uname and
-// tmutil.
+// The host's other stand-ins: open, code, cursor, qemu-img, sw_vers, uname
+// and tmutil.
 func TestHost(t *testing.T) {
 	s := newSandbox(t)
 	s.ok("", "open", "vnc://x")
 	s.touch("open-fails")
 	s.fails(1, "open", "vnc://x")
-	s.ok("", "code", "--remote", "x")
-	if s.read("code-agent") != "unset\n" {
-		t.Errorf("code-agent %q", s.read("code-agent"))
+	for _, ed := range []string{"code", "cursor"} {
+		s.ok("", ed, "--remote", "x")
+		if s.read(ed+"-agent") != "unset\n" {
+			t.Errorf("%s-agent %q", ed, s.read(ed+"-agent"))
+		}
 	}
 	if out := s.ok("", "qemu-img", "info", "-U", "--output=json", "/l/vm/disk"); out != `{"format":"qcow2"}`+"\n" {
 		t.Errorf("info %q", out)

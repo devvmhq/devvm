@@ -6,12 +6,14 @@ The tests in [The CLI rule tests](../../../docs/content/docs/contributing/cli.md
 
 A command is either a verb on this folder's VM or a noun with its verbs.
 
-- **A bare verb acts on this folder's VM.** devvm restart, devvm stop and devvm rm need no argument, because the VM is the folder's. devvm code, devvm desktop and devvm adopt are verbs of the same kind.
+- **A bare verb acts on this folder's VM.** devvm restart, devvm stop and devvm rm need no argument, because the VM is the folder's. devvm code, devvm cursor, devvm desktop and devvm adopt are verbs of the same kind.
 - **Anything else goes under its noun.** A secret is a thing of its own, so saving one is devvm secret set, not devvm save-secret. A rule belongs to the network policy, so adding one is devvm network allow, not devvm allow. A key belongs to devvm's own SSH agent, so loading one is devvm ssh-agent add.
 - **A bare noun shows or lists.** devvm secret lists the secrets, devvm images lists the images, and devvm history lists the exports, so none of them has an `ls` or `show` subcommand. devvm ls is the one list at the top, because it lists every VM rather than something of this folder's VM.
 - **The exceptions stay at the top:** ls, build, rebuild, gc, setup, doctor, upgrade, completion and limactl. Each is a verb a user reaches for by name, and moving build under images, as devvm images build, would make the most common image command the hardest to find. upgrade acts on devvm itself, not on this folder's VM, and it's the name other tools give the same verb. Add to that list only when the same is true, and say why in the commit.
 
 Links between VMs follow the rule. A link is a thing of this folder's VM, so it's a noun: devvm link lists the VM's links, devvm link add TARGET PORT makes one, and devvm link rm TARGET PORT removes it. devvm group is a noun too, with devvm group join NAME and devvm group leave.
+
+An editor devvm opens the VM in is a bare verb named after its command, as devvm code is VS Code's `code` and devvm cursor is Cursor's `cursor`. A name an editor shares with an agent is the editor's at the top, and the agent is reached only through `--agents`, as in `devvm --agents cursor`. The agent's own commands in the VM are `cursor-agent` and `agent`, so the two never meet on a command line.
 
 When a command could go in two places, put it where a user who knows the rest of the tree would look first. A user who wants to stop forwarding a port types devvm ports, because the ports are what change, and finds devvm ports rm there.
 

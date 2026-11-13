@@ -401,11 +401,51 @@ func separatorCases() []ruleCase {
 // agentCases are the coding agents' names and folders, which only
 // internal/agents' literals are or hold.
 func agentCases() []ruleCase {
+	free := map[string]freeName{"internal/vm.Editor": {"a reason", []string{"internal/vm/a.go", "internal/cli/b.go"}}}
 	return []ruleCase{
 		{
 			name:  "an agent's name outside agents",
 			files: map[string]string{"internal/vm/a.go": "package vm\n\nfunc f(a string) bool { return a == \"opencode\" }\n"},
 			want:  &want{ruleOwners, `is "opencode", a name internal/agents owns, so use its constant in internal/agents`},
+		},
+		{
+			name: "a free constant, used where it's free",
+			files: map[string]string{
+				"internal/vm/a.go":  "package vm\n\nconst Editor = \"opencode\"\n\nfunc f() string { return Editor }\n",
+				"internal/cli/b.go": "package cli\n\nimport \"example.com/m/internal/vm\"\n\nconst use = vm.Editor\n",
+			},
+			r: rules{nameFree: free},
+		},
+		{
+			name: "comparing with a free constant, as with an agent's",
+			files: map[string]string{
+				"internal/vm/a.go":  "package vm\n\nconst Editor = \"opencode\"\n\nfunc f(a string) bool { return a == Editor }\n",
+				"internal/cli/b.go": "package cli\n\nimport \"example.com/m/internal/vm\"\n\nconst use = vm.Editor\n",
+			},
+			r:    rules{nameFree: free},
+			want: &want{ruleOwners, `compares with "opencode"`},
+		},
+		{
+			name:  "a free constant's name as a literal elsewhere in its file",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\nconst Editor = \"opencode\"\n\nfunc f(a string) bool { return a == \"opencode\" }\n"},
+			r:     rules{nameFree: free},
+			want:  &want{ruleOwners, `is "opencode", a name internal/agents owns`},
+		},
+		{
+			name: "a free constant used in another file",
+			files: map[string]string{
+				"internal/vm/a.go":  "package vm\n\nconst Editor = \"opencode\"\n",
+				"internal/vm/c.go":  "package vm\n\nfunc g() string { return Editor }\n",
+				"internal/cli/b.go": "package cli\n\nimport \"example.com/m/internal/vm\"\n\nconst use = vm.Editor\n",
+			},
+			r:    rules{nameFree: free},
+			want: &want{ruleOwners, "uses internal/vm.Editor, which only internal/vm/a.go and internal/cli/b.go use: a reason"},
+		},
+		{
+			name:  "a free constant that frees nothing",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\nconst Editor = \"x\"\n", "internal/cli/b.go": "package cli\n"},
+			r:     rules{nameFree: free},
+			want:  &want{ruleOwners, "internal/vm.Editor passes nothing: take it out"},
 		},
 		{
 			name:  "an agent's name in agents",

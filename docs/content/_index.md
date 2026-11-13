@@ -96,7 +96,7 @@ devvm ships the `docker`, `nix` and `desktop` layers, which you choose when you 
 - The base image comes with [optional extras](docs/using/customizing.md#base-image-features) that you choose, such as oh-my-bash, fzf, zoxide (`z`), tree and tldr.
 - Every VM gets your git name and email, so the commits made in it are authored by you or your agent.
 - Ports forward on their own, so a dev server on `:5173` in the VM opens at `localhost:5173` on your machine ([ports](docs/using/ports-size.md#ports)).
-- `devvm code` opens the VM in VS Code over Remote-SSH ([devvm code](docs/using/ssh.md#devvm-host-and-devvm-code)).
+- `devvm code` and `devvm cursor` open the VM in VS Code or Cursor over Remote-SSH ([devvm code and devvm cursor](docs/using/ssh.md#devvm-host-devvm-code-and-devvm-cursor)).
 
 {{< /feature >}}
 

@@ -29,7 +29,7 @@ These settings guard against the host's ssh asking for a forward that devvm's en
 **Not covered:**
 
 - A remote forward you ask for (`ssh -R`, a `RemoteForward` of yours): [remote forwards you add](../safety/attack-vectors.md#the-network) lists what it leaves open.
-- Sessions see the proxy's password, as devvm's own shells do, and VS Code relays what [VS Code](../using/ssh.md#vs-code) describes.
+- Sessions see the proxy's password, as devvm's own shells do, and VS Code and Cursor relay what [VS Code and Cursor](../using/ssh.md#vs-code-and-cursor) describes.
 
 ### Ports on Lima
 

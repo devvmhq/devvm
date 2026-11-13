@@ -1,10 +1,10 @@
 ---
 title: SSH and editors
-explainer: Reach VMs by name from ssh and VS Code
+explainer: Reach VMs by name from ssh, VS Code and Cursor
 weight: 3
 ---
 
-You can reach each running VM by name from ssh and from editors such as VS Code, and you choose for each VM whether it can use your SSH keys. [ssh into VMs](../internals/security.md#ssh-into-vms) explains how devvm's ssh entries keep a VM away from the rest of this machine.
+You can reach each running VM by name from ssh and from editors such as VS Code and Cursor, and you choose for each VM whether it can use your SSH keys. [ssh into VMs](../internals/security.md#ssh-into-vms) explains how devvm's ssh entries keep a VM away from the rest of this machine.
 
 ## SSH access by name
 
@@ -16,7 +16,7 @@ devvm writes these entries to `~/.local/share/devvm/ssh_config` each time it lau
 Include ~/.local/share/devvm/ssh_config
 ```
 
-You can also point ssh at the file, as in `ssh -F ~/.local/share/devvm/ssh_config devvm-website`. `devvm host`, `devvm code` and a new [`--clone`](clone.md) VM offer to add the line in a terminal, and without one, they show it.
+You can also point ssh at the file, as in `ssh -F ~/.local/share/devvm/ssh_config devvm-website`. `devvm host`, `devvm code`, `devvm cursor` and a new [`--clone`](clone.md) VM offer to add the line in a terminal, and without one, they show it.
 
 - **Only running VMs are listed.** A stopped VM's port is free for any program on this machine to take, so an entry for it could hand your connection, and your agent, to that program. Start the VM with `devvm host` or `devvm` before you connect from an editor.
 - **Each entry checks the VM's own host keys,** which devvm reads from the VM once each time it starts and keeps in the VM's folder, `~/.local/share/devvm/vms/<hash>/run/known_hosts`. ssh refuses a host key that doesn't match, and a VM whose keys devvm can't read gets no entry.
@@ -24,26 +24,67 @@ You can also point ssh at the file, as in `ssh -F ~/.local/share/devvm/ssh_confi
 - **The entries need OpenSSH 8.7 or newer** (`ssh -V`), and an older ssh refuses them.
 - **Keep remote forwards out of `Host *`.** The entries turn off what else your ssh config could share with a VM, but they can't turn off a `RemoteForward` of yours.
 
-## devvm host and devvm code
+<!-- markdownlint-disable-next-line MD033 -- the section's anchor before its rename, which released versions' messages link to -->
+<a id="devvm-host-and-devvm-code"></a>
 
-`devvm host` gets this folder's VM ready for ssh and editors, then shows its host name (`devvm-website`) and its folder in the VM. It does what [a launch of an existing VM](../internals/overview.md#an-existing-vm) does, without opening a shell. It checks `.git`, applies the size, ports and agent forwarding that a stopped VM's state asks for, starts the VM if it's stopped, runs the [self-check](../internals/network.md#the-self-check), sets the VM up and writes the ssh config. A VM whose tier isn't enforced is stopped, and it gets no name.
+## devvm host, devvm code and devvm cursor
 
-`devvm code` does the same, then opens the folder in VS Code over Remote-SSH with VS Code's `code` command, as in `code --remote ssh-remote+devvm-website ~/website`. VS Code gets the SSH agent that devvm was started with, not the one that devvm's own connections to the VM carry. Without `code` on `PATH`, devvm names the host to connect to with *Remote-SSH: Connect to Host*.
+```sh
+devvm host     # get this folder's VM ready, and show the name ssh and editors reach it by
+devvm code     # the same, then open its folder in VS Code over Remote-SSH
+devvm cursor   # the same, then open its folder in Cursor over Remote-SSH
+```
 
-### VS Code
+`devvm host` gets this folder's VM ready for ssh and editors, then shows its host name (`devvm-website`) and its folder in the VM. It does what [a launch of an existing VM](../internals/overview.md#an-existing-vm) does, without opening a shell. It checks `.git`, applies the size, ports and agent forwarding that a stopped VM's state asks for, starts the VM if it's stopped, runs the [self-check](../internals/network.md#the-self-check), sets the VM up and writes the ssh config. A VM whose tier isn't enforced is stopped, and it gets no name. The editors' commands start the same way:
 
-Over Remote-SSH, VS Code reaches further than ssh:
+- `devvm code` does the same, then opens the folder in VS Code over Remote-SSH with VS Code's `code` command, as in `code --remote ssh-remote+devvm-website ~/website`. VS Code gets the SSH agent that devvm was started with, not the one that devvm's own connections to the VM carry. Without `code` on `PATH`, devvm names the host to connect to with *Remote-SSH: Connect to Host*.
+- `devvm cursor` does the same in Cursor, the editor, with its `cursor` command, as in `cursor --remote ssh-remote+devvm-website ~/website`. Cursor gets the SSH agent that devvm was started with too, and without `cursor` on `PATH`, devvm names the host to connect to from Cursor. Cursor installs its `cursor` command from its command palette, as VS Code does its `code`. Cursor's CLI agent, which runs in the VM, is another program, with commands of its own ([Cursor CLI login](coding-agents.md#cursor-cli-login)).
 
-- **Ports.** It forwards the ports that programs it starts in the VM listen on to this machine's `localhost`, whatever `devvm ports` says. Those programs include its terminals, its tasks and an agent.
-- **Git sign-in.** It answers git's credential prompts in the VM with your GitHub sign-in in VS Code.
+<!-- markdownlint-disable-next-line MD033 -- the section's anchor before its rename, which released versions' help links to -->
+<a id="vs-code"></a>
 
-devvm turns both off in VS Code's settings for the VM, `~/.vscode-server/data/Machine/settings.json` in the VM. Each time devvm sets the VM up, it sets `remote.autoForwardPorts`, `git.terminalAuthentication` and `github.gitAuthentication` to `false` and keeps the file's other settings. A file with comments isn't plain JSON, so devvm leaves it as it is and says so in the run log.
+### VS Code and Cursor
 
-The VM can change that file back, so for a VM you don't trust, also set the three in your own VS Code settings on this machine. Programs in the VM can also open URLs in this machine's browser (`$BROWSER`).
+Over Remote-SSH, VS Code and Cursor reach further than ssh:
+
+- **Ports.** They forward the ports that programs they start in the VM listen on to this machine's `localhost`, whatever `devvm ports` says. Those programs include their terminals, their tasks and an agent.
+- **Git sign-in.** They answer git's credential prompts in the VM with your GitHub sign-in in the editor.
+- **Your editor's own sign-ins.** The editor's extensions run in the VM, its AI features among them, such as GitHub Copilot in VS Code and Cursor's own AI and codebase indexing. They may get the editor's sign-ins to work there, such as Copilot's GitHub token or your Cursor login, and devvm's proxy doesn't hold those back. devvm hasn't checked what reaches the VM, so take it that a program in the VM could read them.
+
+devvm turns the first two off in each editor's settings for the VM, which are `~/.vscode-server/data/Machine/settings.json` in the VM for VS Code and `~/.cursor-server/data/Machine/settings.json` for Cursor. Each time devvm sets the VM up, it sets `remote.autoForwardPorts`, `git.terminalAuthentication` and `github.gitAuthentication` to `false` in both files and keeps their other settings. A file with comments isn't plain JSON, so devvm leaves it as it is and says so in the run log. A file or folder that devvm can't write is said in the run log too, and the rest of the setup goes on.
+
+Those settings only cover ordinary use:
+
+- The VM can turn the three back on, and setting them in your own settings on this machine doesn't stop it: in VS Code, the settings on the remote machine and the opened folder's `.vscode/settings.json`, both of which the VM can write, take precedence over yours for all three. Only a policy that an administrator sets takes precedence over the VM's.
+- Even with port forwarding off, an extension or a URL that the editor opens can still forward a port.
+- Cursor is built on VS Code, so it most likely works the same way, though devvm hasn't checked it.
+
+So don't open a VM you don't trust with `devvm code` or `devvm cursor`, and use `ssh` or devvm's shell instead, or sign out of the editor's AI features and its GitHub sign-in first. Programs in the VM can also open URLs in this machine's browser (`$BROWSER`).
+
+### Cursor's Agent
+
+Recent releases of Cursor run its Agent in the editor's server in the VM, not in the Cursor app on this machine. That server holds your Cursor sign-in in memory and uses it to talk to Cursor, so code in the VM could use your sign-in while the window is open. To send Agent's requests through the Cursor app on this machine, add this line to your Cursor user settings, `~/Library/Application Support/Cursor/User/settings.json` on macOS or `Cursor/User/settings.json` in `$XDG_CONFIG_HOME`, by default `~/.config`, on Linux:
+
+```json
+"cursorAgentHost.remoteInferenceRoute": "always"
+```
+
+Once it finds Cursor's `cursor` command, `devvm cursor` reads that file, without changing it, and warns before it opens Cursor when the line isn't there, or when it can't read the file. Cursor reads the setting only from your user settings, never from the VM's. The setting doesn't take your sign-in out of the VM, though: either way, the editor's server in the VM still signs in to Cursor, so open only VMs you trust with `devvm cursor`. On the allowlist and none tiers, a VM without Cursor's CLI can't reach Cursor's hosts at all.
+
+If Cursor Tab doesn't work in a `devvm cursor` window on the allowlist tier, run `devvm network allow api3.cursor.sh` to let it through. Cursor documents that host for Tab's requests, and devvm blocks it as a [quiet host](../safety/network.md#quiet-hosts), because Cursor's CLI sends its metrics there.
 
 ## Agent forwarding
 
 SSH agent forwarding is off by default. While it's on and you're connected, anything in the VM, coding agents included, can *use* the agent's keys, for example to push or to log in to servers. It can't copy them. Turn it on for one VM when you need git over SSH there.
+
+```sh
+devvm --ssh-agent                       # a new VM that forwards your SSH agent
+devvm ssh-agent                         # show this folder's VM's choice and devvm's agent's keys
+devvm ssh-agent on                      # forward your SSH agent to this folder's VM from its next start
+devvm ssh-agent add ~/.ssh/deploy_key   # or load one key into devvm's own agent
+devvm ssh-agent devvm                   # and forward that agent instead of yours
+devvm ssh-agent off                     # stop forwarding from the VM's next start
+```
 
 ```mermaid
 flowchart TD

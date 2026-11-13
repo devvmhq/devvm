@@ -246,20 +246,27 @@ if [[ -f "$s/moved" ]]; then
   claude_project_moved "$moved_from" "$moved_to" "$claude_from" "$claude_to"
 fi
 
-# VS Code over Remote-SSH (devvm code): its settings for this machine turn off what reaches the host
-# beyond the editor itself: forwarding ports the VM's programs open (to the host's localhost, which
-# devvm ports doesn't cover) and answering git's credential prompts with the host's GitHub sign-in.
-# The VM can change this file back; it's here so ordinary use is safe.
-vsc=~/.vscode-server/data/Machine/settings.json
-vsc_off='{"remote.autoForwardPorts": false, "git.terminalAuthentication": false, "github.gitAuthentication": false}'
-mkdir -p "$(dirname "$vsc")"
-if [[ ! -s $vsc ]]; then
-  echo "$vsc_off" | jq . > "$vsc"
-elif jq -e 'type == "object"' "$vsc" >/dev/null 2>&1; then
-  jq --argjson off "$vsc_off" '. + $off' "$vsc" > "$vsc.tmp" && mv "$vsc.tmp" "$vsc"
-else
-  echo "devvm: $vsc isn't plain JSON, so VS Code's port forwarding and git sign-in stay as they are there" >&2
-fi
+# VS Code and Cursor over Remote-SSH (devvm code, devvm cursor): their settings for this machine turn
+# off what reaches the host beyond the editor itself: forwarding ports the VM's programs open (to the
+# host's localhost, which devvm ports doesn't cover) and answering git's credential prompts with the
+# host's GitHub sign-in. The VM can change these files back; they're here so ordinary use is safe.
+# A file or folder of theirs devvm can't write warns and leaves the rest of the setup to run.
+editor_off='{"remote.autoForwardPorts": false, "git.terminalAuthentication": false, "github.gitAuthentication": false}'
+editor_settings() {
+  local es=$1
+  mkdir -p "$(dirname "$es")" 2>/dev/null || return 1
+  if [[ ! -s $es ]]; then
+    echo "$editor_off" | jq . > "$es" 2>/dev/null || return 1
+  elif jq -e 'type == "object"' "$es" >/dev/null 2>&1; then
+    jq --argjson off "$editor_off" '. + $off' "$es" > "$es.tmp" 2>/dev/null && mv "$es.tmp" "$es" 2>/dev/null || return 1
+  else
+    echo "devvm: $es isn't plain JSON, so the editor's port forwarding and git sign-in stay as they are there" >&2
+  fi
+}
+for es in ~/.vscode-server/data/Machine/settings.json ~/.cursor-server/data/Machine/settings.json; do
+  editor_settings "$es" ||
+    echo "devvm: $es can't be written, so the editor's port forwarding and git sign-in stay as they are there" >&2
+done
 
 # Cursor's CLI has no variable that turns its updates off: on its static channel, which its config
 # (host-copied, or its own) keeps through its own writes, it skips them.

@@ -62,6 +62,7 @@ devvm [flags]
 - [devvm clone](devvm_clone.md): Show or change whether this folder's VM has its own clone of the repo
 - [devvm code](devvm_code.md): Open this folder's VM in VS Code over Remote-SSH
 - [devvm completion](devvm_completion.md): Print the shell completion script for bash, zsh or fish
+- [devvm cursor](devvm_cursor.md): Open this folder's VM in Cursor over Remote-SSH
 - [devvm desktop](devvm_desktop.md): Open this folder's VM's desktop in a VNC viewer
 - [devvm doctor](devvm_doctor.md): Check what devvm needs on this machine
 - [devvm gc](devvm_gc.md): Delete stale images, unused tools, old files and the Nix cache over its cap

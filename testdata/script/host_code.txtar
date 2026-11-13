@@ -1,8 +1,9 @@
-# devvm host and devvm code: the folder's VM launched as devvm does without
-# its shell (checked, started, self-checked, set up, in devvm's ssh
-# config), then its host name shown, or its folder opened in VS Code (a
-# stub code) with the SSH agent devvm started with. The Include line is
-# offered for the sandbox's own ~/.ssh/config only.
+# devvm host, devvm code and devvm cursor: the folder's VM launched as
+# devvm does without its shell (checked, started, self-checked, set up, in
+# devvm's ssh config), then its host name shown, or its folder opened in
+# VS Code or Cursor (a stub code or cursor) with the SSH agent devvm
+# started with. The Include line is offered for the sandbox's own
+# ~/.ssh/config only.
 
 # No VM.
 project web
@@ -10,6 +11,9 @@ project web
 stderr '^devvm: no_vm dir=\S*/web$'
 ! exec devvm code
 stderr '^devvm: no_vm dir=\S*/web$'
+! exec devvm cursor
+stderr '^devvm: no_vm dir=\S*/web$'
+! stderr cursor_agent_in_vm
 
 # A stopped VM: started and set up, no shell. Without a terminal, the
 # Include line is shown, not added.
@@ -57,7 +61,27 @@ stub_calls
 stdout '^code --remote ssh-remote\+devvm-web /\S*/web$'
 exec sh -c 'cat "$STUB_DIR/code-agent"'
 stdout '^\S*/user-agent\.sock$'
+
+# devvm cursor: the same in the Cursor editor, with its cursor command,
+# first warning that Cursor's Agent will run in the VM while Cursor's
+# user settings on this machine don't route it through the app here.
+stub_reset
+exec devvm cursor
+stderr '^devvm: cursor_agent_in_vm file=.*/Cursor/User/settings\.json$'
+stub_calls
+stdout '^cursor --remote ssh-remote\+devvm-web /\S*/web$'
+! stdout '^code '
+exec sh -c 'cat "$STUB_DIR/cursor-agent"'
+stdout '^\S*/user-agent\.sock$'
 env SSH_AUTH_SOCK=
+# With the route set there, no warning, and the file stays as it was.
+[darwin] env CURSOR_USER=$HOME/Library/Application' Support'/Cursor/User
+[!darwin] env CURSOR_USER=$XDG_CONFIG_HOME/Cursor/User
+mkdir $CURSOR_USER
+cp $WORK/cursor-settings.json $CURSOR_USER/settings.json
+exec devvm cursor
+! stderr cursor_agent_in_vm
+cmp $CURSOR_USER/settings.json $WORK/cursor-settings.json
 
 # Two folders named web: the VM by its full name.
 mkdir $WORK/other/web
@@ -67,16 +91,25 @@ stub_reset
 exec devvm code
 stub_calls
 stdout '^code --remote ssh-remote\+devvm-web-[0-9a-f]{14} /\S*/other/web$'
+stub_reset
+exec devvm cursor
+stub_calls
+stdout '^cursor --remote ssh-remote\+devvm-web-[0-9a-f]{14} /\S*/other/web$'
 
-# No code command on PATH: said, with the host to connect to.
-exec sh -c 'mkdir "$WORK/nocode" && for f in "$(dirname "$DEVVM_HOST_MISE")"/*; do [ "${f##*/}" = code ] || ln -s "$f" "$WORK/nocode/"; done'
+# No code or cursor command on PATH: said, with the host to connect to,
+# and no warning about Cursor's Agent, without Cursor's settings too.
+rm $CURSOR_USER/settings.json
+exec sh -c 'mkdir "$WORK/nocode" && for f in "$(dirname "$DEVVM_HOST_MISE")"/*; do case "${f##*/}" in code|cursor) ;; *) ln -s "$f" "$WORK/nocode/";; esac; done'
 env SAVED_PATH=$PATH
 env PATH=$DEVVM_BIN:$WORK/nocode:/usr/bin:/bin:/usr/sbin:/sbin
 stub_reset
 ! exec devvm code
 stderr '^devvm: no_code_command host=devvm-web-[0-9a-f]{14}$'
+! exec devvm cursor
+stderr '^devvm: no_cursor_command host=devvm-web-[0-9a-f]{14}$'
+! stderr cursor_agent_in_vm
 stub_calls
-! stdout '^code '
+! stdout '^(code|cursor) '
 env PATH=$SAVED_PATH
 
 # Network policy: a VM devvm started confined that still reaches the
@@ -96,3 +129,10 @@ stub_calls
 stdout '^limactl stop devvm-leak-[0-9a-f]{14}$'
 ! stdout 'tar -xf'
 rm $STUB_DIR/net-direct
+
+-- cursor-settings.json --
+// Cursor's user settings, with comments and a trailing comma.
+{
+  "editor.fontSize": 14,
+  "cursorAgentHost.remoteInferenceRoute": "always",
+}

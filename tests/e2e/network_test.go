@@ -1733,6 +1733,113 @@ func netCursor(n *netRun) {
 		}
 		return nil
 	})
+	netCursorLogin(n)
+	netCursorEditor(n)
+}
+
+// cursorJWT is a fake Cursor token: a JWT with sub and a far exp, as Cursor's are, and mark in its
+// signature so a check can find it anywhere.
+func cursorJWT(mark string) string {
+	enc := func(v string) string { return base64.RawURLEncoding.EncodeToString([]byte(v)) }
+	return enc(`{"alg":"none","typ":"JWT"}`) + "." + enc(`{"sub":"auth0|e2efake","exp":4070908800}`) + "." + mark
+}
+
+// netCursorLogin: with a Cursor login in the store (a fake one), the CLI's own methods get it from
+// the VM's proxy in place of the VM's placeholder, and the agent store's are refused before they
+// leave the VM's proxy, its token's mint among them, so the stand-in never sees one.
+func netCursorLogin(n *netRun) {
+	s, vm := n.s, n.vm
+	s.Check("with a Cursor login saved, the CLI's methods get it and the agent store's are refused at the proxy", func() error {
+		at := cursorJWT("e2efake-cursor-at")
+		login := filepath.Join(n.logins, "cursor", ".config", "cursor", "auth.json")
+		if err := os.MkdirAll(filepath.Dir(login), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(login, []byte(`{"accessToken":"`+at+`","refreshToken":"`+cursorJWT("e2efake-cursor-rt")+`"}`), 0o600); err != nil {
+			return err
+		}
+		defer func() { _ = os.Remove(login) }()
+		if _, err := n.dv("exit\n", n.tokenEnv()); err != nil {
+			return failed("the launch with the Cursor login", err)
+		}
+		ph := vmOut(s, vm, "jq -r .accessToken ~/.config/cursor/auth.json")
+		switch {
+		case ph == "" || ph == "null":
+			return errors.New("the VM has no Cursor login")
+		case strings.Contains(ph, "e2efake-cursor"):
+			return errors.New("the VM holds the Cursor login itself")
+		}
+		post := func(method string) string {
+			return vmOut(s, vm, `curl -sS -m 20 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/proto' `+
+				`-H `+shell.Quote("Authorization: Bearer "+ph)+` --data-binary '' 'https://`+cursorAPIHost+`/aiserver.v1.`+method+`'`)
+		}
+		if code := post("DashboardService/GetMe"); code != "404" {
+			return errors.New("the CLI's GetMe answered " + code + " through the proxy\n" + n.tokenWhy())
+		}
+		const got = "cursor POST /aiserver.v1.DashboardService/GetMe HTTP/1.1 authorization Bearer "
+		if !slices.Contains(strings.Split(readText(n.tokLog), "\n"), got+at) {
+			return errors.New("Cursor's stand-in didn't get the login in GetMe:\n" + tailLines(readText(n.tokLog), 5))
+		}
+		for _, m := range []string{"AgentStoreService/MintAgentStoreToken", "AgentStoreService/PresignAgentStoreWrites", "AgentStoreService/ListAgentStoreDirectory"} {
+			if code := post(m); code != "403" {
+				return errors.New("the agent store's " + m + " answered " + code + ", not the proxy's 403")
+			}
+		}
+		if strings.Contains(readText(n.tokLog), "AgentStoreService") {
+			return errors.New("an agent store request reached Cursor's stand-in:\n" + tailLines(readText(n.tokLog), 5))
+		}
+		return nil
+	}, Tail(40))
+}
+
+// netCursorEditor: what devvm can check of the Cursor editor without one. devvm cursor runs the
+// editor's cursor command (a stand-in that records what it got) with the Remote-SSH host and the
+// VM's folder alone, and a Cursor editor's sign-in on this machine (a fake one in its state file)
+// reaches neither the command nor the VM: not its home, any process's environment or the VM's
+// proxy's logs. Whether the real editor sends its token into the VM over Remote-SSH needs a real
+// sign-in (cursor-manual-checks in the notes).
+func netCursorEditor(n *netRun) {
+	s, vm := n.s, n.vm
+	s.Check("devvm cursor gives the editor only the host and folder, and the editor's sign-in on this machine reaches no VM", func() error {
+		const mark = "e2efake-cursor-editor"
+		state := filepath.Join(n.nh, ".config", "Cursor", "User", "globalStorage", "state.vscdb")
+		if err := os.MkdirAll(filepath.Dir(state), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(state, []byte("cursorAuth/accessToken "+cursorJWT(mark)+"\n"), 0o600); err != nil {
+			return err
+		}
+		defer func() { _ = os.RemoveAll(filepath.Join(n.nh, ".config", "Cursor")) }()
+		bin := filepath.Join(s.sb.work, "fake-cursor")
+		madeFile(s.sb, bin)
+		if err := os.MkdirAll(bin, 0o700); err != nil {
+			return err
+		}
+		got := filepath.Join(bin, "got")
+		script := "#!/bin/sh\n{ printf '%s\\n' \"$@\"; env; } > " + shell.Quote(got) + "\n"
+		if err := os.WriteFile(filepath.Join(bin, "cursor"), []byte(script), 0o700); err != nil { //nolint:gosec // G306: a test's own script, run by devvm cursor
+			return err
+		}
+		if r, err := n.dv("", n.home("PATH="+bin+":"+os.Getenv("PATH")), "cursor"); err != nil {
+			return failed("devvm cursor:\n"+r.Out, err)
+		}
+		args := strings.SplitN(readText(got), "\n", 4)
+		switch {
+		case len(args) < 4 || args[0] != "--remote" || !strings.HasPrefix(args[1], "ssh-remote+devvm-") || !strings.HasPrefix(args[2], "/"):
+			return errors.New("the editor's command got:\n" + readText(got))
+		case strings.Contains(readText(got), mark):
+			return errors.New("the editor's command got the editor's sign-in")
+		}
+		if has, err := vmHas(s, vm, true, `grep -rIl --exclude-dir=.cache `+mark+` ~ 2>/dev/null; `+
+			`for e in /proc/[0-9]*/environ; do sudo tr '\0' '\n' < "$e" 2>/dev/null; done`, mark); err != nil || has {
+			return failed("the VM holds the editor's sign-in", err)
+		}
+		logs := readText(filepath.Join(n.vmd, "logs", "proxy.log")) + readText(n.events)
+		if strings.Contains(logs, mark) {
+			return errors.New("the VM's proxy logged the editor's sign-in")
+		}
+		return nil
+	}, Tail(40))
 }
 
 func netPiTools(n *netRun) {

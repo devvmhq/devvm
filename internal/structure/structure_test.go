@@ -46,7 +46,7 @@ func devvm() rules {
 		// finds their other interfaces.
 		guardOwner: "internal/backend/guard.go",
 		literals:   devvmLiterals(), every: everyOwner{agents.Names(), "internal/agents", "agents.Names()"},
-		names: devvmNames(), switches: devvmSwitches(), switchFree: devvmSwitchFree(),
+		names: devvmNames(), nameFree: devvmNameFree(), switches: devvmSwitches(), switchFree: devvmSwitchFree(),
 		namesFree: []string{"internal/stubtest"}, // the stubs, named after the commands they stand in for
 		// An image's name is read once, by internal/image: its layers are
 		// split and joined there alone.
@@ -364,6 +364,16 @@ func devvmNames() map[string]literalOwner {
 		}
 	}
 	return names
+}
+
+// devvmNameFree are the constants whose value may be an agent's name, for
+// something else of that name, each used only where that something is:
+// the Cursor editor's command, which devvm cursor runs and is named
+// after, is the editor's, not its CLI agent's.
+func devvmNameFree() map[string]freeName {
+	return map[string]freeName{
+		"internal/vm.CursorCommand": {"the Cursor editor's command, not its CLI agent's", []string{"internal/vm/ssh.go", "internal/cli/cursor.go"}},
+	}
 }
 
 // devvmSwitches are the coding agents' names and login kinds, which only

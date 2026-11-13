@@ -2012,10 +2012,17 @@ other = "added to ~/.ssh/config"
 
 [ssh_host_info]
 description = "host is the name ssh reaches the VM by; dir is its folder there"
-other = "Connect with ssh {{.host}}, or with Remote-SSH: Connect to Host in VS Code.\nThe project folder in the VM is {{.dir}}."
+other = "Connect with ssh {{.host}}, or with Remote-SSH: Connect to Host in VS Code or Cursor.\nThe project folder in the VM is {{.dir}}."
 
 [no_code_command]
 other = "VS Code's code command isn't on PATH. Connect to {{.host}} with Remote-SSH instead."
+
+[no_cursor_command]
+other = "Cursor's cursor command isn't on PATH. Connect to {{.host}} with Remote-SSH instead."
+
+[cursor_agent_in_vm]
+description = "file is Cursor's user settings file on this machine"
+other = "Cursor's Agent will run in the VM with your Cursor sign-in. Adding \"cursorAgentHost.remoteInferenceRoute\": \"always\" to {{.file}} sends Agent's requests through the Cursor app here, but the VM's Cursor server still signs in to Cursor either way, so open only VMs you trust."
 
 [ssh_failed]
 description = "reason is an error from the system, in English"
@@ -2024,6 +2031,10 @@ other = "Getting this folder's VM ready for ssh failed: {{.reason}}."
 [code_failed]
 description = "reason is an error from the system, in English"
 other = "Opening this folder's VM in VS Code failed: {{.reason}}."
+
+[cursor_failed]
+description = "reason is an error from the system, in English"
+other = "Opening this folder's VM in Cursor failed: {{.reason}}."
 
 [desktop_failed]
 description = "reason is an error from the system, in English"

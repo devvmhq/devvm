@@ -13,7 +13,7 @@ func newCodeCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "code",
 		Annotations: about{
-			docs: "using/ssh#vs-code", group: groupVM,
+			docs: "using/ssh#vs-code-and-cursor", group: groupVM,
 			noJSON: "it opens VS Code",
 		}.annotations(),
 		Short: "Open this folder's VM in VS Code over Remote-SSH",

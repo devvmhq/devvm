@@ -57,6 +57,10 @@ type rules struct {
 	// that package owns, then the package folder and what to use.
 	names     map[string]literalOwner
 	namesFree []string
+	// nameFree are the constants whose value may be a name, for something
+	// else that has the same name: folder.Name, then why and the only
+	// files that use it.
+	nameFree map[string]freeName
 	// separators are what only one package's calls to package strings
 	// split or join on, outside tests: the separator, then the package
 	// folder and what to use.
@@ -83,6 +87,14 @@ type rules struct {
 // and what others use instead.
 type literalOwner struct {
 	dir, use string
+}
+
+// A freeName is a constant whose value may be a name another package
+// owns (rules.nameFree): why, and the only files, from the module's
+// root, that use it.
+type freeName struct {
+	why   string
+	files []string
 }
 
 // An envSetting is a DEVVM_ variable read outside envOwner: the files

@@ -78,12 +78,13 @@ func open(c *call) int {
 	return 0
 }
 
-// code stands in for VS Code's code command: never the real editor. It
-// logs every call to $STUB_LOG, and the SSH agent it was given
-// ($SSH_AUTH_SOCK, or "unset") to $STUB_DIR/code-agent.
-func code(c *call) int {
+// editor stands in for VS Code's code command and the Cursor editor's
+// cursor command: never the real editor. It logs every call to $STUB_LOG,
+// and the SSH agent it was given ($SSH_AUTH_SOCK, or "unset") to
+// $STUB_DIR/<command>-agent.
+func editor(c *call) int {
 	c.log()
-	return c.status(c.put("code-agent", []byte(c.agent()+"\n")))
+	return c.status(c.put(c.name+"-agent", []byte(c.agent()+"\n")))
 }
 
 // qemuImg stands in for qemu-img. It logs every call to $STUB_LOG. info

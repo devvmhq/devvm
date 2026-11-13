@@ -13,7 +13,7 @@ func newHostCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "host",
 		Annotations: about{
-			docs: "using/ssh#devvm-host-and-devvm-code", group: groupVM,
+			docs: "using/ssh#devvm-host-devvm-code-and-devvm-cursor", group: groupVM,
 			noJSON: "it shows one host name, for ssh as it is",
 		}.annotations(),
 		Short: "Get this folder's VM ready for ssh and editors, and show its host name",

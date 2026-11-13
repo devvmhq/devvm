@@ -38,7 +38,7 @@ devvm host [flags]
 
 ## Docs
 
-[The docs page for devvm host](../using/ssh.md#devvm-host-and-devvm-code) explains it in full.
+[The docs page for devvm host](../using/ssh.md#devvm-host-devvm-code-and-devvm-cursor) explains it in full.
 
 ## See also
 
