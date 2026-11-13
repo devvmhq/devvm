@@ -284,6 +284,7 @@ func TestHistoryImportRuns(t *testing.T) {
 		{".claudex/a"},
 		{".pi/agent/sessions/s", ".pi/agent/auth.json"},
 		{".pi/agent/sessionsx/s"},
+		{".claude/a", "._.claude/a"},
 	} {
 		t.Run(names[len(names)-1], func(t *testing.T) {
 			home := t.TempDir()
@@ -334,6 +335,49 @@ func TestHistoryImportRuns(t *testing.T) {
 		}
 		if fi, err := os.Stat(filepath.Join(home, ".claude/projects/p.jsonl")); err != nil || fi.Mode()&os.ModeSetuid != 0 {
 			t.Errorf("p.jsonl's mode: %v, %v", fi, err)
+		}
+	})
+	// An export made with macOS's tar, which puts each file's extended attributes (such as
+	// com.apple.provenance) beside it as an AppleDouble ._ file, ._.claude among them: it imports,
+	// and none of those files does.
+	t.Run("macOS tar", func(t *testing.T) {
+		home := t.TempDir()
+		export := exportOf(t, "._.claude", ".claude/", ".claude/._projects", ".claude/projects/", ".claude/projects/._e2e",
+			".claude/projects/e2e/", ".claude/projects/e2e/._t.jsonl", ".claude/projects/e2e/t.jsonl")
+		if out, err := run(t, home, export); err != nil {
+			t.Fatalf("%q, %v", out, err)
+		}
+		for p, want := range map[string]bool{
+			".claude/projects/e2e/t.jsonl": true, "._.claude": false, ".claude/._projects": false,
+			".claude/projects/._e2e": false, ".claude/projects/e2e/._t.jsonl": false,
+		} {
+			if _, err := os.Lstat(filepath.Join(home, p)); (err == nil) != want {
+				t.Errorf("%s: there %v, want %v", p, err == nil, want)
+			}
+		}
+	})
+	// What devvm history export writes imports whole into another VM.
+	t.Run("an export's round trip", func(t *testing.T) {
+		from, to := t.TempDir(), t.TempDir()
+		files := []string{".claude/projects/p.jsonl", ".codex/sessions/s.jsonl", ".local/state/opencode/kv.json", ".pi/agent/sessions/--p--/s.jsonl", ".cursor/chats/c/store.db"}
+		for _, f := range files {
+			if err := state.WriteFile(filepath.Join(from, f), []byte(f)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cmd := exec.CommandContext(t.Context(), "bash", "-c", historyExport()) //nolint:gosec // devvm's own export script
+		cmd.Env = []string{"HOME=" + from, "PATH=" + os.Getenv("PATH")}
+		export, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out, err := run(t, to, export); err != nil {
+			t.Fatalf("%q, %v", out, err)
+		}
+		for _, f := range files {
+			if data, err := os.ReadFile(filepath.Join(to, f)); err != nil || string(data) != f { //nolint:gosec // the test's own file
+				t.Errorf("%s: %q, %v", f, data, err)
+			}
 		}
 	})
 }

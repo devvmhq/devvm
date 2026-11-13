@@ -208,6 +208,10 @@ func importSkips() []string {
 	return slices.Compact(skips)
 }
 
+// appleDouble matches an export's name whose last part is an AppleDouble
+// file's, ._ then anything (historyImport).
+const appleDouble = `(^|/)\._[^/]*$`
+
 // historyImport is the script that puts an export of agents' history,
 // on its stdin, into the VM's home, run there as the VM's user, so the
 // host never reads the export. It saves the export in a folder of its
@@ -215,7 +219,11 @@ func importSkips() []string {
 // only the listing takes: tar would list them with their leading / and
 // .. parts taken off), each on one line (GNU tar's escape quoting). It
 // imports nothing when one is outside the agents' History, absolute or has a
-// .. part, printing historyUnsafe instead. Every tar here is GNU tar,
+// .. part, printing historyUnsafe instead. An AppleDouble file (a name
+// whose last part starts with ._), which macOS's tar puts beside each file
+// with extended attributes, such as com.apple.provenance, isn't checked
+// and is never unpacked (appleDouble), so an export made on a Mac imports;
+// what's below a folder named so is checked. Every tar here is GNU tar,
 // which Debian and Ubuntu have and base's Alpine branch installs over
 // busybox's (TestHistoryImportHasGNUTarOnAlpine). GNU tar unpacks it
 // in a folder of its own, without its owners or modes (the user's umask
@@ -240,12 +248,13 @@ func historyImport() string {
 	for _, p := range importSkips() {
 		unpack = append(unpack, "--exclude="+p)
 	}
+	unpack = append(unpack, "--exclude=._*", "--exclude=*/._*")
 	return strings.Join([]string{
 		"set -o pipefail",
 		`mkdir -p ~/.cache && t=$(mktemp -d ~/.cache/devvm-import.XXXXXX) || exit 1`,
 		`trap 'rm -rf "$t"' EXIT`,
 		`cat > "$t/export" && tar -tzf "$t/export" --absolute-names --quoting-style=escape > "$t/names" || exit 1`,
-		"if grep -vqE " + shell.Quote("^("+strings.Join(allowed, "|")+")(/|$)") + ` "$t/names" || ` +
+		"if grep -vE " + shell.Quote(appleDouble) + ` "$t/names" | grep -vqE ` + shell.Quote("^("+strings.Join(allowed, "|")+")(/|$)") + ` || ` +
 			"grep -qE " + shell.Quote(`(^|/)\.\.(/|$)`) + ` "$t/names"; then echo ` + historyUnsafe + "; exit 1; fi",
 		`mkdir "$t/x" && tar -xzf "$t/export" -C "$t/x" ` + shell.QuoteJoin(unpack) + " || exit 1",
 		`find "$t/x" -type l -print0 | while IFS= read -r -d '' l; do`,
