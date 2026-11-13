@@ -212,6 +212,9 @@ type Event struct {
 	// host, the VM given placeholders. Never a value.
 	Login   string `json:"login,omitempty"`
 	Refused bool   `json:"refused,omitempty"` // blocked whatever the allowlist says: no rule allows it
+	// Quiet is a block of a host a built-in policy marks quiet (rule.quiet), such as a tool's
+	// telemetry: the VM gets no notice of it and no command to allow it.
+	Quiet bool `json:"quiet,omitempty"`
 	// The company proxy it went through (Config.Upstream), as host:port: never its credentials.
 	Upstream string `json:"upstream,omitempty"`
 	// The VM a link's connection went to (devvm _links's events, Host the link's name): never the proxy's.
@@ -271,7 +274,8 @@ func (ev *events) record(e Event) {
 	ev.mu.Lock()
 	defer ev.mu.Unlock()
 	fmt.Fprintln(ev.out, string(b))
-	if e.Event == "blocked" {
+	// A quiet block (Event.Quiet) is in the log alone: the VM's prompt and devvm-why never see it.
+	if e.Event == "blocked" && !e.Quiet {
 		ev.blocks++
 		ev.recent = append(ev.recent, numbered{ev.blocks, e})
 		if len(ev.recent) > 50 {
@@ -631,20 +635,33 @@ func asciiEqualFold(a, b string) bool { return hostASCII(a) && hostASCII(b) && s
 
 // block records e as a block and answers the request with blockPage.
 func (s *server) block(w http.ResponseWriter, e Event) {
-	e.Event = "blocked"
+	e = s.blocked(e)
 	s.events.record(e)
 	blockPage(w, e)
 }
 
+// blocked is e, a block, marked so, and marked quiet when it's blocked only because no rule allows
+// it (notAllowed) and a built-in policy marks its host quiet with no rule covering it
+// (policy.quiet): never a block for another reason, such as its address or a failed connection.
+func (s *server) blocked(e Event) Event {
+	e.Event = "blocked"
+	e.Quiet = !e.Refused && e.Reason == notAllowed && s.egress != nil && s.egress.pol.quiet(e.Host, e.Port)
+	return e
+}
+
 // blockPage answers a request that e, a block, refused: 403, with the reason and, unless no rule
-// would lift it (Refused), the command that allows it on the host. The transparent path's TLS page
-// writes it too.
+// would lift it (Refused) or devvm leaves the host out on purpose (Quiet), the command that allows
+// it on the host. The transparent path's TLS page writes it too.
 func blockPage(w http.ResponseWriter, e Event) {
 	w.Header().Set("X-Devvm-Blocked", e.Host)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
-	if e.Refused { // no rule would allow it: no allow command
+	switch {
+	case e.Refused: // no rule would allow it: no allow command
 		fmt.Fprintf(w, "devvm: %s:%d is refused (%s).\n", e.Host, e.Port, e.Reason)
+		return
+	case e.Quiet:
+		fmt.Fprintf(w, "devvm: %s:%d is blocked (%s): devvm leaves it out on purpose.\n", e.Host, e.Port, e.Reason)
 		return
 	}
 	fmt.Fprintf(w, "devvm: %s:%d is blocked (%s). Allow it on the host with: devvm network allow %s\n",

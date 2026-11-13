@@ -122,6 +122,8 @@ type policyFileJSON struct {
 	DeniesOnly bool          `json:"denies_only,omitempty"`
 	Rules      []string      `json:"rules"`
 	NotRules   []notRuleJSON `json:"not_rules"`
+	// Quiet are a built-in policy's quiet hosts (netpolicy.RuleFile.Quiet).
+	Quiet []string `json:"quiet,omitempty"`
 }
 
 // notRuleJSON is a policy file's line that isn't a rule: its number, from
@@ -142,7 +144,7 @@ func printNetwork(u *ui.UI, asJSON bool, s vm.NetworkShown) error {
 	}
 	out := networkOutput{Policy: s.Policy, LearningSince: jsonTime(s.Learning), Allowlist: []policyFileJSON{}, Transparent: transparentJSON(s.Transparent)}
 	for _, f := range s.Rules {
-		j := policyFileJSON{DeniesOnly: f.DeniesOnly, Rules: append([]string{}, f.Rules()...), NotRules: []notRuleJSON{}}
+		j := policyFileJSON{DeniesOnly: f.DeniesOnly, Rules: append([]string{}, f.Rules()...), NotRules: []notRuleJSON{}, Quiet: f.Quiet()}
 		if f.Builtin {
 			j.Builtin = f.Path
 		} else {
@@ -277,6 +279,7 @@ type logEventJSON struct {
 	Upstream string   `json:"upstream,omitempty"`
 	Target   string   `json:"target,omitempty"`
 	Via      string   `json:"via,omitempty"`
+	Quiet    bool     `json:"quiet,omitempty"`
 }
 
 // logOutput is devvm network log --json; blockedOutput, with --blocked.
@@ -290,6 +293,7 @@ type blockJSON struct {
 	Host  string `json:"host"`
 	Port  int    `json:"port"`
 	Allow string `json:"allow,omitempty"`
+	Quiet bool   `json:"quiet,omitempty"`
 }
 
 type blockedOutput struct {
@@ -326,7 +330,7 @@ func printLogJSON(cmd *cobra.Command, a *app, o vm.LogOptions) error {
 	for _, e := range events {
 		out.Events = append(out.Events, logEventJSON{
 			Time: e.Time, Event: e.Event, Host: e.Host, Port: e.Port, Method: e.Method, Path: e.Path, Rule: e.Rule,
-			Reason: e.Reason, Agent: e.Agent, Secrets: e.Secrets, Refused: e.Refused, Upstream: e.Upstream, Target: e.Target, Via: e.Via,
+			Reason: e.Reason, Agent: e.Agent, Secrets: e.Secrets, Refused: e.Refused, Upstream: e.Upstream, Target: e.Target, Via: e.Via, Quiet: e.Quiet,
 		})
 	}
 	return printJSON(u, out)

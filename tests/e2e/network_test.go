@@ -1709,6 +1709,30 @@ func netCursor(n *netRun) {
 		}
 		return nil
 	})
+	// api3.cursor.sh, the CLI's metrics, is quiet in Cursor's policy: blocked, logged as quiet, and
+	// never in the VM's notices or with a command to allow it.
+	s.Check("Cursor's metrics host is blocked quietly: no notice in the VM, logged as quiet", func() error {
+		const count = "curl -sS -m 10 http://devvm.proxy/blocked/new | head -1"
+		before := vmOut(s, vm, count)
+		r, _ := s.InVM(vm, "curl -sS -m 20 -o /dev/null -w '%{http_code}' https://api3.cursor.sh/; curl -sS -m 20 http://api3.cursor.sh/")
+		switch {
+		case !strings.Contains(r.Out, "403") || strings.Contains(r.Out, "devvm network allow"):
+			return errors.New("api3.cursor.sh wasn't refused quietly: " + r.Out)
+		case before == "" || vmOut(s, vm, count) != before:
+			return errors.New("the VM's notices counted api3.cursor.sh's block")
+		case strings.Contains(vmOut(s, vm, "devvm-why"), "api3.cursor.sh"):
+			return errors.New("devvm-why shows api3.cursor.sh")
+		}
+		l, err := s.Devvm(n.n, "network", "log")
+		if err != nil || !Matches(l.Stdout, `  BLOCKED  api3\.cursor\.sh:443  .*, quiet$`) {
+			return errors.New("devvm network log doesn't show api3.cursor.sh's block as quiet")
+		}
+		b, _ := s.Devvm(n.n, "network", "log", "--blocked")
+		if !Matches(b.Stdout, `api3\.cursor\.sh:443 +- \(quiet\)$`) {
+			return errors.New("devvm network log --blocked offers api3.cursor.sh: " + b.Stdout)
+		}
+		return nil
+	})
 }
 
 func netPiTools(n *netRun) {

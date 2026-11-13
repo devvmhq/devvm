@@ -110,6 +110,18 @@ stderr '^devvm: policy_broken_deny file=\S*/config/devvm/policy line=5 rule=! wo
 exec sh -c 'grep -v -e "example.com:x" -e "worse.test" "$GLOBAL" > "$WORK/g" && cat "$WORK/g" > "$GLOBAL"'
 exec devvm doctor
 ! stderr 'policy_not_rule|policy_broken_deny'
+# Only devvm's own policies mark a host quiet: in a file of the user's,
+# the line isn't a rule, and doctor says why.
+exec sh -c 'echo "quiet metrics.test" >> "$GLOBAL"'
+exec devvm network
+stdout '^  quiet metrics\.test  # not a rule, skipped \(line \d+\)$'
+exec devvm network --json
+stdout '"text": "quiet metrics\.test"'
+! stdout '"quiet": \['
+exec devvm doctor
+stderr '^devvm: policy_quiet_not_own file=\S*/config/devvm/policy line=\d+ rule=quiet metrics\.test$'
+! stderr 'policy_not_rule'
+exec sh -c 'grep -v -e "metrics.test" "$GLOBAL" > "$WORK/g" && cat "$WORK/g" > "$GLOBAL"'
 exec devvm network allow -g ok3.test
 ! stderr .
 exec devvm network rm -g ok3.test

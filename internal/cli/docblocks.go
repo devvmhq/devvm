@@ -74,7 +74,9 @@ func agentsTable(own fs.FS) (string, error) {
 		}
 		var hosts []string
 		for _, l := range proxy.ParsePolicy(string(policy)) {
-			hosts = append(hosts, "`"+l.Text+"`")
+			if l.OK { // a quiet line is a host it leaves out
+				hosts = append(hosts, "`"+l.Text+"`")
+			}
 		}
 		name := d.Display
 		if d.Docs.Site != "" {

@@ -229,7 +229,7 @@ func quoteCapped(s string) string {
 
 // block records e, a transparent TLS connection's block, and serves c the 403 page (refusePage).
 func (t *transparent) block(ctx context.Context, c net.Conn, e Event) {
-	e.Event = "blocked"
+	e = t.s.blocked(e)
 	t.s.events.record(e)
 	t.refusePage(ctx, c, e)
 }

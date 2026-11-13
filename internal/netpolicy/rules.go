@@ -278,12 +278,26 @@ func (f RuleFile) Rules() []string {
 	return out
 }
 
-// NotRules are the file's lines that aren't rules, which the proxy skips.
+// NotRules are the file's lines that aren't rules, which the proxy skips:
+// a built-in policy's quiet lines (Quiet) aside.
 func (f RuleFile) NotRules() []proxy.PolicyLine {
 	var out []proxy.PolicyLine
 	for _, l := range f.Lines {
-		if !l.OK {
+		if !l.OK && (!f.Builtin || !l.Quiet()) {
 			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// Quiet are a built-in policy's quiet lines' hosts, as HOST[:PORT]: hosts
+// it leaves out on purpose, blocked without a notice in the VM. None for a
+// file of the user's, whose quiet lines the proxy skips (NotRules).
+func (f RuleFile) Quiet() []string {
+	var out []string
+	for _, l := range f.Lines {
+		if f.Builtin && l.Quiet() {
+			out = append(out, strings.Fields(l.Text)[1])
 		}
 	}
 	return out
@@ -352,6 +366,10 @@ func readPolicyFile(f string, deniesOnly bool) (RuleFile, error) {
 // notRuleMark follows a line that isn't a rule in WriteRules' output.
 const notRuleMark = "  # not a rule, skipped"
 
+// quietMark follows a built-in policy's quiet line in WriteRules' output:
+// a host it leaves out on purpose, blocked without telling the VM.
+const quietMark = "  # blocked, without a notice in the VM"
+
 // builtinMark labels a built-in policy in WriteRules' output, before its
 // name: it comes with devvm, so it has no path.
 const builtinMark = "devvm: "
@@ -377,7 +395,10 @@ func WriteRules(w io.Writer, files []RuleFile) error {
 		}
 		for _, l := range f.Lines {
 			text, mark := l.Text, ""
-			if !l.OK {
+			switch {
+			case l.Quiet() && f.Builtin:
+				mark = quietMark
+			case !l.OK:
 				// Anything but a rule may hold control characters: dropped.
 				text, mark = msg.OneLine(l.Text), notRuleMark+" (line "+strconv.Itoa(l.N)+")"
 			}
@@ -416,9 +437,12 @@ func PolicyWarnings(files []string) []msg.M {
 		for _, rf := range rs {
 			for _, l := range rf.NotRules() {
 				n := strconv.Itoa(l.N)
-				if proxy.BrokenDeny(l) {
+				switch {
+				case proxy.BrokenDeny(l):
 					out = append(out, msg.PolicyBrokenDeny(f, n, l.Text))
-				} else {
+				case l.Quiet():
+					out = append(out, msg.PolicyQuietNotOwn(f, n, l.Text))
+				default:
 					out = append(out, msg.PolicyNotRule(f, n, l.Text))
 				}
 			}

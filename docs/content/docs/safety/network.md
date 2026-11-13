@@ -283,9 +283,18 @@ devvm warns about each line that isn't a rule, with the file and the line's numb
 
 The proxy never dials a denied address, even for an allowed name that resolves to it or to its NAT64 or 6to4 form. A missing file has no rules. A file that changed but can't be read keeps its last rules, so a deny never lapses.
 
+### Quiet hosts
+
+Some tools send telemetry to a host of their own, and devvm's built-in policies leave such hosts out. Cursor's CLI has no setting that turns its metrics off, so it keeps sending them to `api3.cursor.sh` and getting blocked, many times a session. devvm's built-in policies mark a few such hosts quiet, with a `quiet HOST` line, for one exact host name. A quiet host is blocked as any host that no rule allows, and `devvm network log` still shows each block, ending `, quiet`. The VM gets no note before its prompt for it, though, and `devvm-why` doesn't list it, the `403` that the tool gets suggests no command, `devvm network log --blocked` shows `- (quiet)` instead of one, and `devvm network lock` never offers it.
+
+A block is quiet only when no rule of yours covers the host and nothing else refused it, such as its address. To allow a quiet host anyway, add it as any other host, such as `devvm network allow api3.cursor.sh`, and your rule wins. Only devvm's own policies can mark a host quiet. In one of your files, a `quiet` line isn't a rule, so the proxy skips it, and devvm warns about it as it warns about any other line that isn't a rule, saying that only devvm's policies can mark a host quiet. These are the quiet hosts:
+
+- `api3.cursor.sh`, the host Cursor documents for its editor's Tab requests, which Cursor's CLI uses for its metrics;
+- `telemetry.go.dev`, Go's telemetry uploads, which every VM turns off.
+
 ### Changing rules
 
-`devvm network` shows this folder's VM's allowlist after its tier. It prints each of the VM's policies that holds more than comments, and then its rules without their comments. A built-in policy has its name after `# devvm:`, because it has no file you could edit, and one of your files has its path after `#`, followed by `(denies only)` on the internet and none tiers, where it shows only the file's denies. An open VM has no policies, so `devvm network` prints its tier alone. A line that isn't a rule is marked `# not a rule, skipped`, with its line number:
+`devvm network` shows this folder's VM's allowlist after its tier. It prints each of the VM's policies that holds more than comments, and then its rules without their comments. A built-in policy has its name after `# devvm:`, because it has no file you could edit, and one of your files has its path after `#`, followed by `(denies only)` on the internet and none tiers, where it shows only the file's denies. An open VM has no policies, so `devvm network` prints its tier alone. A built-in policy's quiet line is marked `# blocked, without a notice in the VM`, and a line that isn't a rule is marked `# not a rule, skipped`, with its line number:
 
 ```text
 allowlist
@@ -397,6 +406,7 @@ A VM's proxy is the devvm binary that started it, which is the one from before a
 | `rules` | the policy's rules: all of a file's rules, or on the internet and none tiers, for a file whose denies alone apply, its denies, as `devvm network` lists them under `(denies only)` |
 | `denies_only` | `true` for a file whose denies alone apply |
 | `not_rules` | each line that isn't a rule, with its `line` number and its `text` |
+| `quiet` | a built-in policy's [quiet hosts](#quiet-hosts), there only when it has some |
 | `transparent` | the VM's [transparent mode](#tools-that-ignore-the-proxy), with `on` and `from`, as `devvm network transparent --json` has it |
 
 With `-g`, the object has only `policy`, which is the tier new VMs get, and `source`, which says where it came from: `config.toml`, `settings.json` for what `devvm network -g` or `devvm setup` saved, or `built-in` ([where a default comes from](../using/settings.md#where-a-default-comes-from)).
@@ -475,7 +485,7 @@ Every login in the VM has the proxy settings in its environment (`HTTP_PROXY`, `
 
 On a confined tier, a direct connection to an address fails at once, even as root, and no DNS query leaves the VM. Names resolve in the proxy, and inside the VM every name resolves to one stand-in address, which leads to the proxy too, so a tool that skips the proxy settings still reaches the hosts the rules allow over HTTPS and HTTP ([tools that ignore the proxy](#tools-that-ignore-the-proxy)). Such a tool's connection to another port of a name is refused at once, and nothing reaches the log for it ([what to do](../using/troubleshooting.md#a-tool-that-skips-the-proxy-fails)).
 
-A blocked request gets `403`, and the response names the host, the reason and the rule that would allow it. The proxy also answers at `http://devvm.proxy/`:
+A blocked request gets `403`, and the response names the host, the reason and the rule that would allow it, but for a [quiet host](#quiet-hosts). The proxy also answers at `http://devvm.proxy/`:
 
 - `/blocked` lists the last 50 blocks.
 - `/blocked/new?after=N` gives the number of blocks so far, then those after the Nth, with each rule once, so a shell prompt can show what a command hit.
@@ -806,7 +816,7 @@ devvm keeps your secrets' hosts, headers, variables, prefixes, paths, methods an
 | `--follow` | then each new one as it happens, until Ctrl+C |
 | `--blocked` | the blocks instead, one row per host and port, by when last blocked: `LAST`, `COUNT`, `HOST` and `ALLOW WITH`, the `devvm network allow` command that allows it |
 
-`ALLOW WITH` is `-` for a request that the proxy refuses whatever the allowlist says, such as a GitHub call that makes a credential, and for a host that isn't a host name or an address. An open VM's log holds what went through its proxy and its links' connections, but not what the VM reached directly, and `devvm network log` says so. The proxy keeps each VM's log to its last 10 to 20 MiB by starting a new file once the current one reaches 10 MiB and keeping one older file, which `devvm network log` reads too. `devvm rm` deletes the VM's logs, and [How it works](../internals/network.md#log-files) describes the files.
+`ALLOW WITH` is `-` for a request that the proxy refuses whatever the allowlist says, such as a GitHub call that makes a credential, and for a host that isn't a host name or an address, and `- (quiet)` for a [quiet host](#quiet-hosts). An open VM's log holds what went through its proxy and its links' connections, but not what the VM reached directly, and `devvm network log` says so. The proxy keeps each VM's log to its last 10 to 20 MiB by starting a new file once the current one reaches 10 MiB and keeping one older file, which `devvm network log` reads too. `devvm rm` deletes the VM's logs, and [How it works](../internals/network.md#log-files) describes the files.
 
 ### devvm network log --json
 
@@ -822,6 +832,7 @@ devvm keeps your secrets' hosts, headers, variables, prefixes, paths, methods an
 | `agent` | the request's `User-Agent` header |
 | `secrets` | the secrets put in |
 | `refused` | for a request refused whatever the allowlist says |
+| `quiet` | for a block of a [quiet host](#quiet-hosts) |
 | `upstream` | the company proxy it went through |
 | `target` | the VM that a link's connection went to |
 | `via` | `dns` for a connection that [transparent mode](#tools-that-ignore-the-proxy) sent to the proxy |
@@ -855,7 +866,7 @@ Each field but `time`, `event`, `host` and `port` is there only when the event h
 }
 ```
 
-With `--blocked`, each of the `blocked` has the `last` time it was blocked, the `count`, the `host` and the `port`, and `allow`, the rule that `devvm network allow` takes to allow it. A block that `ALLOW WITH` shows as `-` has no `allow`.
+With `--blocked`, each of the `blocked` has the `last` time it was blocked, the `count`, the `host` and the `port`, and `allow`, the rule that `devvm network allow` takes to allow it. A block that `ALLOW WITH` shows as `-` has no `allow`, and a quiet host's has `"quiet": true` instead.
 
 ```json
 {

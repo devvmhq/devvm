@@ -167,28 +167,35 @@ func TestAddRemoveRule(t *testing.T) {
 func TestWriteRules(t *testing.T) {
 	dir := t.TempDir()
 	a, b, c := filepath.Join(dir, "a"), filepath.Join(dir, "b"), filepath.Join(dir, "c")
-	if err := os.WriteFile(a, []byte("# head\n\nx.test # why\n  !y.test\nexample.com:x\na\x1b[31mb\n"), 0o600); err != nil {
+	if err := os.WriteFile(a, []byte("# head\n\nx.test # why\n  !y.test\nexample.com:x\na\x1b[31mb\nquiet q.test\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(b, []byte("# only a comment\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	own := fstest.MapFS{"layers/base.policy": {Data: []byte("# devvm's\nbase.test\n")}, "shared-tools/none.policy": {Data: []byte("# none\n")}}
+	own := fstest.MapFS{"layers/base.policy": {Data: []byte("# devvm's\nbase.test\nquiet q.test\n")}, "shared-tools/none.policy": {Data: []byte("# none\n")}}
 	files, err := ReadRules(own, []string{"layers/base.policy", "shared-tools/none.policy"}, []string{a, b, c})
 	if err != nil || len(files) != 2 || files[0].Path != "layers/base.policy" || !files[0].Builtin ||
 		files[1].Path != a || files[1].Builtin || strings.Join(files[1].Rules(), " ") != "x.test !y.test" {
 		t.Fatalf("ReadRules = %+v, %v", files, err)
 	}
-	if bad := files[1].NotRules(); len(bad) != 2 || bad[0].N != 5 || bad[0].Text != "example.com:x" {
+	if bad := files[1].NotRules(); len(bad) != 3 || bad[0].N != 5 || bad[0].Text != "example.com:x" {
 		t.Errorf("NotRules = %+v", bad)
+	}
+	if q := files[0].Quiet(); len(q) != 1 || q[0] != "q.test" || files[0].NotRules() != nil || files[1].Quiet() != nil {
+		t.Errorf("Quiet = %q, %q; NotRules %v", q, files[1].Quiet(), files[0].NotRules())
+	}
+	// A quiet line of devvm's is marked so; one of the user's isn't a rule, and doctor says why.
+	if ws := PolicyWarnings([]string{a}); len(ws) != 3 || ws[2].ID() != "policy_quiet_not_own" {
+		t.Errorf("PolicyWarnings = %v", ws)
 	}
 	var out strings.Builder
 	if err := WriteRules(&out, files); err != nil {
 		t.Fatal(err)
 	}
 	// A line's control characters are dropped.
-	if want := "# devvm: layers/base.policy\n  base.test\n# " + a + "\n  x.test\n  !y.test\n  example.com:x" + notRuleMark + " (line 5)\n" +
-		"  a[31mb" + notRuleMark + " (line 6)\n"; out.String() != want {
+	if want := "# devvm: layers/base.policy\n  base.test\n  quiet q.test" + quietMark + "\n# " + a + "\n  x.test\n  !y.test\n  example.com:x" + notRuleMark + " (line 5)\n" +
+		"  a[31mb" + notRuleMark + " (line 6)\n  quiet q.test" + notRuleMark + " (line 7)\n"; out.String() != want {
 		t.Errorf("WriteRules = %q; want %q", out.String(), want)
 	}
 	// A built-in devvm's files lack is an error, whatever is on disk.
@@ -223,7 +230,7 @@ func TestBuiltinPolicies(t *testing.T) {
 			t.Errorf("%s has no rules", path)
 		}
 		for _, l := range lines {
-			if !l.OK {
+			if !l.OK && !l.Quiet() {
 				t.Errorf("%s:%d isn't a rule: %q", path, l.N, l.Text)
 			}
 		}

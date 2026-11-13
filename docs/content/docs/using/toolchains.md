@@ -50,7 +50,7 @@ go brings the newest Go release, and devvm turns Go's telemetry off in the VM.
 - **Files.** devvm chooses go for a folder with `go.mod` at its top level.
 - **Versions.** The `toolchain` line in a project's `go.mod` picks its Go version, and Go itself downloads that version into the VM the first time it's used.
 - **Global installs.** `go install` installs into `~/go/bin` in the VM, which is on the `PATH`.
-- **Allowlist.** On the allowlist tier, the VM can reach Go's module proxy, its checksum database and Go's downloads, which are `proxy.golang.org`, `sum.golang.org`, `go.dev` and `dl.google.com`.
+- **Allowlist.** On the allowlist tier, the VM can reach Go's module proxy, its checksum database and Go's downloads, which are `proxy.golang.org`, `sum.golang.org`, `go.dev` and `dl.google.com`. Go's telemetry uploads, to `telemetry.go.dev`, are a [quiet host](../safety/network.md#quiet-hosts), so their blocks never show in the VM.
 
 ## dotnet
 

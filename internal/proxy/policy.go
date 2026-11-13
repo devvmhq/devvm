@@ -37,6 +37,10 @@ type rule struct {
 	prefix netip.Prefix // for address rules
 	port   int          // 0: 443 and 80; anyPort: every port
 	req    match        // the requests it covers: every one unless it narrows
+	// quiet is a built-in policy's `quiet HOST[:PORT]` line: a host it leaves out on purpose, such
+	// as a tool's telemetry, whose blocks give the VM no notice and no command to allow it
+	// (policy.quiet). It allows and denies nothing, and only devvm's own policies have one.
+	quiet bool
 }
 
 // narrows reports whether r covers some of its host's requests alone.
@@ -203,6 +207,13 @@ type PolicyLine struct {
 	OK   bool   // whether it's a rule (ValidRule): the proxy skips one that isn't
 }
 
+// Quiet reports whether l is a `quiet HOST[:PORT]` line, which isn't a rule: a built-in policy's
+// marks a host it leaves out quietly (rule.quiet), and the proxy skips one in any other file.
+func (l PolicyLine) Quiet() bool {
+	_, ok := parseQuiet(l.Text)
+	return ok
+}
+
 // ParsePolicy reads a policy file: one rule a line, '#' starting a comment. It returns each line
 // that holds more than a comment, in order, each marked whether it's a rule. The proxy, devvm
 // network and devvm doctor all read policy files with it.
@@ -222,6 +233,11 @@ func parsePolicy(text string) ([]PolicyLine, []rule) {
 		if s = strings.TrimSpace(s); s == "" {
 			continue
 		}
+		if q, ok := parseQuiet(s); ok {
+			lines = append(lines, PolicyLine{N: i + 1, Text: s})
+			rules = append(rules, q)
+			continue
+		}
 		r, ok := parseRule(s)
 		lines = append(lines, PolicyLine{N: i + 1, Text: s, OK: ok})
 		if ok {
@@ -229,6 +245,24 @@ func parsePolicy(text string) ([]PolicyLine, []rule) {
 		}
 	}
 	return lines, rules
+}
+
+// quietWord starts a built-in policy's quiet line (rule.quiet).
+const quietWord = "quiet"
+
+// parseQuiet reads `quiet HOST[:PORT]`, one exact host name's rule (parseHostRule) after the word,
+// as a quiet rule: never a wildcard, so a quiet line can't hide a whole domain's blocks.
+func parseQuiet(s string) (rule, bool) {
+	f := strings.FieldsFunc(s, func(c rune) bool { return c == ' ' || c == '\t' })
+	if len(f) != 2 || f[0] != quietWord {
+		return rule{}, false
+	}
+	r, ok := parseHostRule(f[1])
+	if !ok || r.deny || r.host == "" || strings.Contains(r.host, "*") {
+		return rule{}, false
+	}
+	r.quiet, r.text = true, quietWord+" "+r.text
+	return r, true
 }
 
 func (r rule) portOK(port int) bool {
@@ -340,7 +374,7 @@ func readBuiltins(own fs.FS, names []string, l *log.Logger) ([]rule, error) {
 		}
 		lines, rs := parsePolicy(string(b))
 		for _, l := range lines {
-			if !l.OK {
+			if !l.OK && !l.Quiet() {
 				return nil, fmt.Errorf("built-in policy %s:%d isn't a rule: %q", n, l.N, l.Text)
 			}
 		}
@@ -357,7 +391,7 @@ func BrokenDeny(l PolicyLine) bool { return !l.OK && strings.HasPrefix(l.Text, "
 // all returns the policy's rules, the built-in policies' first, and while a file has a broken deny
 // (BrokenDeny), why the policy denies everything.
 func (p *policy) all() ([]rule, string) {
-	out := slices.Clone(p.builtin)
+	out := slices.DeleteFunc(slices.Clone(p.builtin), func(r rule) bool { return r.quiet })
 	why := ""
 	for _, w := range p.files {
 		pf := w.get()
@@ -369,16 +403,28 @@ func (p *policy) all() ([]rule, string) {
 	return out, why
 }
 
+// quiet reports whether a built-in policy marks host:port quiet (rule.quiet) and no rule covers
+// it, an allow, a deny or one that narrows, so it's blocked only because no rule allows it and its
+// block gives the VM no notice: never when the policy is open or a file has a broken deny.
+func (p *policy) quiet(host string, port int) bool {
+	if h := p.rulesFor(host, port); h.open || h.broken != "" || len(h.rs) > 0 {
+		return false
+	}
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	return slices.ContainsFunc(p.builtin, func(r rule) bool { return r.quiet && r.portOK(port) && r.matchHost(host) })
+}
+
 // loadPolicy is file f's rules from its text b, its denies alone with deniesOnly, logging to l
 // each line that isn't a rule and noting the first broken deny.
 func loadPolicy(f, b string, deniesOnly bool, l *log.Logger) policyFile {
 	lines, rs := parsePolicy(b)
-	if deniesOnly {
-		rs = slices.DeleteFunc(rs, func(r rule) bool { return !r.deny })
-	}
+	// A quiet line is devvm's own policies' alone.
+	rs = slices.DeleteFunc(rs, func(r rule) bool { return r.quiet || deniesOnly && !r.deny })
 	pf := policyFile{rules: rs}
 	for _, line := range lines {
 		switch {
+		case line.Quiet():
+			l.Printf("%s:%d: only devvm's own policies mark a host quiet, skipped: %q", f, line.N, line.Text)
 		case BrokenDeny(line):
 			l.Printf("%s:%d: not a rule but reads as a deny, so everything is denied: %q", f, line.N, line.Text)
 			if pf.broken == nil {
@@ -463,8 +509,12 @@ func (h hostRules) verdict() (bool, string, bool) {
 			return true, r.text, false
 		}
 	}
-	return false, "not on the allowlist", false
+	return false, notAllowed, false
 }
+
+// notAllowed is the reason for a block because no rule allows the host: the one a quiet host's
+// block can have (server.blocked).
+const notAllowed = "not on the allowlist"
 
 // byRequest reports whether the host's requests are judged one by one (judge), as its verdict
 // alone can't decide them: a rule that narrows covers it, and either it's a deny or no allow
@@ -536,7 +586,7 @@ func (h hostRules) judge(r *http.Request) (ok bool, why string, refused, narrowe
 	}
 	switch {
 	case !narrowed:
-		return false, "not on the allowlist", false, false
+		return false, notAllowed, false, false
 	case !plain && slices.ContainsFunc(rs, func(x rule) bool { return x.req.path != "" }):
 		return false, reasonPathNotPlain, false, narrowed
 	}
@@ -628,6 +678,10 @@ func (p Allowlist) coversOn(n rule, port int) bool {
 	}
 	return false
 }
+
+// Quiet reports whether a built-in policy marks host:port quiet (rule.quiet): a host devvm leaves
+// out on purpose, which devvm network lock never offers.
+func (p Allowlist) Quiet(host string, port int) bool { return p.p.quiet(host, port) }
 
 // Denies reports whether the policies deny host:port, so that no allow would lift it: a deny rule
 // matches it, or a file has a broken deny.

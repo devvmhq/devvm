@@ -266,11 +266,13 @@ func TestLearned(t *testing.T) {
 		at(s(12), "tunnel", "denied.test", 443, ""),
 		at(s(13), "forward", "registry.npmjs.org", 80, "npm/10.9.2"),
 		at(s(14), "tunnel", "cdn.example.com", 443, string(rune(0x3164))+"npm/1"),
+		at(s(15), "tunnel", "metrics.test", 443, ""), // a host a built-in policy marks quiet: never offered
 		`not json`,
 	)
 	j := Judge{
 		Allows: func(host string, port int) bool { return host == "github.com" && port == 443 },
 		Denies: func(host string, _ int) bool { return host == "denied.test" },
+		Quiet:  func(host string, _ int) bool { return host == "metrics.test" },
 	}
 	got, err = l.Learned(since, j)
 	if err != nil {

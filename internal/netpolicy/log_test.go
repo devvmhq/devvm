@@ -23,6 +23,7 @@ func TestFormatEvent(t *testing.T) {
 		{`{"time":"T","event":"blocked","host":"b.test","port":22,"reason":"no"}`, "T  BLOCKED  b.test:22  no"},
 		{`{"time":"T","event":"blocked","host":"b.test","port":443,"method":"CONNECT","reason":"no"}`, "T  BLOCKED  b.test:443  no"},
 		{`{"time":"T","event":"blocked","host":"b.test","port":443,"method":"POST","path":"/x","reason":"no"}`, "T  BLOCKED  b.test:443  POST /x: no"},
+		{`{"time":"T","event":"blocked","host":"m.test","port":443,"reason":"no","quiet":true}`, "T  BLOCKED  m.test:443  no, quiet"},
 		{`{"time":"T","event":"forward","host":"a.test","port":443,"method":"GET","path":"/r/x","rule":"a.test GET /r/"}`, "T  allowed  a.test:443  GET /r/x, rule a.test GET /r/"},
 		{`{"time":"T","event":"tunnel","host":"a.test","port":443,"rule":"a.test","via":"dns"}`, "T  allowed  a.test:443  rule a.test, without proxy settings"},
 		{`{"time":"T","event":"blocked","host":"b.test","port":443,"reason":"no","via":"dns"}`, "T  BLOCKED  b.test:443  no, without proxy settings"},
@@ -245,7 +246,8 @@ func TestWriteBlocked(t *testing.T) {
 {"time":"T4","event":"blocked","host":"a.test","port":443,"reason":"r"}
 {"time":"T1","event":"blocked","host":"fd00::1","port":22,"reason":"r"}
 {"time":"T1","event":"blocked","host":"Bad Host","port":443,"reason":"r"}
-{"time":"T5","event":"blocked","host":"api.github.com","port":443,"reason":"r","refused":true}`
+{"time":"T5","event":"blocked","host":"api.github.com","port":443,"reason":"r","refused":true}
+{"time":"T6","event":"blocked","host":"a.test","port":443,"reason":"r","quiet":true}`
 	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -258,12 +260,13 @@ func TestWriteBlocked(t *testing.T) {
 		"T1    1      [fd00::1]:22        devvm network allow [fd00::1]:22\n" +
 		"T3    1      db.test:5432        devvm network allow db.test:5432\n" +
 		"T4    2      a.test:443          devvm network allow a.test\n" +
-		"T5    1      api.github.com:443  -\n"
+		"T5    1      api.github.com:443  -\n" +
+		"T6    1      a.test:443          - (quiet)\n" // a quiet block is a row of its own
 	if b.String() != want {
 		t.Errorf("WriteBlocked:\n%s\nwant:\n%s", b.String(), want)
 	}
 	blocks, err := (&Log{Path: path}).Blocks()
-	if err != nil || len(blocks) != 5 {
+	if err != nil || len(blocks) != 6 {
 		t.Fatalf("Blocks = %+v, %v", blocks, err)
 	}
 	if got, want := blocks[3], (Block{Last: "T4", Count: 2, Host: "a.test", Port: 443, Allow: "a.test"}); got != want {
@@ -272,8 +275,8 @@ func TestWriteBlocked(t *testing.T) {
 	if blocks[4].Allow != "" {
 		t.Errorf("a refused block has a rule: %+v", blocks[4])
 	}
-	events, err := (&Log{Path: path}).Events(3)
-	if err != nil || len(events) != 3 || events[0].Host != "fd00::1" || events[2].Host != "api.github.com" {
+	events, err := (&Log{Path: path}).Events(4)
+	if err != nil || len(events) != 4 || events[0].Host != "fd00::1" || events[2].Host != "api.github.com" || !events[3].Quiet {
 		t.Errorf("Events(3) = %+v, %v", events, err)
 	}
 }

@@ -3,3 +3,5 @@ proxy.golang.org
 sum.golang.org
 go.dev
 dl.google.com
+# Go's telemetry uploads, which every VM turns off: https://go.dev/doc/telemetry
+quiet telemetry.go.dev

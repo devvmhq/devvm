@@ -1898,6 +1898,10 @@ other = "{{.rule}} isn't in {{.file}}."
 description = "doctor's warning for a policy file's line that isn't a rule; line is its number, rule its text, quoted"
 other = "Line {{.line}} of {{.file}}, {{.rule}}, isn't a rule, so VMs' proxies skip it. Fix the line or remove it."
 
+[policy_quiet_not_own]
+description = "doctor's warning for a quiet line in a policy file of the user's; line is its number, rule its text, quoted"
+other = "Line {{.line}} of {{.file}}, {{.rule}}, marks a host quiet, which only devvm's own policies can do, so VMs' proxies skip it. Remove the line."
+
 [policy_broken_deny]
 description = "a policy file's line that starts with ! but isn't a rule; line is its number, rule its text, quoted"
 other = "Line {{.line}} of {{.file}}, {{.rule}}, reads as a deny but isn't a rule, so every VM whose proxy reads that file denies everything until it's fixed. Fix the line or remove it."

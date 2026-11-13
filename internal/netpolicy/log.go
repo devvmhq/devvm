@@ -272,6 +272,9 @@ func FormatEvent(line string) (string, bool) {
 		if e.Method != "" && e.Method != http.MethodConnect && e.Path != "" { // a request, not a tunnel
 			d = e.Method + " " + e.Path + ": " + e.Reason
 		}
+		if e.Quiet { // a host devvm leaves out on purpose, such as a tool's telemetry
+			d += ", quiet"
+		}
 	case "forward":
 		d = e.Method + " " + e.Path
 		if e.Rule != "" { // the rule that let it through, by method and path
@@ -349,9 +352,12 @@ type Block struct {
 	Host  string
 	Port  int
 	// Allow is the rule devvm network allow takes to allow it; "" for a
-	// request refused whatever the allowlist says, or a host the policy
-	// doesn't take.
+	// request refused whatever the allowlist says, a host the policy
+	// doesn't take, or a quiet one, which devvm doesn't suggest.
 	Allow string
+	// Quiet is a host a built-in policy marks quiet (proxy.Event.Quiet),
+	// such as a tool's telemetry: devvm leaves it out on purpose.
+	Quiet bool
 }
 
 // Blocks returns the log's blocks (Old's too), one per host and port, by
@@ -361,6 +367,7 @@ func (l *Log) Blocks() ([]Block, error) {
 		host    string
 		port    int
 		refused bool
+		quiet   bool // a quiet block and a plain one of the same host are rows of their own
 	}
 	rows := map[key]*Block{}
 	err := l.each(func(l string) {
@@ -368,11 +375,11 @@ func (l *Log) Blocks() ([]Block, error) {
 		if json.Unmarshal([]byte(l), &e) != nil || e.Event != "blocked" {
 			return
 		}
-		k := key{e.Host, e.Port, e.Refused}
+		k := key{e.Host, e.Port, e.Refused, e.Quiet}
 		r := rows[k]
 		if r == nil {
-			r = &Block{Host: e.Host, Port: e.Port}
-			if rule, ok := proxy.AllowRule(e.Host, e.Port); ok && !e.Refused {
+			r = &Block{Host: e.Host, Port: e.Port, Quiet: e.Quiet}
+			if rule, ok := proxy.AllowRule(e.Host, e.Port); ok && !e.Refused && !e.Quiet {
 				r.Allow = rule
 			}
 			rows[k] = r
@@ -408,8 +415,11 @@ func (l *Log) WriteBlocked(w io.Writer) error {
 	_, _ = fmt.Fprintln(tw, "LAST\tCOUNT\tHOST\tALLOW WITH")
 	for _, b := range blocks {
 		allow := "-"
-		if b.Allow != "" {
+		switch {
+		case b.Allow != "":
 			allow = "devvm network allow " + b.Allow
+		case b.Quiet:
+			allow = "- (quiet)"
 		}
 		_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n", msg.OneLine(b.Last), b.Count, hostPort(b.Host, b.Port), allow)
 	}

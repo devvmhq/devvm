@@ -3729,6 +3729,11 @@ func PolicyNotRule(file string, line string, rule string) M {
 	return M{id: "policy_not_rule", vals: []val{{"file", file}, {"line", line}, {"rule", rule}}}
 }
 
+// PolicyQuietNotOwn is [policy_quiet_not_own]: "Line {{.line}} of {{.file}}, {{.rule}}, marks a host quiet, which only devvm's own policies can do, so VMs' proxies skip it. Remove the line."
+func PolicyQuietNotOwn(file string, line string, rule string) M {
+	return M{id: "policy_quiet_not_own", vals: []val{{"file", file}, {"line", line}, {"rule", rule}}}
+}
+
 // PortInvalid is [port_invalid]: "{{.value}} isn't a port list. Use all, none, or ports and ranges such as 5173,8000-8010."
 func PortInvalid(value string) M {
 	return M{id: "port_invalid", vals: []val{{"value", value}}}
@@ -5996,6 +6001,7 @@ var specs = map[string]spec{
 	"policy_broken_deny":             {fields: []string{"file", "line", "rule"}},
 	"policy_failed":                  {fields: []string{"reason"}},
 	"policy_not_rule":                {fields: []string{"file", "line", "rule"}},
+	"policy_quiet_not_own":           {fields: []string{"file", "line", "rule"}},
 	"port_invalid":                   {fields: []string{"value"}},
 	"port_not_listed":                {fields: []string{"port", "ports"}},
 	"port_not_published":             {fields: []string{"port", "ports"}},

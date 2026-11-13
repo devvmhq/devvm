@@ -612,6 +612,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"vm_lacks":                       "using/toolchains#adding-and-removing-tools",
 	"rule_missing":                   "safety/network#changing-rules",
 	"policy_not_rule":                "safety/network#rules",
+	"policy_quiet_not_own":           "safety/network#quiet-hosts",
 	"policy_broken_deny":             "safety/network#rules",
 	"usage_error":                    "using/troubleshooting#a-command-is-refused-before-it-runs",
 	"arg_missing":                    "using/troubleshooting#a-command-is-refused-before-it-runs",

@@ -51,10 +51,12 @@ type LearnedHosts struct {
 }
 
 // Judge is how Learned judges a host and port, by the VM's policies on
-// the allowlist tier: whether they allow it already, and whether they
-// deny it, so no allow would reach it. Neither makes a host tickable.
+// the allowlist tier: whether they allow it already, whether they deny
+// it, so no allow would reach it, and whether a built-in policy marks it
+// quiet, as a host devvm leaves out on purpose. None makes a host
+// tickable, and Learned offers none of them.
 type Judge struct {
-	Allows, Denies func(host string, port int) bool
+	Allows, Denies, Quiet func(host string, port int) bool
 }
 
 // Learned returns what st's VM reached since it started learning that its
@@ -70,7 +72,7 @@ func (p *Proxy) Learned(st *state.VM) (LearnedHosts, error) {
 	if err != nil {
 		return LearnedHosts{}, err
 	}
-	return NewLog(p.Dirs, st.Name()).Learned(lr.Since, Judge{Allows: al.Allows, Denies: al.Denies})
+	return NewLog(p.Dirs, st.Name()).Learned(lr.Since, Judge{Allows: al.Allows, Denies: al.Denies, Quiet: al.Quiet})
 }
 
 // Allowlist is the policies st's VM has on the allowlist tier (Policies), read as its proxy reads
@@ -148,7 +150,8 @@ func (c *learning) add(e learnedEvent) {
 	if r == nil {
 		rule, ok := proxy.ExactRule(e.Host, e.Port)
 		a, err := netip.ParseAddr(strings.Trim(e.Host, "[]"))
-		if !ok || err == nil && !proxy.Public(a) || c.j.Allows(e.Host, e.Port) || c.j.Denies(e.Host, e.Port) {
+		if !ok || err == nil && !proxy.Public(a) || c.j.Allows(e.Host, e.Port) || c.j.Denies(e.Host, e.Port) ||
+			c.j.Quiet != nil && c.j.Quiet(e.Host, e.Port) {
 			c.skipped[k] = true
 			return
 		}

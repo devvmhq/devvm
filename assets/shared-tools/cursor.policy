@@ -6,3 +6,7 @@ api2.cursor.sh
 api5.cursor.sh
 *.api5.cursor.sh
 repo42.cursor.sh
+# The host Cursor documents for Tab requests; Cursor's CLI uses it for its metrics, its
+# MetricsService's reports, fire and forget (the metricsUrl in the 2026.11.11 package's
+# service-urls, read, not run): https://cursor.com/docs/enterprise/network-configuration
+quiet api3.cursor.sh
