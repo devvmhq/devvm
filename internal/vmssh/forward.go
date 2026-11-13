@@ -144,6 +144,13 @@ func failureOf(err error) (failure, bool) {
 	return 0, false
 }
 
+// noIPv6 is whether a listen on ::1 failed because the host has no IPv6
+// loopback: none on lo (EADDRNOTAVAIL), or no IPv6 at all (EAFNOSUPPORT,
+// EPROTONOSUPPORT).
+func noIPv6(err error) bool {
+	return errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.EAFNOSUPPORT) || errors.Is(err, syscall.EPROTONOSUPPORT)
+}
+
 // failedPorts is the ports the forwarder tried and couldn't take, by
 // why, each sorted.
 type failedPorts struct{ inUse, limit, refused []int }
@@ -423,7 +430,14 @@ func (f *Forwarder) try(ctx context.Context, port int, host string) bool {
 }
 
 // open listens on the port on the host's loopback, IPv4 and IPv6 (a host
-// without IPv6 gets IPv4 alone), and serves it.
+// without IPv6 gets IPv4 alone), and serves it. A host that refuses ::1
+// alone (EACCES, EPERM), with IPv4 fine, gets IPv4 alone too, logged: a
+// security module denying IPv6 sockets would otherwise stop every
+// forward. An IPv6 listen failing otherwise fails the port as an IPv4 one
+// would (try): a program on ::1 (EADDRINUSE) makes it in use, as
+// localhost would reach either, and an error that says nothing of the
+// port (EMFILE, ENOBUFS...) has it tried again at the next report, rather
+// than forwarded on IPv4 alone.
 func (f *Forwarder) open(ctx context.Context, port int) (*forward, error) {
 	p := strconv.Itoa(port)
 	l4, err := f.Listen(ctx, net.JoinHostPort("127.0.0.1", p))
@@ -434,8 +448,10 @@ func (f *Forwarder) open(ctx context.Context, port int) (*forward, error) {
 	switch l6, err := f.Listen(ctx, net.JoinHostPort("::1", p)); {
 	case err == nil:
 		fw.lns = append(fw.lns, l6)
-	case errors.Is(err, syscall.EADDRINUSE):
-		// Another program has it there: localhost would reach either.
+	case noIPv6(err):
+	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):
+		f.logf("port %d: forwarded on IPv4 alone: ::1 refused: %v", port, err)
+	default:
 		fw.close()
 		return nil, err
 	}

@@ -74,6 +74,8 @@ When a running forwarder tries a listed port and can't take it, it logs the port
 
 Any other error, such as running out of open files for a moment, says nothing about the port, so the forwarder logs it alone, records nothing, and tries the port again at the VM's next report.
 
+The forwarder listens on both `127.0.0.1` and `::1`, and it treats an error on `::1` as it would treat one on `127.0.0.1`, closing the port's `127.0.0.1` listener as well. A program on `::1` makes the port in use, and any other error has the port tried again at the next report, so an error that passes never leaves a forward on IPv4 alone. A machine without IPv6 on its loopback gets the port on `127.0.0.1` alone, and so does one that refuses the forwarder `::1` while it allows `127.0.0.1`, such as a security module denying IPv6 sockets, which the forwarder logs.
+
 `devvm ports` reads these from the forwarder's record and binds nothing to find out, so it never takes a port that the forwarder is opening at that moment. A port that another VM forwards isn't one of these, so it gets `ports_held` instead. A record that the running forwarder didn't write, or none, gives none of these warnings, and neither does a record from an older devvm's forwarder after an upgrade, which lists every port it couldn't take on one line, without saying why, so devvm never says a port is in use when it may not be.
 
 ## Links between VMs

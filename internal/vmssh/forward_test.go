@@ -575,6 +575,94 @@ func failedEqual(a, b failedPorts) bool {
 	return slices.Equal(a.inUse, b.inUse) && slices.Equal(a.limit, b.limit) && slices.Equal(a.refused, b.refused)
 }
 
+// A port whose IPv4 listen works but whose IPv6 one fails is forwarded as
+// its IPv4 listen's error says: a host without IPv6 (EADDRNOTAVAIL,
+// EAFNOSUPPORT, EPROTONOSUPPORT) gets IPv4 alone, and so does one that
+// refuses ::1 alone (EACCES, EPERM: a security module denying IPv6), with
+// a line in the log; a program on ::1 (EADDRINUSE) makes it in use; any
+// other error (EMFILE) leaves it unforwarded, its IPv4 listener closed,
+// unrecorded, and tried again at the next report, never forwarded on IPv4
+// alone until it's opened again.
+func TestForwarderIPv6Failures(t *testing.T) {
+	ps := freePorts(t, 7)
+	busy, noAddr, inUse, noFamily, noProto, denied, notPermitted := ps[0], ps[1], ps[2], ps[3], ps[4], ps[5], ps[6]
+	var notes []failedPorts
+	var log bytes.Buffer
+	tries := map[int]int{}
+	f := &Forwarder{
+		VM: "devvm-f", Log: &log, ports: map[int]*forward{}, skipped: map[int]failure{}, relays: make(chan struct{}, maxRelays),
+		Reserved: func() (map[int]bool, error) { return nil, nil },
+		Note:     func(_ []int, failed failedPorts) { notes = append(notes, failed) },
+		Listen: func(ctx context.Context, addr string) (net.Listener, error) {
+			host, pstr, _ := net.SplitHostPort(addr)
+			if host == "127.0.0.1" {
+				return platform.ListenLoopback(ctx, addr)
+			}
+			p, _ := strconv.Atoi(pstr)
+			tries[p]++
+			bind := func(errno syscall.Errno) error {
+				return &net.OpError{Op: "listen", Net: "tcp", Err: os.NewSyscallError("bind", errno)}
+			}
+			switch {
+			case p == busy && tries[p] == 1:
+				return nil, bind(syscall.EMFILE)
+			case p == noAddr:
+				return nil, bind(syscall.EADDRNOTAVAIL)
+			case p == inUse:
+				return nil, bind(syscall.EADDRINUSE)
+			case p == noFamily:
+				return nil, bind(syscall.EAFNOSUPPORT)
+			case p == noProto:
+				return nil, bind(syscall.EPROTONOSUPPORT)
+			case p == denied:
+				return nil, bind(syscall.EACCES)
+			case p == notPermitted:
+				return nil, bind(syscall.EPERM)
+			}
+			// IPv6 that works: a stand-in, as the host may have no ::1.
+			return platform.ListenLoopback(ctx, "127.0.0.1:0")
+		},
+	}
+	defer f.closeAll()
+	want := map[int]string{}
+	for _, p := range ps {
+		want[p] = "127.0.0.1"
+	}
+	f.apply(t.Context(), want)
+	if fw := f.ports[busy]; fw != nil {
+		t.Fatalf("EMFILE on ::1: forwarded on %d listeners", len(fw.lns))
+	}
+	if _, ok := f.skipped[busy]; ok {
+		t.Error("EMFILE on ::1: recorded as the port's")
+	}
+	// Its IPv4 listener was closed with it: the port is free again.
+	if l, err := platform.ListenLoopback(t.Context(), net.JoinHostPort("127.0.0.1", strconv.Itoa(busy))); err != nil {
+		t.Errorf("EMFILE on ::1: its IPv4 listener stays: %v", err)
+	} else {
+		_ = l.Close()
+	}
+	for _, p := range []int{noAddr, noFamily, noProto, denied, notPermitted} {
+		if fw := f.ports[p]; fw == nil || len(fw.lns) != 1 {
+			t.Errorf("port %d: a host without IPv6 doesn't get IPv4 alone: %+v", p, fw)
+		}
+	}
+	for _, p := range []int{denied, notPermitted} {
+		if line := fmt.Sprintf("port %d: forwarded on IPv4 alone: ", p); !strings.Contains(log.String(), line) {
+			t.Errorf("::1 refused for port %d: not logged in %q", p, log.String())
+		}
+	}
+	if got, w := notes[len(notes)-1], (failedPorts{inUse: []int{inUse}}); !failedEqual(got, w) {
+		t.Errorf("noted %+v, want %+v", got, w)
+	}
+	f.apply(t.Context(), want)
+	if fw := f.ports[busy]; fw == nil || len(fw.lns) != 2 || tries[busy] != 2 {
+		t.Errorf("EMFILE on ::1, then the next report: forwarded %+v after %d tries, want both listeners", fw, tries[busy])
+	}
+	if tries[inUse] != 1 {
+		t.Errorf("in use on ::1: tried %d times before the VM's listener went", tries[inUse])
+	}
+}
+
 // A relay whose far end never ends its channel (a VM whose sshd ignores
 // EOF) still ends when its forward goes: its ssh is killed, and its slot
 // is free again, so a VM can't keep the forwarder's relays by holding
