@@ -229,7 +229,7 @@ func devvmVars() map[string]string {
 		"internal/netpolicy.proxyArgv":            table,
 		"internal/vm.nixMarkers":                  table,
 		"internal/proxy.notPublic":                table,
-		"internal/proxy.nat64":                    table,
+		"internal/proxy.withIPv4":                 table,
 		"internal/proxy.githubMinting":            table,
 		"internal/secrets.Known":                  table,
 		"internal/agents.Defs":                    table,

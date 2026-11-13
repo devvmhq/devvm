@@ -85,7 +85,7 @@ Running the proxy is `Main`'s only mode. What only the host does for network pol
 
 ## The server
 
-Everything a proxy runs with, and everything it keeps between connections, is in its `server`, which `newServer` makes from the config as the proxy starts. The package keeps no state of its own: its only package-level variables are error sentinels and fixed tables (`notPublic`, `nat64`, `githubMinting`), which the structure test allows. The server holds the VM's name and password, its own log, and these parts, each of which keeps what it changes under a lock of its own:
+Everything a proxy runs with, and everything it keeps between connections, is in its `server`, which `newServer` makes from the config as the proxy starts. The package keeps no state of its own: its only package-level variables are error sentinels and fixed tables (`notPublic`, `withIPv4`, `githubMinting`), which the structure test allows. The server holds the VM's name and password, its own log, and these parts, each of which keeps what it changes under a lock of its own:
 
 - `events`: the event log and the last 50 blocks, for `/blocked` and `/blocked/new`;
 - `egress`: the policy (`policy`, which reads the user's files again when they change), the host's own addresses (`hostAddrs`, read again every 30 seconds) and the company proxy (`upstreams`, set as the proxy starts and only read after);

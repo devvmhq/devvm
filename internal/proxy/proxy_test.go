@@ -440,12 +440,21 @@ func TestInternal(t *testing.T) {
 		"100.64.0.1", "fd00::1", "fe80::1", "0.0.0.0", "::ffff:127.0.0.1", "224.0.0.1",
 		"0.1.2.3", "192.0.0.8", "198.18.0.1", "240.0.0.1", "64:ff9b::10.0.0.1", "64:ff9b::127.0.0.1", "64:ff9b:1::1",
 		"::7f00:1", "::a00:1", "fec0::1",
+		// 6to4 judged by its IPv4 address (10.0.0.1, 127.0.0.1, 192.168.1.1), Teredo, documentation
+		// (both ranges), discard-only, benchmarking, ORCHID (v1 and v2), SRv6 and IPv4-translated.
+		"2002:a00:1::1", "2002:7f00:1::", "2002:c0a8:101:5::9", "2001::1", "2001:0:4136:e378::1",
+		"2001:db8::1", "3fff::1", "100::1", "2001:2::1", "2001:10::1", "2001:20::1", "5f00::1", "::ffff:0:a00:1",
+		// IPv4's documentation ranges and the old 6to4 relays' anycast range.
+		"192.0.2.1", "198.51.100.1", "203.0.113.1", "192.88.99.1",
 	} {
 		if !own.internal(netip.MustParseAddr(s)) {
 			t.Errorf("%s should be internal", s)
 		}
 	}
-	for _, s := range []string{"1.1.1.1", "140.82.112.3", "2606:4700::1111", "64:ff9b::1.1.1.1"} {
+	for _, s := range []string{
+		"1.1.1.1", "140.82.112.3", "2606:4700::1111", "64:ff9b::1.1.1.1", "2002:101:101::1",
+		"2001:4860:4860::8888", "2600:14e1:0:6d::", "101::1", "2001:3::1", "2001:30::1", "4000::1", "192.88.98.1",
+	} {
 		if own.internal(netip.MustParseAddr(s)) {
 			t.Errorf("%s shouldn't be internal", s)
 		}
@@ -453,10 +462,75 @@ func TestInternal(t *testing.T) {
 			t.Errorf("%s should be public", s)
 		}
 	}
-	for _, s := range []string{"10.0.0.1", "::ffff:127.0.0.1", "64:ff9b::10.0.0.1", "fec0::1", "100.64.0.1"} {
+	for _, s := range []string{"10.0.0.1", "::ffff:127.0.0.1", "64:ff9b::10.0.0.1", "fec0::1", "100.64.0.1", "2002:a00:1::1", "2001::1", "2001:db8::1"} {
 		if Public(netip.MustParseAddr(s)) {
 			t.Errorf("%s shouldn't be public", s)
 		}
+	}
+}
+
+// This machine's own 6to4 address is internal, as its other addresses are, and so is the rest of its
+// 6to4 network (its /48), which its LAN's machines share; another 6to4 network isn't.
+func TestInternalOwn6to4(t *testing.T) {
+	t.Parallel()
+	// 93.184.215.14's 6to4 network, a public address's.
+	own := &hostAddrs{addrs: map[netip.Addr]bool{netip.MustParseAddr("2002:5db8:d70e:1::20"): true}, at: time.Now()}
+	for _, s := range []string{"2002:5db8:d70e:1::20", "2002:5db8:d70e:2::5", "2002:5db8:d70e::1"} {
+		if !own.internal(netip.MustParseAddr(s)) {
+			t.Errorf("%s, in this machine's 6to4 network, should be internal", s)
+		}
+	}
+	for _, s := range []string{"2002:5db8:d70f::1", "2002:101:101::1"} {
+		if own.internal(netip.MustParseAddr(s)) {
+			t.Errorf("%s shouldn't be internal", s)
+		}
+	}
+}
+
+// An allow for an IPv4 address opens its NAT64 form, which this network's own translator carries,
+// but never its 6to4 form, which goes through relays anyone may run; a deny covers both.
+func TestSixToFourAllowsNot(t *testing.T) {
+	t.Parallel()
+	e := testServer(t, Config{}, "1.2.3.4\n192.168.1.10\n!5.6.7.8\n").egress
+	for _, c := range []struct {
+		addr    string
+		allowed bool
+	}{
+		{"1.2.3.4", true},
+		{"64:ff9b::102:304", true},
+		{"2002:102:304::1", false},
+		{"192.168.1.10", true},
+		{"64:ff9b::c0a8:10a", true},
+		{"2002:c0a8:10a::1", false},
+	} {
+		a := netip.MustParseAddr(c.addr)
+		if ok, _ := e.pol.decide(c.addr, 443); ok != c.allowed || e.pol.addrAllowed(a, 443) != c.allowed {
+			t.Errorf("%s: allowed %v, want %v", c.addr, ok, c.allowed)
+		}
+	}
+	if _, err := e.resolve(t.Context(), "2002:c0a8:10a::1", 443); !errors.Is(err, errFloor) {
+		t.Errorf("the 6to4 form of an allowed private address passed the floor: %v", err)
+	}
+	if a, err := e.resolve(t.Context(), "64:ff9b::c0a8:10a", 443); err != nil || len(a) != 1 {
+		t.Errorf("the NAT64 form of an allowed private address: %v %v", a, err)
+	}
+	if !e.pol.addrDenied(netip.MustParseAddr("2002:506:708::1"), 443) {
+		t.Error("the 6to4 form of a denied address isn't denied")
+	}
+}
+
+// A name that resolves to a 6to4 address holding a private IPv4 address is refused at the floor.
+func TestResolveSixToFourName(t *testing.T) {
+	t.Parallel()
+	e := testServer(t, Config{}, "**\n").egress
+	e.lookup = func(context.Context, string, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("2002:a00:1::1")}, nil
+	}
+	if a, err := e.resolve(t.Context(), "six.test", 443); !errors.Is(err, errFloor) {
+		t.Errorf("six.test resolved to %v, %v", a, err)
+	}
+	if _, why := e.check(t.Context(), "six.test", 443, false); !strings.Contains(why, errFloor.Error()) {
+		t.Errorf("six.test: %q", why)
 	}
 }
 
@@ -798,6 +872,10 @@ func TestAddressDenyAppliesToNames(t *testing.T) {
 	}
 	if a, err := e.resolve(t.Context(), n.String(), 443); err == nil {
 		t.Errorf("the NAT64 form of a denied address resolved: %v", a)
+	}
+	// So is its 6to4 form (2002:cb00:7105::/48, the site behind it).
+	if s := netip.MustParseAddr("2002:cb00:7105::1"); !e.pol.addrDenied(s, 443) {
+		t.Error("the 6to4 form of a denied address isn't denied")
 	}
 }
 

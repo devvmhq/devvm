@@ -256,7 +256,7 @@ func TestLearned(t *testing.T) {
 		at(s(2), "tunnel", "registry.npmjs.org", 443, "curl/8.5.0"),
 		at(s(3), "forward", "example.com", 8080, ""),
 		at(s(4), "tunnel", "pastebin.com", 443, "curl/8.5.0"),
-		at(s(5), "tunnel", "203.0.113.5", 443, ""),
+		at(s(5), "tunnel", "93.184.215.14", 443, ""),
 		at(s(6), "tunnel", "10.0.0.5", 22, ""),
 		at(s(7), "tunnel", "github.com", 443, ""),
 		at(s(8), "blocked", "blocked.test", 443, ""),
@@ -285,7 +285,7 @@ func TestLearned(t *testing.T) {
 		"cdn.example.com:443 1   false " + s(14).Format(time.RFC3339),
 		"example.com:8080 1   false " + s(3).Format(time.RFC3339),
 		"registry.npmjs.org:80 1 npm/10.9.2  false " + s(13).Format(time.RFC3339),
-		"203.0.113.5:443 1  address false " + s(5).Format(time.RFC3339),
+		"93.184.215.14:443 1  address false " + s(5).Format(time.RFC3339),
 		"pastebin.com:443 1 curl/8.5.0 paste false " + s(4).Format(time.RFC3339),
 	}
 	if !slices.Equal(rows, want) || got.Partial || !got.Since.Equal(since) {

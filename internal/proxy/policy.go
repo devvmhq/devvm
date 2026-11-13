@@ -256,7 +256,9 @@ func (r rule) matchHost(host string) bool {
 }
 
 // matchAddr: does an address rule cover a? A NAT64 address also matches as the IPv4 address in it,
-// as internal() judges it, so a deny for an IPv4 address holds on IPv6-only networks too.
+// as internal() judges it, so a rule for an IPv4 address holds on IPv6-only networks too. A 6to4
+// address matches as its IPv4 address for a deny alone: its site is reached through relays anyone
+// may run, so an allow for the IPv4 address doesn't open it (withIPv4's site).
 func (r rule) matchAddr(a netip.Addr) bool {
 	if !r.prefix.IsValid() {
 		return false
@@ -265,8 +267,8 @@ func (r rule) matchAddr(a netip.Addr) bool {
 	if r.prefix.Contains(a) {
 		return true
 	}
-	v4, ok := nat64IPv4(a)
-	return ok && r.prefix.Contains(v4)
+	v4, site, ok := embeddedIPv4(a)
+	return ok && (site == 0 || r.deny) && r.prefix.Contains(v4)
 }
 
 // policy is the union of devvm's built-in policies, read once, and several files, each re-read when

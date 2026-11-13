@@ -86,7 +86,7 @@ stdout 'net_lock_help vm=devvm-learn-[0-9a-f]{14}\r$'
 stdout '\[x\] files\.pythonhosted\.org:443 +net_learned_host_anon count=1'
 stdout '\[ \] example\.com:443 +net_learned_host agent=curl/8\.5\.0 count=2'
 stdout '\[ \] new\.test:8080 +net_learned_host_anon count=1'
-stdout '(?s)net_learned_risky_heading\r\n.*\[ \] 203\.0\.113\.5:443 +net_learned_host_anon count=1'
+stdout '(?s)net_learned_risky_heading\r\n.*\[ \] 93\.184\.215\.14:443 +net_learned_host_anon count=1'
 stdout '\[ \] pastebin\.com:443 +net_learned_host agent=curl/8\.5\.0 count=1'
 stdout '==> net_locked count=2 vm=devvm-learn-[0-9a-f]{14}\n==> setting_applied vm=devvm-learn-[0-9a-f]{14}$'
 cmp $L_dir/policy $WORK/policy
@@ -157,7 +157,7 @@ network = "learn"
 {"time":"2099-01-01T00:00:02Z","vm":"x","event":"intercept","host":"example.com","port":443,"method":"CONNECT","agent":"curl/8.5.0"}
 {"time":"2099-01-01T00:00:03Z","vm":"x","event":"forward","host":"new.test","port":8080,"method":"GET","path":"/"}
 {"time":"2099-01-01T00:00:04Z","vm":"x","event":"tunnel","host":"pastebin.com","port":443,"method":"CONNECT","agent":"curl/8.5.0"}
-{"time":"2099-01-01T00:00:05Z","vm":"x","event":"tunnel","host":"203.0.113.5","port":443,"method":"CONNECT"}
+{"time":"2099-01-01T00:00:05Z","vm":"x","event":"tunnel","host":"93.184.215.14","port":443,"method":"CONNECT"}
 {"time":"2099-01-01T00:00:06Z","vm":"x","event":"tunnel","host":"10.0.0.5","port":22,"method":"CONNECT"}
 {"time":"2099-01-01T00:00:07Z","vm":"x","event":"tunnel","host":"github.com","port":443,"method":"CONNECT"}
 {"time":"2099-01-01T00:00:08Z","vm":"x","event":"blocked","host":"blocked.test","port":443,"method":"CONNECT","reason":"denied by !blocked.test"}
@@ -199,8 +199,8 @@ network = "learn"
       "last": "2099-01-01T00:00:09Z"
     },
     {
-      "rule": "203.0.113.5:443",
-      "host": "203.0.113.5",
+      "rule": "93.184.215.14:443",
+      "host": "93.184.215.14",
       "port": 443,
       "count": 1,
       "last": "2099-01-01T00:00:05Z",
@@ -227,5 +227,5 @@ files.pythonhosted.org:443
 example.com:443
 new.test:8080
 objects.github.com:443
-203.0.113.5:443
+93.184.215.14:443
 pastebin.com:443

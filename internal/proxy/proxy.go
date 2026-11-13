@@ -348,7 +348,9 @@ func (h *hostAddrs) load() {
 	h.mu.Unlock()
 }
 
-func (h *hostAddrs) has(a netip.Addr) bool {
+// own is the host's addresses, read again when they're older than 30 seconds. load replaces the map
+// whole, so the one returned never changes.
+func (h *hostAddrs) own() map[netip.Addr]bool {
 	h.mu.Lock()
 	stale := time.Since(h.at) > 30*time.Second
 	h.mu.Unlock()
@@ -357,48 +359,80 @@ func (h *hostAddrs) has(a netip.Addr) bool {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.addrs[a]
+	return h.addrs
 }
 
 // Ranges that aren't the public internet beyond what netip's predicates cover: CGNAT, "this network",
-// IETF protocol assignments, benchmarking, reserved, local-use NAT64, IPv4-compatible IPv6 (::a.b.c.d,
-// deprecated) and site-local IPv6 (deprecated, still routed by some systems).
+// IETF protocol assignments, IPv4's documentation ranges, the old 6to4 relays' anycast range,
+// benchmarking, reserved, local-use NAT64, IPv4-compatible IPv6 (::a.b.c.d, deprecated),
+// IPv4-translated IPv6 (::ffff:0:a.b.c.d), site-local IPv6 (deprecated, still routed by some
+// systems), Teredo, IPv6's documentation (both), discard-only and benchmarking ranges, ORCHID (v1
+// and v2) and SRv6's SIDs.
 var notPublic = []netip.Prefix{
 	netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("0.0.0.0/8"),
-	netip.MustParsePrefix("192.0.0.0/24"), netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("192.0.0.0/24"), netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("198.51.100.0/24"), netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"), netip.MustParsePrefix("198.18.0.0/15"),
 	netip.MustParsePrefix("240.0.0.0/4"), netip.MustParsePrefix("64:ff9b:1::/48"),
-	netip.MustParsePrefix("::/96"), netip.MustParsePrefix("fec0::/10"),
+	netip.MustParsePrefix("::/96"), netip.MustParsePrefix("::ffff:0:0:0/96"), netip.MustParsePrefix("fec0::/10"),
+	netip.MustParsePrefix("2001::/32"), netip.MustParsePrefix("2001:db8::/32"), netip.MustParsePrefix("3fff::/20"),
+	netip.MustParsePrefix("100::/64"), netip.MustParsePrefix("2001:2::/48"),
+	netip.MustParsePrefix("2001:10::/28"), netip.MustParsePrefix("2001:20::/28"), netip.MustParsePrefix("5f00::/16"),
 }
 
-var nat64 = netip.MustParsePrefix("64:ff9b::/96")
+// withIPv4 is the IPv6 ranges that carry an IPv4 address, which an address in them is judged by:
+// NAT64's (64:ff9b::a.b.c.d, on IPv6-only networks), in its last 4 bytes, and 6to4's
+// (2002:aabb:ccdd::/48, the site behind a.b.c.d), after its first 2.
+var withIPv4 = []struct {
+	prefix netip.Prefix
+	at     int // the IPv4 address's first byte
+	// site is a 6to4 site's prefix length, 0 for NAT64. A 6to4 site is reached through relays anyone
+	// may run, not this network's own translator, so an allow for its IPv4 address doesn't cover it
+	// (rule.matchAddr), and this machine's own one is its LAN's (hostAddrs.internal).
+	site int
+}{{netip.MustParsePrefix("64:ff9b::/96"), 12, 0}, {netip.MustParsePrefix("2002::/16"), 2, 48}}
 
-// nat64IPv4: the IPv4 address in a NAT64 address (64:ff9b::a.b.c.d).
-func nat64IPv4(a netip.Addr) (netip.Addr, bool) {
-	if !nat64.Contains(a) {
-		return netip.Addr{}, false
+// embeddedIPv4: the IPv4 address in a NAT64 or 6to4 address (withIPv4), and its site's prefix
+// length (withIPv4's site).
+func embeddedIPv4(a netip.Addr) (netip.Addr, int, bool) {
+	for _, w := range withIPv4 {
+		if w.prefix.Contains(a) {
+			b := a.As16()
+			return netip.AddrFrom4([4]byte(b[w.at : w.at+4])), w.site, true
+		}
 	}
-	b := a.As16()
-	return netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}), true
+	return netip.Addr{}, 0, false
 }
 
 // internal: addresses a VM must not reach without an explicit rule: the host itself (h) and its
-// networks. A NAT64 address (64:ff9b::a.b.c.d, on IPv6-only networks) is judged by the IPv4 address
-// in it.
+// networks. A NAT64 or 6to4 address is judged by the IPv4 address in it (embeddedIPv4), and the
+// 6to4 site of one of the host's own addresses is the host's network.
 func (h *hostAddrs) internal(a netip.Addr) bool {
 	a = a.Unmap()
-	if v4, ok := nat64IPv4(a); ok {
+	own := h.own()
+	if own[a] {
+		return true
+	}
+	if v4, site, ok := embeddedIPv4(a); ok {
+		if p, err := a.Prefix(site); err == nil && site > 0 {
+			for o := range own {
+				if p.Contains(o) {
+					return true
+				}
+			}
+		}
 		return h.internal(v4)
 	}
-	return !Public(a) || h.has(a)
+	return !Public(a)
 }
 
 // Public reports whether a is an address of the public internet: none of the ranges the floor
-// refuses (loopback, private, link-local, multicast and the rest of notPublic), a NAT64 address
-// judged by the IPv4 address in it. This machine's own public addresses are the floor's too
+// refuses (loopback, private, link-local, multicast and the rest of notPublic), a NAT64 or 6to4
+// address judged by the IPv4 address in it. This machine's own public addresses are the floor's too
 // (hostAddrs), which Public doesn't know. devvm network lock leaves out what isn't.
 func Public(a netip.Addr) bool {
 	a = a.Unmap()
-	if v4, ok := nat64IPv4(a); ok {
+	if v4, _, ok := embeddedIPv4(a); ok {
 		a = v4
 	}
 	for _, p := range notPublic {

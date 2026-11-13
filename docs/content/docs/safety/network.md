@@ -281,7 +281,7 @@ A rule is written this way:
 
 devvm warns about each line that isn't a rule, with the file and the line's number, and the warning for a broken deny says that the proxies deny everything until it's fixed. It warns when you open a confined VM whose proxy reads the file, when `devvm network allow`, `deny` or `rm` changes the file, and in `devvm doctor`. `devvm network` also marks the line. Fix the line or remove it, and the change applies from the next connection.
 
-The proxy never dials a denied address, even for an allowed name that resolves to it or to its NAT64 form. A missing file has no rules. A file that changed but can't be read keeps its last rules, so a deny never lapses.
+The proxy never dials a denied address, even for an allowed name that resolves to it or to its NAT64 or 6to4 form. A missing file has no rules. A file that changed but can't be read keeps its last rules, so a deny never lapses.
 
 ### Changing rules
 
