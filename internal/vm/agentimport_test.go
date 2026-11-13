@@ -17,12 +17,14 @@ import (
 
 // importer is an AgentImport in a sandbox: a home folder of its own and
 // devvm's folders, its messages' names in got, its questions answered
-// yes, or refused without a terminal (tty), its exclusions from backups
-// in excluded.
+// yes, but whether to follow links out of the agents' folders only with
+// follow, or refused without a terminal (tty), its exclusions from
+// backups in excluded.
 type importer struct {
 	AgentImport
 	got, excluded []string
 	fake          *msg.Fake
+	follow        bool
 }
 
 func newImporter(t *testing.T) *importer {
@@ -32,7 +34,10 @@ func newImporter(t *testing.T) *importer {
 	im := &importer{}
 	im.fake = &msg.Fake{Terminal: true}
 	im.fake.OnAny = func(m msg.M) { im.got = append(im.got, m.Names()) }
-	im.fake.OnAsk = func(m msg.M) bool { im.got = append(im.got, "asked "+m.Names()); return true }
+	im.fake.OnAsk = func(m msg.M) bool {
+		im.got = append(im.got, "asked "+m.Names())
+		return m.ID() != "agent_import_follow" || im.follow
+	}
 	store := secrets.NewStore(d, im.fake)
 	store.ExcludeFromBackup = func(_ context.Context, dir string) error {
 		im.excluded = append(im.excluded, dir)
@@ -162,9 +167,18 @@ func TestAgentImport(t *testing.T) {
 	}
 }
 
-// A link in an agent's folder is followed only to a file inside it: one
-// out of the folder, relative or absolute, or to a folder, is left out
-// with a warning, and so is a login file that's a link.
+// notFollowed reports whether the import said it left out the link at p,
+// which leads out of its agent's folder, naming --follow-links.
+func (im *importer) notFollowed(p string) bool {
+	return slices.ContainsFunc(im.got, func(s string) bool {
+		return strings.HasPrefix(s, "agent_import_link_not_followed path="+p+" target=")
+	})
+}
+
+// A link in an agent's folder is followed, unasked, only to a file inside
+// it: one out of the folder, relative or absolute, is left out with a
+// warning after a no, and so is one to a folder inside it, and a login
+// file that's a link, whatever the answer.
 func TestAgentImportLinks(t *testing.T) {
 	im := newImporter(t)
 	home := im.Dirs.Home
@@ -206,18 +220,26 @@ func TestAgentImportLinks(t *testing.T) {
 	if im.Secrets.HasLogin("claude") {
 		t.Error("a login file that's a link copied")
 	}
-	for _, p := range []string{filepath.Join(skills, "escape"), filepath.Join(skills, "escape-abs"), filepath.Join(skills, "folder"), filepath.Join(home, ".claude.json")} {
+	for _, p := range []string{filepath.Join(skills, "folder"), filepath.Join(home, ".claude.json")} {
 		if !slices.Contains(im.got, "agent_import_link_left_out path="+p) {
 			t.Errorf("no warning for %s: %q", p, im.got)
 		}
+	}
+	for _, p := range []string{filepath.Join(skills, "escape"), filepath.Join(skills, "escape-abs")} {
+		if !im.notFollowed(p) {
+			t.Errorf("no warning for %s: %q", p, im.got)
+		}
+	}
+	if !slices.Contains(im.got, "asked agent_import_follow") {
+		t.Errorf("not asked: %q", im.got)
 	}
 }
 
 // opencode's folder, which import copies whole, treats its links as the
 // other agents' folders do: one to a file inside is copied as that file,
-// and one out of the folder, or to a folder, is left out with a warning,
-// never dropped without one. A link named as a lock file or node_modules
-// is no setting, so it's left out without one.
+// and one out of the folder (after a no), or to a folder inside it, is
+// left out with a warning, never dropped without one. A link named as a
+// lock file or node_modules is no setting, so it's left out without one.
 func TestAgentImportOpencodeLinks(t *testing.T) {
 	im := newImporter(t)
 	home := im.Dirs.Home
@@ -253,20 +275,24 @@ func TestAgentImportOpencodeLinks(t *testing.T) {
 			t.Errorf("%s copied: %v", n, err)
 		}
 	}
-	for _, n := range []string{"AGENTS.md", "agents", "local"} {
-		if !slices.Contains(im.got, "agent_import_link_left_out path="+filepath.Join(folder, n)) {
+	for _, n := range []string{"AGENTS.md", "agents"} {
+		if !im.notFollowed(filepath.Join(folder, n)) {
 			t.Errorf("no warning for %s: %q", n, im.got)
 		}
 	}
+	if !slices.Contains(im.got, "agent_import_link_left_out path="+filepath.Join(folder, "local")) {
+		t.Errorf("no warning for local: %q", im.got)
+	}
 	for _, n := range []string{"bun.lock", "node_modules", "inside.json"} {
-		if slices.Contains(im.got, "agent_import_link_left_out path="+filepath.Join(folder, n)) {
+		if slices.ContainsFunc(im.got, func(s string) bool { return strings.Contains(s, "path="+filepath.Join(folder, n)) }) {
 			t.Errorf("a warning for %s: %q", n, im.got)
 		}
 	}
 }
 
 // A settings folder that is itself a link is left out with a warning,
-// whether it leads out of the agent's folder or to a folder inside it.
+// whether it leads out of the agent's folder (after a no) or to a folder
+// inside it.
 func TestAgentImportFolderLink(t *testing.T) {
 	im := newImporter(t)
 	home := im.Dirs.Home
@@ -284,9 +310,9 @@ func TestAgentImportFolderLink(t *testing.T) {
 		if _, err := os.Lstat(filepath.Join(agentStore(im.Dirs, "claude"), ".claude", n)); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("a linked folder copied: %v", err)
 		}
-		if !slices.Contains(im.got, "agent_import_link_left_out path="+filepath.Join(home, ".claude", n)) {
-			t.Errorf("said %q", im.got)
-		}
+	}
+	if !im.notFollowed(filepath.Join(home, ".claude/skills")) || !slices.Contains(im.got, "agent_import_link_left_out path="+filepath.Join(home, ".claude/agents")) {
+		t.Errorf("said %q", im.got)
 	}
 }
 

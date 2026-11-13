@@ -62,9 +62,10 @@ func newAgentSaveCmd(a *app) *cobra.Command {
 	return cmd
 }
 
-// newAgentImportCmd is devvm agent import [AGENT...] [--force].
+// newAgentImportCmd is devvm agent import [AGENT...] [--force]
+// [--follow-links].
 func newAgentImportCmd(a *app) *cobra.Command {
-	var force bool
+	var force, followLinks bool
 	cmd := &cobra.Command{
 		Use: "import [AGENT...]",
 		Annotations: about{
@@ -73,11 +74,13 @@ func newAgentImportCmd(a *app) *cobra.Command {
 		}.annotations(),
 		Short: "Copy the agents' settings and logins from this machine into devvm's store",
 		Long: "Copy the settings and logins of AGENT, " + orList(image.Agents) + ", or of every agent, from your home folder into devvm's store, never their history. " +
-			"It follows no link out of an agent's folder, and it asks before replacing what the store has.",
+			"It copies what a link out of an agent's folder leads to only from a folder that config.toml's follow-links names, or after naming the link and asking, which --follow-links answers. " +
+			"It asks before replacing what the store has.",
 		Example: examples(
 			"devvm agent import", "copy every agent's settings and logins, asking before replacing the store's",
 			"devvm agent import claude codex", "copy only Claude Code's and Codex's",
 			"devvm agent import --force", "replace the store's without asking, as a script must",
+			"devvm agent import --follow-links", "copy what links out of the agents' folders lead to as well, such as into a dotfiles repo",
 		),
 		Args:      minArgs(0),
 		ValidArgs: image.Agents,
@@ -90,10 +93,12 @@ func newAgentImportCmd(a *app) *cobra.Command {
 			if err != nil {
 				return failed(err, msg.AgentImportFailed)
 			}
-			im := vm.AgentImport{Dirs: d, Secrets: store, Reporter: a.u}
+			im := vm.AgentImport{Dirs: d, Secrets: store, Reporter: a.u, FollowLinks: followLinks}
 			return failed(im.Run(cmd.Context(), args, force), msg.AgentImportFailed)
 		},
 	}
 	addForceFlag(cmd.Flags(), &force)
+	cmd.Flags().BoolVar(&followLinks, "follow-links", false,
+		"copy what links out of the agents' folders lead to, naming each, without asking (default: ask in a terminal)")
 	return cmd
 }

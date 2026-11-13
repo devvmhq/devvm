@@ -60,6 +60,9 @@ type configFile struct {
 	// PasteDir is the folder in every VM that devvm paste writes to
 	// (PasteDir), which no command saves.
 	PasteDir opt[pasteDirKind] `toml:"paste-dir"`
+	// FollowLinks are the folders devvm agent import copies through a
+	// link without asking (FollowLinks), which no command saves.
+	FollowLinks list[followLinksKind] `toml:"follow-links"`
 	// PassKeys are the providers whose API keys an agent's VMs get as
 	// they are (PassKeys), which no command saves.
 	PassKeys passKeys `toml:"pass-keys"`
@@ -145,7 +148,7 @@ func (c *configFile) refused() (msg.M, bool) {
 	for _, v := range []refuser{
 		&c.Network, &c.Ports, &c.Features, &c.Agents, &c.Layers, &c.Size.CPUs, &c.Size.Memory, &c.Size.Disk,
 		&r.Logs.Runs, &r.History.Age, &r.History.Count, &r.Tools.UnusedAge, &r.Orphans.Age, &r.NixCache.Size,
-		&c.Proxy.HTTPS, &c.Proxy.HTTP, &c.Proxy.NoProxy, &c.UbuntuMirror, &c.PasteDir, c.PassKeys,
+		&c.Proxy.HTTPS, &c.Proxy.HTTP, &c.Proxy.NoProxy, &c.UbuntuMirror, &c.PasteDir, &c.FollowLinks, c.PassKeys,
 	} {
 		if m, ok := v.refusal(); ok {
 			return m, true

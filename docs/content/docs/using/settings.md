@@ -25,7 +25,7 @@ Upgrading devvm keeps this folder as it is. Back it up, such as in a dotfiles re
 
 ## config.toml
 
-`~/.config/devvm/config.toml` sets the defaults that new VMs get, the retention settings, the company proxy, an Ubuntu mirror, the release check, transparent mode and the API keys that VMs get as they are, in a file you write by hand. devvm reads it and never writes it. Every key is optional, and devvm has no `config.toml` until you write one. This example sets every key:
+`~/.config/devvm/config.toml` sets the defaults that new VMs get, the retention settings, the company proxy, an Ubuntu mirror, the release check, transparent mode, the API keys that VMs get as they are and the folders that `devvm agent import` follows links into, in a file you write by hand. devvm reads it and never writes it. Every key is optional, and devvm has no `config.toml` until you write one. This example sets every key:
 
 ```toml
 # The network tier new VMs get: open, internet, allowlist or none.
@@ -54,6 +54,9 @@ transparent-proxy = true
 
 # The folder in every VM that devvm paste puts images and files in.
 paste-dir = "/tmp/devvm-paste"
+
+# The folders devvm agent import follows links into without asking.
+follow-links = ["~/dotfiles"]
 
 # New VMs' CPUs, and their memory and disk in GiB.
 [size]
@@ -94,6 +97,7 @@ Each key takes what its command takes:
 | `cpus` | a whole number, as `devvm size -g` takes it |
 | `memory`, `disk` | a number of GiB, such as `8`, `8.5` or `"8G"`, as `devvm size -g` takes them |
 | the `[retention]` keys | the [retention settings](#retention), with a duration such as `"90d"` or a size such as `"20G"` in quotes, and a count as a number |
+| `follow-links` | the folders whose files `devvm agent import` copies through a link out of an agent's folder without asking, each an absolute path or one that starts with `~/` ([links out of an agent's folder](coding-agents.md#links-out-of-an-agents-folder)), which no command saves |
 
 The `[proxy]` table is the [company proxy](../safety/network.md#behind-a-company-proxy) that every VM's proxy, builds and devvm's own downloads go through when the shell you run devvm in sets neither `HTTPS_PROXY` nor `HTTP_PROXY`, whatever the VM's tier. No VM gets the company proxy's settings itself. That shell's settings win over the whole table. `https` and `http` take what `HTTPS_PROXY` and `HTTP_PROXY` take, an `http://` URL or `host:port`, and `no-proxy` takes what `NO_PROXY` takes. A URL never holds a password, and devvm refuses one that does, so put only the user in it and save the password with `devvm secret set proxy`. No command saves the proxy, so it's only ever in `config.toml`.
 

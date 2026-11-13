@@ -3037,7 +3037,43 @@ other = "devvm imported {{.agent}}'s settings into {{.dir}}."
 other = "devvm imported {{.agent}}'s login into {{.file}}."
 
 [agent_import_link_left_out]
-other = "devvm left out the link {{.path}}, because it imports only links to files inside the agent's folder."
+other = "devvm left out the link {{.path}}, because it leads to a folder, to nothing, or out of the folder devvm reads it in."
+
+[agent_import_link_not_followed]
+description = "target is where the link leads, every link on the way resolved"
+other = "devvm left out the link {{.path}} to {{.target}}, which is outside the agent's folder. To copy what it leads to, run devvm agent import --follow-links."
+
+[agent_import_link_refused]
+description = "target is where the link leads, every link on the way resolved"
+other = "devvm left out the link {{.path}}, because it leads to {{.target}}, and devvm never copies your home folder, secrets, agents' logins and history, or its own files."
+
+[agent_import_link_too_big]
+other = "devvm left out the link {{.path}}, because what it leads to is more than one import copies through links: 20,000 files and folders, 128 MiB, or a file of 16 MiB."
+
+[agent_import_follow]
+other = "Copy what these links lead to into devvm's agent store, for every VM with the agent?"
+
+[agent_import_link]
+description = "target is where the link leads, every link on the way resolved"
+other = "{{.path}} leads to {{.target}}."
+
+[agent_import_link_followed]
+description = "target is where the link leads, every link on the way resolved"
+other = "devvm copies what the link {{.path}} leads to, {{.target}}."
+
+[agent_import_link_project]
+other = "The link {{.path}} leads into {{.vm}}'s project folder, so {{.vm}} can change what every VM's agent reads. Follow links into it only when you trust {{.vm}}."
+
+[agent_import_link_via_vm]
+other = "devvm left out the link {{.path}}, because it leads through a link in {{.vm}}'s project folder to a place outside it, which {{.vm}} could have chosen."
+
+[agent_import_root_refused]
+description = "dir is a folder config.toml's follow-links names; place is the folder of devvm's or of secrets it is, holds or is in"
+other = "The folder {{.dir}} in config.toml's follow-links is, holds or is inside {{.place}}, so devvm never copies from it. Take it out of follow-links."
+
+[follow_links_invalid]
+description = "setting is config.toml's follow-links; dir is the value it refused"
+other = "{{.setting}} names {{.dir}}, which isn't a folder devvm can follow links into. Write each folder as an absolute path, or one that starts with ~/, such as ~/dotfiles."
 
 [agent_import_opencode_skipped]
 description = "label is opencode's own name for the login; provider is opencode's ID for its provider, such as openai"

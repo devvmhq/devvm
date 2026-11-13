@@ -1238,14 +1238,15 @@ func projectDevcontainerChanged(s *S, dc, vm, file string) {
 }
 
 // agentHome is a home of its own for the agents' checks: a fake agent
-// config, history and git identity, and a fake file outside the agent
-// folders with links to it from inside one, relative and absolute;
-// nothing of yours is read.
+// config, history and git identity, a fake file outside the agent
+// folders with links to it from inside one, relative and absolute, and a
+// skill in a dotfiles folder that a skills folder links to; nothing of
+// yours is read.
 func agentHome(s *S) string {
 	ah := filepath.Join(s.sb.work, "agent-home")
 	madeFile(s.sb, ah)
 	_ = os.RemoveAll(ah)
-	for _, d := range []string{".claude/skills/e2e", ".claude/projects/p", "outside"} {
+	for _, d := range []string{".claude/skills/e2e", ".claude/projects/p", "outside", "dotfiles/linked"} {
 		_ = os.MkdirAll(filepath.Join(ah, d), 0o755) //nolint:gosec // a home's folders, as its user's mkdir makes them
 	}
 	if r, err := filepath.EvalSymlinks(ah); err == nil {
@@ -1257,11 +1258,13 @@ func agentHome(s *S) string {
 		".claude/projects/p/h.jsonl":   `{"prompt":"e2e-history"}` + "\n",
 		".gitconfig":                   "[user]\n\tname = E2E User\n\temail = e2e@example.com\n",
 		"outside/e2e-not-a-secret.txt": "e2e-outside-marker\n",
+		"dotfiles/linked/SKILL.md":     "# e2e linked skill\n",
 	} {
 		_ = os.WriteFile(filepath.Join(ah, f), []byte(body), 0o644) //nolint:gosec // a home's files, as its user writes them
 	}
 	_ = os.Symlink("../../outside/e2e-not-a-secret.txt", filepath.Join(ah, ".claude", "skills", "escape"))
 	_ = os.Symlink(filepath.Join(ah, "outside", "e2e-not-a-secret.txt"), filepath.Join(ah, ".claude", "skills", "escape-abs"))
+	_ = os.Symlink("../../dotfiles/linked", filepath.Join(ah, ".claude", "skills", "linked"))
 	return ah
 }
 
@@ -1284,7 +1287,7 @@ func projectAgents(s *S) {
 	ah := agentHome(s)
 	home := []string{"HOME=" + ah}
 	// devvm agent import copies the agent's settings into the sandbox's agent store, which the VM gets
-	// them from, and leaves the links out.
+	// them from, and leaves the links out of its folder out where it can't ask.
 	store := filepath.Join(s.sb.config(), "devvm", "agents", "claude")
 	_ = os.RemoveAll(store)
 	skills := filepath.Join(store, ".claude", "skills")
@@ -1298,13 +1301,38 @@ func projectAgents(s *S) {
 		case !strings.Contains(readText(filepath.Join(skills, "e2e", "SKILL.md")), "e2e") ||
 			!strings.Contains(readText(filepath.Join(store, ".claude", "settings.json")), "e2e-settings"):
 			return errors.New("the settings weren't copied")
-		case Exists(filepath.Join(store, ".claude", "projects")) || Exists(filepath.Join(skills, "escape")) || (abs != nil && abs.Mode()&os.ModeSymlink != 0):
+		case Exists(filepath.Join(store, ".claude", "projects")) || Exists(filepath.Join(skills, "escape")) ||
+			Exists(filepath.Join(skills, "linked")) || (abs != nil && abs.Mode()&os.ModeSymlink != 0):
 			return errors.New("the history or a link was copied")
-		case !grepF(r.Out, s.Msg("agent_import_link_left_out", "path="+ah+"/.claude/skills/escape")):
+		case !grepF(r.Out, s.Msg("agent_import_link_not_followed", "path="+ah+"/.claude/skills/escape", "target="+ah+"/outside/e2e-not-a-secret.txt")):
 			return errors.New("it didn't say it left the link out:\n" + r.Out)
 		}
 		return nil
 	})
+	// config.toml's follow-links: the linked skill folder is copied as a folder, never a link, and the
+	// links to a file outside dotfiles still aren't. config.toml is put back as it was.
+	cfg := filepath.Join(s.sb.config(), "devvm", "config.toml")
+	savedCfg, cfgErr := os.ReadFile(cfg)
+	_ = os.WriteFile(cfg, append(slices.Clone(savedCfg), "\nfollow-links = [\""+ah+"/dotfiles\"]\n"...), 0o600)
+	s.Check("with follow-links, devvm agent import copies a linked skill folder as a folder, and nothing else outside", func() error {
+		r, err := DevvmIn(s, "", "", home, "agent", "import", "--force", "claude")
+		if err != nil {
+			return err
+		}
+		fi, _ := os.Lstat(filepath.Join(skills, "linked"))
+		switch {
+		case fi == nil || !fi.IsDir() || !strings.Contains(readText(filepath.Join(skills, "linked", "SKILL.md")), "e2e linked skill"):
+			return errors.New("the linked skill wasn't copied as a folder:\n" + r.Out)
+		case Exists(filepath.Join(skills, "escape")) || Exists(filepath.Join(skills, "escape-abs")):
+			return errors.New("a link outside follow-links was copied")
+		}
+		return nil
+	})
+	if cfgErr != nil {
+		_ = os.Remove(cfg)
+	} else {
+		_ = os.WriteFile(cfg, savedCfg, 0o600)
+	}
 	a, _ := s.NewProject("agents")
 	_, _ = DevvmIn(s, a, "", append(home, "TZ=Europe/Paris", "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-e2efake-plain"), "--network", "open", "--no-git-protect", "--agents", "claude")
 	vm := s.Paths.VMOf(a)
@@ -1321,7 +1349,11 @@ func projectAgents(s *S) {
 		if _, err := s.Limactl("shell", "--workdir", "/", vm, "sudo", "touch", skills+"/x"); err == nil {
 			return errors.New("root wrote into it")
 		}
-		_, err := s.Limactl("shell", "--workdir", "/", vm, "bash", "-c", "grep -q e2e ~/.claude/skills/e2e/SKILL.md")
+		if _, err := s.Limactl("shell", "--workdir", "/", vm, "sudo", "touch", skills+"/linked/x"); err == nil {
+			return errors.New("root wrote into the linked skill's copy")
+		}
+		_, err := s.Limactl("shell", "--workdir", "/", vm, "bash", "-c",
+			"grep -q e2e ~/.claude/skills/e2e/SKILL.md && grep -q 'e2e linked skill' ~/.claude/skills/linked/SKILL.md && [[ ! -L ~/.claude/skills/linked ]]")
 		return err
 	})
 	// Links in the store's folder that lead out of it, relative and absolute, as you might make there.

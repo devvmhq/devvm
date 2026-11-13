@@ -84,9 +84,49 @@ func AgentImportFailed(reason string) M {
 	return M{id: "agent_import_failed", vals: []val{{"reason", reason}}}
 }
 
-// AgentImportLinkLeftOut is [agent_import_link_left_out]: "devvm left out the link {{.path}}, because it imports only links to files inside the agent's folder."
+// AgentImportFollow is [agent_import_follow]: "Copy what these links lead to into devvm's agent store, for every VM with the agent?"
+func AgentImportFollow() M {
+	return M{id: "agent_import_follow"}
+}
+
+// AgentImportLink is [agent_import_link]: "{{.path}} leads to {{.target}}."
+func AgentImportLink(path string, target string) M {
+	return M{id: "agent_import_link", vals: []val{{"path", path}, {"target", target}}}
+}
+
+// AgentImportLinkFollowed is [agent_import_link_followed]: "devvm copies what the link {{.path}} leads to, {{.target}}."
+func AgentImportLinkFollowed(path string, target string) M {
+	return M{id: "agent_import_link_followed", vals: []val{{"path", path}, {"target", target}}}
+}
+
+// AgentImportLinkLeftOut is [agent_import_link_left_out]: "devvm left out the link {{.path}}, because it leads to a folder, to nothing, or out of the folder devvm reads it in."
 func AgentImportLinkLeftOut(path string) M {
 	return M{id: "agent_import_link_left_out", vals: []val{{"path", path}}}
+}
+
+// AgentImportLinkNotFollowed is [agent_import_link_not_followed]: "devvm left out the link {{.path}} to {{.target}}, which is outside the agent's folder. To copy what it leads to, run devvm agent import --follow-links."
+func AgentImportLinkNotFollowed(path string, target string) M {
+	return M{id: "agent_import_link_not_followed", vals: []val{{"path", path}, {"target", target}}}
+}
+
+// AgentImportLinkProject is [agent_import_link_project]: "The link {{.path}} leads into {{.vm}}'s project folder, so {{.vm}} can change what every VM's agent reads. Follow links into it only when you trust {{.vm}}."
+func AgentImportLinkProject(path string, vm string) M {
+	return M{id: "agent_import_link_project", vals: []val{{"path", path}, {"vm", vm}}}
+}
+
+// AgentImportLinkRefused is [agent_import_link_refused]: "devvm left out the link {{.path}}, because it leads to {{.target}}, and devvm never copies your home folder, secrets, agents' logins and history, or its own files."
+func AgentImportLinkRefused(path string, target string) M {
+	return M{id: "agent_import_link_refused", vals: []val{{"path", path}, {"target", target}}}
+}
+
+// AgentImportLinkTooBig is [agent_import_link_too_big]: "devvm left out the link {{.path}}, because what it leads to is more than one import copies through links: 20,000 files and folders, 128 MiB, or a file of 16 MiB."
+func AgentImportLinkTooBig(path string) M {
+	return M{id: "agent_import_link_too_big", vals: []val{{"path", path}}}
+}
+
+// AgentImportLinkViaVM is [agent_import_link_via_vm]: "devvm left out the link {{.path}}, because it leads through a link in {{.vm}}'s project folder to a place outside it, which {{.vm}} could have chosen."
+func AgentImportLinkViaVM(path string, vm string) M {
+	return M{id: "agent_import_link_via_vm", vals: []val{{"path", path}, {"vm", vm}}}
 }
 
 // AgentImportNone is [agent_import_none]: "There's nothing of {{.agent}} to import, because this machine has neither its settings nor its login."
@@ -112,6 +152,11 @@ func AgentImportOpencodeSkipped(label string, provider string) M {
 // AgentImportReplace is [agent_import_replace]: "Replace what devvm's agent store has of {{.agents}} with this machine's settings and logins?"
 func AgentImportReplace(agents string) M {
 	return M{id: "agent_import_replace", vals: []val{{"agents", agents}}}
+}
+
+// AgentImportRootRefused is [agent_import_root_refused]: "The folder {{.dir}} in config.toml's follow-links is, holds or is inside {{.place}}, so devvm never copies from it. Take it out of follow-links."
+func AgentImportRootRefused(dir string, place string) M {
+	return M{id: "agent_import_root_refused", vals: []val{{"dir", dir}, {"place", place}}}
 }
 
 // AgentKeyChanged is [agent_key_changed]: "{{.key}} isn't the key you added to devvm's SSH agent any more, so devvm didn't load it. If you replaced it, run devvm ssh-agent add {{.key}}."
@@ -1622,6 +1667,11 @@ func FlagsExclusive(flag string, other string) M {
 // FoldersNotPrivate is [folders_not_private]: "The folders {{.data}} and {{.config}} can't be made yours alone, so others may be able to read devvm's files in them. Check that you own both folders."
 func FoldersNotPrivate(config string, data string) M {
 	return M{id: "folders_not_private", vals: []val{{"config", config}, {"data", data}}}
+}
+
+// FollowLinksInvalid is [follow_links_invalid]: "{{.setting}} names {{.dir}}, which isn't a folder devvm can follow links into. Write each folder as an absolute path, or one that starts with ~/, such as ~/dotfiles."
+func FollowLinksInvalid(dir string, setting string) M {
+	return M{id: "follow_links_invalid", vals: []val{{"dir", dir}, {"setting", setting}}}
 }
 
 // ForgotOrphan is [forgot_orphan]: "deleted what devvm kept for {{.vm}}"
@@ -5217,12 +5267,21 @@ var specs = map[string]spec{
 	"agent_holds":                    {fields: []string{"keys"}},
 	"agent_holds_note":               {},
 	"agent_import_failed":            {fields: []string{"reason"}},
+	"agent_import_follow":            {},
+	"agent_import_link":              {fields: []string{"path", "target"}},
+	"agent_import_link_followed":     {fields: []string{"path", "target"}},
 	"agent_import_link_left_out":     {fields: []string{"path"}},
+	"agent_import_link_not_followed": {fields: []string{"path", "target"}},
+	"agent_import_link_project":      {fields: []string{"path", "vm"}},
+	"agent_import_link_refused":      {fields: []string{"path", "target"}},
+	"agent_import_link_too_big":      {fields: []string{"path"}},
+	"agent_import_link_via_vm":       {fields: []string{"path", "vm"}},
 	"agent_import_none":              {fields: []string{"agent"}},
 	"agent_import_nothing":           {},
 	"agent_import_opencode_failed":   {fields: []string{"reason"}},
 	"agent_import_opencode_skipped":  {fields: []string{"label", "provider"}},
 	"agent_import_replace":           {fields: []string{"agents"}},
+	"agent_import_root_refused":      {fields: []string{"dir", "place"}},
 	"agent_key_changed":              {fields: []string{"key"}},
 	"agent_key_copy_failed":          {fields: []string{"agent", "vm"}},
 	"agent_key_empty":                {},
@@ -5525,6 +5584,7 @@ var specs = map[string]spec{
 	"flag_unknown":                   {fields: []string{"command", "flag"}},
 	"flags_exclusive":                {fields: []string{"flag", "other"}},
 	"folders_not_private":            {fields: []string{"config", "data"}},
+	"follow_links_invalid":           {fields: []string{"dir", "setting"}},
 	"forgot_orphan":                  {fields: []string{"vm"}},
 	"forwarder_failed":               {fields: []string{"reason"}},
 	"from_cached_not_found":          {fields: []string{"from", "host"}},

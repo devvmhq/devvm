@@ -1,0 +1,96 @@
+# devvm agent import and links out of an agent's folder: left out with a
+# warning naming --follow-links where devvm can't ask; asked about in a
+# terminal, naming each link and where it leads; followed without asking
+# with --follow-links, or into a folder config.toml's follow-links names.
+# What a link leads to is copied into the store as files and folders,
+# never as a link. A follow-links folder devvm can't use, or that holds a
+# place it never copies from, fails the import.
+
+mkdir $HOME/.claude/skills $HOME/dotfiles/skills/x
+cp $WORK/skill.md $HOME/dotfiles/skills/x/SKILL.md
+cp $WORK/notes.md $HOME/dotfiles/CLAUDE.md
+cp $WORK/settings.json $HOME/.claude/settings.json
+symlink $HOME/.claude/CLAUDE.md -> ../dotfiles/CLAUDE.md
+symlink $HOME/.claude/skills/x -> ../../dotfiles/skills/x
+
+# Without a terminal or --follow-links: left out with a warning naming
+# it, and the rest imported.
+exec devvm agent import
+stderr '^devvm: agent_import_link_not_followed path=\S*/home/\.claude/CLAUDE\.md target=\S*/home/dotfiles/CLAUDE\.md$'
+stderr '^devvm: agent_import_link_not_followed path=\S*/home/\.claude/skills/x target=\S*/home/dotfiles/skills/x$'
+! stderr no_input
+stdout '^==> agent_settings_imported agent=claude '
+exists $CFG/agents/claude/.claude/settings.json
+! exists $CFG/agents/claude/.claude/CLAUDE.md
+! exists $CFG/agents/claude/.claude/skills/x
+
+# In a terminal, devvm names each link and asks: no leaves them out.
+ttyin -stdin $WORK/no
+exec devvm agent import --force
+stderr '^agent_import_link path=\S*/home/\.claude/CLAUDE\.md target=\S*/home/dotfiles/CLAUDE\.md$'
+stderr '^agent_import_link path=\S*/home/\.claude/skills/x target=\S*/home/dotfiles/skills/x$'
+stderr 'agent_import_follow \[y/N\] '
+stderr 'agent_import_link_not_followed path=\S*/home/\.claude/CLAUDE\.md '
+! exists $CFG/agents/claude/.claude/CLAUDE.md
+
+# Yes copies them, as a file and a folder.
+ttyin -stdin $WORK/yes
+exec devvm agent import --force
+stdout '^==> agent_import_link_followed path=\S*/home/\.claude/CLAUDE\.md target=\S*/home/dotfiles/CLAUDE\.md$'
+stdout '^==> agent_import_link_followed path=\S*/home/\.claude/skills/x target=\S*/home/dotfiles/skills/x$'
+cmp $CFG/agents/claude/.claude/CLAUDE.md $WORK/notes.md
+cmp $CFG/agents/claude/.claude/skills/x/SKILL.md $WORK/skill.md
+exec sh -c 'find "$CFG/agents" -type l | wc -l'
+stdout '^\s*0$'
+
+# --follow-links follows them without asking, naming each.
+rm $CFG/agents
+exec devvm agent import --follow-links
+! stderr agent_import_follow
+stdout '^==> agent_import_link_followed path=\S*/home/\.claude/skills/x '
+cmp $CFG/agents/claude/.claude/skills/x/SKILL.md $WORK/skill.md
+
+# config.toml's follow-links: followed without asking or the flag.
+rm $CFG/agents
+cp $WORK/follow.toml $CFG/config.toml
+exec devvm agent import
+! stderr 'agent_import_follow|not_followed'
+stdout '^==> agent_import_link_followed path=\S*/home/\.claude/CLAUDE\.md '
+cmp $CFG/agents/claude/.claude/CLAUDE.md $WORK/notes.md
+
+# A folder that isn't a path, or one that holds a place devvm never
+# copies from, fails the import, and the store stays as it is.
+cp $WORK/notes2.md $HOME/dotfiles/CLAUDE.md
+cp $WORK/bad.toml $CFG/config.toml
+! exec devvm agent import --force
+stderr '^devvm: agent_import_failed reason=\S*/config\.toml:2: follow_links_invalid dir=dotfiles setting=follow-links$'
+symlink $HOME/homelink -> $HOME
+cp $WORK/home.toml $CFG/config.toml
+! exec devvm agent import --force
+stderr '^devvm: agent_import_root_refused dir=\S*/home/homelink place=\S*/home$'
+cp $WORK/ssh.toml $CFG/config.toml
+! exec devvm agent import --force
+stderr '^devvm: agent_import_root_refused dir=\S*/home/\.ssh place=\S*/home/\.ssh$'
+cmp $CFG/agents/claude/.claude/CLAUDE.md $WORK/notes.md
+
+-- yes --
+y
+-- no --
+n
+-- skill.md --
+# a skill
+-- notes.md --
+notes from dotfiles
+-- notes2.md --
+changed notes
+-- settings.json --
+{"theme":"dark"}
+-- follow.toml --
+follow-links = ["~/dotfiles"]
+-- bad.toml --
+# not a path
+follow-links = ["dotfiles"]
+-- home.toml --
+follow-links = ["~/homelink"]
+-- ssh.toml --
+follow-links = ["~/.ssh"]

@@ -1,7 +1,8 @@
 # devvm agent import: the agents' settings and logins copied from the
 # home folder into devvm's store, never their history; logins only the
 # user's to read and kept out of Time Machine; links out of an agent's
-# folder left out; the store replaced only after asking, or with --force.
+# folder left out without a terminal (agent_import_links has the rest);
+# the store replaced only after asking, or with --force.
 
 # Bare, it prints its help; its arguments are agents.
 exec devvm agent
@@ -27,7 +28,7 @@ symlink $HOME/.claude/skills/escape -> ../../outside/secret.md
 exec devvm agent import
 stdout '^==> agent_settings_imported agent=claude dir=\S*/config/devvm/agents/claude$'
 stdout '^==> agent_login_imported agent=claude file=\S*/data/devvm/logins/claude/\.claude\.json$'
-stderr '^devvm: agent_import_link_left_out path=\S*/home/\.claude/skills/escape$'
+stderr '^devvm: agent_import_link_not_followed path=\S*/home/\.claude/skills/escape target=\S*/home/outside/secret\.md$'
 cmp $CFG/agents/claude/.claude/settings.json $WORK/settings.json
 cmp $CFG/agents/claude/.claude/skills/s/SKILL.md $WORK/skill.md
 ! exists $CFG/agents/claude/.claude/skills/escape
@@ -43,6 +44,7 @@ stub_calls
 # The store has claude's: without a terminal the import is refused,
 # naming --force, and nothing changes; a yes replaces it, and so does
 # --force without asking.
+rm $HOME/.claude/skills/escape
 cp $WORK/settings2.json $HOME/.claude/settings.json
 ! exec devvm agent import
 stderr '^agent_import_replace agents=claude\ndevvm: no_input answer=--force$'

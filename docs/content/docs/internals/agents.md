@@ -22,9 +22,19 @@ Every VM sets `OPENCODE_DISABLE_AUTOUPDATE=1`, as it sets `DISABLE_AUTOUPDATER=1
 
 The import copies only the paths in [the store's table](../using/coding-agents.md#devvms-agent-store), from `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/opencode`, `~/.local/share/opencode` and `~/.pi/agent`, so it never copies your history, such as `~/.claude/projects`, `~/.codex`'s sessions or `~/.pi/agent/sessions`, and never `~/.claude/.credentials.json`. Claude Code's plugin records name the plugins' folders by their paths, so the store's copies of the JSON files in `~/.claude/plugins` name the plugins' folders in the store, where the VMs mount them.
 
-A replacement writes each file again and takes out what your home folder no longer has, but it keeps the store's folders, so a running VM's mounts still show them.
+A replacement writes each file again and takes out what your home folder no longer has, but it keeps the store's folders, so a running VM's mounts still show them. Where the store has a folder and the home folder now has a file, or the other way round, as when a link that led to a folder now leads to a file, the import replaces it.
 
 opencode 2 keeps its logins in its own database rather than in `~/.local/share/opencode/auth.json`, so when this machine's opencode is version 2 or later, devvm reads its logins with `opencode auth export` and saves them in the store in the format of `auth.json`, the file that devvm copies for opencode 1. When `opencode auth export` fails, the import fails too, and the store keeps the login it had.
+
+### Links out of an agent's folder
+
+The import reads each agent's folder through that folder as an `os.Root`, so no link inside it leads out of it. A link that leads out is resolved, every link on the way, and only then followed, as [links out of an agent's folder](../using/coding-agents.md#links-out-of-an-agents-folder) says, and [the design note](design.md#links-out-of-an-agents-folder) explains why:
+
+- **How it resolves.** devvm resolves a link one name at a time, as the system does, and keeps where each link on the way is, so it sees a link that a VM put in its project folder even in the middle of a chain. It compares a target with the refused places and the VMs' folders by name and by identity, so another spelling of a folder, such as `~/.SSH` on a Mac, where case doesn't count, is still that folder.
+- **Where it reads.** devvm opens the folder it reads the link's target through, a `follow-links` folder, the linked folder or the linked file's own folder, one folder at a time from `/`, each opened from its parent and never through a link, so a link that a VM swaps into that path fails the import rather than lead elsewhere. It lists what the link leads to through that folder as a root, and reads each file without blocking, refusing a FIFO, a device or a file that changed into a link as it opened it.
+- **What it lists.** A linked folder's folders and files are listed under the link's own path, and a link inside it is listed as a file when the root resolves it to a regular file. Anything else is left out with a warning.
+- **The bounds.** It counts every file and folder it lists, and the size of every file, across all the links of one import, and leaves out a link that would pass 20,000 entries, 128 MiB or a file of 16 MiB, the bounds of [saving a VM's settings](#saving-a-vms-settings). A file that grows past them between the listing and the read fails the import.
+- **A VM's folder.** It reads the state of every VM devvm has, and warns once for each link and VM when the link's target is in that VM's project folder or holds it, or when a link inside a linked folder resolves into it.
 
 ## Saving a VM's settings
 

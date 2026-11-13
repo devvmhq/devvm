@@ -108,15 +108,41 @@ When you already use an agent on this machine, `devvm agent import` copies its s
 devvm agent import              # copy every agent's settings and logins into the store
 devvm agent import codex        # copy only Codex's
 devvm agent import --force      # replace what the store has without asking
+devvm agent import --follow-links   # copy what links out of the agents' folders lead to as well
 ```
 
 devvm says which agents it imported and where, and an agent you named that your home folder has nothing of gets a warning. What the import copies and asks:
 
 - The import copies only the paths in the table above, so it never copies your history or `~/.claude/.credentials.json` ([what it copies](../internals/agents.md#importing)). From `~/.claude.json` it keeps only the settings, account state and MCP servers, so your API key and your per-project entries stay out of the store.
-- devvm reads each agent's settings inside the agent's own folder, such as `~/.claude`, and it never follows a link out of it. A link to a file inside the folder becomes a copy of that file, and a link that leads out of the folder, by a relative or an absolute path, or to a folder, is left out with a warning that names it. A login file that's a link is left out with a warning too. So when your settings live elsewhere, such as in a dotfiles repo with links into `~/.claude`, copy them into the store yourself.
+- devvm reads each agent's settings inside the agent's own folder, such as `~/.claude`. A link to a file inside the folder becomes a copy of that file, and a link to a folder inside it, or one that leads nowhere, is left out with a warning that names it. A login file that's a link is always left out with a warning too. A link that leads out of the folder, by a relative or an absolute path, is copied only when you allow it ([links out of an agent's folder](#links-out-of-an-agents-folder)).
 - When the store already has settings or a login of an agent you import, devvm asks in a terminal whether to replace them, with no as the default. Without a terminal, or with `--no-input`, devvm refuses and names `--force`, which replaces them without asking. An agent whose settings aren't in your home folder keeps the store's settings, and one without a login there keeps the store's login.
 - On macOS, Claude Code keeps its own login in the Keychain, and devvm neither reads it nor copies it. You log Claude Code in from a VM instead, with `devvm agent login claude`, and every VM with Claude Code gets that login ([Claude Code login](#claude-code-login)).
 - When this machine's opencode is version 2 or later, devvm saves the API key of each provider, and your OpenAI login when you made it with one of opencode's Codex logins, the browser or the headless one. Any other login is left out with a warning that names it, such as opencode's Sign in with ChatGPT, whose tokens a VM can't use, or another provider's OAuth login, and you log in from a VM instead, with `devvm agent login opencode` ([logging in with devvm agent login](#logging-in-with-devvm-agent-login)). When `opencode auth export` fails, the import fails too, and the store keeps the login it had.
+
+#### Links out of an agent's folder
+
+When your settings live elsewhere, such as in a dotfiles repo with links into `~/.claude`, devvm copies what those links lead to only when you allow it, because every VM with the agent gets what's in the store. In a terminal, devvm names each link and where it leads, and asks whether to copy them, with no as the default. Without a terminal, or with `--no-input`, it leaves them out with a warning that names `--follow-links`. You allow them for one run with the flag, or for good with `config.toml`'s `follow-links`, which lists the folders whose links devvm follows without asking:
+
+```sh
+devvm agent import --follow-links   # copy what the links lead to, naming each, without asking
+```
+
+```toml
+# in ~/.config/devvm/config.toml: follow links into these folders without asking
+follow-links = ["~/dotfiles"]
+```
+
+What devvm copies through a link, and what it refuses:
+
+- **Copies, never links.** A linked file becomes a file in the store, and a linked folder, such as a skill that `~/.claude/skills/x` links to, becomes a folder of copies. Each import copies them again, and takes a copy out once its link is gone.
+- **Only inside the folder you allowed.** devvm reads what a link leads to through a `follow-links` folder, or with `--follow-links` through the linked folder itself, or the linked file's own folder. A link inside a linked folder becomes a copy of the file it leads to only when that file is inside the same folder, and any other is left out with a warning.
+- **Never your secrets or devvm's own files.** devvm never follows a link to your home folder or a folder that holds it, to devvm's own folders, to `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/Library/Keychains`, `~/.config/devvm`, `~/.netrc`, `~/.config/gh`, `~/.docker` or `~/.kube`, or to an agent's logins or history, such as `~/.codex`, nor into one of these or to a folder that holds one. It leaves such a link out with a warning, even with `--follow-links`.
+- **A `follow-links` folder must be safe as a whole.** A folder that is, holds or is inside one of those places fails the import, naming it, so name a folder inside it instead, such as `~/dotfiles/skills` when `~/.claude` is a link to `~/dotfiles/claude`. Write each folder as an absolute path or one that starts with `~/`, and devvm refuses anything else (`config.toml` names the line).
+- **A VM's project folder gets a warning.** When a link leads into the folder of one of your VMs, `--clone` VMs included, devvm names that VM and warns that it can change what every VM's agent reads from the next import on. Follow such links only when you trust that VM. A link that passes through a link in a VM's project folder to a place outside that folder is left out with a warning naming the VM, whatever allows it, because that VM chose where it leads.
+- **At most 20,000 files and folders, 128 MiB, and 16 MiB in one file,** for all the links of one import together. A link whose files would pass that is left out whole, with a warning.
+- **Settings files and folders keep their kind.** A link that is one of an agent's settings files, such as `~/.claude/CLAUDE.md`, must lead to a file, and one that is a settings folder, such as `~/.claude/skills`, must lead to a folder. Any other is left out with a warning.
+
+Without either, two layouts keep your settings in a dotfiles repo and import them as they are. You can link the agent's whole folder, such as `~/.config/opencode`, to a folder in the repo, and devvm then reads that folder as the agent's folder, so its links to files inside it become copies. Or your dotfiles manager can write real files rather than links, as chezmoi does by default, so your home folder has files that devvm copies.
 
 ### Saving a VM's settings
 

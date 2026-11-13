@@ -730,6 +730,43 @@ The export's `tar` leaves out the database and its `-wal`, `-shm` and `-journal`
 | A trigger putting a row back as it's deleted | Every trigger is dropped first, and the rows are counted after | `TestOpencodeClean` plants one |
 | A hostile database's schema running code in the VM | `trusted_schema` is off, and it runs as the VM's user on the VM's own files, which the export's code could reach anyway | Reviewed |
 
+## Links out of an agent's folder
+
+devvm's agent store reaches every VM with the agent: its folders are mounted read-only, its files are copied in at every launch, and the hooks, MCP servers' commands and plugins in it run in each of those VMs. So whatever `devvm agent import` copies is something every such VM reads and runs. A link in an agent's folder that leads out of it can lead anywhere on this machine, such as to `~/.ssh`, to another agent's login, or into a folder that a VM can write, such as a dotfiles repo that is also a devvm project. Following such links unasked would let a mistaken link put a secret into every VM, and let a VM that writes the folder a link leads into change what every other VM's agent runs. That's why the import follows no link out of an agent's folder by default, and reads each folder through itself as an `os.Root` ([how](agents.md#links-out-of-an-agents-folder)).
+
+Dotfiles repos keep settings as links all the same, and copying them into the store by hand is lost at the next import, so devvm follows them when you allow it, in two ways:
+
+- **`config.toml`'s `follow-links`** names folders, such as `~/dotfiles`, whose links devvm follows without asking. You choose a folder once, for every import, so devvm checks the folder as a whole: one that is, holds or is inside a refused place fails the import, because a link inside it can lead anywhere in it.
+- **`--follow-links`, or a yes to the question,** follows one run's links after naming each and where it leads, so you see every target before anything is copied. Without a terminal, no link out is followed unless the flag is given, and each is named in a warning, so a script never follows a link it didn't ask for. The folder each is read through is the link's own target, or a linked file's own folder.
+
+Whichever allows it, the same rules hold:
+
+- **Resolved first, read inside.** devvm resolves every link on the way to the target, checks that target, then reads it through the allowed folder as a root, which it opens one folder at a time from `/`, never through a link. A link inside what it copies is read only when it leads to a file inside the same root.
+- **Always refused.** devvm never follows a link to the home folder or a folder holding it, to devvm's config, data or Lima folders, to `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/Library/Keychains`, `~/.config/devvm`, `~/.netrc`, `~/.config/gh`, `~/.docker` or `~/.kube`, or to any agent's logins or history, nor into one of them or to a folder holding one. The home folder holds all of them, devvm's folders hold its CA keys, binaries and every VM's disk, and the agents' logins and history are what the store exists to keep apart from VMs. The named folders are the places that commonly hold credentials, and the list can't name every one, which is why the question names each target and the setting takes folders you choose.
+- **A VM's folder warns.** A target in a VM's project folder, or a `--clone` VM's source folder, is followed with a warning naming the VM, because that VM can change what every VM's agent reads from the next import on. Refusing it would refuse the common case of a dotfiles repo that you also work on in a VM, and the warning leaves the choice with you. A chain that passes through a link in a VM's folder to a place outside it is refused, though, because the VM chose that place, and it could name any file the refused list doesn't.
+- **Compared by identity.** devvm compares a target with the refused places and the VMs' folders by name and by file identity, because a Mac's file system ignores case, so `~/.SSH` names `~/.ssh`.
+- **Copies only.** The store gets a copy of each file and folder, never a link, and the next import replaces or takes out each copy as it does the agent's own files. devvm agent save still refuses a link the VM sends.
+- **Bounded.** One import copies at most 20,000 files and folders, 128 MiB and a file of 16 MiB through links, the bounds of devvm agent save, so a link to a large tree can't fill the store.
+
+**Not covered:**
+
+- **The copy is as the target was at the import.** A VM that writes a followed folder later changes nothing in the store until the next import, which then copies what it wrote. The warning names that VM.
+- **A refused place under another name,** such as a credential folder that the list doesn't name, is copied when a link you allowed leads to it.
+- **A huge folder is read before the bounds stop it.** devvm lists each folder whole before it counts its entries, so a folder of millions of entries costs memory on this machine before the import leaves it out.
+
+**Threat check** (the security-audit skill, guidance mode, an independent review of the code):
+
+| Lead | What holds it | Check |
+| --- | --- | --- |
+| A VM swapping a link into the path of an allowed folder, or into what's being read | The root is opened one folder at a time from `/`, never through a link, and everything below it is read through it as a root, without blocking and without following a swapped-in link | `TestOpenPhysical`, `TestAgentImportNestedLinks` |
+| A VM choosing the target through a link in its project folder | Every link on the way is kept, and a chain through a VM's folder to a place outside it is refused, whatever allows it | `TestAgentImportLinkThroughProject`; the review found it first, and it's fixed |
+| A refused place spelled another way, such as `~/.SSH` on a Mac | Targets are compared with the places by identity as well as by name | `TestAgentImportRefusedOtherCase`; the review found it first, and it's fixed |
+| A link to a secret, a login or devvm's own files | The refused places, checked on every target and every `follow-links` folder | `TestAgentImportRefusedPlaces`, `TestAgentImportRefusedRoots` |
+| A write outside the store | Names come from real folder entries under the link's own path, and the store's clean-up goes through the store as a root | Reviewed |
+| A FIFO, a device, a huge or growing file, a loop | Reads refuse anything but a regular file, the bounds are checked when listing and again when reading, and loops end at the bounds or the system's | `TestAgentImportLinkBounds`, `TestLinkSourceGrown`, `TestLinkHops` |
+| A link followed without the user seeing it | Without a terminal nothing is followed unless the flag is given, and each link followed is named | `TestAgentImportFollowsLinks`, `agent_import_links` |
+| What VMs get | Copies only, mounted read-only like the rest of the store | e2e's `project` section reads the linked skill's copy in a VM and finds root can't write it |
+
 ## The 9p cache on Linux
 
 On a Linux host, Lima's QEMU shares the project folder over 9p, and Lima mounts a writable 9p share with `cache=mmap` unless the VM's config says otherwise (read-only ones with `fscache`). The guest kernel's 9p client has a race in that mode, which [Pierre Barre's patch](https://lore.kernel.org/all/20251227180137.730385-1-pierre@barre.sh/) describes and which isn't merged. A `stat()` that runs while a `write()` makes a file longer refreshes the inode from the server, which still has the old size, so the client takes that size over its own, and writeback then drops the pages past it. `fsync` succeeds, yet the file reaches the host empty or cut to 4096 bytes. Claude Code's Edit tool sets it off, and so can any editor or build that stats files as they're written. macOS isn't affected, because Lima's `vz` VMs mount the folder with virtiofs.
