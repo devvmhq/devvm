@@ -63,15 +63,26 @@ So don't open a VM you don't trust with `devvm code` or `devvm cursor`, and use 
 
 ### Cursor's Agent
 
-Recent releases of Cursor run its Agent in the editor's server in the VM, not in the Cursor app on this machine. That server holds your Cursor sign-in in memory and uses it to talk to Cursor, so code in the VM could use your sign-in while the window is open. To send Agent's requests through the Cursor app on this machine, add this line to your Cursor user settings, `~/Library/Application Support/Cursor/User/settings.json` on macOS or `Cursor/User/settings.json` in `$XDG_CONFIG_HOME`, by default `~/.config`, on Linux:
+Recent releases of Cursor run its Agent in the editor's server in the VM, not in the Cursor app on this machine. That server holds your Cursor sign-in in memory and uses it to talk to Cursor, so code in the VM could use your sign-in while the window is open.
+
+The safest way to use `devvm cursor` is a VM on the allowlist or none tier without Cursor's CLI:
+
+```sh
+devvm --network allowlist --agents claude   # any agents but cursor
+devvm cursor
+```
+
+- The VM can't reach Cursor's hosts, so its server can't use your sign-in.
+- Agent and Tab still work: Cursor sends their requests through the app on this machine when the VM can't reach Cursor.
+- `devvm network log` shows the VM's server trying `api2.cursor.sh` and `downloads.cursor.com`, blocked. The second is the server trying to download itself into the VM; Cursor then downloads it on this machine and copies it in.
+
+A VM with Cursor's CLI has Cursor's hosts on its allowlist, so there the editor's server can use your sign-in. To send Agent's own requests through the app either way, add this line to your Cursor user settings, `~/Library/Application Support/Cursor/User/settings.json` on macOS or `Cursor/User/settings.json` in `$XDG_CONFIG_HOME`, by default `~/.config`, on Linux:
 
 ```json
 "cursorAgentHost.remoteInferenceRoute": "always"
 ```
 
-Once it finds Cursor's `cursor` command, `devvm cursor` reads that file, without changing it, and warns before it opens Cursor when the line isn't there, or when it can't read the file. Cursor reads the setting only from your user settings, never from the VM's. The setting doesn't take your sign-in out of the VM, though: either way, the editor's server in the VM still signs in to Cursor, so open only VMs you trust with `devvm cursor`. On the allowlist and none tiers, a VM without Cursor's CLI can't reach Cursor's hosts at all.
-
-If Cursor Tab doesn't work in a `devvm cursor` window on the allowlist tier, run `devvm network allow api3.cursor.sh` to let it through. Cursor documents that host for Tab's requests, and devvm blocks it as a [quiet host](../safety/network.md#quiet-hosts), because Cursor's CLI sends its metrics there.
+Once it finds Cursor's `cursor` command, `devvm cursor` reads that file, without changing it, and warns before it opens Cursor when the line isn't there, or when it can't read the file. Cursor reads the setting only from your user settings, never from the VM's. The setting doesn't take your sign-in out of the VM, though: the editor's server still signs in to Cursor where it can reach it, so open only VMs you trust with `devvm cursor`.
 
 ## Agent forwarding
 

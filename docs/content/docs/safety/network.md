@@ -289,7 +289,7 @@ Some tools send telemetry to a host of their own, and devvm's built-in policies 
 
 A block is quiet only when no rule of yours covers the host and nothing else refused it, such as its address. To allow a quiet host anyway, add it as any other host, such as `devvm network allow api3.cursor.sh`, and your rule wins. Only devvm's own policies can mark a host quiet. In one of your files, a `quiet` line isn't a rule, so the proxy skips it, and devvm warns about it as it warns about any other line that isn't a rule, saying that only devvm's policies can mark a host quiet. These are the quiet hosts:
 
-- `api3.cursor.sh`, the host Cursor documents for its editor's Tab requests, which Cursor's CLI uses for its metrics;
+- `api3.cursor.sh`, the host Cursor documents for its editor's Tab requests, which Cursor's CLI uses for its metrics (in a `devvm cursor` window, Tab's requests come from the Cursor app on this machine, not the VM);
 - `telemetry.go.dev`, Go's telemetry uploads, which every VM turns off.
 
 ### Changing rules
