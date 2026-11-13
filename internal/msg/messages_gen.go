@@ -3794,6 +3794,11 @@ func PortsHeld(count int, other string, ports string, vm string) M {
 	return M{id: "ports_held", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"other", other}, {"ports", ports}, {"vm", vm}}}
 }
 
+// PortsLimit is [ports_limit]: "{{.vm}} doesn't forward ports {{.ports}} for now because it already forwards {{.limit}} ports, the most it can at once."
+func PortsLimit(count int, limit string, ports string, vm string) M {
+	return M{id: "ports_limit", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"limit", limit}, {"ports", ports}, {"vm", vm}}}
+}
+
 // PortsListNeeded is [ports_list_needed]: "{{.value}} isn't a list of ports. Give ports and ranges, such as 5173,8000-8010."
 func PortsListNeeded(value string) M {
 	return M{id: "ports_list_needed", vals: []val{{"value", value}}}
@@ -3802,6 +3807,11 @@ func PortsListNeeded(value string) M {
 // PortsNow is [ports_now]: "{{.vm}} forwards {{.ports}}"
 func PortsNow(ports string, vm string) M {
 	return M{id: "ports_now", vals: []val{{"ports", ports}, {"vm", vm}}}
+}
+
+// PortsRefused is [ports_refused]: "{{.vm}} doesn't forward ports {{.ports}} because this machine doesn't let devvm use them, as with ports below 1024 on Linux."
+func PortsRefused(count int, ports string, vm string) M {
+	return M{id: "ports_refused", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"ports", ports}, {"vm", vm}}}
 }
 
 // PortsRmAll is [ports_rm_all]: "Every port is forwarded, so none can be removed. Set the ones to keep instead, as in devvm ports 5173,8000-8010."
@@ -6034,8 +6044,10 @@ var specs = map[string]spec{
 	"ports_forward_failed":           {fields: []string{"log", "vm"}},
 	"ports_forwarding":               {fields: []string{"ports", "vm"}},
 	"ports_held":                     {plural: true, fields: []string{"count", "other", "ports", "vm"}},
+	"ports_limit":                    {plural: true, fields: []string{"count", "limit", "ports", "vm"}},
 	"ports_list_needed":              {fields: []string{"value"}},
 	"ports_now":                      {fields: []string{"ports", "vm"}},
+	"ports_refused":                  {plural: true, fields: []string{"count", "ports", "vm"}},
 	"ports_rm_all":                   {},
 	"ports_taken":                    {plural: true, fields: []string{"count", "ports", "vm"}},
 	"program_broken":                 {fields: []string{"command", "name"}},

@@ -210,32 +210,43 @@ func (f Forwards) Held(vm, forward string) (map[string][]backend.PortRange, erro
 	return heldBy(holders, want.Ranges), nil
 }
 
-// Taken returns the listed ports of the running VM, as its state lists
-// them (forward), that its forwarder tried and couldn't take, as its
-// record says, and no other VM forwards: a program's, which the forwarder
-// leaves until the VM's server listens again, as devvm ports shows them.
-// It reads the forwarder's own view and binds nothing, so it never takes
-// a port the forwarder is opening. A VM whose forwarder doesn't run, or
-// whose record its forwarder didn't write (an older devvm's forwarder, or
-// a write that failed), has none known.
-func (f Forwards) Taken(vm, forward string) []backend.PortRange {
+// Unforwarded is a running VM's listed ports that its forwarder tried
+// and couldn't take, by why, as devvm ports shows them.
+type Unforwarded struct {
+	InUse   []backend.PortRange // a program's on this machine (ports_taken)
+	Limit   []backend.PortRange // past the limit of forwards (ports_limit)
+	Refused []backend.PortRange // refused by this machine otherwise, such as below 1024 on Linux (ports_refused)
+}
+
+// Unforwarded returns the listed ports of the running VM, as its state
+// lists them (forward), that its forwarder tried and couldn't take, as its
+// record says, by why, and no other VM forwards: each left until the VM's
+// server listens again. It reads the forwarder's own view and binds
+// nothing, so it never takes a port the forwarder is opening. A VM whose
+// forwarder doesn't run, or whose record its forwarder didn't write (an
+// older devvm's forwarder, or a write that failed), or whose record
+// doesn't say why (an older devvm's), has none known.
+func (f Forwards) Unforwarded(vm, forward string) Unforwarded {
 	want, err := ports.Forwarding(forward)
 	if err != nil || want.All {
-		return nil
+		return Unforwarded{}
 	}
 	rec, ok := f.recorded(vm)
 	if !ok {
-		return nil
+		return Unforwarded{}
 	}
 	holders, err := ports.Holders(f.Dirs, vm, f.live)
 	if err != nil {
-		return nil
+		return Unforwarded{}
 	}
-	_, taken := splitPorts(want.Ranges, func(p int) bool {
-		_, held := holders[p]
-		return !held && slices.Contains(rec.failed, p)
-	})
-	return taken
+	of := func(failed []int) []backend.PortRange {
+		_, out := splitPorts(want.Ranges, func(p int) bool {
+			_, held := holders[p]
+			return !held && slices.Contains(failed, p)
+		})
+		return out
+	}
+	return Unforwarded{InUse: of(rec.failed.inUse), Limit: of(rec.failed.limit), Refused: of(rec.failed.refused)}
 }
 
 // Reserved returns the host ports the VM's forwarder never takes
@@ -261,8 +272,18 @@ func (f Forwards) live(vm string) ([]int, bool) {
 }
 
 // forwarderRecord is what a VM's running forwarder records (record): the
-// ports it forwards now, and those it tried and couldn't take.
-type forwarderRecord struct{ now, failed []int }
+// ports it forwards now, and those it tried and couldn't take, by why.
+type forwarderRecord struct {
+	now    []int
+	failed failedPorts
+}
+
+// recordLines is how many lines a record has: its pid, the ports
+// forwarded, and those it couldn't take because they're in use, past its
+// limit, and refused. An older devvm's has three, its last any port it
+// couldn't take, whatever the reason: read as none, so no port is
+// wrongly said to be in use.
+const recordLines = 5
 
 // recorded returns the VM's forwarder's record, with ok when its forwarder
 // runs and that process wrote it.
@@ -280,8 +301,8 @@ func (f Forwards) recorded(vm string) (forwarderRecord, bool) {
 		return forwarderRecord{}, false
 	}
 	rec := forwarderRecord{now: parsePorts(lines[1])}
-	if len(lines) > 2 {
-		rec.failed = parsePorts(lines[2])
+	if len(lines) >= recordLines {
+		rec.failed = failedPorts{inUse: parsePorts(lines[2]), limit: parsePorts(lines[3]), refused: parsePorts(lines[4])}
 	}
 	return rec, true
 }
@@ -300,17 +321,19 @@ func parsePorts(s string) []int {
 
 // record records the host ports the VM's forwarder, process pid,
 // forwards now, which other VMs' forwarders read (live), and those it
-// tried and couldn't take (Taken): its pid, then each list of ports,
-// comma-separated, on a line of its own, written whole.
-func (f Forwards) record(vm string, pid int, now, failed []int) error {
-	join := func(ps []int) string {
+// tried and couldn't take, by why (Unforwarded): its pid, then each list
+// of ports, comma-separated, on a line of its own (recordLines), written
+// whole. An older devvm reads its third line, those in use, alone.
+func (f Forwards) record(vm string, pid int, now []int, failed failedPorts) error {
+	lines := []string{strconv.Itoa(pid)}
+	for _, ps := range [][]int{now, failed.inUse, failed.limit, failed.refused} {
 		es := make([]string, len(ps))
 		for i, n := range ps {
 			es[i] = strconv.Itoa(n)
 		}
-		return strings.Join(es, ",")
+		lines = append(lines, strings.Join(es, ","))
 	}
-	return state.WriteFile(f.Dirs.VM(vm).Forwarder(".forwarded"), []byte(strconv.Itoa(pid)+"\n"+join(now)+"\n"+join(failed)+"\n"))
+	return state.WriteFile(f.Dirs.VM(vm).Forwarder(".forwarded"), []byte(strings.Join(lines, "\n")+"\n"))
 }
 
 // splitPorts splits ranges into the ports inUse says are free and those it

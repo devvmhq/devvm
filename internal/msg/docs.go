@@ -174,6 +174,8 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"ports_list_needed":              "using/ports-size#ports",
 	"ports_rm_all":                   "using/ports-size#ports",
 	"ports_taken":                    "using/troubleshooting#a-listed-port-isnt-forwarded",
+	"ports_limit":                    "using/troubleshooting#a-listed-port-isnt-forwarded",
+	"ports_refused":                  "using/troubleshooting#a-listed-port-isnt-forwarded",
 	"ports_held":                     "using/ports-size#two-vms-and-one-port",
 	"ca_not_certificate":             "using/settings#a-companys-ca",
 	"ca_not_ca":                      "using/settings#a-companys-ca",

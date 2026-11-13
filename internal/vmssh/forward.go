@@ -65,10 +65,13 @@ import (
 // Limits on what the VM's report makes the forwarder do.
 const (
 	minForwardPort = 1024 // privileged ports aren't forwarded unless listed
-	maxForwards    = 256  // ports forwarded at once
 	maxListeners   = 4096 // lines in one report
 	maxRelays      = 256  // connections carried at once
 )
+
+// MaxForwards is the most ports a VM's forwarder forwards at once
+// (ports_limit names it).
+const MaxForwards = 256
 
 // Forwarder forwards a running VM's ports to the host's loopback, as the
 // VM reports them (Watch).
@@ -93,14 +96,14 @@ type Forwarder struct {
 	// it's 0.
 	Recheck time.Duration
 	// Note, when set, records the host ports it forwards and those it
-	// tried and couldn't take, after each change (Forwards' record, which
-	// other VMs' forwarders and devvm ports read).
-	Note func(now, failed []int)
+	// tried and couldn't take, by why, after each change (Forwards' record,
+	// which other VMs' forwarders and devvm ports read).
+	Note func(now []int, failed failedPorts)
 	// Watch connects to the VM and runs ports.sh there, returning its
 	// output and how to wait for it; it ends with ctx or the connection.
 	Watch func(ctx context.Context) (io.ReadCloser, func() error, error)
 	// Relay carries conn to host:port in the VM until either side ends,
-	// then closes conn.
+	// or ctx does, which its forward's close ends, then closes conn.
 	Relay func(ctx context.Context, conn net.Conn, host string, port int)
 	// Listen listens on a host loopback address (HOST:PORT).
 	Listen func(ctx context.Context, addr string) (net.Listener, error)
@@ -114,18 +117,46 @@ type Forwarder struct {
 
 	mu      sync.Mutex
 	ports   map[int]*forward
-	skipped map[int]bool // not forwarded: tried again only once the VM's listener goes and comes back
+	skipped map[int]failure // not forwarded, and why: tried again only once the VM's listener goes and comes back
 	relays  chan struct{}
 }
+
+// failure is why the forwarder couldn't take a port.
+type failure int
+
+const (
+	failedInUse   failure = iota + 1 // a program on the host has it (EADDRINUSE)
+	failedLimit                      // MaxForwards are forwarded already
+	failedRefused                    // the host refused it (EACCES, EPERM), such as below 1024 on Linux
+)
+
+// failureOf is why a listen on a port failed, with ok when that's one
+// the port keeps: in use, or refused. Any other error (EMFILE, ENOBUFS,
+// EADDRNOTAVAIL...) says nothing of the port, so it's tried again at the
+// next report.
+func failureOf(err error) (failure, bool) {
+	switch {
+	case errors.Is(err, syscall.EADDRINUSE):
+		return failedInUse, true
+	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):
+		return failedRefused, true
+	}
+	return 0, false
+}
+
+// failedPorts is the ports the forwarder tried and couldn't take, by
+// why, each sorted.
+type failedPorts struct{ inUse, limit, refused []int }
 
 // forward is a port being forwarded: its host listeners, and the address
 // in the VM its connections go to.
 type forward struct {
 	lns  []net.Listener
 	host string
-	// conns is the connections it accepted that are open, which close
-	// ends too, and closed whether it went: both under the forwarder's mu.
-	conns  map[net.Conn]bool
+	// conns is the connections it accepted that are open, each with what
+	// ends its relay's context, which close ends too, and closed whether
+	// it went: both under the forwarder's mu.
+	conns  map[net.Conn]context.CancelFunc
 	closed bool
 }
 
@@ -159,9 +190,9 @@ func (f *Forwarder) Run(ctx context.Context) error {
 			f.logf("%s stopped", f.VM)
 		}
 	}()
-	f.ports, f.skipped, f.relays = map[int]*forward{}, map[int]bool{}, make(chan struct{}, maxRelays)
+	f.ports, f.skipped, f.relays = map[int]*forward{}, map[int]failure{}, make(chan struct{}, maxRelays)
 	if f.Note != nil {
-		f.Note(nil, nil) // an older record of the VM's names nothing now
+		f.Note(nil, failedPorts{}) // an older record of the VM's names nothing now
 	}
 	defer f.closeAll()
 	go func() {
@@ -337,8 +368,11 @@ func (f *Forwarder) apply(ctx context.Context, want map[int]string) {
 			f.logf("port %d: no longer forwarded", port)
 		}
 	}
-	for port := range f.skipped {
-		if _, ok := want[port]; !ok {
+	// A port past the limit is tried again once the forwarder is below
+	// it; any other failure stays until the VM's listener goes.
+	below := len(f.ports) < MaxForwards
+	for port, why := range f.skipped {
+		if _, ok := want[port]; !ok || why == failedLimit && below {
 			delete(f.skipped, port)
 		}
 	}
@@ -356,25 +390,38 @@ func (f *Forwarder) apply(ctx context.Context, want map[int]string) {
 			delete(f.skipped, port)
 			continue
 		}
-		if f.skipped[port] {
+		if _, ok := f.skipped[port]; ok {
 			continue
 		}
-		f.skipped[port] = true
-		if len(f.ports) >= maxForwards {
-			f.logf("port %d: not forwarded: %d forwarded already", port, maxForwards)
-			continue
+		if f.try(ctx, port, host) {
+			changed = true
 		}
-		fw, err := f.open(ctx, port)
-		if err != nil {
-			f.logf("port %d: not forwarded: %v", port, err)
-			continue
-		}
-		fw.host = host
-		f.ports[port] = fw
-		delete(f.skipped, port)
-		changed = true
-		f.logf("port %d: forwarded", port)
 	}
+}
+
+// try forwards a port the VM listens on, or records why it can't
+// (skipped): its limit of forwards reached, or the host's listen failing
+// with an error that's the port's (failureOf). Any other error is logged
+// alone, and the port is tried again at the next report. Its caller holds
+// mu.
+func (f *Forwarder) try(ctx context.Context, port int, host string) bool {
+	if len(f.ports) >= MaxForwards {
+		f.skipped[port] = failedLimit
+		f.logf("port %d: not forwarded: %d forwarded already", port, MaxForwards)
+		return false
+	}
+	fw, err := f.open(ctx, port)
+	if err != nil {
+		if why, ok := failureOf(err); ok {
+			f.skipped[port] = why
+		}
+		f.logf("port %d: not forwarded: %v", port, err)
+		return false
+	}
+	fw.host = host
+	f.ports[port] = fw
+	f.logf("port %d: forwarded", port)
+	return true
 }
 
 // open listens on the port on the host's loopback, IPv4 and IPv6 (a host
@@ -413,16 +460,20 @@ func (f *Forwarder) serve(ctx context.Context, l net.Listener, port int, fw *for
 			_ = conn.Close() // too many at once
 			continue
 		}
+		// Each relay's own context, which the forward's close ends, so its
+		// ssh is killed even when the VM never ends its channel.
+		rctx, cancel := context.WithCancel(ctx)
 		f.mu.Lock()
 		host, closed := fw.host, fw.closed
 		if !closed {
 			if fw.conns == nil {
-				fw.conns = map[net.Conn]bool{}
+				fw.conns = map[net.Conn]context.CancelFunc{}
 			}
-			fw.conns[conn] = true
+			fw.conns[conn] = cancel
 		}
 		f.mu.Unlock()
 		if closed {
+			cancel()
 			_ = conn.Close() // accepted as the forward went
 			<-f.relays
 			continue
@@ -432,24 +483,27 @@ func (f *Forwarder) serve(ctx context.Context, l net.Listener, port int, fw *for
 				f.mu.Lock()
 				delete(fw.conns, conn)
 				f.mu.Unlock()
+				cancel()
 				<-f.relays
 			}()
-			f.Relay(ctx, conn, host, port)
+			f.Relay(rctx, conn, host, port)
 		}()
 	}
 }
 
 // close ends the forward: its listeners, and the connections they
-// accepted that are open, so a client's keep-alive connection, such as a
-// browser's, never reaches the VM once its port is given up. Its caller
-// holds the forwarder's mu.
+// accepted that are open, with their relays' contexts, so a client's
+// keep-alive connection, such as a browser's, never reaches the VM once
+// its port is given up, and a relay whose channel the VM never ends
+// stops with it. Its caller holds the forwarder's mu.
 func (fw *forward) close() {
 	fw.closed = true
 	for _, l := range fw.lns {
 		_ = l.Close()
 	}
-	for c := range fw.conns {
+	for c, cancel := range fw.conns {
 		_ = c.Close()
+		cancel()
 	}
 	clear(fw.conns)
 }
@@ -467,12 +521,24 @@ func (f *Forwarder) closeAll() {
 	clear(f.skipped)
 }
 
-// note records what it forwards and the ports it couldn't take (Note).
-// Its caller holds mu.
+// note records what it forwards and the ports it couldn't take, by why
+// (Note). Its caller holds mu.
 func (f *Forwarder) note() {
-	if f.Note != nil {
-		f.Note(slices.Sorted(maps.Keys(f.ports)), slices.Sorted(maps.Keys(f.skipped)))
+	if f.Note == nil {
+		return
 	}
+	var failed failedPorts
+	for _, port := range slices.Sorted(maps.Keys(f.skipped)) {
+		switch f.skipped[port] {
+		case failedInUse:
+			failed.inUse = append(failed.inUse, port)
+		case failedLimit:
+			failed.limit = append(failed.limit, port)
+		case failedRefused:
+			failed.refused = append(failed.refused, port)
+		}
+	}
+	f.Note(slices.Sorted(maps.Keys(f.ports)), failed)
 }
 
 // release closes the forwards whose ports devvm reserves now, noting what

@@ -1365,6 +1365,16 @@ description = "ports is a list of ports and ranges, like 5173,8000-8010; count i
 one = "{{.vm}} doesn't forward port {{.ports}} for now because it's in use on this machine."
 other = "{{.vm}} doesn't forward ports {{.ports}} for now because they're in use on this machine."
 
+[ports_limit]
+description = "ports is a list of ports and ranges, like 5173,8000-8010; count is how many ports; limit is the most ports a VM forwards at once"
+one = "{{.vm}} doesn't forward port {{.ports}} for now because it already forwards {{.limit}} ports, the most it can at once."
+other = "{{.vm}} doesn't forward ports {{.ports}} for now because it already forwards {{.limit}} ports, the most it can at once."
+
+[ports_refused]
+description = "ports is a list of ports and ranges, like 5173,8000-8010; count is how many ports"
+one = "{{.vm}} doesn't forward port {{.ports}} because this machine doesn't let devvm use it, as with a port below 1024 on Linux."
+other = "{{.vm}} doesn't forward ports {{.ports}} because this machine doesn't let devvm use them, as with ports below 1024 on Linux."
+
 [ports_held]
 description = "ports is a list of ports and ranges, like 5173,8000-8010; count is how many ports; other is the VM that forwards them now"
 one = "{{.vm}} forwards port {{.ports}} once {{.other}} stops forwarding it."

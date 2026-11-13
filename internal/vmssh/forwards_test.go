@@ -95,7 +95,7 @@ func TestForwardsStart(t *testing.T) {
 	forward("")
 	// Its old forwarder's record goes with it: a pid used again never
 	// makes it the new one's.
-	if err := f.record(vm, 1, []int{5173}, nil); err != nil {
+	if err := f.record(vm, 1, []int{5173}, failedPorts{}); err != nil {
 		t.Fatal(err)
 	}
 	f.Start(ctx, b, st)
@@ -221,7 +221,7 @@ func TestForwardsHeld(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := f.record(vm, pid, now, nil); err != nil {
+		if err := f.record(vm, pid, now, failedPorts{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -229,7 +229,7 @@ func TestForwardsHeld(t *testing.T) {
 	run(every, 3000)
 	// A record its process didn't write names none; a VM that's stopped,
 	// or crashed, its forwarder gone, holds none.
-	if err := f.record(gone, 1, []int{5173}, nil); err != nil {
+	if err := f.record(gone, 1, []int{5173}, failedPorts{}); err != nil {
 		t.Fatal(err)
 	}
 	if now, ok := f.live(gone); ok || now != nil {
@@ -239,13 +239,13 @@ func TestForwardsHeld(t *testing.T) {
 		t.Errorf("a running VM: %v, %v", now, ok)
 	}
 	pid, _ := f.proc(every).PID()
-	if err := f.record(every, pid+1, []int{3000}, nil); err != nil {
+	if err := f.record(every, pid+1, []int{3000}, failedPorts{}); err != nil {
 		t.Fatal(err)
 	}
 	if now, ok := f.live(every); !ok || now != nil {
 		t.Errorf("another process's record: %v, %v", now, ok)
 	}
-	if err := f.record(every, pid, []int{3000}, nil); err != nil {
+	if err := f.record(every, pid, []int{3000}, failedPorts{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -257,7 +257,7 @@ func TestForwardsHeld(t *testing.T) {
 	if now, ok := f.live(every); !ok || now != nil {
 		t.Errorf("no record: %v, %v", now, ok)
 	}
-	if err := f.record(every, pid, []int{3000}, nil); err != nil {
+	if err := f.record(every, pid, []int{3000}, failedPorts{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -311,37 +311,64 @@ func TestForwardsHeld(t *testing.T) {
 	}
 
 	// a's own forwarder runs: its listed ports that it tried and couldn't
-	// take, as its record says (its third line), and no VM holds, are a
-	// program's (devvm ports says so). Nothing is bound to find out, so a
-	// port it may be opening right then (8001, in use as it opens it)
-	// isn't one.
+	// take, as its record says, by why, and no VM holds, are a program's
+	// (in use), past its limit, or refused by this machine (devvm ports
+	// says which). Nothing is bound to find out, so a port it may be
+	// opening right then (8001, in use as it opens it) is what the record
+	// says.
+	const list = "80,5173,8000-8001,3000,9000"
 	run(a, 8000)
 	pidA, _ := f.proc(a).PID()
+	if err := f.record(a, pidA, []int{8000}, failedPorts{inUse: []int{5173, 9000}, limit: []int{8001}, refused: []int{80}}); err != nil {
+		t.Fatal(err)
+	}
 	rec := f.Dirs.VM(a).Forwarder(".forwarded")
-	if err := state.WriteFile(rec, []byte(strconv.Itoa(pidA)+"\n8000\n9000,5173\n")); err != nil {
+	if got, want := readFile(t, rec), strconv.Itoa(pidA)+"\n8000\n5173,9000\n8001\n80\n"; got != want {
+		t.Errorf("record %q, want %q", got, want)
+	}
+	f.InUse = func(_ context.Context, p int) bool { return p == 8001 || p == 9000 || p == 80 }
+	un := f.Unforwarded(a, list)
+	if !slices.Equal(un.InUse, []backend.PortRange{r(9000, 9000)}) || !slices.Equal(un.Limit, []backend.PortRange{r(8001, 8001)}) ||
+		!slices.Equal(un.Refused, []backend.PortRange{r(80, 80)}) {
+		t.Errorf("Unforwarded = %+v", un)
+	}
+	unforwardedUnknown(t, *f, a, list, pidA)
+	if un := f.Unforwarded(gone, "7000"); un.InUse != nil {
+		t.Errorf("Unforwarded of a stopped VM = %+v", un)
+	}
+}
+
+// unforwardedUnknown checks that the running VM's forwarder, process pid,
+// has no port it couldn't take known without its record, with one
+// another process wrote (an older devvm's forwarder, or a write that
+// failed), or with an older devvm's record, whose third line is every
+// port it couldn't take, whatever the reason: none is wrongly said to be
+// in use. An older devvm's record still says what it forwards.
+func unforwardedUnknown(t *testing.T, f Forwards, vm, list string, pid int) {
+	t.Helper()
+	rec := f.Dirs.VM(vm).Forwarder(".forwarded")
+	for name, data := range map[string]string{
+		"another process's": strconv.Itoa(pid+1) + "\n8000\n9000\n\n80\n",
+		"an older devvm's":  strconv.Itoa(pid) + "\n8000\n9000,80\n",
+	} {
+		if err := state.WriteFile(rec, []byte(data)); err != nil {
+			t.Fatal(err)
+		}
+		if un := f.Unforwarded(vm, list); un.InUse != nil || un.Limit != nil || un.Refused != nil {
+			t.Errorf("Unforwarded with %s record = %+v", name, un)
+		}
+	}
+	if err := state.WriteFile(rec, []byte(strconv.Itoa(pid)+"\n8000\n9000,80\n")); err != nil {
 		t.Fatal(err)
 	}
-	f.InUse = func(_ context.Context, p int) bool { return p == 8001 || p == 9000 }
-	if taken := f.Taken(a, "5173,8000-8001,3000,9000"); !slices.Equal(taken, []backend.PortRange{r(9000, 9000)}) {
-		t.Errorf("Taken = %v", taken)
-	}
-	// Without its record, or with one another process wrote (an older
-	// devvm's forwarder, or a write that failed), what it couldn't take
-	// is unknown: none.
-	if err := state.WriteFile(rec, []byte(strconv.Itoa(pidA+1)+"\n8000\n9000\n")); err != nil {
-		t.Fatal(err)
-	}
-	if taken := f.Taken(a, "5173,8000-8001,3000,9000"); taken != nil {
-		t.Errorf("Taken with another process's record = %v", taken)
+	if now, ok := f.live(vm); !ok || !slices.Equal(now, []int{8000}) {
+		t.Errorf("an older devvm's record forwards %v, %v", now, ok)
 	}
 	if err := os.Remove(rec); err != nil {
 		t.Fatal(err)
 	}
-	if taken := f.Taken(a, "5173,8000-8001,3000,9000"); taken != nil {
-		t.Errorf("Taken without a record = %v", taken)
-	}
-	if taken := f.Taken(gone, "7000"); taken != nil {
-		t.Errorf("Taken of a stopped VM = %v", taken)
+	if un := f.Unforwarded(vm, list); un.InUse != nil || un.Limit != nil || un.Refused != nil {
+		t.Errorf("Unforwarded without a record = %+v", un)
 	}
 }
 
@@ -355,7 +382,7 @@ func TestForwardsRecordFails(t *testing.T) {
 	if err := os.WriteFile(f.Dirs.VM(vm).Run(), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.record(vm, 1, []int{5173}, nil); err == nil {
+	if err := f.record(vm, 1, []int{5173}, failedPorts{}); err == nil {
 		t.Error("a record where its folder is a file")
 	}
 }

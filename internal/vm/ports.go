@@ -150,8 +150,10 @@ func orAll(ports string) string {
 // Ports returns which ports the folder's VM forwards: all, none or a
 // list, and those of its listed ports another running VM forwards now,
 // which it forwards once that VM gives them up, each warned (ports_held).
-// A running VM's listed ports that a program on this machine has instead
-// are warned too (ports_taken).
+// A running VM's listed ports that its forwarder couldn't take are warned
+// too, by why: a program on this machine has them (ports_taken), it
+// forwards as many as it can already (ports_limit), or this machine
+// refused them (ports_refused).
 func (e Settings) Ports(ctx context.Context) (PortsShown, error) {
 	t, err := e.finder.target(ctx, need{has: hasMade, noVM: msg.NoVMPorts})
 	if err != nil {
@@ -160,8 +162,15 @@ func (e Settings) Ports(ctx context.Context) (PortsShown, error) {
 	fwd := sectionOf[ports.Ports](t.st, ports.Section).Forward
 	out := PortsShown{List: orAll(fwd)}
 	f := e.forwards()
-	if taken := f.Taken(t.f.Name, fwd); len(taken) > 0 {
-		e.Warn(msg.PortsTaken(backend.CountPorts(taken), backend.FormatPortRanges(taken), t.f.Name))
+	un := f.Unforwarded(t.f.Name, fwd)
+	if len(un.InUse) > 0 {
+		e.Warn(msg.PortsTaken(backend.CountPorts(un.InUse), backend.FormatPortRanges(un.InUse), t.f.Name))
+	}
+	if len(un.Limit) > 0 {
+		e.Warn(msg.PortsLimit(backend.CountPorts(un.Limit), strconv.Itoa(vmssh.MaxForwards), backend.FormatPortRanges(un.Limit), t.f.Name))
+	}
+	if len(un.Refused) > 0 {
+		e.Warn(msg.PortsRefused(backend.CountPorts(un.Refused), backend.FormatPortRanges(un.Refused), t.f.Name))
 	}
 	// Another VM's state unreadable for now: the list alone.
 	held, _ := f.Held(t.f.Name, fwd)

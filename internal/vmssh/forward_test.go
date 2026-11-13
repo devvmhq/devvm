@@ -284,7 +284,7 @@ func TestForwarderOnly(t *testing.T) {
 		Alive:    func(context.Context) bool { return true },
 		Reserved: func() (map[int]bool, error) { return map[int]bool{reserved: true}, nil },
 		Watch:    vm.watch, Relay: echo, Listen: platform.ListenLoopback,
-		ports: map[int]*forward{}, skipped: map[int]bool{},
+		ports: map[int]*forward{}, skipped: map[int]failure{},
 	}
 	if !f.wanted(80) || f.wanted(other) || !f.wanted(listed) {
 		t.Error("wanted: not the listed ports alone")
@@ -370,7 +370,7 @@ func TestForwarderReservedUnknown(t *testing.T) {
 	p := freePorts(t, 1)[0]
 	var log bytes.Buffer
 	f := &Forwarder{
-		VM: "devvm-f", Log: &log, ports: map[int]*forward{}, skipped: map[int]bool{},
+		VM: "devvm-f", Log: &log, ports: map[int]*forward{}, skipped: map[int]failure{},
 		Reserved: func() (map[int]bool, error) { return nil, errors.New("unreadable") },
 		Listen:   platform.ListenLoopback,
 	}
@@ -389,7 +389,7 @@ func TestForwarderReservedLater(t *testing.T) {
 	reserved := map[int]bool{}
 	var rerr error
 	f := &Forwarder{
-		VM: "devvm-f", Log: &log, ports: map[int]*forward{}, skipped: map[int]bool{},
+		VM: "devvm-f", Log: &log, ports: map[int]*forward{}, skipped: map[int]failure{},
 		Reserved: func() (map[int]bool, error) { return reserved, rerr },
 		Listen:   platform.ListenLoopback,
 	}
@@ -436,7 +436,7 @@ func TestForwarderGivesUpSilently(t *testing.T) {
 			defer mu.Unlock()
 			return maps.Clone(reserved), nil
 		},
-		Note: func(ports, _ []int) {
+		Note: func(ports []int, _ failedPorts) {
 			mu.Lock()
 			defer mu.Unlock()
 			notes = append(notes, ports)
@@ -470,7 +470,7 @@ func TestForwarderClosesConnections(t *testing.T) {
 	var reserved map[int]bool
 	accepted := make(chan struct{}, 1)
 	f := &Forwarder{
-		VM: "devvm-f", Log: io.Discard, ports: map[int]*forward{}, skipped: map[int]bool{}, relays: make(chan struct{}, maxRelays),
+		VM: "devvm-f", Log: io.Discard, ports: map[int]*forward{}, skipped: map[int]failure{}, relays: make(chan struct{}, maxRelays),
 		Reserved: func() (map[int]bool, error) { return reserved, nil },
 		Relay: func(_ context.Context, conn net.Conn, _ string, _ int) {
 			accepted <- struct{}{}
@@ -496,6 +496,150 @@ func TestForwarderClosesConnections(t *testing.T) {
 	}
 }
 
+// The forwarder records why it couldn't take each port: a program's
+// (EADDRINUSE), past its limit of forwards, or refused by the host
+// (EACCES, EPERM), such as below 1024 on Linux. A port in use or refused
+// is tried again only once the VM's listener goes and comes back; one
+// past the limit at the next report once the forwarder is below it. Any
+// other error (EMFILE: out of descriptors for now) is logged alone, not
+// recorded, and tried again at the next report.
+func TestForwarderFailures(t *testing.T) {
+	const refused, denied, inUse, busy = 80, 81, 5000, 7000
+	limited := freePorts(t, 1)[0]
+	var notes []failedPorts
+	listens := map[int]int{}
+	f := &Forwarder{
+		VM: "devvm-f", Log: io.Discard, ports: map[int]*forward{}, skipped: map[int]failure{},
+		Only:     []backend.PortRange{{From: 1, To: 65535}}, // 80 listed
+		Reserved: func() (map[int]bool, error) { return nil, nil },
+		Note:     func(_ []int, failed failedPorts) { notes = append(notes, failed) },
+		Listen: func(ctx context.Context, addr string) (net.Listener, error) {
+			_, ps, _ := net.SplitHostPort(addr)
+			p, _ := strconv.Atoi(ps)
+			listens[p]++
+			bind := func(errno syscall.Errno) error {
+				return &net.OpError{Op: "listen", Net: "tcp", Err: os.NewSyscallError("bind", errno)}
+			}
+			switch p {
+			case refused:
+				return nil, bind(syscall.EACCES)
+			case denied:
+				return nil, bind(syscall.EPERM)
+			case inUse:
+				return nil, bind(syscall.EADDRINUSE)
+			case busy:
+				return nil, bind(syscall.EMFILE)
+			case limited:
+				return platform.ListenLoopback(ctx, addr)
+			}
+			return nil, fmt.Errorf("port %d: not the test's", p)
+		},
+	}
+	defer f.closeAll()
+	want := map[int]string{refused: "127.0.0.1", denied: "127.0.0.1", inUse: "127.0.0.1", busy: "127.0.0.1"}
+	f.apply(t.Context(), want)
+	failed := failedPorts{inUse: []int{inUse}, refused: []int{refused, denied}}
+	if got, w := notes, []failedPorts{failed}; !slices.EqualFunc(got, w, failedEqual) {
+		t.Fatalf("noted %+v, want %+v", got, w)
+	}
+	f.apply(t.Context(), want)
+	if listens[busy] != 2 || listens[refused] != 1 || listens[denied] != 1 || listens[inUse] != 1 {
+		t.Errorf("EMFILE not tried again at the next report, or another one was: listened %v", listens)
+	}
+	// At its limit: a new port isn't tried, and is recorded as past it.
+	delete(want, busy)
+	for i := range MaxForwards {
+		f.ports[30000+i] = &forward{}
+		want[30000+i] = "127.0.0.1"
+	}
+	want[limited] = "127.0.0.1"
+	f.apply(t.Context(), want)
+	failed.limit = []int{limited}
+	if got := notes[len(notes)-1]; !failedEqual(got, failed) {
+		t.Errorf("noted %+v, want %+v", got, failed)
+	}
+	f.apply(t.Context(), want)
+	if listens[limited] != 0 {
+		t.Errorf("a port past the limit tried: listened %v", listens)
+	}
+	// Below it again (a forward went): forwarded at the next report.
+	delete(want, 30000)
+	f.apply(t.Context(), want)
+	failed.limit = nil
+	if got := notes[len(notes)-1]; f.ports[limited] == nil || !failedEqual(got, failed) {
+		t.Errorf("past the limit, then below it: forwarded %v, noted %+v", f.ports[limited] != nil, got)
+	}
+}
+
+func failedEqual(a, b failedPorts) bool {
+	return slices.Equal(a.inUse, b.inUse) && slices.Equal(a.limit, b.limit) && slices.Equal(a.refused, b.refused)
+}
+
+// A relay whose far end never ends its channel (a VM whose sshd ignores
+// EOF) still ends when its forward goes: its ssh is killed, and its slot
+// is free again, so a VM can't keep the forwarder's relays by holding
+// them open. The ssh here is a stand-in, on PATH, that never exits on its
+// own.
+func TestForwarderEndsStuckRelay(t *testing.T) {
+	p := freePorts(t, 1)[0]
+	bin := t.TempDir()
+	pidFile := filepath.Join(bin, "pid")
+	stub := "#!/bin/sh\necho $$ > " + pidFile + ".tmp && mv " + pidFile + ".tmp " + pidFile + "\nexec sleep 600\n"
+	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte(stub), 0o700); err != nil { //nolint:gosec // gosec G306: the test's own script, which it runs
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var reserved map[int]bool
+	ended := make(chan struct{})
+	f := &Forwarder{
+		VM: "devvm-f", Log: io.Discard, ports: map[int]*forward{}, skipped: map[int]failure{}, relays: make(chan struct{}, maxRelays),
+		Reserved: func() (map[int]bool, error) { return reserved, nil },
+		Relay: func(ctx context.Context, conn net.Conn, _ string, _ int) {
+			defer close(ended)
+			pipeSSH(ctx, conn, nil)
+		},
+		Listen: platform.ListenLoopback,
+	}
+	defer f.closeAll()
+	f.apply(t.Context(), map[int]string{p: "127.0.0.1"})
+	d := net.Dialer{Timeout: time.Second}
+	c, err := d.DialContext(t.Context(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	var pid int
+	for range 200 {
+		if b, err := os.ReadFile(pidFile); err == nil { //nolint:gosec // gosec G304: the test's own temp file
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pid <= 0 {
+		t.Fatal("the ssh stand-in never started")
+	}
+	reserved = map[int]bool{p: true}
+	f.release()
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		_ = daemon.Signal(pid, syscall.SIGKILL)
+		t.Fatal("the relay outlived its forward")
+	}
+	if daemon.Alive(pid) {
+		_ = daemon.Signal(pid, syscall.SIGKILL)
+		t.Error("its ssh still runs")
+	}
+	for range 100 {
+		if len(f.relays) == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("%d relay slots still taken", len(f.relays))
+}
+
 // A reserved port the VM listens on waits: another VM forwards it, and
 // once that VM gives it up (it stops) it's forwarded at the next report,
 // even after a try that found it taken. What it forwards is noted at each
@@ -506,10 +650,10 @@ func TestForwarderWaits(t *testing.T) {
 	var reserved map[int]bool
 	var notes []string // what it forwards, then what it couldn't take
 	f := &Forwarder{
-		VM: "devvm-f", Log: &log, ports: map[int]*forward{}, skipped: map[int]bool{},
+		VM: "devvm-f", Log: &log, ports: map[int]*forward{}, skipped: map[int]failure{},
 		Only:     []backend.PortRange{{From: p, To: p}},
 		Reserved: func() (map[int]bool, error) { return reserved, nil },
-		Note:     func(now, failed []int) { notes = append(notes, fmt.Sprint(now, failed)) },
+		Note:     func(now []int, failed failedPorts) { notes = append(notes, fmt.Sprint(now, failed.inUse)) },
 		Listen:   platform.ListenLoopback,
 	}
 	ps := fmt.Sprint([]int{p})
@@ -521,7 +665,7 @@ func TestForwarderWaits(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.apply(t.Context(), want)
-	if f.ports[p] != nil || !f.skipped[p] || !slices.Equal(notes, []string{"[] " + ps}) {
+	if f.ports[p] != nil || f.skipped[p] != failedInUse || !slices.Equal(notes, []string{"[] " + ps}) {
 		t.Fatalf("a taken port: forwarded %v, skipped %v, noted %q", f.ports, f.skipped, notes)
 	}
 	// It's the other VM's: waited for, with no try, and no longer one it
@@ -529,7 +673,7 @@ func TestForwarderWaits(t *testing.T) {
 	reserved = map[int]bool{p: true}
 	f.apply(t.Context(), want)
 	f.apply(t.Context(), want)
-	if f.ports[p] != nil || f.skipped[p] || !slices.Equal(notes, []string{"[] " + ps, "[] []"}) {
+	if _, skipped := f.skipped[p]; f.ports[p] != nil || skipped || !slices.Equal(notes, []string{"[] " + ps, "[] []"}) {
 		t.Fatalf("a reserved port: forwarded %v, skipped %v, noted %q", f.ports, f.skipped, notes)
 	}
 	notes = nil

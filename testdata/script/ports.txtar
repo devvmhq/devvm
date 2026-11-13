@@ -144,6 +144,18 @@ stdout '^==> ports_forwarding ports='$P','$TAKEN','$Q' vm=devvm-web-[0-9a-f]{14}
 stderr '^devvm: ports_taken count=1 ports='$TAKEN' vm=devvm-web-[0-9a-f]{14}$'
 exec sh -c 'ps -axww -o command= | grep -- "[_]ports -vm $WEB "'
 stdout ' -only '$P','$Q'$'
+# devvm ports says why the forwarder couldn't take each listed port, as
+# its record says: in use, past its limit of forwards, or refused by this
+# machine, such as a port below 1024 on Linux. An older devvm's record,
+# which doesn't say why, warns of none.
+exec sh -c 'printf "%s\n\n%s\n%s\n%s\n" "$(head -n1 "$WEB_dir/run/ports.pid")" '$TAKEN' '$Q' '$P' > "$WEB_dir/run/ports.forwarded"'
+exec devvm ports
+stderr '^devvm: ports_taken count=1 ports='$TAKEN' vm=devvm-web-[0-9a-f]{14}$'
+stderr '^devvm: ports_limit count=1 limit=256 ports='$Q' vm=devvm-web-[0-9a-f]{14}$'
+stderr '^devvm: ports_refused count=1 ports='$P' vm=devvm-web-[0-9a-f]{14}$'
+exec sh -c 'printf "%s\n\n%s\n" "$(head -n1 "$WEB_dir/run/ports.pid")" '$P','$Q' > "$WEB_dir/run/ports.forwarded"'
+exec devvm ports
+! stderr 'ports_(taken|limit|refused)'
 # Stopped, its forwarder stops too.
 exec devvm stop
 exec sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do ps -axww -o command= | grep -q -- "[_]ports -vm $WEB " || exit 0; sleep 0.5; done; exit 1'

@@ -40,7 +40,7 @@ func Main(ctx context.Context, args []string, script []byte, d paths.Dirs, log i
 	if err != nil {
 		return err
 	}
-	f.Note = func(now, failed []int) {
+	f.Note = func(now []int, failed failedPorts) {
 		if err := fw.record(fl.VM, os.Getpid(), now, failed); err != nil {
 			f.logf("its ports not recorded: %v", err)
 		}
