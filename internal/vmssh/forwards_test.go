@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -92,7 +93,15 @@ func TestForwardsStart(t *testing.T) {
 	}
 	ctx := t.Context()
 	forward("")
+	// Its old forwarder's record goes with it: a pid used again never
+	// makes it the new one's.
+	if err := f.record(vm, 1, []int{5173}, nil); err != nil {
+		t.Fatal(err)
+	}
 	f.Start(ctx, b, st)
+	if _, err := os.Stat(f.Dirs.VM(vm).Forwarder(".forwarded")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the old record stays: %v", err)
+	}
 	want := []string{
 		"/devvm", "_ports", "-vm", vm, "-lifeline", "/lima/ha.pid", "-port", "60022", "-user", "u", "-key", "/k",
 		"-known-hosts", f.Dirs.VM(vm).KnownHosts(), "-control", f.Control(vm), "-reserve", "60022,30001",
@@ -177,6 +186,177 @@ func TestForwardsStart(t *testing.T) {
 	f.Start(ctx, b, st)
 	if w := warned.Names(); len(*starts) != 2 || !slices.Equal(w, slices.Concat(failed, failed)) {
 		t.Errorf("started %q, warned %q", *starts, w)
+	}
+}
+
+// A port another running VM forwards is that VM's, as its forwarder's
+// record says while it runs: a start keeps it in its listed ports, which
+// its forwarder takes once the other gives it up, warned (ports_held),
+// whether the other lists it or forwards every port. A port a program has
+// is left out (ports_taken).
+func TestForwardsHeld(t *testing.T) {
+	f, _, warned := testForwards(t)
+	const (
+		a     = "devvm-a-0123456789abca"
+		b     = "devvm-b-0123456789abcb" // lists 5173,8000, runs
+		every = "devvm-c-0123456789abcc" // forwards every port, runs
+		gone  = "devvm-d-0123456789abcd" // lists 7000, stopped
+	)
+	for name, fwd := range map[string]string{a: "5173,8000-8001,3000,9000", b: "5173,8000", every: "", gone: "7000"} {
+		st, err := state.New(f.Dirs, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.Image, st.Dir, st.Backend = "base", "/"+name, "fake"
+		if err := st.Create(t.Context(), func(st *state.VM) error { return ports.SetForward(st, fwd) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(vm string, now ...int) {
+		t.Helper()
+		if err := state.PrivateDir(f.Dirs.VM(vm).Run()); err != nil {
+			t.Fatal(err)
+		}
+		pid, err := f.proc(vm).Start(f.Detach, daemon.Cmd{Path: f.Self, Args: []string{Cmd, "-vm", vm}, Status: f.Dirs.VM(vm).Forwarder(".status")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.record(vm, pid, now, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(b, 5173, 8000)
+	run(every, 3000)
+	// A record its process didn't write names none; a VM that's stopped,
+	// or crashed, its forwarder gone, holds none.
+	if err := f.record(gone, 1, []int{5173}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if now, ok := f.live(gone); ok || now != nil {
+		t.Errorf("a stopped VM: %v, %v", now, ok)
+	}
+	if now, ok := f.live(b); !ok || !slices.Equal(now, []int{5173, 8000}) {
+		t.Errorf("a running VM: %v, %v", now, ok)
+	}
+	pid, _ := f.proc(every).PID()
+	if err := f.record(every, pid+1, []int{3000}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if now, ok := f.live(every); !ok || now != nil {
+		t.Errorf("another process's record: %v, %v", now, ok)
+	}
+	if err := f.record(every, pid, []int{3000}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// A running forwarder with no record (an older devvm's, or one whose
+	// write failed) forwards none known, but runs.
+	if err := os.Remove(f.Dirs.VM(every).Forwarder(".forwarded")); err != nil {
+		t.Fatal(err)
+	}
+	if now, ok := f.live(every); !ok || now != nil {
+		t.Errorf("no record: %v, %v", now, ok)
+	}
+	if err := f.record(every, pid, []int{3000}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Every VM that forwards one of a's listed ports holds it, one that
+	// forwards every port too.
+	held, err := f.Held(a, "5173,8000-8001,3000,9000")
+	r := func(a, b int) backend.PortRange { return backend.PortRange{From: a, To: b} }
+	if err != nil || len(held) != 2 || !slices.Equal(held[b], []backend.PortRange{r(5173, 5173), r(8000, 8000)}) ||
+		!slices.Equal(held[every], []backend.PortRange{r(3000, 3000)}) {
+		t.Errorf("Held = %v, %v", held, err)
+	}
+	if held, err := f.Held(a, "all"); err != nil || len(held) != 0 {
+		t.Errorf("Held with every port = %v, %v", held, err)
+	}
+
+	f.InUse = func(_ context.Context, p int) bool { return p == 5173 || p == 8000 || p == 3000 || p == 9000 }
+	listed := []backend.PortRange{r(5173, 5173), r(8000, 8001), r(3000, 3000), r(9000, 9000)}
+	free := f.free(t.Context(), a, listed)
+	if want := []backend.PortRange{r(5173, 5173), r(8000, 8001), r(3000, 3000)}; !slices.Equal(free, want) {
+		t.Errorf("free = %v, want %v", free, want)
+	}
+	want := []string{
+		"ports_taken count=1 ports=9000 vm=" + a,
+		"ports_held count=2 other=" + b + " ports=5173,8000 vm=" + a,
+		"ports_held count=1 other=" + every + " ports=3000 vm=" + a,
+	}
+	if w := warned.Names(); !slices.Equal(w, want) {
+		t.Errorf("warned %q, want %q", w, want)
+	}
+
+	// What a's forwarder never takes: what b and every forward, and b's
+	// listed ports a doesn't list; none of the stopped VM's.
+	reserved, err := f.Reserved(a)
+	if err != nil || !reserved[5173] || !reserved[8000] || !reserved[3000] || len(reserved) != 3 {
+		t.Errorf("Reserved = %v, %v", reserved, err)
+	}
+	// A VM whose forwarder is being started again (its lock held, from its
+	// old forwarder's stop to the new one's start) still holds its listed
+	// ports: none other takes them in between.
+	unlock, err := f.Lock(t.Context(), gone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reserved, err = f.Reserved(every)
+	if err != nil || !reserved[7000] {
+		t.Errorf("Reserved while a VM's forwarder starts again = %v, %v", reserved, err)
+	}
+	unlock()
+	if reserved, err = f.Reserved(every); err != nil || !reserved[5173] || !reserved[8000] || len(reserved) != 2 {
+		t.Errorf("Reserved after = %v, %v", reserved, err)
+	}
+
+	// a's own forwarder runs: its listed ports that it tried and couldn't
+	// take, as its record says (its third line), and no VM holds, are a
+	// program's (devvm ports says so). Nothing is bound to find out, so a
+	// port it may be opening right then (8001, in use as it opens it)
+	// isn't one.
+	run(a, 8000)
+	pidA, _ := f.proc(a).PID()
+	rec := f.Dirs.VM(a).Forwarder(".forwarded")
+	if err := state.WriteFile(rec, []byte(strconv.Itoa(pidA)+"\n8000\n9000,5173\n")); err != nil {
+		t.Fatal(err)
+	}
+	f.InUse = func(_ context.Context, p int) bool { return p == 8001 || p == 9000 }
+	if taken := f.Taken(a, "5173,8000-8001,3000,9000"); !slices.Equal(taken, []backend.PortRange{r(9000, 9000)}) {
+		t.Errorf("Taken = %v", taken)
+	}
+	// Without its record, or with one another process wrote (an older
+	// devvm's forwarder, or a write that failed), what it couldn't take
+	// is unknown: none.
+	if err := state.WriteFile(rec, []byte(strconv.Itoa(pidA+1)+"\n8000\n9000\n")); err != nil {
+		t.Fatal(err)
+	}
+	if taken := f.Taken(a, "5173,8000-8001,3000,9000"); taken != nil {
+		t.Errorf("Taken with another process's record = %v", taken)
+	}
+	if err := os.Remove(rec); err != nil {
+		t.Fatal(err)
+	}
+	if taken := f.Taken(a, "5173,8000-8001,3000,9000"); taken != nil {
+		t.Errorf("Taken without a record = %v", taken)
+	}
+	if taken := f.Taken(gone, "7000"); taken != nil {
+		t.Errorf("Taken of a stopped VM = %v", taken)
+	}
+}
+
+// A record the forwarder can't write is an error, and leaves none.
+func TestForwardsRecordFails(t *testing.T) {
+	f, _, _ := testForwards(t)
+	const vm = "devvm-a-0123456789abca"
+	if err := os.MkdirAll(f.Dirs.VM(vm).Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.Dirs.VM(vm).Run(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.record(vm, 1, []int{5173}, nil); err == nil {
+		t.Error("a record where its folder is a file")
 	}
 }
 

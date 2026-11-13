@@ -25,9 +25,9 @@ internal/msg/gen 93.3
 internal/netpolicy 91.6
 internal/paths 98.1
 internal/platform 90.4
-internal/ports 91.4
+internal/ports 91.7
 internal/project 98.5
-internal/proxy 93.0
+internal/proxy 93.2
 internal/redact 97.7
 internal/safefile 97.7
 internal/secrets 93.2
@@ -48,5 +48,5 @@ internal/upgrade 93.2
 internal/upgrade/upgradetest 97.4
 internal/vm 88.4
 internal/vmname 100.0
-internal/vmssh 90.7
+internal/vmssh 90.8
 packaging 71.4

@@ -10,6 +10,7 @@ package vmssh
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -53,7 +54,9 @@ import (
 //     password (proxy.IsLocalProxyAddr): every port from 1024 up, or the VM's listed ports alone
 //     (Only); never on a port the host has on any address (no SO_REUSEADDR:
 //     platform.ListenExclusive), nor on a port devvm records for any VM
-//     (ssh, proxy, desktop, listed forwards) but the VM's own listed ones;
+//     (ssh, proxy, desktop), nor one another running VM forwards or
+//     lists but the VM's own listed ones (ports.Reserved), which it
+//     forwards once they're free;
 //   - every connection starts on the host: the VM opens none to the host
 //     through it, and the master asks for no forwarding into the host;
 //   - it ends once the VM no longer runs as it did when it started (Alive),
@@ -81,9 +84,18 @@ type Forwarder struct {
 	// these alone (the VM's listed ports), whatever their number.
 	Only []backend.PortRange
 	// Reserved returns the host ports never forwarded, asked with each
-	// report: a forward on one goes; while it fails, no new port is
+	// report: a forward on one goes, and a port the VM listens on waits
+	// until it's no longer reserved; while it fails, no new port is
 	// forwarded.
 	Reserved func() (map[int]bool, error)
+	// Recheck is how often, besides each report, a forward whose port is
+	// reserved now goes (release), whatever the VM reports: Every when
+	// it's 0.
+	Recheck time.Duration
+	// Note, when set, records the host ports it forwards and those it
+	// tried and couldn't take, after each change (Forwards' record, which
+	// other VMs' forwarders and devvm ports read).
+	Note func(now, failed []int)
 	// Watch connects to the VM and runs ports.sh there, returning its
 	// output and how to wait for it; it ends with ctx or the connection.
 	Watch func(ctx context.Context) (io.ReadCloser, func() error, error)
@@ -111,6 +123,10 @@ type Forwarder struct {
 type forward struct {
 	lns  []net.Listener
 	host string
+	// conns is the connections it accepted that are open, which close
+	// ends too, and closed whether it went: both under the forwarder's mu.
+	conns  map[net.Conn]bool
+	closed bool
 }
 
 func (f *Forwarder) logf(format string, args ...any) {
@@ -144,7 +160,21 @@ func (f *Forwarder) Run(ctx context.Context) error {
 		}
 	}()
 	f.ports, f.skipped, f.relays = map[int]*forward{}, map[int]bool{}, make(chan struct{}, maxRelays)
+	if f.Note != nil {
+		f.Note(nil, nil) // an older record of the VM's names nothing now
+	}
 	defer f.closeAll()
+	go func() {
+		every := cmp.Or(f.Recheck, f.Every)
+		for every > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(every):
+				f.release()
+			}
+		}
+	}()
 	for ctx.Err() == nil {
 		if err := f.session(ctx); err != nil && ctx.Err() == nil {
 			f.logf("%s: %v", f.VM, err)
@@ -282,7 +312,9 @@ func (f *Forwarder) wanted(port int) bool {
 // apply makes the forwards what the VM reports: port to address in the
 // VM. A forward goes once the VM no longer listens there, or once devvm
 // reserves its port; while the reserved ports can't be read, those it has
-// stay.
+// stay. A reserved port the VM listens on is tried again at each report
+// until it's free, as another VM gives it up, even one whose forward
+// failed before. What it forwards then is noted (Note) when it changed.
 func (f *Forwarder) apply(ctx context.Context, want map[int]string) {
 	reserved, rerr := f.Reserved()
 	if rerr != nil {
@@ -290,10 +322,18 @@ func (f *Forwarder) apply(ctx context.Context, want map[int]string) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	changed := false
+	failed := maps.Clone(f.skipped)
+	defer func() {
+		if changed || !maps.Equal(failed, f.skipped) {
+			f.note()
+		}
+	}()
 	for port, fw := range f.ports {
 		if _, ok := want[port]; !ok || reserved[port] {
 			fw.close()
 			delete(f.ports, port)
+			changed = true
 			f.logf("port %d: no longer forwarded", port)
 		}
 	}
@@ -308,7 +348,15 @@ func (f *Forwarder) apply(ctx context.Context, want map[int]string) {
 			fw.host = host
 			continue
 		}
-		if rerr != nil || !f.wanted(port) || reserved[port] || f.skipped[port] {
+		if rerr != nil || !f.wanted(port) {
+			continue
+		}
+		if reserved[port] {
+			// Tried again once it's free, whatever an earlier try found.
+			delete(f.skipped, port)
+			continue
+		}
+		if f.skipped[port] {
 			continue
 		}
 		f.skipped[port] = true
@@ -324,6 +372,7 @@ func (f *Forwarder) apply(ctx context.Context, want map[int]string) {
 		fw.host = host
 		f.ports[port] = fw
 		delete(f.skipped, port)
+		changed = true
 		f.logf("port %d: forwarded", port)
 	}
 }
@@ -365,29 +414,91 @@ func (f *Forwarder) serve(ctx context.Context, l net.Listener, port int, fw *for
 			continue
 		}
 		f.mu.Lock()
-		host := fw.host
+		host, closed := fw.host, fw.closed
+		if !closed {
+			if fw.conns == nil {
+				fw.conns = map[net.Conn]bool{}
+			}
+			fw.conns[conn] = true
+		}
 		f.mu.Unlock()
+		if closed {
+			_ = conn.Close() // accepted as the forward went
+			<-f.relays
+			continue
+		}
 		go func() {
-			defer func() { <-f.relays }()
+			defer func() {
+				f.mu.Lock()
+				delete(fw.conns, conn)
+				f.mu.Unlock()
+				<-f.relays
+			}()
 			f.Relay(ctx, conn, host, port)
 		}()
 	}
 }
 
+// close ends the forward: its listeners, and the connections they
+// accepted that are open, so a client's keep-alive connection, such as a
+// browser's, never reaches the VM once its port is given up. Its caller
+// holds the forwarder's mu.
 func (fw *forward) close() {
+	fw.closed = true
 	for _, l := range fw.lns {
 		_ = l.Close()
 	}
+	for c := range fw.conns {
+		_ = c.Close()
+	}
+	clear(fw.conns)
 }
 
 func (f *Forwarder) closeAll() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if len(f.ports) > 0 || len(f.skipped) > 0 {
+		defer f.note()
+	}
 	for port, fw := range f.ports {
 		fw.close()
 		delete(f.ports, port)
 	}
 	clear(f.skipped)
+}
+
+// note records what it forwards and the ports it couldn't take (Note).
+// Its caller holds mu.
+func (f *Forwarder) note() {
+	if f.Note != nil {
+		f.Note(slices.Sorted(maps.Keys(f.ports)), slices.Sorted(maps.Keys(f.skipped)))
+	}
+}
+
+// release closes the forwards whose ports devvm reserves now, noting what
+// it forwards then: on the host's own clock (Recheck), so a VM that holds
+// its connection open and never reports again can't keep a port another
+// VM has a claim on. While the reserved ports can't be read, the forwards
+// stay.
+func (f *Forwarder) release() {
+	reserved, err := f.Reserved()
+	if err != nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	changed := false
+	for port, fw := range f.ports {
+		if reserved[port] {
+			fw.close()
+			delete(f.ports, port)
+			changed = true
+			f.logf("port %d: no longer forwarded", port)
+		}
+	}
+	if changed {
+		f.note()
+	}
 }
 
 // listeners reads ports.sh's report, /proc/net/tcp's local addresses
@@ -609,9 +720,9 @@ func (f *Flags) Register(fs *flag.FlagSet) {
 }
 
 // Forwarder returns the forwarder the parsed flags make, ports.sh being
-// script, reserved the ports devvm records
-// for VMs but vm's own listed ones, its lines going to log. Its caller
-// sets Alive and Every.
+// script, reserved the host ports VM vm's forwarder never takes
+// (Forwards.Reserved), its lines going to log. Its caller sets Alive,
+// Every and Note.
 func (f *Flags) Forwarder(script []byte, reserved func(vm string) (map[int]bool, error), log io.Writer) (*Forwarder, error) {
 	if f.VM == "" || f.User == "" || f.Key == "" || f.KnownHosts == "" || f.Control == "" || f.Port <= 0 {
 		return nil, errors.New("-vm, -port, -user, -key, -known-hosts and -control are needed")

@@ -132,6 +132,7 @@ vms/APP/run/ca/next.pem
 vms/APP/run/known_hosts
 vms/APP/run/links.json
 vms/APP/run/links.pid
+vms/APP/run/ports.forwarded
 vms/APP/run/ports.lock
 vms/APP/run/ports.pid
 vms/APP/run/ports.status
@@ -157,6 +158,7 @@ vms/DB/run/ca/lock
 vms/DB/run/ca/next.key
 vms/DB/run/ca/next.pem
 vms/DB/run/known_hosts
+vms/DB/run/ports.forwarded
 vms/DB/run/ports.lock
 vms/DB/run/ports.pid
 vms/DB/run/ports.status
@@ -221,6 +223,7 @@ vms/APP/run/ca/next.pem
 vms/APP/run/known_hosts
 vms/APP/run/links.json
 vms/APP/run/links.pid
+vms/APP/run/ports.forwarded
 vms/APP/run/ports.lock
 vms/APP/run/ports.pid
 vms/APP/run/ports.status
@@ -245,6 +248,7 @@ vms/DB/run/ca/lock
 vms/DB/run/ca/next.key
 vms/DB/run/ca/next.pem
 vms/DB/run/known_hosts
+vms/DB/run/ports.forwarded
 vms/DB/run/ports.lock
 vms/DB/run/ports.pid
 vms/DB/run/ports.status

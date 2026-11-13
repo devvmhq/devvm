@@ -92,7 +92,10 @@ func defaultShapes() []shapeCase {
 			}),
 			[]string{"cpus: number", "memory_gib: number", "sources.cpus: string", "sources.disk: string", "sources.memory: string"},
 		},
-		{"ports", map[string]string{"ports": "all"}, []string{"ports: string"}},
+		{
+			"ports", portsJSON(vm.PortsShown{List: "5173", Held: []vm.PortsHeld{{VM: "devvm-b", Ports: "5173"}}}),
+			[]string{"held_by[].ports: string", "held_by[].vm: string", "ports: string"},
+		},
 		{"ports -g", defaultOutput{"ports": "all", "source": "built-in"}, []string{"ports: string", "source: string"}},
 		{
 			"mount-cache",

@@ -7,16 +7,15 @@ import (
 
 	"github.com/devvmhq/devvm/assets"
 	"github.com/devvmhq/devvm/internal/msg"
-	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
 // newForwarderCmd is devvm _ports: a VM's port forwarder (vmssh.Main),
 // on every backend, which devvm starts detached (vmssh.Forwards). It
-// gets ports.sh and the ports devvm records for VMs, which it never
-// forwards (ports.Used) but its VM's own listed ones; its log lines are
-// data, written to devvm's stderr. Hidden: it's not for users. Its flags
-// are the forwarder's own, parsed by vmssh.Main.
+// gets ports.sh and devvm's folders, where it reads the ports it never
+// forwards (ports.Reserved); its log lines are data, written to devvm's
+// stderr. Hidden: it's not for users. Its flags are the forwarder's own,
+// parsed by vmssh.Main.
 func newForwarderCmd(a *app) *cobra.Command {
 	u := a.u
 	return &cobra.Command{
@@ -34,8 +33,7 @@ func newForwarderCmd(a *app) *cobra.Command {
 			if err != nil {
 				return fail(err)
 			}
-			reserved := func(vm string) (map[int]bool, error) { return ports.Used(d, vm) }
-			if err := vmssh.Main(cmd.Context(), args, script, reserved, u.Stderr()); err != nil {
+			if err := vmssh.Main(cmd.Context(), args, script, d, u.Stderr()); err != nil {
 				return fail(err)
 			}
 			return nil

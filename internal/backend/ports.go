@@ -42,6 +42,15 @@ func parsePort(s string) (int, bool) {
 	return n, err == nil && ValidPort(n)
 }
 
+// CountPorts returns how many ports rs has.
+func CountPorts(rs []PortRange) int {
+	n := 0
+	for _, r := range rs {
+		n += r.To - r.From + 1
+	}
+	return n
+}
+
 // FormatPortRanges is ranges as devvm lists them (ParsePortRanges): a
 // range of one port as that port.
 func FormatPortRanges(rs []PortRange) string {

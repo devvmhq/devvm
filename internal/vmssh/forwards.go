@@ -5,9 +5,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -95,11 +98,12 @@ const ControlMax = paths.SocketMax - 1 - 17
 // Start starts the forwarder of st's VM, which b runs, after stopping any
 // it had, holding its lock throughout: the ports its state forwards, its
 // listed ones less those a program on the host has (warned, ports_taken),
+// those another running VM holds included (warned, ports_held: free),
 // over its sshd as b reaches it (its SSH, checked by FromTarget: a user
 // and a key on a host loopback port), with the host keys devvm pins for
 // its start (PinHostKeys), never on its ssh's or its proxy's port, following b's
 // lifeline for it. A VM that forwards none, or whose listed ports are all
-// taken, is left without one. One that can't start is warned about
+// a program's, is left without one. One that can't start is warned about
 // (ports_forward_failed), naming its log, and the VM runs on. Connections
 // open through its old forwarder end.
 func (f Forwards) Start(ctx context.Context, b backend.Backend, st *state.VM) {
@@ -124,6 +128,11 @@ func (f Forwards) start(ctx context.Context, b backend.Backend, st *state.VM) er
 	}
 	defer unlock()
 	f.Stop(vm)
+	// Its old forwarder's record goes with it, so a pid used again never
+	// makes it the new one's.
+	if err := os.Remove(f.Dirs.VM(vm).Forwarder(".forwarded")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	var only []backend.PortRange
 	if !want.All {
 		// Asked once its old forwarder has stopped: its own ports would
@@ -147,17 +156,161 @@ func (f Forwards) start(ctx context.Context, b backend.Backend, st *state.VM) er
 // free returns the VM's listed ports less those a program on the host
 // has on any address, which a forward would share, taking that program's
 // loopback connections. They're left out, warned, until a start or a
-// change of its ports finds them free.
+// change of its ports finds them free. A port another running VM forwards
+// isn't a program's: it stays, as the VM's forwarder takes it once that
+// VM gives it up (ports.Reserved), within Forwarder.Recheck from one that
+// forwards every port, else once it stops forwarding it, which the VM is
+// warned of either way (ports_held).
 func (f Forwards) free(ctx context.Context, vm string, listed []backend.PortRange) []backend.PortRange {
-	free, taken := splitPorts(listed, func(p int) bool { return f.InUse(ctx, p) })
+	holders, err := ports.Holders(f.Dirs, vm, f.live)
+	if err != nil {
+		holders = nil // none known: each is asked of the host
+	}
+	free, taken := splitPorts(listed, func(p int) bool {
+		_, held := holders[p]
+		return !held && f.InUse(ctx, p)
+	})
 	if len(taken) > 0 {
-		n := 0
-		for _, r := range taken {
-			n += r.To - r.From + 1
-		}
-		f.Warn(msg.PortsTaken(n, backend.FormatPortRanges(taken), vm))
+		f.Warn(msg.PortsTaken(backend.CountPorts(taken), backend.FormatPortRanges(taken), vm))
+	}
+	held := heldBy(holders, listed)
+	for _, other := range slices.Sorted(maps.Keys(held)) {
+		f.Warn(msg.PortsHeld(backend.CountPorts(held[other]), other, backend.FormatPortRanges(held[other]), vm))
 	}
 	return free
+}
+
+// heldBy returns the ports of listed that another VM forwards now, as
+// holders has them, by that VM's name.
+func heldBy(holders map[int]string, listed []backend.PortRange) map[string][]backend.PortRange {
+	out := map[string][]backend.PortRange{}
+	for _, other := range holders {
+		if _, done := out[other]; done {
+			continue
+		}
+		if _, held := splitPorts(listed, func(p int) bool { return holders[p] == other }); len(held) > 0 {
+			out[other] = held
+		}
+	}
+	return out
+}
+
+// Held returns the listed ports of the VM, as its state lists them
+// (ports.Forwarding's value: forward), that another VM forwards now, by
+// that VM's name: the ports the VM waits for, as devvm ports shows them.
+func (f Forwards) Held(vm, forward string) (map[string][]backend.PortRange, error) {
+	want, err := ports.Forwarding(forward)
+	if err != nil || want.All {
+		return nil, err
+	}
+	holders, err := ports.Holders(f.Dirs, vm, f.live)
+	if err != nil {
+		return nil, err
+	}
+	return heldBy(holders, want.Ranges), nil
+}
+
+// Taken returns the listed ports of the running VM, as its state lists
+// them (forward), that its forwarder tried and couldn't take, as its
+// record says, and no other VM forwards: a program's, which the forwarder
+// leaves until the VM's server listens again, as devvm ports shows them.
+// It reads the forwarder's own view and binds nothing, so it never takes
+// a port the forwarder is opening. A VM whose forwarder doesn't run, or
+// whose record its forwarder didn't write (an older devvm's forwarder, or
+// a write that failed), has none known.
+func (f Forwards) Taken(vm, forward string) []backend.PortRange {
+	want, err := ports.Forwarding(forward)
+	if err != nil || want.All {
+		return nil
+	}
+	rec, ok := f.recorded(vm)
+	if !ok {
+		return nil
+	}
+	holders, err := ports.Holders(f.Dirs, vm, f.live)
+	if err != nil {
+		return nil
+	}
+	_, taken := splitPorts(want.Ranges, func(p int) bool {
+		_, held := holders[p]
+		return !held && slices.Contains(rec.failed, p)
+	})
+	return taken
+}
+
+// Reserved returns the host ports the VM's forwarder never takes
+// (ports.Reserved): the ports devvm chose for VMs, and those other
+// running VMs forward now or list, as their forwarders' records say.
+func (f Forwards) Reserved(vm string) (map[int]bool, error) {
+	return ports.Reserved(f.Dirs, vm, f.live)
+}
+
+// live returns the host ports the VM's forwarder forwards now, as it
+// records them (record), with ok while the VM has a claim on its listed
+// ports: while its forwarder runs, or while devvm starts it again (its
+// lock held, Start), from the old one's stop to the new one's start, so
+// no other VM takes them in between. A record its process didn't write,
+// left by one that ended, names none.
+func (f Forwards) live(vm string) ([]int, bool) {
+	if _, ok := f.proc(vm).PID(); !ok {
+		held, err := platform.LockHeld(f.Dirs.VM(vm).Forwarder(".lock"))
+		return nil, err == nil && held
+	}
+	rec, _ := f.recorded(vm)
+	return rec.now, true
+}
+
+// forwarderRecord is what a VM's running forwarder records (record): the
+// ports it forwards now, and those it tried and couldn't take.
+type forwarderRecord struct{ now, failed []int }
+
+// recorded returns the VM's forwarder's record, with ok when its forwarder
+// runs and that process wrote it.
+func (f Forwards) recorded(vm string) (forwarderRecord, bool) {
+	pid, ok := f.proc(vm).PID()
+	if !ok {
+		return forwarderRecord{}, false
+	}
+	data, err := os.ReadFile(f.Dirs.VM(vm).Forwarder(".forwarded"))
+	if err != nil {
+		return forwarderRecord{}, false
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) < 2 || lines[0] != strconv.Itoa(pid) {
+		return forwarderRecord{}, false
+	}
+	rec := forwarderRecord{now: parsePorts(lines[1])}
+	if len(lines) > 2 {
+		rec.failed = parsePorts(lines[2])
+	}
+	return rec, true
+}
+
+// parsePorts returns the ports of a comma-separated list, skipping what
+// isn't one.
+func parsePorts(s string) []int {
+	var out []int
+	for e := range strings.SplitSeq(s, ",") {
+		if n, err := strconv.Atoi(e); err == nil && backend.ValidPort(n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// record records the host ports the VM's forwarder, process pid,
+// forwards now, which other VMs' forwarders read (live), and those it
+// tried and couldn't take (Taken): its pid, then each list of ports,
+// comma-separated, on a line of its own, written whole.
+func (f Forwards) record(vm string, pid int, now, failed []int) error {
+	join := func(ps []int) string {
+		es := make([]string, len(ps))
+		for i, n := range ps {
+			es[i] = strconv.Itoa(n)
+		}
+		return strings.Join(es, ",")
+	}
+	return state.WriteFile(f.Dirs.VM(vm).Forwarder(".forwarded"), []byte(strconv.Itoa(pid)+"\n"+join(now)+"\n"+join(failed)+"\n"))
 }
 
 // splitPorts splits ranges into the ports inUse says are free and those it

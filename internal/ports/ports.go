@@ -2,7 +2,9 @@
 // forwards, as the user asked, and the host ports devvm chose for it (its
 // ssh's, its proxy's, its desktop's). One allocator chooses every host
 // port devvm chooses, under the claims lock (state.VM.Claim), so no two
-// VMs, and no VM's forwards, get one.
+// VMs, and no VM's forwards, get one. Which VM holds a forwarded host
+// port is its rule too (Reserved, Holders): the running VM that forwards
+// it, never a stopped one.
 package ports
 
 import (
@@ -95,16 +97,109 @@ func (p Ports) Forwarded() map[int]bool {
 	return out
 }
 
-// Used returns the host ports VMs have (ssh, proxy, desktop), and the
-// ports they list to forward, but self's (a VM's name, or ""): what a new
-// one avoids, and what a VM's port forwarder never takes, self being that
-// VM.
-func Used(d paths.Dirs, self string) (map[int]bool, error) {
+// Used returns the host ports devvm records: every VM's ssh, proxy and
+// desktop ports, the ports every VM lists to forward, running or not, and
+// the build VMs' ports. A port devvm chooses avoids them all, so it never
+// takes a port a stopped VM lists, which that VM's forwarder takes again
+// when it starts.
+func Used(d paths.Dirs) (map[int]bool, error) {
+	vms, err := sections(d)
+	if err != nil {
+		return nil, err
+	}
+	used := chosen(d, vms)
+	for _, v := range vms {
+		for n := range v.p.Forwarded() {
+			used[n] = true
+		}
+	}
+	return used, nil
+}
+
+// Live returns the host ports a VM's port forwarder forwards now, with ok
+// while the VM has a claim on its listed ports: while its forwarder runs,
+// or while devvm starts it again. None runs for a stopped VM, nor for one
+// that crashed, whose forwarder ended with it, so neither holds a port.
+type Live func(vm string) (now []int, ok bool)
+
+// Holders returns the VM but self whose forwarder forwards each host port
+// now, by port, as live says.
+func Holders(d paths.Dirs, self string, live Live) (map[int]string, error) {
+	vms, err := sections(d)
+	if err != nil {
+		return nil, err
+	}
+	out := map[int]string{}
+	for _, v := range vms {
+		if v.name == self {
+			continue
+		}
+		now, ok := live(v.name)
+		if !ok {
+			continue
+		}
+		for _, n := range now {
+			out[n] = v.name
+		}
+	}
+	return out, nil
+}
+
+// Reserved returns the host ports VM self's port forwarder never takes:
+// every VM's ssh, proxy and desktop ports and the build VMs' ports, the
+// ports another VM's forwarder forwards now, and the ports another VM
+// with a claim on them (live) lists to forward, unless self lists them
+// too. Who holds a port is the running VM that forwards it: of two that
+// list it, the first to forward it keeps it, a VM that lists a port takes
+// it from one that forwards every port, and a stopped VM holds none, so
+// its listed ports wait for its next start. A port self waits for is
+// forwarded once it's no longer reserved.
+func Reserved(d paths.Dirs, self string, live Live) (map[int]bool, error) {
+	vms, err := sections(d)
+	if err != nil {
+		return nil, err
+	}
+	reserved := chosen(d, vms)
+	own := map[int]bool{}
+	for _, v := range vms {
+		if v.name == self {
+			own = v.p.Forwarded()
+		}
+	}
+	for _, v := range vms {
+		if v.name == self {
+			continue
+		}
+		now, ok := live(v.name)
+		if !ok {
+			continue
+		}
+		for _, n := range now {
+			reserved[n] = true
+		}
+		for n := range v.p.Forwarded() {
+			if !own[n] {
+				reserved[n] = true
+			}
+		}
+	}
+	return reserved, nil
+}
+
+// vmPorts is a VM's name and its ports section.
+type vmPorts struct {
+	name string
+	p    Ports
+}
+
+// sections returns the ports section of every VM whose state and section
+// can be read.
+func sections(d paths.Dirs) ([]vmPorts, error) {
 	names, err := state.VMNames(d)
 	if err != nil {
 		return nil, err
 	}
-	used := map[int]bool{}
+	var out []vmPorts
 	for _, name := range names {
 		st, err := state.ReadVM(d, name)
 		if err != nil {
@@ -114,22 +209,23 @@ func Used(d paths.Dirs, self string) (map[int]bool, error) {
 		if err != nil {
 			continue
 		}
-		for _, n := range []int{p.Host.SSH, p.Host.Proxy, p.Host.Desktop} {
+		out = append(out, vmPorts{name, p})
+	}
+	return out, nil
+}
+
+// chosen returns the host ports devvm chose: vms' ssh, proxy and desktop
+// ports, and the build VMs' ports.
+func chosen(d paths.Dirs, vms []vmPorts) map[int]bool {
+	out := building(d)
+	for _, v := range vms {
+		for _, n := range []int{v.p.Host.SSH, v.p.Host.Proxy, v.p.Host.Desktop} {
 			if n != 0 {
-				used[n] = true
+				out[n] = true
 			}
 		}
-		if name == self {
-			continue
-		}
-		for n := range p.Forwarded() {
-			used[n] = true
-		}
 	}
-	for n := range building(d) {
-		used[n] = true
-	}
-	return used, nil
+	return out
 }
 
 // building returns the ports build VMs hold while they start (Build).
@@ -275,7 +371,7 @@ func clearStale(d paths.Dirs) {
 // the claims lock.
 func (a Allocator) free(ctx context.Context, also ...int) (int, error) {
 	clearStale(a.Dirs)
-	used, err := Used(a.Dirs, "")
+	used, err := Used(a.Dirs)
 	if err != nil {
 		return 0, err
 	}

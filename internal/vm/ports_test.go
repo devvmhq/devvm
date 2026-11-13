@@ -140,7 +140,7 @@ func TestSetPortsRunning(t *testing.T) {
 	if !slices.Equal(infos.Names(), []string{"ports_forwarding ports=5173,8080-8081 vm=" + vm}) || !slices.Equal(warned.Names(), []string{"ports_taken count=1 ports=8080 vm=" + vm}) {
 		t.Errorf("said %q, warned %q", infos.Names(), warned.Names())
 	}
-	if ports, err := s.Ports(t.Context()); err != nil || ports != "5173,8080-8081" {
+	if ports, err := s.Ports(t.Context()); err != nil || ports.List != "5173,8080-8081" || ports.Held != nil {
 		t.Errorf("ports: %q, %v", ports, err)
 	}
 	// None: its forwarder stops.
@@ -162,7 +162,7 @@ func TestSetPortsRunning(t *testing.T) {
 	if len(*starts) != before+1 || !slices.Equal(infos.Names(), []string{"ports_now ports=5173 vm=" + vm}) {
 		t.Errorf("stopped: started %q, said %q", *starts, infos.Names())
 	}
-	if ports, err := s.Ports(t.Context()); err != nil || ports != "5173" {
+	if ports, err := s.Ports(t.Context()); err != nil || ports.List != "5173" {
 		t.Errorf("stopped: ports %q, %v", ports, err)
 	}
 }

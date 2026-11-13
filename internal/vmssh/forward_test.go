@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -413,6 +414,136 @@ func TestForwarderReservedLater(t *testing.T) {
 	}
 	if !strings.Contains(log.String(), fmt.Sprintf("port %d: no longer forwarded", p)) {
 		t.Errorf("log: %q", log.String())
+	}
+}
+
+// A forward whose port devvm reserves goes on the host's own clock, though
+// the VM never reports again (it holds its connection open, silent): a VM
+// that forwards every port can't keep another VM's listed port by going
+// quiet. The forwarder notes it forwards nothing when it starts, then each
+// change.
+func TestForwarderGivesUpSilently(t *testing.T) {
+	p := freePorts(t, 1)[0]
+	vm := &fakeVM{ready: make(chan struct{}, 4)}
+	var mu sync.Mutex
+	reserved := map[int]bool{}
+	var notes [][]int
+	f := &Forwarder{
+		VM: "devvm-f", Tick: 10 * time.Millisecond, Every: 20 * time.Millisecond, Log: io.Discard,
+		Alive: func(context.Context) bool { return true },
+		Reserved: func() (map[int]bool, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			return maps.Clone(reserved), nil
+		},
+		Note: func(ports, _ []int) {
+			mu.Lock()
+			defer mu.Unlock()
+			notes = append(notes, ports)
+		},
+		Watch: vm.watch, Relay: echo, Listen: platform.ListenLoopback,
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() { _ = f.Run(ctx) }()
+	<-vm.ready
+	vm.report(t, procLine("00000000", p))
+	at := net.JoinHostPort("127.0.0.1", strconv.Itoa(p))
+	eventually(t, at, "to "+at)
+	// Another VM now lists it; the VM says nothing more.
+	mu.Lock()
+	reserved[p] = true
+	mu.Unlock()
+	eventually(t, at, "refused")
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.EqualFunc(notes, [][]int{nil, {p}, {}}, slices.Equal) {
+		t.Errorf("noted %v", notes)
+	}
+}
+
+// A forward that goes takes its connections with it: a browser's
+// keep-alive connection, opened while the forward was up, ends when the
+// port is given up, so its later requests never reach this VM.
+func TestForwarderClosesConnections(t *testing.T) {
+	p := freePorts(t, 1)[0]
+	var reserved map[int]bool
+	accepted := make(chan struct{}, 1)
+	f := &Forwarder{
+		VM: "devvm-f", Log: io.Discard, ports: map[int]*forward{}, skipped: map[int]bool{}, relays: make(chan struct{}, maxRelays),
+		Reserved: func() (map[int]bool, error) { return reserved, nil },
+		Relay: func(_ context.Context, conn net.Conn, _ string, _ int) {
+			accepted <- struct{}{}
+			_, _ = io.Copy(io.Discard, conn) // until it's closed
+			_ = conn.Close()
+		},
+		Listen: platform.ListenLoopback,
+	}
+	defer f.closeAll()
+	f.apply(t.Context(), map[int]string{p: "127.0.0.1"})
+	d := net.Dialer{Timeout: time.Second}
+	c, err := d.DialContext(t.Context(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	<-accepted
+	reserved = map[int]bool{p: true}
+	f.release()
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := c.Read(make([]byte, 1)); !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
+		t.Errorf("a connection accepted before the forward went: %v", err)
+	}
+}
+
+// A reserved port the VM listens on waits: another VM forwards it, and
+// once that VM gives it up (it stops) it's forwarded at the next report,
+// even after a try that found it taken. What it forwards is noted at each
+// change, and only then.
+func TestForwarderWaits(t *testing.T) {
+	p := freePorts(t, 1)[0]
+	var log bytes.Buffer
+	var reserved map[int]bool
+	var notes []string // what it forwards, then what it couldn't take
+	f := &Forwarder{
+		VM: "devvm-f", Log: &log, ports: map[int]*forward{}, skipped: map[int]bool{},
+		Only:     []backend.PortRange{{From: p, To: p}},
+		Reserved: func() (map[int]bool, error) { return reserved, nil },
+		Note:     func(now, failed []int) { notes = append(notes, fmt.Sprint(now, failed)) },
+		Listen:   platform.ListenLoopback,
+	}
+	ps := fmt.Sprint([]int{p})
+	defer f.closeAll()
+	want := map[int]string{p: "127.0.0.1"}
+	// The other VM's forward, which a try finds taken.
+	other, err := platform.ListenLoopback(t.Context(), net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.apply(t.Context(), want)
+	if f.ports[p] != nil || !f.skipped[p] || !slices.Equal(notes, []string{"[] " + ps}) {
+		t.Fatalf("a taken port: forwarded %v, skipped %v, noted %q", f.ports, f.skipped, notes)
+	}
+	// It's the other VM's: waited for, with no try, and no longer one it
+	// couldn't take.
+	reserved = map[int]bool{p: true}
+	f.apply(t.Context(), want)
+	f.apply(t.Context(), want)
+	if f.ports[p] != nil || f.skipped[p] || !slices.Equal(notes, []string{"[] " + ps, "[] []"}) {
+		t.Fatalf("a reserved port: forwarded %v, skipped %v, noted %q", f.ports, f.skipped, notes)
+	}
+	notes = nil
+	// The other VM stops: forwarded at the next report.
+	_ = other.Close()
+	reserved = nil
+	f.apply(t.Context(), want)
+	if f.ports[p] == nil {
+		t.Fatalf("not forwarded once free: %s", log.String())
+	}
+	f.apply(t.Context(), want)
+	f.apply(t.Context(), map[int]string{})
+	if !slices.Equal(notes, []string{ps + " []", "[] []"}) {
+		t.Errorf("noted %q", notes)
 	}
 }
 

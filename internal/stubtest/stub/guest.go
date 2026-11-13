@@ -356,11 +356,19 @@ func hostKey(vm string) string {
 
 // ports answers a port forwarder's master connection: it reads the
 // script it's fed, answers with what listens in the VM and ".", then
-// waits to be stopped.
+// waits to be stopped, answering again each time what listens changes,
+// as ports.sh does, looking every second.
 func (g *guest) ports() int {
 	g.drain()
-	g.print(string(g.raw("guest-ports", "")) + ".\n")
-	g.sleep(masterLife)
+	last := string(g.raw("guest-ports", ""))
+	g.print(last + ".\n")
+	for range int(masterLife / time.Second) {
+		g.sleep(time.Second)
+		if now := string(g.raw("guest-ports", "")); now != last {
+			g.print(now + ".\n")
+			last = now
+		}
+	}
 	return 0
 }
 

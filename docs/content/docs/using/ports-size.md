@@ -43,7 +43,7 @@ devvm ports -g none         # what new VMs forward (default: all)
 
 When a VM forwards every port, devvm forwards each TCP port from 1024 up that a server in the VM listens on, whether on the VM's loopback or on all its addresses. When a VM lists its ports, devvm forwards those ports alone, however many there are, ports below 1024 included. A port reaches this machine within a few seconds of the server starting, only on `localhost` (`127.0.0.1` and `::1`), and the forward goes away when the server stops. At most 256 ports are forwarded at once ([what it forwards](../internals/ports.md#what-it-forwards)). Your browser sends the cookies of every app you use on `localhost` to a forwarded port as well, so the server in the VM gets them ([your browser](../safety/attack-vectors.md#the-network)).
 
-A VM never takes a port that a program on this machine already has, a port that another VM lists, or a port that devvm uses for its VMs' ssh and proxies ([what it never takes](../internals/ports.md#what-it-never-takes)):
+A VM never takes a port that a program on this machine already has, a port that another running VM forwards or lists, or a port that devvm uses for its VMs' ssh and proxies ([what it never takes](../internals/ports.md#what-it-never-takes)):
 
 - When a port you listed is taken by a program on this machine as the VM starts, or as you change its ports, devvm warns you and the VM runs on without that port. The next start or change that finds the port free forwards it.
 - A program that starts on a port after the VM's forward does can still bind it on all addresses, as most servers do, and then that program's `localhost` connections reach the VM.
@@ -57,6 +57,27 @@ socat UDP-LISTEN:8125,fork TCP:127.0.0.1:9125             # on this machine
 ```
 
 TCP is a stream, so datagrams can arrive merged or split. This suits low-rate request and response traffic, such as DNS, statsd or syslog, but not high-rate or latency-sensitive traffic, such as games, QUIC or WebRTC media.
+
+### Two VMs and one port
+
+Only a running VM holds a port. A stopped VM's listed ports are what it forwards when it runs again, so another VM can forward them meanwhile:
+
+```sh
+cd ~/code/a && devvm ports add 5173 && devvm stop   # a lists 5173, then stops
+cd ~/code/b && devvm                                # b forwards 5173 while a is stopped
+cd ~/code/a && devvm                                # a starts, and warns that b has 5173
+devvm ports                                         # in a: 5173, and the same warning
+```
+
+- The running VM that forwards a port keeps it. When a VM that lists the same port starts, or you change its ports, devvm warns that it forwards the port once the other VM stops forwarding it, and `devvm ports` repeats that warning while it lasts. When the other VM stops, or stops forwarding the port, the VM forwards it within about 20 seconds, without a restart.
+- A VM that lists a port comes before a VM that forwards every port. A VM that forwards every port takes no port that a running VM lists, and it gives up such a port within about 10 seconds of that VM listing it, even when the VM that forwards every port goes quiet. devvm warns about it as about any other VM.
+- While devvm starts a VM again, its listed ports stay its own, so no other VM takes them in between.
+- When two VMs that list the same port start at once, the first one whose server listens on the port forwards it, and the other waits for it.
+- A VM that crashed holds no port, because its forwarder ends with it.
+- The ports devvm chooses for VMs' ssh, proxies and desktops never take a port that any VM lists, running or not.
+- `devvm ports` also warns when a program on this machine has one of a running VM's listed ports, which the VM then doesn't forward.
+
+**While a VM is stopped, another VM serving on its port gets that port's place in your browser.** Your browser keeps site data, storage and service workers for `localhost:5173` whichever VM answers there, as it would for two projects that use one port on any machine. A service worker that the other VM's app registered can keep answering for `localhost:5173` after the first VM takes the port back, so clear that site's data in your browser when you switch.
 
 ## Size
 
@@ -157,5 +178,20 @@ With `-g`, `devvm size --json` also has `sources`, which says where each of `cpu
 {
   "version": 1,
   "ports": "5173,8000-8010"
+}
+```
+
+When another running VM forwards some of the VM's listed ports, `devvm ports --json` also has `held_by`, with each such VM's `vm`, its name, and `ports`, the ports it forwards that this VM waits for ([two VMs and one port](#two-vms-and-one-port)).
+
+```json
+{
+  "version": 1,
+  "ports": "5173,8000-8010",
+  "held_by": [
+    {
+      "vm": "devvm-b-0123456789abcd",
+      "ports": "5173"
+    }
+  ]
 }
 ```

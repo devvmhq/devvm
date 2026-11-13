@@ -8,6 +8,28 @@ import (
 	"github.com/devvmhq/devvm/internal/vm"
 )
 
+// portsOutput is devvm ports --json: which ports the VM forwards, and
+// those of its listed ports other VMs forward now, by VM.
+type portsOutput struct {
+	Ports  string        `json:"ports"`
+	HeldBy []portsHeldBy `json:"held_by,omitempty"`
+}
+
+// portsHeldBy is some of a VM's listed ports, which another VM forwards
+// now.
+type portsHeldBy struct {
+	VM    string `json:"vm"`
+	Ports string `json:"ports"`
+}
+
+func portsJSON(s vm.PortsShown) portsOutput {
+	out := portsOutput{Ports: s.List}
+	for _, h := range s.Held {
+		out.HeldBy = append(out.HeldBy, portsHeldBy(h))
+	}
+	return out
+}
+
 // newPortsCmd is devvm ports [all|none|LIST], and add and rm LIST, each
 // with -g for what new VMs forward.
 func newPortsCmd(a *app) *cobra.Command {
@@ -16,7 +38,7 @@ func newPortsCmd(a *app) *cobra.Command {
 	// run shows the ports without a change, else makes it.
 	run := func(cmd *cobra.Command, c *vm.PortsChange) error {
 		var (
-			ports string
+			ports vm.PortsShown
 			def   settings.Value
 			label string
 		)
@@ -41,7 +63,10 @@ func newPortsCmd(a *app) *cobra.Command {
 		case global:
 			return printDefault(u, asJSON, "ports", def, label)
 		}
-		return printValue(u, asJSON, "ports", ports)
+		if asJSON {
+			return printJSON(u, portsJSON(ports))
+		}
+		return printValue(u, false, "ports", ports.List)
 	}
 	cmd := &cobra.Command{
 		Use:         "ports [all|none|LIST]",

@@ -1,0 +1,60 @@
+# A stopped VM's listed ports are what it forwards when it runs, never a
+# hold on them: another VM forwards them meanwhile. The running VM that
+# forwards a port keeps it, and a VM that lists it too, started again,
+# warns (ports_held) and forwards it once the other stops.
+
+# The VMs' hostagent here: the test's runner, so their forwarders run on.
+# Every VM listens on port P, one free on this host.
+exec sh -c 'echo $PPID > "$STUB_DIR/hostagent"'
+free_port P
+exec sh -c 'printf "0100007F:%04X\n" '$P' > "$STUB_DIR/guest-ports"'
+
+# VM a lists P and forwards it, then stops.
+project a
+exec devvm --network open --no-git-protect --ports $P
+vm_name A a
+exec sh -c 'for i in $(seq 1 40); do sed -n 2p "$A_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$P' && exit 0; sleep 0.25; done; exit 1'
+exec devvm stop
+exec sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do ps -axww -o command= | grep -q -- "[_]ports -vm $A " || exit 0; sleep 0.5; done; exit 1'
+
+# VM b lists P too, and forwards it: a, stopped, holds none of it.
+project b
+exec devvm --network open --no-git-protect --ports $P
+! stderr 'ports_(taken|held)'
+vm_name B b
+exec sh -c 'for i in $(seq 1 40); do sed -n 2p "$B_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$P' && exit 0; sleep 0.25; done; exit 1'
+
+# a starts again: b keeps P, and a says so, and forwards it once b stops.
+# devvm ports and its JSON show who has it.
+project a
+exec devvm
+stderr '^devvm: ports_held count=1 other='$B' ports='$P' vm='$A'$'
+! stderr ports_taken
+exec sh -c 'ps -axww -o command= | grep -- "[_]ports -vm $A "'
+stdout ' -only '$P'$'
+exec devvm ports
+stdout '\A'$P'\n\z'
+stderr '^devvm: ports_held count=1 other='$B' ports='$P' vm='$A'$'
+exec devvm ports --json
+stdout '"held_by": \[\n    {\n      "vm": "'$B'",\n      "ports": "'$P'"\n    }\n  \]'
+# b's own view: it holds P, and waits for no one.
+project b
+exec devvm ports --json
+! stdout held_by
+! stderr .
+
+# b stops: a forwards P at its next report.
+exec devvm stop
+exec sh -c 'printf "0100007F:%04X\n0100007F:0016\n" '$P' > "$STUB_DIR/guest-ports"'
+exec sh -c 'for i in $(seq 1 40); do sed -n 2p "$A_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$P' && exit 0; sleep 0.25; done; exit 1'
+project a
+exec devvm ports --json
+! stdout held_by
+
+# VM c forwards every port, and leaves P, which running a lists, alone.
+project c
+exec devvm --network open --no-git-protect --ports all
+vm_name C c
+exec sh -c 'for i in $(seq 1 40); do grep -q "forwarding $C.s ports" "$C_dir/logs/ports.log" 2>/dev/null && exit 0; sleep 0.25; done; exit 1'
+! grep 'port '$P': forwarded' $C_dir/logs/ports.log
+exec devvm stop

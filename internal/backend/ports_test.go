@@ -40,15 +40,19 @@ func TestParsePortRanges(t *testing.T) {
 
 func TestFormatPortRanges(t *testing.T) {
 	for _, c := range []struct {
-		in   []PortRange
-		want string
+		in    []PortRange
+		want  string
+		count int
 	}{
-		{nil, ""},
-		{[]PortRange{{80, 80}}, "80"},
-		{[]PortRange{{5173, 5173}, {8000, 8010}}, "5173,8000-8010"},
+		{nil, "", 0},
+		{[]PortRange{{80, 80}}, "80", 1},
+		{[]PortRange{{5173, 5173}, {8000, 8010}}, "5173,8000-8010", 12},
 	} {
 		if got := FormatPortRanges(c.in); got != c.want {
 			t.Errorf("FormatPortRanges(%v) = %q, want %q", c.in, got, c.want)
+		}
+		if n := CountPorts(c.in); n != c.count {
+			t.Errorf("CountPorts(%v) = %d, want %d", c.in, n, c.count)
 		}
 		if c.in == nil {
 			continue

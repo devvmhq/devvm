@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -147,13 +148,41 @@ func orAll(ports string) string {
 }
 
 // Ports returns which ports the folder's VM forwards: all, none or a
-// list.
-func (e Settings) Ports(ctx context.Context) (string, error) {
+// list, and those of its listed ports another running VM forwards now,
+// which it forwards once that VM gives them up, each warned (ports_held).
+// A running VM's listed ports that a program on this machine has instead
+// are warned too (ports_taken).
+func (e Settings) Ports(ctx context.Context) (PortsShown, error) {
 	t, err := e.finder.target(ctx, need{has: hasMade, noVM: msg.NoVMPorts})
 	if err != nil {
-		return "", err
+		return PortsShown{}, err
 	}
-	return orAll(sectionOf[ports.Ports](t.st, ports.Section).Forward), nil
+	fwd := sectionOf[ports.Ports](t.st, ports.Section).Forward
+	out := PortsShown{List: orAll(fwd)}
+	f := e.forwards()
+	if taken := f.Taken(t.f.Name, fwd); len(taken) > 0 {
+		e.Warn(msg.PortsTaken(backend.CountPorts(taken), backend.FormatPortRanges(taken), t.f.Name))
+	}
+	// Another VM's state unreadable for now: the list alone.
+	held, _ := f.Held(t.f.Name, fwd)
+	for _, other := range slices.Sorted(maps.Keys(held)) {
+		list := backend.FormatPortRanges(held[other])
+		e.Warn(msg.PortsHeld(backend.CountPorts(held[other]), other, list, t.f.Name))
+		out.Held = append(out.Held, PortsHeld{VM: other, Ports: list})
+	}
+	return out, nil
+}
+
+// PortsShown is which ports a VM forwards, as devvm ports shows them.
+type PortsShown struct {
+	List string      // all, none or a list
+	Held []PortsHeld // its listed ports other VMs forward now, by VM
+}
+
+// PortsHeld is some of a VM's listed ports, which another VM forwards now.
+type PortsHeld struct {
+	VM    string // the other VM
+	Ports string // a list of ports and ranges
 }
 
 // PortsDefault returns what new VMs forward, and where that came from.
@@ -202,9 +231,9 @@ func (e Settings) SetPorts(ctx context.Context, c PortsChange) error {
 	if err := e.Registry.Require(b, vm, requirements(needs{ports: p})...); err != nil {
 		return err
 	}
-	// Its state, which its forwarder reads: other VMs' forwarders never
-	// take its listed ports (ports.Used), its new ones included before its
-	// own forwarder starts with them.
+	// Its state, which its forwarder reads: while it runs, other VMs'
+	// forwarders give up and never take its listed ports (ports.Reserved),
+	// its new ones included, within a recheck, unless they list them too.
 	if err := st.Update(ctx, func(st *state.VM) error { return ports.SetForward(st, list) }); err != nil {
 		return err
 	}

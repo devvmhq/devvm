@@ -3789,6 +3789,11 @@ func PortsForwarding(ports string, vm string) M {
 	return M{id: "ports_forwarding", vals: []val{{"ports", ports}, {"vm", vm}}}
 }
 
+// PortsHeld is [ports_held]: "{{.vm}} forwards ports {{.ports}} once {{.other}} stops forwarding them."
+func PortsHeld(count int, other string, ports string, vm string) M {
+	return M{id: "ports_held", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"other", other}, {"ports", ports}, {"vm", vm}}}
+}
+
 // PortsListNeeded is [ports_list_needed]: "{{.value}} isn't a list of ports. Give ports and ranges, such as 5173,8000-8010."
 func PortsListNeeded(value string) M {
 	return M{id: "ports_list_needed", vals: []val{{"value", value}}}
@@ -6028,6 +6033,7 @@ var specs = map[string]spec{
 	"ports_failed":                   {fields: []string{"reason"}},
 	"ports_forward_failed":           {fields: []string{"log", "vm"}},
 	"ports_forwarding":               {fields: []string{"ports", "vm"}},
+	"ports_held":                     {plural: true, fields: []string{"count", "other", "ports", "vm"}},
 	"ports_list_needed":              {fields: []string{"value"}},
 	"ports_now":                      {fields: []string{"ports", "vm"}},
 	"ports_rm_all":                   {},

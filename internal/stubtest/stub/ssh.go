@@ -33,7 +33,8 @@ func listenOnce(path string) (int, error) {
 // ssh stands in for OpenSSH's ssh, reaching the guest (guest.go). It logs
 // every call to $STUB_LOG. A master connection (-M, a VM's port
 // forwarder's) reads the script it's fed, answers it with
-// $STUB_DIR/guest-ports and ".", then waits to be stopped. A link
+// $STUB_DIR/guest-ports and ".", again whenever that file changes, until
+// it's stopped. A link
 // session's master (-M -N -S CONTROL, devvm _links's) listens on its
 // control socket until it's stopped, and its -O forward and -O cancel
 // work, but for a forward whose ADDRESS:PORT is a line of

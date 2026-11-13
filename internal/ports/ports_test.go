@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -90,22 +91,17 @@ func TestUsed(t *testing.T) {
 	d := testDirs(t)
 	st := newVM(t, d, "devvm-web-0123456789abcd")
 	set(t, st, func(p *Ports) { p.Host = Host{SSH: 23456, Proxy: 34567, Desktop: 45678} })
-	used, err := Used(d, "")
+	used, err := Used(d)
 	if err != nil || !used[23456] || !used[34567] || !used[45678] || len(used) != 3 {
 		t.Errorf("Used = %v, %v", used, err)
 	}
 	// And the ports VMs forward, entries that aren't ports skipped: all
-	// and none name none.
+	// and none name none. A stopped VM's are used too: a port devvm
+	// chooses never takes them.
 	set(t, st, func(p *Ports) { p.Forward = "5173,40000-40002, 41000, bad,9-1" })
-	used, err = Used(d, "")
+	used, err = Used(d)
 	if err != nil || len(used) != 8 || !used[5173] || !used[40000] || !used[40002] || !used[41000] {
 		t.Errorf("Used with forwards = %v, %v", used, err)
-	}
-	// The VM's own forwarder: its listed ports aren't reserved from it,
-	// its host ports are.
-	used, err = Used(d, st.Name())
-	if err != nil || len(used) != 3 || !used[23456] || !used[34567] {
-		t.Errorf("Used for its own forwarder = %v, %v", used, err)
 	}
 	for _, f := range []string{"all", "none", ""} {
 		if got := (Ports{Forward: f}).Forwarded(); len(got) != 0 {
@@ -124,8 +120,100 @@ func TestUsed(t *testing.T) {
 		[]byte(`{"version": 1, "id": "x", "name": "devvm-bad-0123456789abc1", "image": "base", "dir": "/b", "backend": "fake", "ports": 1}`)); err != nil {
 		t.Fatal(err)
 	}
-	if again, err := Used(d, ""); err != nil || len(again) != len(used)+5 {
+	if again, err := Used(d); err != nil || len(again) != len(used) {
 		t.Errorf("Used with an unreadable section = %v, %v", again, err)
+	}
+}
+
+// Who holds a forwarded host port: the running VM that forwards it, never
+// a stopped one. Reserved is what a VM's forwarder never takes, Holders
+// who forwards each port now.
+func TestReserved(t *testing.T) {
+	d := testDirs(t)
+	const (
+		self    = "devvm-a-0123456789abca"
+		lister  = "devvm-b-0123456789abcb" // lists 5173,8000
+		every   = "devvm-c-0123456789abcc" // forwards every port
+		stopped = "devvm-d-0123456789abcd" // lists 9000, stopped
+	)
+	for name, fwd := range map[string]string{self: "5173,3000", lister: "5173,8000", every: "", stopped: "9000"} {
+		st, err := state.New(d, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.Image, st.Dir, st.Backend = "base", "/"+name, "fake"
+		if err := st.Create(t.Context(), nil); err != nil {
+			t.Fatal(err)
+		}
+		set(t, st, func(p *Ports) { p.Forward, p.Host = fwd, Host{SSH: 40000 + len(fwd)} })
+	}
+	hosts := []int{40009, 40009, 40000, 40004} // each one's ssh port
+	for _, tc := range []struct {
+		name     string
+		self     string
+		live     map[string][]int // running forwarders, what they forward now
+		reserved []int            // beyond every VM's ssh port
+		holders  map[int]string
+	}{{
+		// CJ's case: a stopped VM lists 9000 and 5173 is listed by a VM
+		// that's stopped too; neither is reserved.
+		name: "all stopped", self: every,
+	}, {
+		name: "a stopped VM's listed port is free to a VM that forwards every port", self: every,
+		live: map[string][]int{self: nil},
+		// self lists 5173 and 3000 and runs: they're its, even before
+		// it forwards them.
+		reserved: []int{3000, 5173},
+	}, {
+		name: "two that list a port: neither waits until one forwards it", self: self,
+		live: map[string][]int{lister: nil},
+		// 8000 is the lister's alone; 5173 both list.
+		reserved: []int{8000},
+	}, {
+		name: "the first to forward it keeps it", self: self,
+		live:     map[string][]int{lister: {5173}},
+		reserved: []int{5173, 8000},
+		holders:  map[int]string{5173: lister},
+	}, {
+		name: "one that forwards every port is waited for, and gives it up", self: self,
+		live:     map[string][]int{every: {3000, 4000}},
+		reserved: []int{3000, 4000},
+		holders:  map[int]string{3000: every, 4000: every},
+	}, {
+		name: "it gives up a port a running VM lists", self: every,
+		live:     map[string][]int{self: nil, every: {3000}},
+		reserved: []int{3000, 5173},
+	}, {
+		name: "its own forwards are never reserved from it", self: self,
+		live: map[string][]int{self: {5173, 3000}},
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			live := func(vm string) ([]int, bool) {
+				now, ok := tc.live[vm]
+				return now, ok
+			}
+			want := map[int]bool{}
+			for _, n := range slices.Concat(hosts, tc.reserved) {
+				want[n] = true
+			}
+			got, err := Reserved(d, tc.self, live)
+			if err != nil || !maps.Equal(got, want) {
+				t.Errorf("Reserved = %v, %v; want %v", slices.Sorted(maps.Keys(got)), err, slices.Sorted(maps.Keys(want)))
+			}
+			holders, err := Holders(d, tc.self, live)
+			if tc.holders == nil {
+				tc.holders = map[int]string{}
+			}
+			if err != nil || !maps.Equal(holders, tc.holders) {
+				t.Errorf("Holders = %v, %v; want %v", holders, err, tc.holders)
+			}
+		})
+	}
+	// Used, for the ports devvm chooses, still has every VM's listed
+	// ports, running or not.
+	used, err := Used(d)
+	if err != nil || !used[9000] || !used[5173] || !used[8000] || !used[3000] {
+		t.Errorf("Used = %v, %v", used, err)
 	}
 }
 
@@ -250,7 +338,7 @@ func TestBuild(t *testing.T) {
 	if got[0] == got[1] || slices.Contains(got, 20000) || slices.Contains(got, 0) {
 		t.Fatalf("builds' ports %v (a VM has 20000)", got)
 	}
-	used, err := Used(d, "")
+	used, err := Used(d)
 	if err != nil || !used[got[0]] || !used[got[1]] || !used[20000] {
 		t.Errorf("Used with two builds starting = %v, %v", used, err)
 	}
@@ -266,7 +354,7 @@ func TestBuild(t *testing.T) {
 	if err := state.WriteFile(filepath.Join(d.BuildPorts(), "x"), []byte("x\n")); err != nil {
 		t.Fatal(err)
 	}
-	if used, err := Used(d, ""); err != nil || len(used) != 3 {
+	if used, err := Used(d); err != nil || len(used) != 3 {
 		t.Errorf("Used with a bad record = %v, %v", used, err)
 	}
 	releases[1]()
@@ -285,7 +373,7 @@ func TestBuild(t *testing.T) {
 	if err := os.Chtimes(stale, old, old); err != nil {
 		t.Fatal(err)
 	}
-	if used, err := Used(d, ""); err != nil || !used[20003] {
+	if used, err := Used(d); err != nil || !used[20003] {
 		t.Errorf("Used with a stale record = %v, %v", used, err)
 	}
 	n, release, err := a.Build(t.Context(), builds[1], 0)
