@@ -484,9 +484,14 @@ func (n *nixCache) fetchOnce(ctx context.Context, p, file string, m narMeta) err
 	return n.fetchNar(ctx, p, file, m)
 }
 
-// upstreamAllowed: the floor (or the company proxy's) for cache.nixos.org, as for any request.
+// upstreamAllowed: the floor (or the company proxy's) for cache.nixos.org, as for any request. A
+// lookup whose client went away gives the context's error, as the cache's other steps do.
 func (n *nixCache) upstreamAllowed(ctx context.Context) error {
-	if _, why := n.egress.check(ctx, nixHost, 443, false); why != "" {
+	_, why := n.egress.check(ctx, nixHost, 443, false)
+	if why == reasonClientLeft {
+		return ctx.Err()
+	}
+	if why != "" {
 		return errors.New(nixHost + " is blocked: " + why)
 	}
 	return nil

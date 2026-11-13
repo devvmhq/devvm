@@ -157,7 +157,7 @@ func newServer(c Config, std IO, l *log.Logger, out io.Writer) (*server, error) 
 	if c.Open {
 		l.Printf("open: every host and address, no rules")
 	}
-	s.egress = &egress{pol: pol, own: own, up: up, log: l}
+	s.egress = &egress{pol: pol, own: own, up: up, log: l, lookup: net.DefaultResolver.LookupNetIP}
 	s.egress.pol.all()
 	maxSize := c.NixCacheMax
 	if maxSize == 0 {
@@ -259,8 +259,12 @@ func capField(s string) string {
 }
 
 // record writes e to the log, as the VM's, now, its path and User-Agent capped (capField), and
-// keeps it among the recent blocks when it's one.
+// keeps it among the recent blocks when it's one. A block whose client went away while its name
+// resolved (reasonClientLeft) is none, so it's dropped.
 func (ev *events) record(e Event) {
+	if e.Event == "blocked" && e.Reason == reasonClientLeft {
+		return
+	}
 	e.Time, e.VM = time.Now().UTC().Format(time.RFC3339), ev.vm
 	e.Path, e.Agent = capField(e.Path), capField(e.Agent)
 	b, _ := json.Marshal(e)
@@ -413,15 +417,73 @@ type egress struct {
 	own *hostAddrs
 	up  upstreams
 	log *log.Logger // the proxy's own log: why a name didn't resolve
+	// lookup resolves a name: net.DefaultResolver.LookupNetIP, which tests replace.
+	lookup func(ctx context.Context, network, host string) ([]netip.Addr, error)
+
+	abandonMu sync.Mutex
+	abandonAt time.Time // when the minute that abandonN counts began
+	abandonN  int       // the lookups abandoned in it (abandoned)
 }
 
-// reasonUnresolvable and reasonConnectFailed are the reasons the VM gets when a name doesn't
-// resolve or a connection fails. Why goes to the proxy's own log alone: the resolver's error can
-// name the host's DNS server, and the company proxy's names its address.
+// The reasons the VM gets when a name doesn't resolve or a connection fails. The error itself goes
+// to the proxy's own log alone: the resolver's can name the host's DNS server, and the company
+// proxy's its address. reasonClientLeft is a lookup that ended because the client went away, which
+// is no block (events.record drops it) but goes in the proxy's own log (abandoned).
 const (
+	reasonNotFound      = "this machine's DNS has no address for it"
+	reasonDNSTimeout    = "this machine's DNS didn't answer in time; see proxy.log on the host"
 	reasonUnresolvable  = "can't resolve it; see proxy.log on the host"
 	reasonConnectFailed = "connect failed; see proxy.log on the host"
+	reasonClientLeft    = "the client went away while its name resolved"
 )
+
+// abandonedLogMax is how many abandoned lookups the proxy's own log names a minute; abandonedCapped
+// is its line once it stops.
+const (
+	abandonedLogMax = 20
+	abandonedCapped = "more lookups whose client went away this minute aren't logged"
+)
+
+// abandoned logs a lookup of host:port whose client went away: no block, but a lookup the VM made,
+// which can carry data out in the name, so the proxy's own log names it, at most abandonedLogMax a
+// minute.
+func (e *egress) abandoned(host string, port int) {
+	e.abandonMu.Lock()
+	defer e.abandonMu.Unlock()
+	if now := time.Now(); now.Sub(e.abandonAt) > time.Minute {
+		e.abandonAt, e.abandonN = now, 0
+	}
+	e.abandonN++
+	switch {
+	case e.abandonN <= abandonedLogMax:
+		e.log.Printf("%s:%d: %s", host, port, reasonClientLeft)
+	case e.abandonN == abandonedLogMax+1:
+		e.log.Printf("%s", abandonedCapped)
+	}
+}
+
+// lookupName resolves host to its addresses, of both families, asking once more after a temporary
+// failure (a timeout, or a DNS server that failed to answer) while ctx lasts.
+func (e *egress) lookupName(ctx context.Context, host string) ([]netip.Addr, error) {
+	ips, err := e.lookup(ctx, "ip", host)
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr.IsTemporary && !dnsErr.IsNotFound && ctx.Err() == nil {
+		ips, err = e.lookup(ctx, "ip", host)
+	}
+	return ips, err
+}
+
+// unresolvedReason is the reason the VM gets for err, a lookup's error.
+func unresolvedReason(err error) string {
+	var dnsErr *net.DNSError
+	switch {
+	case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+		return reasonNotFound
+	case errors.As(err, &dnsErr) && dnsErr.IsTimeout:
+		return reasonDNSTimeout
+	}
+	return reasonUnresolvable
+}
 
 var errFloor = errors.New("resolves to an internal address")
 
@@ -432,7 +494,7 @@ func (e *egress) resolve(ctx context.Context, host string, port int) ([]netip.Ad
 	if a, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
 		addrs = []netip.Addr{a.Unmap()}
 	} else {
-		ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		ips, err := e.lookupName(ctx, host)
 		if err != nil {
 			return nil, err
 		}
@@ -615,9 +677,12 @@ func (e *egress) floorCheck(ctx context.Context, host string, port int, plain bo
 		return "it " + err.Error() + "; allow the address itself to reach it"
 	case errors.Is(err, errUnresolved):
 		return err.Error()
+	case ctx.Err() != nil:
+		e.abandoned(host, port)
+		return reasonClientLeft
 	default:
 		e.log.Printf("%s:%d: can't resolve it: %v", host, port, err)
-		return reasonUnresolvable
+		return unresolvedReason(err)
 	}
 }
 

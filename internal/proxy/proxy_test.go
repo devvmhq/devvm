@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
@@ -647,6 +648,126 @@ func TestFloor(t *testing.T) {
 	}
 	if _, why := e.check(t.Context(), "localhost", 443, false); why == "" {
 		t.Error("localhost passed the floor through '**'")
+	}
+}
+
+// fakeLookup answers egress.lookup with errs in turn, then with 1.1.1.1, counting the calls.
+func fakeLookup(calls *int, errs ...error) func(context.Context, string, string) ([]netip.Addr, error) {
+	return func(context.Context, string, string) ([]netip.Addr, error) {
+		*calls++
+		if *calls <= len(errs) {
+			return nil, errs[*calls-1]
+		}
+		return []netip.Addr{netip.MustParseAddr("1.1.1.1")}, nil
+	}
+}
+
+// A name that doesn't resolve is blocked with why: the host's DNS has no address for it, or didn't
+// answer in time, or something else the proxy's own log names. A temporary failure is asked once
+// more first.
+func TestUnresolvedReason(t *testing.T) {
+	t.Parallel()
+	notFound := &net.DNSError{Err: "no such host", Name: "x.test", Server: "10.0.0.1:53", IsNotFound: true}
+	timeout := &net.DNSError{Err: "i/o timeout", Name: "x.test", Server: "10.0.0.1:53", IsTimeout: true, IsTemporary: true}
+	refused := &net.DNSError{Err: "server misbehaving", Name: "x.test", Server: "10.0.0.1:53", IsTemporary: true}
+	other := errors.New("lookup x.test: something else")
+	for _, c := range []struct {
+		errs  []error
+		why   string
+		calls int
+	}{
+		{[]error{notFound}, reasonNotFound, 1},
+		{[]error{timeout, timeout}, reasonDNSTimeout, 2},
+		{[]error{refused, refused}, reasonUnresolvable, 2},
+		{[]error{other}, reasonUnresolvable, 1},
+		{[]error{timeout}, "", 2}, // the second try answers
+		{[]error{refused}, "", 2},
+	} {
+		s := testServer(t, Config{}, "x.test\n")
+		out := logs(s)
+		calls := 0
+		s.egress.lookup = fakeLookup(&calls, c.errs...)
+		if _, why := s.egress.check(t.Context(), "x.test", 443, false); why != c.why || calls != c.calls {
+			t.Errorf("%v: %q after %d lookups, want %q after %d", c.errs, why, calls, c.why, c.calls)
+		}
+		if c.why != "" && !strings.Contains(out.String(), c.errs[0].Error()) {
+			t.Errorf("%v: the proxy's log has %q", c.errs, out)
+		}
+	}
+}
+
+// cancelingLookup is a lookup whose client goes away (cancel) while it runs, counting the calls.
+func cancelingLookup(cancel context.CancelFunc, calls *int) func(context.Context, string, string) ([]netip.Addr, error) {
+	return func(ctx context.Context, _, host string) ([]netip.Addr, error) {
+		*calls++
+		cancel()
+		return nil, &net.DNSError{Err: ctx.Err().Error(), Name: host, IsTemporary: true}
+	}
+}
+
+// A request whose client went away while its name resolved is no block: neither the event log nor
+// /blocked records it. The proxy's own log names it, as a lookup a VM made can carry data out.
+func TestCanceledLookupNotBlocked(t *testing.T) {
+	t.Parallel()
+	s := testServer(t, Config{}, "x.test\n"+nixHost+"\n")
+	out := logs(s)
+	ctx, cancel := context.WithCancel(t.Context())
+	calls := 0
+	s.egress.lookup = cancelingLookup(cancel, &calls)
+	req := httptest.NewRequestWithContext(ctx, http.MethodConnect, "http://x.test:443", nil)
+	req.Host = "x.test:443"
+	s.handler(httptest.NewRecorder(), req)
+	if _, n := s.events.blocked(); n != 0 || strings.Contains(out.String(), `"event"`) || calls != 1 ||
+		strings.Count(out.String(), "x.test:443: "+reasonClientLeft+"\n") != 1 {
+		t.Errorf("%d blocks after %d lookups; logged %s", n, calls, out)
+	}
+	// The shared Nix cache's check gives the context's error, as its other steps do, never a block.
+	nctx, ncancel := context.WithCancel(t.Context())
+	s.egress.lookup = cancelingLookup(ncancel, &calls)
+	if err := s.nix.upstreamAllowed(nctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("the Nix cache's check: %v", err)
+	}
+}
+
+// The proxy's own log names at most abandonedLogMax such lookups a minute, then says it stops.
+func TestCanceledLookupsLogCapped(t *testing.T) {
+	t.Parallel()
+	s := testServer(t, Config{}, "*.test\n")
+	out := logs(s)
+	calls := 0
+	for i := range abandonedLogMax + 5 {
+		ctx, cancel := context.WithCancel(t.Context())
+		s.egress.lookup = cancelingLookup(cancel, &calls)
+		if _, why := s.egress.check(ctx, "n"+strconv.Itoa(i)+".x.test", 443, false); why != reasonClientLeft {
+			t.Fatalf("%d: %q", i, why)
+		}
+	}
+	if n := strings.Count(out.String(), reasonClientLeft); n != abandonedLogMax ||
+		strings.Count(out.String(), abandonedCapped) != 1 {
+		t.Errorf("%d lines; logged %s", n, out)
+	}
+}
+
+// Through a company proxy, a name's lookup, its one retry included, stays within its 3 seconds: a
+// DNS server that never answers isn't asked again once they're up.
+func TestFloorUpstreamLookupBudget(t *testing.T) {
+	t.Parallel()
+	e := testServer(t, Config{}, "x.test\n").egress
+	calls := 0
+	e.lookup = func(ctx context.Context, _, host string) ([]netip.Addr, error) {
+		calls++
+		<-ctx.Done()
+		return nil, &net.DNSError{Err: "i/o timeout", Name: host, IsTimeout: true, IsTemporary: true}
+	}
+	start := time.Now()
+	if err := e.floorUpstream(t.Context(), "x.test", 443); err != nil || calls != 1 || time.Since(start) > 4*time.Second {
+		t.Errorf("%v after %d lookups in %s", err, calls, time.Since(start))
+	}
+	// One that fails at once is asked once more.
+	calls = 0
+	e.lookup = fakeLookup(&calls, &net.DNSError{Err: "server misbehaving", Name: "x.test", IsTemporary: true})
+	if err := e.floorUpstream(t.Context(), "x.test", 443); err != nil || calls != 2 {
+		t.Errorf("%v after %d lookups", err, calls)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"strings"
@@ -500,8 +501,11 @@ func TestUpstreamNoProxyDirect(t *testing.T) {
 	s := testServer(t, Config{}, "allowed.test\n")
 	useUpstream(t, s, f, "*")
 	out := logs(s)
+	s.egress.lookup = func(context.Context, string, string) ([]netip.Addr, error) {
+		return nil, &net.DNSError{Err: "server misbehaving", Name: "allowed.test", Server: "10.0.0.53:53"}
+	}
 	addr := listen(t, s)
-	// Direct, it's resolved here: .test names don't resolve, so it's refused, unseen upstream.
+	// Direct, it's resolved here: it doesn't resolve, so it's refused, unseen upstream.
 	code, body := roundTrip(t, addr, "CONNECT allowed.test:443 HTTP/1.1\r\nHost: allowed.test:443\r\n\r\n")
 	if code != http.StatusForbidden || !strings.Contains(body, "can't resolve") || len(f.requests()) != 0 {
 		t.Errorf("NO_PROXY=*: %d %q, upstream saw %q", code, body, f.requests())
@@ -509,7 +513,7 @@ func TestUpstreamNoProxyDirect(t *testing.T) {
 	// The resolver's error, which can name the host's DNS server, stays in the proxy's own log:
 	// the VM, its /blocked and the event log get the reason alone.
 	_, blocked := roundTrip(t, addr, "GET http://devvm.proxy/blocked HTTP/1.1\r\nHost: devvm.proxy\r\n\r\n")
-	if strings.Contains(body+blocked, "lookup") || !strings.Contains(out.String(), "lookup allowed.test") ||
+	if strings.Contains(body+blocked, "10.0.0.53") || !strings.Contains(out.String(), "lookup allowed.test on 10.0.0.53:53") ||
 		!strings.Contains(out.String(), `"reason":"`+reasonUnresolvable+`"`) {
 		t.Errorf("the VM got %q and %q; the logs %s", body, blocked, out)
 	}

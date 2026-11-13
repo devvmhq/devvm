@@ -395,7 +395,7 @@ func (e *egress) floorUpstream(ctx context.Context, host string, port int) error
 	}
 	lctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	ips, err := net.DefaultResolver.LookupNetIP(lctx, "ip", host)
+	ips, err := e.lookupName(lctx, host)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
