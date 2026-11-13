@@ -413,3 +413,56 @@ func pemBytes(t *testing.T, b []byte) []byte {
 	}
 	return blk.Bytes
 }
+
+// A failed check keeps every proxy log in the sandbox, the VMs' and the builds', outside the
+// folders the run deletes, and prints the end of each one written since the check began; the
+// images' and the shared tools' folders aren't searched.
+func TestHarnessKeepProxyLogs(t *testing.T) {
+	t.Parallel()
+	sb := &sandbox{work: t.TempDir()}
+	write := func(rel, text string) string {
+		f := filepath.Join(sb.devvmDir(), rel)
+		if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	write("vms/abc/logs/proxy.log", "devvm proxy: x.test:443: can't resolve it: lookup x.test: i/o timeout\n")
+	write("run/builds/b/run/build-proxy/proxy.log", "devvm proxy: crl3.digicert.com:80: can't resolve it\n")
+	old := write("vms/old/logs/proxy.log", "an earlier check's line\n")
+	write("images/k/proxy.log", "an image's\n")
+	write("vms/empty/logs/proxy.log", "")
+	since := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(old, since.Add(-time.Hour), since.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var b bytes.Buffer
+	dir := filepath.Join(sb.work, "proxy-logs", "7")
+	keepProxyLogs(sb, newOutput(&b), dir, since)
+	kept, _ := os.ReadDir(dir)
+	var names []string
+	for _, e := range kept {
+		names = append(names, e.Name())
+	}
+	want := []string{"run_builds_b_run_build-proxy_proxy.log", "vms_abc_logs_proxy.log", "vms_old_logs_proxy.log"}
+	if !slices.Equal(names, want) {
+		t.Errorf("kept %q, want %q", names, want)
+	}
+	out := b.String()
+	for _, s := range []string{"i/o timeout", "crl3.digicert.com", dir} {
+		if !strings.Contains(out, s) {
+			t.Errorf("printed no %q:\n%s", s, out)
+		}
+	}
+	if strings.Contains(out, "an earlier check's") || strings.Contains(out, "an image's") {
+		t.Errorf("printed a log the check didn't write:\n%s", out)
+	}
+	var none bytes.Buffer
+	keepProxyLogs(&sandbox{work: t.TempDir()}, newOutput(&none), filepath.Join(t.TempDir(), "none"), since)
+	if none.Len() != 0 {
+		t.Errorf("no logs, yet printed %q", none.String())
+	}
+}

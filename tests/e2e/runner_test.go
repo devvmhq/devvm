@@ -76,6 +76,7 @@ type runner struct {
 
 	started time.Time // the run's
 	mark    time.Time // the previous check's end: a check's time counts from it
+	began   time.Time // the running or last check's attempt's start: a failed one keeps the proxy logs since
 	total   string    // the checks expected in all, or ?
 	n       int       // the checks run so far
 
@@ -102,6 +103,7 @@ func newRunner(ctx context.Context, out *output, sb *sandbox, o options) *runner
 	r := &runner{ctx: ctx, out: out, sb: sb, o: o, started: now, mark: now, sum: sourceSum(), hbDone: make(chan struct{})}
 	r.total = r.expected()
 	_ = os.MkdirAll(sb.tdir, 0o700)
+	_ = os.RemoveAll(sb.proxyLogs()) // the last run's failed checks'
 	r.open(limitBuild, "setup")
 	go r.heartbeat()
 	return r

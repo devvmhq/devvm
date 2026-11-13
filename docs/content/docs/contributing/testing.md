@@ -134,7 +134,7 @@ s.Check("gc deletes a tool image no VM uses, with its record", func() error {
 })
 ```
 
-The check passes when its function returns nil. Its title is its key in the timings, so a changed title starts its times again: give a new check a title that says what it proves. When a check fails, the runner prints its error, each line led by `failed:`, and then the last 5 lines that its commands printed, or as many as `Tail(n)` asks for. A check that the run has nothing for is `s.Skip(title, why)`, which counts it, so that runs compare their counts.
+The check passes when its function returns nil. Its title is its key in the timings, so a changed title starts its times again: give a new check a title that says what it proves. When a check fails, the runner prints its error, each line led by `failed:`, and then the last 5 lines that its commands printed, or as many as `Tail(n)` asks for. It also copies every proxy log in the sandbox that has lines, each VM's and each build's, into `proxy-logs/` in the sandbox's state folder, because the run deletes the VMs and builds that wrote them, and it prints that folder and the last 5 lines of each log written since the check began. The next run empties `proxy-logs/` before its first check. A check that the run has nothing for is `s.Skip(title, why)`, which counts it, so that runs compare their counts.
 
 The commands a check runs go through the section, so that they run in the sandbox's environment and within the check's time limit, and their output goes into the check's log:
 

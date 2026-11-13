@@ -175,6 +175,9 @@ func (sb *sandbox) toolLock() string { return filepath.Join(sb.devvmDir(), "mise
 func (sb *sandbox) logFile() string  { return filepath.Join(sb.work, "check.log") }
 func (sb *sandbox) lockFile() string { return sb.work + ".lock" }
 
+// proxyLogs is where failed checks keep the proxy logs (keepProxyLogs), until the next run.
+func (sb *sandbox) proxyLogs() string { return filepath.Join(sb.work, "proxy-logs") }
+
 // lock takes the slot's lock, a symlink to the pid of the run holding it:
 // one run at a time in a slot, taking over a lock whose process has
 // ended.

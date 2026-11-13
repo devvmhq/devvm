@@ -4,7 +4,9 @@ package e2e
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -104,6 +106,7 @@ func (s *S) Check(title string, fn func() error, opts ...CheckOpt) {
 // It's fn's error and what its commands printed.
 func (r *runner) attempt(lim time.Duration, fn func() error) (string, error) {
 	w := r.open(lim, "check")
+	r.began = time.Now()
 	err := fn()
 	log, _ := os.ReadFile(r.sb.logFile())
 	if why, ok := timedOut(w); ok {
@@ -153,7 +156,7 @@ func (r *runner) result(title string, pass bool, again string) {
 
 // tail prints a failed check's error, each line led by "failed: " but
 // the time limit's, then the last n lines of log, what its commands
-// printed, indented.
+// printed, indented, then the proxy logs, which it keeps (keepProxyLogs).
 func (r *runner) tail(err error, log string, n int) {
 	lines := strings.Split(strings.TrimRight(err.Error(), "\n"), "\n")
 	for i, l := range lines {
@@ -166,6 +169,48 @@ func (r *runner) tail(err error, log string, n int) {
 		if l != "" {
 			r.out.line("        %s", l)
 		}
+	}
+	keepProxyLogs(r.sb, r.out, filepath.Join(r.sb.proxyLogs(), r.began.Format("150405.000")), r.began)
+}
+
+// keepProxyLogs copies every proxy log in the sandbox's devvm folder that has lines, its VMs' and
+// its builds', into dir, each named by where it was, and prints where, with the last lines of each
+// one written since since: a failed check's, so what the proxies said outlives the VMs and builds
+// whose folders the run deletes. The images' and the shared tools' folders aren't searched.
+func keepProxyLogs(sb *sandbox, out *output, dir string, since time.Time) {
+	root, err := os.OpenRoot(sb.devvmDir())
+	if err != nil {
+		return
+	}
+	defer func() { _ = root.Close() }()
+	var logs []string
+	_ = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil || d.IsDir() && (p == "images" || p == "tools"):
+			return fs.SkipDir // a folder it can't read, or one it leaves out
+		case d.Type().IsRegular() && d.Name() == "proxy.log":
+			logs = append(logs, p)
+		}
+		return nil
+	})
+	kept := false
+	for _, p := range logs {
+		b, err := root.ReadFile(p)
+		info, err2 := root.Stat(p)
+		if err != nil || err2 != nil || len(b) == 0 || os.MkdirAll(dir, 0o700) != nil ||
+			os.WriteFile(filepath.Join(dir, strings.ReplaceAll(p, "/", "_")), b, 0o600) != nil {
+			continue
+		}
+		kept = true
+		if !info.ModTime().Before(since) {
+			out.line("        %s ends:", p)
+			for l := range strings.Lines(tailLines(string(b), 5)) {
+				out.line("          %s", strings.TrimRight(l, "\n"))
+			}
+		}
+	}
+	if kept {
+		out.line("        the proxy logs are kept in %s", dir)
 	}
 }
 
