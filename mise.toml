@@ -5,7 +5,7 @@ lockfile = true
 CGO_ENABLED = "0"
 
 [tools]
-go = "1.27.3"
+go = "1.27.4"
 golangci-lint = "2.15.0"
 gotestsum = "1.13.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
