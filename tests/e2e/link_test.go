@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -122,6 +123,8 @@ func linkChecks(l *link) {
 	s.Check("a program in the client on a link's address and port first fails that link alone (link_port_taken); another link works", func() error { return lkPortTaken(l) })
 	s.Check("256 connections at once, past the socket's backlog, all carried; a 257th is refused, and devvm network log shows link_limit",
 		func() error { return lkCap(l) }, Flaky("256 connections opened at once, and their relays ending within a minute, depend on how busy this machine is"))
+	s.Check("devvm link rm ends the link's open connections, though neither the client nor the target's server closes them: their ssh on this machine ends",
+		func() error { return lkRmEnds(l) })
 }
 
 // linkHostile: root in the client loosening its sshd.
@@ -593,6 +596,61 @@ func lkCap(l *link) error {
 	err = errors.Join(err, lkEnd(s, l.v1, "127.0.0.1", l.p(1)), lkFew(s, l.vc))
 	_, rmErr := s.DevvmNames(l.pc, "link", "rm", "db", l.p(1))
 	return errors.Join(err, rmErr)
+}
+
+// lkRmEnds: a connection that a program in the client holds open, to a
+// target's server that never closes one (hold), is carried by an ssh of
+// the link session's on this machine until devvm link rm, which ends it.
+// Its port is its own, published for it alone and unpublished after, so
+// the group's checks later see db's ports as they were.
+func lkRmEnds(l *link) error {
+	s := l.s
+	p := l.p(7)
+	if _, err := s.DevvmNames(l.p1, "link", "publish", p); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = s.Devvm(l.pc, "link", "rm", "db", p) // gone already once the check passed
+		_, _ = s.Devvm(l.p1, "link", "unpublish", p)
+	}()
+	if err := lkStart(l, l.v1, "hold", "127.0.0.1", p, ""); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = lkRoot(s, l.vc, "pkill -f '[e]2e-link-held' || true")
+		_ = lkEnd(s, l.v1, "127.0.0.1", p)
+	}()
+	if _, err := s.DevvmNames(l.pc, "link", "add", l.x+"db", p); err != nil {
+		return err
+	}
+	addr := "127.77.0.1:" + p
+	if err := s.Until(15*time.Second, func() error { return not(!lkListening(s, l.vc, addr), addr+" doesn't listen") }); err != nil {
+		return err
+	}
+	if err := lkBg(s, l.vc, "bash -c 'exec 3<>/dev/tcp/db/"+p+" && exec -a e2e-link-held sleep 300'"); err != nil {
+		return err
+	}
+	// The session's ssh -W relays to the port.
+	relays := func() []string {
+		mine := lkDesc(s, lkSession(s, l.vc))
+		var r []string
+		for _, pid := range pids(s, "[-]W 127.0.0.1:"+p+" ") {
+			if slices.Contains(mine, pid) {
+				r = append(r, pid)
+			}
+		}
+		return r
+	}
+	if err := s.Until(20*time.Second, func() error { return not(len(relays()) != 1, "no relay for the held connection") }); err != nil {
+		return err
+	}
+	if _, err := s.DevvmNames(l.pc, "link", "rm", "db", p); err != nil {
+		return err
+	}
+	start := time.Now()
+	err := s.Until(15*time.Second, func() error { return not(len(relays()) > 0, "its relay still runs: "+strings.Join(relays(), " ")) })
+	Note(s, "the relay ended %d s after devvm link rm", int(time.Since(start).Seconds()))
+	return err
 }
 
 // lkCapNotes logs the events for db:$P47241, their reasons and the end of

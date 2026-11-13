@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A removed link's connections end with it:** `devvm link rm` refused a link's next connection but left the open ones running, so a target that never closed its end kept each one's ssh process on this machine, and one of the 256 connections that a client's links carry at once, until the client or the target stopped. Removing a link now ends its open connections within a few seconds, and when a target starts again, the connections still open through its earlier start end too ([removing a link](https://next.devvm.dev/docs/using/links/#removing-a-link)).
+- **A closed connection's ssh process ends:** a VM that never closed its end of a forwarded port's or a link's connection kept that connection's ssh process on this machine after the program here, or in the client, had closed its side, so a hostile VM could take all 256 connections a forwarder or a client's links carry at once. Such an ssh process now ends once its client has closed and the VM has sent nothing for 30 seconds. A program that closes its side for writing and waits for an answer, as `nc -N` does, keeps its connection only while the VM sends something at least every 30 seconds, the first byte included, so one waiting longer than that for a slow query's answer to begin is cut ([how it reaches the VM](https://next.devvm.dev/docs/internals/ports/#how-it-reaches-the-vm)).
+
 ## 0.1.1-rc.3
 
 A release candidate for 0.1.1, adding to 0.1.1-rc.2. Install it with `devvm upgrade --to 0.1.1-rc.3`, the install script's `--version 0.1.1-rc.3`, or `brew install devvmhq/tap/devvm-rc`. Homebrew's `devvm` stays on 0.1.0.

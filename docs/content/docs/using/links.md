@@ -157,7 +157,7 @@ devvm link rm db 5432   # stop reaching db:5432
 devvm link rm pg 5432   # by the name given with --as
 ```
 
-The link's next connection is refused, while connections that are open stay until they close.
+On a running client, the link's next connection is refused, and the connections that are open through it end within a few seconds, so a program in the client that keeps one open, such as a database client, sees it closed.
 
 ## When links change
 

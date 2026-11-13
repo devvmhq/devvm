@@ -12,13 +12,16 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
 )
@@ -612,6 +615,168 @@ func TestLinksBurst(t *testing.T) {
 	}
 	if carried != maxLinkConns || refused != n-maxLinkConns || f.count(&f.relays) != maxLinkConns {
 		t.Errorf("%d carried, %d refused, %d relays; want %d, %d, %d", carried, refused, f.count(&f.relays), maxLinkConns, n-maxLinkConns, maxLinkConns)
+	}
+}
+
+// stuckSSH puts an ssh stand-in first on PATH that never exits on its
+// own, as a relay's ssh whose channel the target never ends, and returns
+// how to read the pids of those that started, in order. Any still running
+// when the test ends are killed.
+func stuckSSH(t *testing.T) func() []int {
+	t.Helper()
+	pids := filepath.Join(t.TempDir(), "pids")
+	fakeSSH(t, "echo $$ >> "+pids+"\nexec sleep 600")
+	read := func() []int {
+		b, _ := os.ReadFile(pids) //nolint:gosec // gosec G304: the test's own temp file
+		var started []int
+		for f := range strings.FieldsSeq(string(b)) {
+			if pid, err := strconv.Atoi(f); err == nil {
+				started = append(started, pid)
+			}
+		}
+		return started
+	}
+	t.Cleanup(func() {
+		for _, pid := range read() {
+			if daemon.Alive(pid) {
+				_ = daemon.Signal(pid, syscall.SIGKILL)
+			}
+		}
+	})
+	return read
+}
+
+// A relay whose target never ends its channel (a VM whose sshd ignores
+// EOF) still ends when its link is removed, or when its target's master
+// is replaced (the target started again): its ssh is killed and its slot
+// is free again, so a target can't keep the session's relays by holding
+// them open.
+func TestLinksEndStuckRelays(t *testing.T) {
+	a := netip.MustParseAddr
+	db := Link{Name: "db", Target: "devvm-db-0123456789abcd", Addr: a("127.77.0.1"), Port: 5432}
+	api := Link{Name: "api", Target: "devvm-api-0123456789abcd", Addr: a("127.77.0.2"), Port: 80}
+	pids := stuckSSH(t)
+	f := &fakeLinks{}
+	l := f.newLinks(t)
+	l.Relay = pipeSSH
+	start := "s1"
+	f.target = func(lk Link) (LinkTarget, string, string) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return LinkTarget{SSH: SSH{VM: lk.Target, User: "u", Key: "/k2", KnownHosts: "/kh", Port: 62022}, Start: start}, "", ""
+	}
+	f.setWant(db, api)
+	before := runtime.NumGoroutine()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- l.Run(ctx) }()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run: %v", err)
+		}
+		// Nothing of the session's is left once it ends: every relay's
+		// goroutines, and the stand-in's pipes, are gone.
+		waitFor(t, "the session's goroutines to end", func() bool { return runtime.NumGoroutine() <= before })
+	}()
+	for _, lk := range []Link{db, api} {
+		waitFor(t, lk.Name+"'s socket", func() bool { _, err := os.Lstat(l.Socket(lk)); return err == nil })
+	}
+	// l.conns was made before the first Check, which the test follows
+	// through f.mu.
+	slots := func() int { return len(l.conns) }
+
+	// db's link removed: its relay ends, though api's link stays.
+	dialMany(t, l.Socket(db), 1)
+	waitFor(t, "db's ssh", func() bool { return len(pids()) == 1 })
+	f.setWant(api)
+	waitFor(t, "db's ssh to end", func() bool { return !daemon.Alive(pids()[0]) })
+	waitFor(t, "db's slot", func() bool { return slots() == 0 })
+
+	// api's target started again: the next connection gets a master of
+	// its own, and the old master's relay ends with it.
+	dialMany(t, l.Socket(api), 1)
+	waitFor(t, "api's ssh", func() bool { return len(pids()) == 2 })
+	f.mu.Lock()
+	start = "s2"
+	f.mu.Unlock()
+	dialMany(t, l.Socket(api), 1)
+	waitFor(t, "api's second ssh", func() bool { return len(pids()) == 3 })
+	waitFor(t, "api's first ssh to end", func() bool { return !daemon.Alive(pids()[1]) })
+	waitFor(t, "api's first slot", func() bool { return slots() == 1 })
+	if !daemon.Alive(pids()[2]) {
+		t.Error("the new master's relay ended too")
+	}
+
+	// api's link names another target at the same address and port, as
+	// a link removed and another added within one sync would: its open
+	// relay, to the old target, ends, and the link carries on to the new.
+	other := api
+	other.Target = "devvm-web-0123456789abcd"
+	f.setWant(other)
+	waitFor(t, "the old target's ssh to end", func() bool { return !daemon.Alive(pids()[2]) })
+	waitFor(t, "its slot", func() bool { return slots() == 0 })
+	dialMany(t, l.Socket(other), 1)
+	waitFor(t, "the new target's ssh", func() bool { return len(pids()) == 4 })
+	if args := f.snap(&f.starts); !slices.ContainsFunc(args, func(a []string) bool {
+		return slices.Contains(a, l.Control(other.Target, "s2"))
+	}) {
+		t.Error("no master to the new target")
+	}
+}
+
+// A connection whose link, or master, was cut before it was tracked is
+// closed without an event and never relayed: one accepted as its link
+// went, or carried through a master replaced while it waited for it.
+func TestLinksCarryCut(t *testing.T) {
+	db := Link{Name: "db", Target: "devvm-db-0123456789abcd", Addr: netip.MustParseAddr("127.77.0.1"), Port: 5432}
+	f := &fakeLinks{}
+	l := f.newLinks(t)
+	l.defaults()
+	checked := 0
+	f.target = func(lk Link) (LinkTarget, string, string) {
+		checked++
+		return LinkTarget{SSH: SSH{VM: lk.Target}, Start: "s"}, "", ""
+	}
+	l.masters = map[string]*targetMaster{}
+	carry := func(end *linkEnd) net.Conn {
+		a, b := net.Pipe()
+		t.Cleanup(func() { _ = b.Close() })
+		l.carry(t.Context(), end.conns, a, db)
+		return b
+	}
+	closed := func(c net.Conn) bool {
+		_ = c.SetReadDeadline(time.Now().Add(time.Second))
+		_, err := c.Read(make([]byte, 1))
+		return errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe)
+	}
+
+	// Its link was cut: not even checked.
+	gone := &linkEnd{link: db, conns: &relayConns{}}
+	gone.conns.cutAll()
+	if c := carry(gone); !closed(c) || checked != 0 {
+		t.Errorf("a cut link: closed %v, checked %d times", closed(c), checked)
+	}
+
+	// Its master was cut once it was found: checked, not relayed.
+	m := &targetMaster{start: "s", ctl: "/nowhere", ready: make(chan struct{}), p: &proc{done: make(chan struct{})}, cancel: func() {}}
+	close(m.ready)
+	m.conns.cutAll()
+	l.masters[db.Target] = m
+	end := &linkEnd{link: db, conns: &relayConns{}}
+	if c := carry(end); !closed(c) || checked != 1 {
+		t.Errorf("a cut master: closed %v, checked %d times", closed(c), checked)
+	}
+	if n, ev := f.count(&f.relays), f.snap(&f.starts); n != 0 || len(ev) != 0 {
+		t.Errorf("relayed %d, masters started %d", n, len(ev))
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.events) != 0 {
+		t.Errorf("events: %q", f.events)
+	}
+	if len(end.conns.open) != 0 || len(m.conns.open) != 0 {
+		t.Error("a refused connection stays tracked")
 	}
 }
 

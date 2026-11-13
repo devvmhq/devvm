@@ -137,20 +137,41 @@ type Links struct {
 	listed  []byte // the list as last written; nil: none written
 }
 
-// linkEnd is a link being carried: its socket and the link as last read.
+// linkEnd is a link being carried: its socket, the link as last read, and
+// the connections it accepted for that link that are open, which its
+// removal, or its target's change, cuts (under the session's mu).
 type linkEnd struct {
-	link Link
-	ln   net.Listener
-	sock string
+	link  Link
+	ln    net.Listener
+	sock  string
+	conns *relayConns
 }
 
-// targetMaster is a master to a link's target, for one of its starts.
+// close stops listening on the link's socket, which removes it, and cuts
+// the connections it accepted, so none outlives its link. Its caller
+// holds the session's mu.
+func (end *linkEnd) close() {
+	_ = end.ln.Close()
+	end.conns.cutAll()
+}
+
+// targetMaster is a master to a link's target, for one of its starts,
+// and the connections it carries, which its replacement cuts (under the
+// session's mu).
 type targetMaster struct {
 	start, ctl string
 	ready      chan struct{} // closed once it's ready or failed (err)
 	err        error
 	p          *proc
 	cancel     context.CancelFunc
+	conns      relayConns
+}
+
+// end stops the master and cuts the connections it carries. Its caller
+// holds the session's mu.
+func (m *targetMaster) end() {
+	m.cancel()
+	m.conns.cutAll()
 }
 
 // dead reports whether the master failed or ended.
@@ -372,9 +393,19 @@ func (l *Links) sync(ctx context.Context, ctl string, want []Link) {
 	l.mu.Lock()
 	for k, end := range l.open {
 		if w, ok := wanted[k]; ok {
+			if w.Target != end.link.Target {
+				// The address and port now link to another target, as a link
+				// removed and another added within one sync would: the old
+				// target's connections are cut, and the new link's are its own.
+				end.conns.cutAll()
+				end.conns = &relayConns{}
+			}
 			end.link = w
 			continue
 		}
+		// Its connections are cut at once; its socket goes once the client
+		// no longer listens for it.
+		end.conns.cutAll()
 		gone = append(gone, end)
 		delete(l.open, k)
 	}
@@ -458,7 +489,7 @@ func (l *Links) add(ctx context.Context, ctl string, w Link) {
 		l.Failed(w, err)
 		return
 	}
-	end := &linkEnd{link: w, ln: ln, sock: sock}
+	end := &linkEnd{link: w, ln: ln, sock: sock, conns: &relayConns{}}
 	l.mu.Lock()
 	l.open[w.key()] = end
 	l.mu.Unlock()
@@ -525,16 +556,16 @@ func ReadLinksLog(log []byte, vm string, links []Link) LinksReport {
 }
 
 // closeAll stops listening on every link's socket, which removes it, and
-// ends the masters to targets: the connections they carry end too.
+// ends the masters to targets, cutting the connections they carry.
 func (l *Links) closeAll() {
 	l.mu.Lock()
 	var ended []*targetMaster
 	for k, end := range l.open {
-		_ = end.ln.Close()
+		end.close()
 		delete(l.open, k)
 	}
 	for vm, m := range l.masters {
-		m.cancel()
+		m.end()
 		ended = append(ended, m)
 		delete(l.masters, vm)
 	}
@@ -669,8 +700,10 @@ func (l *Links) serve(ctx context.Context, end *linkEnd) {
 // past the cap is accepted at most two batches ahead of its refusals
 // being logged.
 func (l *Links) take(ctx context.Context, end *linkEnd, conn net.Conn) {
+	// The link and its connections as they are now, together: a change of
+	// target after this cuts these.
 	l.mu.Lock()
-	lk := end.link
+	lk, conns := end.link, end.conns
 	l.mu.Unlock()
 	select {
 	case l.conns <- struct{}{}:
@@ -683,38 +716,70 @@ func (l *Links) take(ctx context.Context, end *linkEnd, conn net.Conn) {
 	}
 	go func() {
 		defer func() { <-l.conns }()
-		l.carry(ctx, conn, lk)
+		l.carry(ctx, conns, conn, lk)
 	}()
 }
 
 // carry checks a connection's link again, then carries it to the target
-// through a master to it, or refuses it.
-func (l *Links) carry(ctx context.Context, conn net.Conn, lk Link) {
+// through a master to it, or refuses it. Its relay runs with a context of
+// its own, which its link's removal and its master's replacement cancel
+// (relayConns), so a target that never ends its channel can't keep the
+// relay's ssh, or its slot, past either. linkConns is the connections of
+// the link as lk has it, which its removal, or its target's change, cuts.
+// A connection whose link went before it was carried closes without an
+// event.
+func (l *Links) carry(ctx context.Context, linkConns *relayConns, conn net.Conn, lk Link) {
 	defer func() { _ = conn.Close() }()
+	rctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if !l.track(rctx, linkConns, conn, cancel) {
+		return
+	}
+	defer l.untrack(linkConns, conn)
 	t, event, why := l.Check(ctx, lk)
 	if event != "" {
 		l.Event(event, lk, why)
 		return
 	}
-	ctl, err := l.targetMaster(ctx, t)
+	m, err := l.targetMaster(ctx, t)
 	if err != nil {
 		l.logf("%s: %s: %v", lk.listen(), t.VM, err)
 		l.Event(EventLinkRefused, lk, "ssh")
 		return
 	}
+	if !l.track(rctx, &m.conns, conn, cancel) {
+		return
+	}
+	defer l.untrack(&m.conns, conn)
 	l.Event(EventLink, lk, "")
-	t.Control = ctl
-	l.Relay(ctx, conn, t.linkRelayArgs(lk.Port))
+	t.Control = m.ctl
+	l.Relay(rctx, conn, t.linkRelayArgs(lk.Port))
 }
 
-// targetMaster returns the control socket of the master to a target's
-// start, started first when there's none: one that ended, or was made for
-// an earlier start, is replaced.
-func (l *Links) targetMaster(ctx context.Context, t LinkTarget) (string, error) {
+// track adds a connection to what a link or a master carries, unless
+// they were cut, or its relay's context (rctx) was by another's cut.
+func (l *Links) track(rctx context.Context, to *relayConns, conn net.Conn, cancel context.CancelFunc) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return rctx.Err() == nil && to.add(conn, cancel)
+}
+
+// untrack takes a connection whose relay ended out of what a link or a
+// master carries.
+func (l *Links) untrack(from *relayConns, conn net.Conn) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	from.done(conn)
+}
+
+// targetMaster returns the master to a target's start, started first when
+// there's none: one that ended, or was made for an earlier start, is
+// replaced, and the connections it carried are cut.
+func (l *Links) targetMaster(ctx context.Context, t LinkTarget) (*targetMaster, error) {
 	l.mu.Lock()
 	m := l.masters[t.VM]
 	if m != nil && (m.start != t.Start || m.dead()) {
-		m.cancel()
+		m.end()
 		m = nil
 	}
 	if m == nil {
@@ -724,9 +789,9 @@ func (l *Links) targetMaster(ctx context.Context, t LinkTarget) (string, error) 
 	l.mu.Unlock()
 	select {
 	case <-m.ready:
-		return m.ctl, m.err
+		return m, m.err
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 

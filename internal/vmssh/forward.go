@@ -153,11 +153,9 @@ type failedPorts struct{ inUse, limit, refused []int }
 type forward struct {
 	lns  []net.Listener
 	host string
-	// conns is the connections it accepted that are open, each with what
-	// ends its relay's context, which close ends too, and closed whether
-	// it went: both under the forwarder's mu.
-	conns  map[net.Conn]context.CancelFunc
-	closed bool
+	// conns is the connections it accepted that are open, which close
+	// cuts, under the forwarder's mu.
+	conns relayConns
 }
 
 func (f *Forwarder) logf(format string, args ...any) {
@@ -464,15 +462,9 @@ func (f *Forwarder) serve(ctx context.Context, l net.Listener, port int, fw *for
 		// ssh is killed even when the VM never ends its channel.
 		rctx, cancel := context.WithCancel(ctx)
 		f.mu.Lock()
-		host, closed := fw.host, fw.closed
-		if !closed {
-			if fw.conns == nil {
-				fw.conns = map[net.Conn]context.CancelFunc{}
-			}
-			fw.conns[conn] = cancel
-		}
+		host, open := fw.host, fw.conns.add(conn, cancel)
 		f.mu.Unlock()
-		if closed {
+		if !open {
 			cancel()
 			_ = conn.Close() // accepted as the forward went
 			<-f.relays
@@ -481,7 +473,7 @@ func (f *Forwarder) serve(ctx context.Context, l net.Listener, port int, fw *for
 		go func() {
 			defer func() {
 				f.mu.Lock()
-				delete(fw.conns, conn)
+				fw.conns.done(conn)
 				f.mu.Unlock()
 				cancel()
 				<-f.relays
@@ -497,15 +489,10 @@ func (f *Forwarder) serve(ctx context.Context, l net.Listener, port int, fw *for
 // its port is given up, and a relay whose channel the VM never ends
 // stops with it. Its caller holds the forwarder's mu.
 func (fw *forward) close() {
-	fw.closed = true
 	for _, l := range fw.lns {
 		_ = l.Close()
 	}
-	for c, cancel := range fw.conns {
-		_ = c.Close()
-		cancel()
-	}
-	clear(fw.conns)
+	fw.conns.cutAll()
 }
 
 func (f *Forwarder) closeAll() {
@@ -737,31 +724,6 @@ func (o SSH) watch(script []byte, log io.Writer) func(ctx context.Context) (io.R
 // relay carries conn through a channel of the master's.
 func (o SSH) relay(ctx context.Context, conn net.Conn, host string, port int) {
 	pipeSSH(ctx, conn, o.relayArgs(host, port))
-}
-
-// pipeSSH carries conn through ssh run with args (-W), until either side
-// ends, then closes conn.
-func pipeSSH(ctx context.Context, conn net.Conn, args []string) {
-	defer func() { _ = conn.Close() }()
-	cmd := exec.CommandContext(ctx, "ssh", args...) //nolint:gosec // devvm's own arguments
-	in, err := cmd.StdinPipe()
-	if err != nil {
-		return
-	}
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		return
-	}
-	if err := cmd.Start(); err != nil {
-		return
-	}
-	go func() {
-		_, _ = io.Copy(in, conn)
-		_ = in.Close()
-	}()
-	_, _ = io.Copy(conn, out)
-	_ = conn.Close()
-	_ = cmd.Wait()
 }
 
 // Flags are the forwarder's flags (devvm _ports): how it reaches the VM
