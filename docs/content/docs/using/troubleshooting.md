@@ -255,7 +255,7 @@ devvm warns on each launch when an image the VM was made from has changed, and w
 
 ## A download doesn't check out
 
-devvm checks Ubuntu's cloud image and its own mise against checksums before it uses them, and it refuses a download that doesn't match. Ubuntu's checksums must also carry a valid signature from Ubuntu's cloud image key, which devvm checks itself, with nothing to install. When devvm refuses one, try again later, and if it keeps failing, the server or the network between may be serving something else. In the same way, when `devvm rebuild base` finds Ubuntu's list of releases ending before the release that base starts from, it says so and keeps that release ([Ubuntu's cloud image](../internals/images.md#ubuntus-cloud-image)).
+devvm checks Ubuntu's cloud image and its own mise against checksums before it uses them, and it refuses a download that doesn't match. Ubuntu's checksums must also carry a valid signature from Ubuntu's cloud image key, which devvm checks itself, with nothing to install. When devvm refuses one, try again later, and if it keeps failing, the server or the network in between may be serving something else. In the same way, when `devvm rebuild base` finds Ubuntu's list of releases ending before the release that base starts from, it says so and keeps that release ([Ubuntu's cloud image](../internals/images.md#ubuntus-cloud-image)).
 
 ## A new tool release isn't there yet
 
