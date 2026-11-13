@@ -7,9 +7,9 @@ set -euxo pipefail
 : "${devvm_arch:?}" "${devvm_libc:?}"   # devvm's prelude (prelude.sh) comes before this script
 # Pinned downloads (scripts/bump.sh updates them). Nix's release tarball, with its own installer;
 # nix-direnv is one script, the same on every architecture.
-nix_version=2.35.5
-nix_sha256_arm64=34b8d0c0658321e63143f892086bd2d9623a81bf96e4ffefc1551092d80caedb
-nix_sha256_amd64=c349f0559b7849a2cb3b20b8584e532b3fcf5025092cb6180eb0b99240d7b96c
+nix_version=2.35.6
+nix_sha256_arm64=1f177b572baadf8c09750028f047fe943a3615a34f3e4a43927367a1e0120801
+nix_sha256_amd64=b12ab64a291e41846b9da37b7f56eafa7683deaa267bafb2ed43440ab2f45f13
 direnv_version=2.38.2
 direnv_sha256_arm64=ec2a32dbe2f19dd085bd9315a1b4ea88b55ec288aa7eabe8723490baf466cb23
 direnv_sha256_amd64=148820a187930d36ca6a204504e5cdb30d8396cd1a97e64c3b3f10d793c11247
