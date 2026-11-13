@@ -30,6 +30,7 @@
 
 ### Fixed
 
+- **Cursor's CLI couldn't chat:** `cursor-agent` kept reconnecting to its agent's host, because Cursor sends its agent's stream with gzipped messages, which the VM's proxy refused. The proxy now reads such a stream message by message, decompressing each to check it for a token before it passes ([Cursor CLI login](https://next.devvm.dev/docs/using/coding-agents/#cursor-cli-login)).
 - **opencode's links at `devvm agent import`:** a link in `~/.config/opencode` was dropped without a word. It now gets what the other agents' links get: a link to a file inside the folder is copied as that file, and any other link is left out with a warning that names it ([importing from this machine](https://next.devvm.dev/docs/using/coding-agents/#importing-from-this-machine)).
 - **`--clone` of a shallow or SHA-256 repo:** a repo from `git clone --depth 1` failed after devvm made the VM, with `shallow update not allowed`, and a SHA-256 repo with `the receiving end does not support this repository's hash algorithm`. devvm now copies the branches without `git push`, so both work, and a VM whose copy failed gets its clone the next time you run devvm in its folder ([a copy that didn't finish](https://next.devvm.dev/docs/using/clone/#a-copy-that-didnt-finish)).
 - **dotnet on the allowlist tier:** when NuGet couldn't fetch DigiCert's revocation list, it asked DigiCert's OCSP responder, which the allowlist blocked. `ocsp.digicert.com` on port 80 is on dotnet's allowlist now ([dotnet](https://next.devvm.dev/docs/using/toolchains/#dotnet)).

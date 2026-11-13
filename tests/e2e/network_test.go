@@ -1693,6 +1693,22 @@ func netCursor(n *netRun) {
 		}
 		return nil
 	})
+	s.Check("Cursor's agent's Run streams through the proxy with its messages gzipped, and a token in one ends it there", func() error {
+		run := `curl -sS -m 20 --http1.1 -X POST -H 'Content-Type: application/connect+proto' -H 'Connect-Protocol-Version: 1' ` +
+			`--data-binary '' -o /tmp/devvm-e2e-run -w '%%{http_code}' %s 'https://` + cursorAPIHost + `/agent.v1.AgentService/Run'`
+		if code := vmOut(s, vm, fmt.Sprintf(run, "")); code != "200" {
+			return errors.New("Run answered " + code + " through the proxy\n" + n.tokenWhy())
+		}
+		// Its plain message and its end of stream came as Cursor sent them.
+		if got := vmOut(s, vm, `grep -c e2e-run-bye /tmp/devvm-e2e-run; tail -c 7 /tmp/devvm-e2e-run | od -An -tx1 | tr -d ' \n'`); got != "1\n02000000027b7d" {
+			return errors.New("the stream that reached the VM: " + got)
+		}
+		_ = vmOut(s, vm, fmt.Sprintf(run, "-H 'x-e2e-token: 1'"))
+		if got := vmOut(s, vm, `grep -c -e e2e-run-bye -e eyJ /tmp/devvm-e2e-run`); got != "0" {
+			return errors.New("the stream with a token went on past it: " + got)
+		}
+		return nil
+	})
 }
 
 func netPiTools(n *netRun) {
@@ -2839,7 +2855,7 @@ socketserver.ThreadingTCPServer(("", int(sys.argv[1])), H).serve_forever()
 // openrouter.ai or customHost itself, with its certificate (port, cert, key
 // and its log are its arguments), and refuses any other. customHost answers
 // as Anthropic's API does, logging each request's headers.
-const fakeTokenPy = `import base64, json, socket, ssl, sys, threading, urllib.parse
+const fakeTokenPy = `import base64, gzip, json, socket, ssl, sys, threading, urllib.parse
 port, cert, key, log = int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 ctx.load_cert_chain(cert, key)
@@ -2927,10 +2943,23 @@ def openrouter(path, h):
     return 404, {"error": {"code": 404, "message": "e2e"}}
 # Cursor's API, under "cursor": each request's line and Authorization, and its login poll answered
 # as Cursor answers a login that isn't there, or isn't approved yet: 404, "Not found", plain text.
+# Its agent's Run answers as a Connect stream with gzipped messages, as Cursor's does, and with a
+# token in one of them when the request asks with x-e2e-token.
+def frame(flags, msg):
+    if flags & 1:
+        msg = gzip.compress(msg)
+    return bytes([flags]) + len(msg).to_bytes(4, "big") + msg
 def cursor(t, h):
     a = [x.split(":", 1)[1].strip() for x in h[1:] if x.lower().startswith("authorization:")]
     with open(log, "a") as o:
         o.write("cursor " + h[0] + " authorization " + (a[0] if a else "-") + "\n")
+    if h[0].split(" ")[1] == "/agent.v1.AgentService/Run":
+        out = frame(1, b"\x0a\x0de2e-run-hello")
+        if any(x.lower().startswith("x-e2e-token:") for x in h[1:]):
+            out += frame(1, b"\x0a\x40" + jwt({"sub": "e2e"}).encode())
+        out += frame(0, b"\x12\x0be2e-run-bye") + frame(2, b"{}")
+        t.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/connect+proto\r\nConnect-Content-Encoding: gzip\r\nContent-Length: %d\r\n\r\n" % len(out) + out)
+        return
     t.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\n\r\nNot found")
 HOSTS = ("auth.openai.com", "platform.claude.com", "api.anthropic.com", "api.groq.com", "api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai", "` + customHost + `", "` + cursorAPIHost + `")
 def serve(c):

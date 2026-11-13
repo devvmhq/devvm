@@ -142,8 +142,10 @@ func cursorUnencoded(h http.Header) {
 // cursorReply checks a reply from a Cursor host outside the guard of its login's poll, whatever its
 // status, length or type, streams included: no part of a body (206, which the proxy's refusal of
 // Range already rules out), no encoding the proxy can't read (its HTTP Content-Encoding, which Go's
-// transport undoes for gzip, or its Connect or gRPC messages'), no token in a redirect's Location,
-// and a body that the proxy reads as it passes (jwtScanner), cut off at the first token in it.
+// transport undoes for gzip, or its Connect or gRPC messages' but gzip), no token in a header, a
+// redirect's Location included, and a body that the proxy reads as it passes, cut off at the first
+// token in it: a Connect or gRPC stream message by message, each decompressed when it comes
+// compressed (frameScanner), and any other body as its bytes come (jwtScanner).
 func (s *server) cursorReply(resp *http.Response) error {
 	refuse := func(why string) error {
 		_ = resp.Body.Close()
@@ -151,13 +153,22 @@ func (s *server) cursorReply(resp *http.Response) error {
 	}
 	h := resp.Header
 	h.Del("Set-Cookie") // the CLI keeps no cookies, and a cookie could hold a session
+	kind, isJSON := streamKind(h.Get("Content-Type"))
+	connectEnc, grpcEnc := h.Get("Connect-Content-Encoding"), h.Get("Grpc-Encoding")
+	// A stream's messages may be gzip, in its own protocol's header alone.
+	gz := kind == "connect" && strings.EqualFold(connectEnc, "gzip") && identity(grpcEnc) ||
+		kind == "grpc" && strings.EqualFold(grpcEnc, "gzip") && identity(connectEnc)
 	switch {
 	case resp.StatusCode == http.StatusPartialContent:
 		return refuse("a part of a reply")
-	case encoded(resp) || !identity(h.Get("Connect-Content-Encoding")) || !identity(h.Get("Grpc-Encoding")):
+	case encoded(resp) || kind == "unreadable" || !gz && (!identity(connectEnc) || !identity(grpcEnc)):
 		return refuse("an encoded reply")
 	case tokenIn(h):
 		return refuse("a token in a header")
+	}
+	if kind != "" {
+		resp.Body = &frameScanner{r: resp.Body, grpc: kind == "grpc", gzip: gz, json: isJSON, trailer: &resp.Trailer}
+		return nil
 	}
 	resp.Body = &jwtScanner{r: resp.Body, trailer: &resp.Trailer}
 	return nil

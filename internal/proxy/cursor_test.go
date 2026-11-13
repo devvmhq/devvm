@@ -141,14 +141,15 @@ const cursorJWT = "\x0a\x40eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.real-signature\x
 // A Cursor host's reply passes as it comes, from a server through Go's transport as the proxy's
 // forwarder has it: gzipped (which Go undoes, its length unknown), chunked, or with no length at
 // all, and is cut off at the read that would complete a JWT's start, even split across chunks, with
-// none of the token's claims or signature passed. Before that, what came passes.
+// none of the token's claims or signature passed. Before that, what came passes. (A unary reply's
+// body: a stream's is read message by message, TestCursorStreams.)
 func TestCursorReplyScans(t *testing.T) {
 	s := &server{captures: newCaptures(nil, nil)}
 	before := strings.Repeat("x", 5000) + "eyJ"
 	var gotAE string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAE = r.Header.Get("Accept-Encoding")
-		w.Header().Set("Content-Type", "application/connect+proto")
+		w.Header().Set("Content-Type", "application/proto")
 		body := before + strings.TrimPrefix(cursorJWT, "\x0a\x40eyJ")
 		switch r.URL.Path {
 		case "/gzip":
