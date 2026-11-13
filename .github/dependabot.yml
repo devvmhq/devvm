@@ -1,6 +1,7 @@
 # Monthly updates, each ecosystem in one grouped pull request, for devvm's Go modules and the actions its workflows pin by SHA. Their titles follow
-# Conventional Commits, as the PR title check asks. Pinned downloads in assets/, the shared tools' lock
-# and the e2e pins are bumped with scripts/bump.sh, which Dependabot doesn't know.
+# Conventional Commits, as the PR title check asks. scripts/bump.sh moves these too, and every pin
+# Dependabot doesn't know, and holds each module or action as an ignore entry below does: keep each
+# one's dependency-name line followed by a versions: [">= X"] line, the form it reads.
 version: 2
 updates:
   - package-ecosystem: gomod

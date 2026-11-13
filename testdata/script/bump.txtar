@@ -1,13 +1,19 @@
 # scripts/bump.sh, on a scratch copy of the files it edits, with upstream
-# answered by a curl that reads $WORK/up/ (repo.sh).
+# answered by a curl that reads $WORK/up/ (repo.sh), and mise, go and gh
+# stubs that answer from there too and log their calls.
 [!exec:jq] skip
 env PATH=$WORK/bin:$PATH
 chmod 755 bin/curl
+chmod 755 bin/mise
+chmod 755 bin/go
+chmod 755 bin/gh
 exec bash repo.sh
 
-# crane's version and checksums are written as they are.
+# crane's version and checksums are written as they are: a named images
+# tool takes its major.
 exec repo/scripts/bump.sh crane
-stdout '^  crane +0\.22\.1 +-> 9\.9\.9$'
+stdout '^\[images\]$'
+stdout '^  crane +0\.22\.1 +-> 9\.9\.9 \(major\)$'
 stdout '^- crane: 0\.22\.1 -> 9\.9\.9$'
 exec grep '^crane_' repo/assets/oci/build.sh
 cmp stdout crane.want
@@ -22,7 +28,7 @@ cmp stdout mise-go.want
 # e2e-ubuntu moves the cloud image release e2e pins to the newest Ubuntu
 # lists; with none listed, nothing is edited.
 exec repo/scripts/bump.sh e2e-ubuntu
-stdout '^  e2e-ubuntu +release-[0-9]{8} +-> release-29990101$'
+stdout '^  e2e-ubuntu +release-[0-9]{8} +-> release-29990101 \(release\)$'
 exec grep '^const e2eUbuntuRelease = ' repo/tests/e2e/sandbox_test.go
 stdout '^const e2eUbuntuRelease = "release-29990101"$'
 exec bash repo.sh
@@ -36,7 +42,7 @@ cmp repo/tests/e2e/sandbox_test.go e2e.before
 # tarball's checksum, from a SHA256SUMS that matches the release notes'
 # sha256; one that doesn't is refused, and nothing is edited.
 exec repo/scripts/bump.sh e2e-lima
-stdout '^  e2e-lima +[0-9.]+ +-> 9\.8\.7$'
+stdout '^  e2e-lima +[0-9.]+ +-> 9\.8\.7 \(major\)$'
 exec grep -E '^  LIMA_(VERSION|SHA256):' repo/.github/workflows/e2e.yml
 cmp stdout lima.want
 exec bash repo.sh
@@ -56,9 +62,13 @@ cp sums-hostile up/crane-sums
 stderr '^bump: upstream gave crane_sha256_arm64 an unexpected value: '
 cmp repo/assets/oci/build.sh before
 cp sums-good up/crane-sums
+# A hostile version is refused before any URL is built from it: crane's
+# checksums are never fetched.
+rm curl.calls
 cp latest-hostile up/crane-latest
 ! exec repo/scripts/bump.sh crane
 stderr '^bump: upstream gave crane_version an unexpected value: '
+! grep 'checksums\.txt' curl.calls
 cmp repo/assets/oci/build.sh before
 cp latest-good up/crane-latest
 cp sums-missing up/crane-sums
@@ -75,10 +85,24 @@ stderr '^bump: upstream gave mise_sha256 an unexpected value: '
 cmp repo/internal/tools/mise.go mise.go.before
 ! exists pwned
 
+# mise's version, hostile: refused before its SHASUMS256.txt's URL, with
+# neither file edited.
+cp mise-sums up/mise-sums
+cp repo/assets/layers/base.sh base.before
+cp mise-latest-hostile up/mise-latest
+rm curl.calls
+! exec repo/scripts/bump.sh mise
+stderr '^bump: upstream gave mise_version an unexpected value: '
+! grep 'SHASUMS256' curl.calls
+cmp repo/assets/layers/base.sh base.before
+cmp repo/internal/tools/mise.go mise.go.before
+! exists pwned
+cp mise-latest up/mise-latest
+
 # --check prints upstream's version without control characters.
 cp latest-escape up/crane-latest
 exec repo/scripts/bump.sh --check crane
-stdout ' -> 9\.9\.9\[2J$'
+stdout ' -> 9\.9\.9\[2J \(change\)$'
 ! stdout '\x1b'
 cmp repo/assets/oci/build.sh before
 
@@ -94,13 +118,80 @@ cmp repo/assets/oci/build.sh before
 ! exec repo/scripts/bump.sh nope
 stderr '^bump: unknown tool ''nope'''
 
+# go moves Go to its minor's newest patch, and go-minor to the newest minor.
+exec bash repo.sh
+exec repo/scripts/bump.sh --check go go-minor
+stdout '^\[go\]$'
+stdout '^  go +1\.27\.4 +-> 1\.27\.9 \(patch\)$'
+stdout '^  go-minor +1\.27\.4 +-> 1\.28\.2 \(minor\)$'
+cmp repo/go.mod go.mod.fixture
+exec repo/scripts/bump.sh go
+grep '^go 1\.27\.9$' repo/go.mod
+grep '^go 1\.27\.9$' repo/docs/go.mod
+grep '^go = "1\.27\.9"$' repo/mise.toml
+grep '^mise lock go$' mise.calls
+exec bash repo.sh
+exec repo/scripts/bump.sh go-minor
+grep '^go 1\.28\.2$' repo/go.mod
+
+# go-mods: a direct module's minor through go get and go mod tidy, its next
+# major's path only reported, and pflag held by Dependabot's ignore list.
+exec bash repo.sh
+exec repo/scripts/bump.sh go-mods
+stdout '^  github\.com/spf13/cobra v1\.10\.2 +-> v1\.11\.0 \(minor\)$'
+stdout '^  github\.com/spf13/cobra v1\.10\.2 +-> github\.com/spf13/cobra/v2 v2\.0\.1 \(major, a new path: by hand\)$'
+stdout '^  github\.com/spf13/pflag v1\.0\.10 +held below 1\.1\.0 \(newest v1\.1\.0\)$'
+! stdout 'golang\.org/x/tools'
+grep '^go get github\.com/spf13/cobra@v1\.11\.0$' go.calls
+grep '^go mod tidy$' go.calls
+
+# deadcode and hextra take the module proxy's newest; hextra's go.sum is
+# tidied by Hugo, in docs/.
+exec repo/scripts/bump.sh deadcode hextra
+grep 'deadcode@v0\.999\.0 ' repo/mise.toml
+grep '^go get github\.com/imfing/hextra@v0\.999\.0$' go.calls
+grep '^mise exec -- hugo mod tidy$' mise.calls
+
+# dev-tools: a minor through mise lock, Node held on its major.
+exec bash repo.sh
+exec repo/scripts/bump.sh dev-tools
+stdout '^  vale +[0-9.]+ +-> 3\.999\.0 \(minor\)$'
+stdout '^  node +[0-9.]+ +held below 25 \(newest 999\.0\.0\)$'
+grep '^vale = "3\.999\.0"$' repo/mise.toml
+grep '^mise lock vale$' mise.calls
+
+# actions: the newest within the major, by its tag's commit, the next major
+# only reported, then actionlint and zizmor.
+exec bash repo.sh
+exec repo/scripts/bump.sh actions
+stdout '^  actions/checkout v[0-9.]+ +-> v999\.0\.0 \(major, not applied: by hand\)$'
+stdout '^  actions/checkout v[0-9.]+ +-> v[0-9]\.999\.0 \(minor\)$'
+grep 'uses: actions/checkout@cccccccccccccccccccccccccccccccccccccccc # v[0-9]\.999\.0$' repo/.github/workflows/e2e.yml
+! grep 'checkout@[0-9a-f]* # v999' repo/.github/workflows/e2e.yml
+grep '^mise exec -- actionlint$' mise.calls
+grep '^mise exec -- zizmor --offline \.$' mise.calls
+
+# mermaid, only when named, takes its major too.
+exec repo/scripts/bump.sh mermaid
+grep '/npm/mermaid@99\.0\.0/' repo/docs/hugo.yaml
+
 -- repo.sh --
 # A copy of the files bump.sh edits, and upstream's good answers.
 set -eu
-rm -rf repo up
-mkdir -p repo/scripts repo/assets/oci repo/assets/layers repo/internal/tools repo/tests/e2e repo/.github/workflows up
+rm -rf repo up mise.calls go.calls
+mkdir -p repo/scripts repo/assets/oci repo/assets/layers repo/internal/tools repo/tests/e2e repo/.github/workflows repo/docs up
 cp "$DEVVM_REPO/scripts/bump.sh" repo/scripts/
-cp "$DEVVM_REPO/.github/workflows/e2e.yml" repo/.github/workflows/
+cp "$DEVVM_REPO"/.github/workflows/*.yml repo/.github/workflows/
+cp "$DEVVM_REPO/.github/dependabot.yml" repo/.github/
+cp "$DEVVM_REPO/mise.toml" repo/
+cp "$DEVVM_REPO/docs/hugo.yaml" repo/docs/
+cp go.mod.fixture repo/go.mod
+cp docs-go.mod.fixture repo/docs/go.mod
+mkdir up/latest
+echo 3.999.0 > up/latest/vale
+echo 999.0.0 > up/latest/node
+echo 0.12 > up/latest/minisign
+echo 0.12 > up/latest/minisign_0
 cp lima-latest up/lima-latest
 cp lima-sums up/lima-sums
 cp "$DEVVM_REPO/assets/oci/build.sh" repo/assets/oci/
@@ -116,6 +207,8 @@ cp cloud-listing up/cloud-listing
 #!/bin/bash
 # Answers crane's, mise's and Lima's releases and Ubuntu's list of cloud
 # image releases from $WORK/up/, to stdout or -o's file; anything else fails.
+# Every call goes in $WORK/curl.calls.
+echo "curl $*" >> "$WORK/curl.calls"
 out=/dev/stdout
 for a in "$@"; do [[ ${o:-} == next ]] && { out=$a; o=; }; [[ $a == -o ]] && o=next; done
 exec >"$out"
@@ -127,8 +220,57 @@ for a in "$@"; do case $a in
   */jdx/mise/releases/latest) cat "$WORK/up/mise-latest"; exit ;;
   */jdx/mise/*/SHASUMS256.txt) cat "$WORK/up/mise-sums"; exit ;;
   https://cloud-images.ubuntu.com/releases/resolute/) cat "$WORK/up/cloud-listing"; exit ;;
+  'https://go.dev/dl/?mode=json&include=all') cat "$WORK/go-releases"; exit ;;
+  https://proxy.golang.org/github.com/spf13/cobra/@v/list) printf 'v1.10.2\nv1.11.0\nv1.12.0-rc.1\n'; exit ;;
+  https://proxy.golang.org/github.com/spf13/cobra/v2/@v/list) printf 'v2.0.1\n'; exit ;;
+  https://proxy.golang.org/github.com/spf13/pflag/@v/list) printf 'v1.0.10\nv1.1.0\n'; exit ;;
+  https://proxy.golang.org/golang.org/x/tools/@v/list) printf 'v0.52.0\nv0.999.0\n'; exit ;;
+  https://proxy.golang.org/github.com/imfing/hextra/@v/list) printf 'v0.13.0\nv0.999.0\n'; exit ;;
+  https://registry.npmjs.org/mermaid/latest) echo '{"version":"99.0.0"}'; exit ;;
 esac; done
 exit 22
+-- bin/mise --
+#!/bin/bash
+# mise latest from $WORK/up/latest/, else mise.toml's own version; lock and
+# exec succeed. Every call goes in $WORK/mise.calls.
+echo "mise $*" >> "$WORK/mise.calls"
+case $1 in
+  latest)
+    f=$WORK/up/latest/${2//[@\/:]/_}
+    if [[ -f $f ]]; then cat "$f"; exit; fi
+    awk -F' = ' -v k="${2%@*}" '{ g = $1; gsub(/"/, "", g) } g == k { v = $2; gsub(/"/, "", v); print v; exit }' "$WORK/repo/mise.toml" ;;
+  lock | exec) ;;
+  *) exit 1 ;;
+esac
+-- bin/go --
+#!/bin/bash
+echo "go $*" >> "$WORK/go.calls"
+-- bin/gh --
+#!/bin/bash
+# actions/checkout's releases and any tag's commit; no releases for the rest.
+case $2 in
+  repos/actions/checkout/releases*) printf 'v7.999.0\nv8.999.0\nv9.999.0\nv999.0.0\n' ;;
+  repos/*/commits/*) echo cccccccccccccccccccccccccccccccccccccccc ;;
+esac
+-- go-releases --
+[{"version":"go1.29rc1","stable":false},{"version":"go1.28.2","stable":true},{"version":"go1.28.1","stable":true},{"version":"go1.27.9","stable":true},{"version":"go1.27.4","stable":true}]
+-- go.mod.fixture --
+module example.com/m
+
+go 1.27.4
+
+require (
+	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.10
+)
+
+require golang.org/x/tools v0.52.0 // indirect
+-- docs-go.mod.fixture --
+module example.com/m/docs
+
+go 1.27.4
+
+require github.com/imfing/hextra v0.13.0 // indirect
 -- lima-latest --
 {"tag_name":"v9.8.7","body":"The sha256sum of the SHA256SUMS file itself is `58af05498b64199f1e9de8d1bc11ea71e397df7c0ece4f313dd7c4e44b9497b1` ."}
 -- lima-sums --
@@ -168,6 +310,8 @@ crane_sha256_arm64=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 crane_sha256_amd64=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 -- mise-latest --
 {"tag_name":"v2099.1.1"}
+-- mise-latest-hostile --
+{"tag_name":"v1.2.3;touch${IFS}pwned"}
 -- mise-sums --
 1111111111111111111111111111111111111111111111111111111111111111  mise-v2099.1.1-linux-arm64
 2222222222222222222222222222222222222222222222222222222222222222  mise-v2099.1.1-linux-x64
