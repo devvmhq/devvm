@@ -12,7 +12,7 @@ Run the command for your system:
 
 {{< install >}}
 
-Install devvm one way, with Homebrew or with the install script, but not both ([one devvm](../using/upgrading.md#one-devvm)). The install script needs `curl`, `tar`, and `sha256sum` or `shasum`, it never needs sudo for devvm itself, and it checks the download's checksum and signature before it installs anything ([Installing and updating](../internals/install.md)). To check the script itself against devvm's release key before you run it, follow [checking the install script](../internals/install.md#checking-the-install-script). It takes options after `bash -s --`, as in `curl -fsSL … | bash -s -- --yes`:
+Install devvm one way, with Homebrew or with the install script, but not both ([one devvm](../using/upgrading.md#one-devvm)). The install script needs `curl`, `tar`, and `sha256sum` or `shasum`; it never needs sudo for devvm itself, and it checks the download's checksum and signature before it installs anything ([Installing and updating](../internals/install.md)). To check the script itself against devvm's release key before you run it, follow [checking the install script](../internals/install.md#checking-the-install-script). It takes options after `bash -s --`, as in `curl -fsSL … | bash -s -- --yes`:
 
 | Option | What it does |
 | --- | --- |
