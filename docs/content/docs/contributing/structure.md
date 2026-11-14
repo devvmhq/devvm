@@ -192,7 +192,7 @@ The CLI tests run today's commands on each fixture. A release's scripts are in `
 
 A change that reads or writes state, such as a new command, a new section in `vm.json` or a new field in a record, runs its new commands on every fixture in the same commit, and reading the files isn't enough. Add the steps to each release's scripts, as `fixture_v010_network.txtar` runs rules by method and path on 0.1.0's app VM and `fixture_v010_clone.txtar` runs devvm clone add on its web VM. When a fixture's test fails, today's devvm breaks the state that the release's users have. Fix devvm, or add a migration, but never change the fixture.
 
-A change in what devvm does with existing state gets an entry marked Breaking in `CHANGELOG.md`, in the section for the release it goes out in. When the user has to do something about it, such as run a command, devvm also tells them once, at the first launch after the upgrade.
+A change in what devvm does with existing state gets an entry marked Breaking in `CHANGELOG.md`, in the Unreleased section at the bottom until its release moves it to the top. When the user has to do something about it, such as run a command, devvm also tells them once, at the first launch after the upgrade.
 
 #### Freezing a release's state
 
