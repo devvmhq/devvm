@@ -27,11 +27,16 @@ func pipeSSH(ctx context.Context, conn net.Conn, args []string) {
 // nothing for grace, so a client that closes for writing alone still
 // gets an answer that keeps coming, as long as the VM sends something at
 // least every grace, its first byte included; once the client can take
-// nothing more, it's killed when it hasn't exited within grace.
+// nothing more, it's killed when it hasn't exited within grace. The grace
+// doesn't run while a write to the client waits for it, so a slow client
+// is never cut off from what the VM has sent it, but the owner's context
+// (ctx) closes the connection when it ends, which ends such a write too.
 func pipeSSHFor(ctx context.Context, conn net.Conn, args []string, grace time.Duration) {
 	defer func() { _ = conn.Close() }()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
 	cmd := exec.CommandContext(ctx, "ssh", args...) //nolint:gosec // devvm's own arguments
 	in, err := cmd.StdinPipe()
 	if err != nil {
@@ -46,42 +51,67 @@ func pipeSSHFor(ctx context.Context, conn net.Conn, args []string, grace time.Du
 	}
 	idle := newGraceTimer(grace, cancel)
 	defer idle.stop()
-	clientDone := make(chan struct{})
 	go func() {
 		_, _ = io.Copy(in, conn)
 		_ = in.Close()
-		close(clientDone)
-		idle.reset()
+		idle.arm()
 	}()
-	_, _ = io.Copy(conn, &graceReader{r: out, clientDone: clientDone, idle: idle})
+	_, _ = io.Copy(&graceWriter{w: conn, idle: idle}, out)
 	_ = conn.Close()
-	idle.reset()
+	idle.arm()
 	_ = cmd.Wait()
 }
 
-// graceTimer cancels a relay once its grace runs out, from its last reset.
-// Once stopped, as the relay has ended, a reset does nothing, so the
-// client's goroutine, which can outlive the relay, never starts it again.
+// graceTimer cancels a relay once its grace runs out. It runs only once
+// armed, as the client's side has closed, or the copy to the client has
+// ended (a write that failed, or the VM's EOF), and starts again with
+// each write to the client, which it waits out (write): the grace is time
+// the VM sends nothing, never time a slow client takes. Once stopped, as the
+// relay has ended, nothing starts it again, so the client's goroutine,
+// which can outlive the relay, never does.
 type graceTimer struct {
 	grace time.Duration
 	t     *time.Timer
 
-	mu      sync.Mutex
-	stopped bool
+	mu                    sync.Mutex
+	armed, writing, ended bool
 }
 
-// newGraceTimer is a graceTimer for cancel, not yet started.
+// newGraceTimer is a graceTimer for cancel, not yet armed.
 func newGraceTimer(grace time.Duration, cancel context.CancelFunc) *graceTimer {
 	g := &graceTimer{grace: grace, t: time.AfterFunc(grace, cancel)}
 	g.t.Stop()
 	return g
 }
 
-// reset starts the grace again, unless the timer was stopped.
-func (g *graceTimer) reset() {
+// arm starts the grace, unless a write is waiting, which starts it once
+// done.
+func (g *graceTimer) arm() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if !g.stopped {
+	g.armed = true
+	g.restart()
+}
+
+// write holds the grace while a write to the client waits, then starts it
+// again (once armed): the VM has just sent something.
+func (g *graceTimer) write(w func() (int, error)) (int, error) {
+	g.mu.Lock()
+	g.writing = true
+	g.t.Stop()
+	g.mu.Unlock()
+	n, err := w()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.writing = false
+	g.restart()
+	return n, err
+}
+
+// restart starts the grace again when it's armed, no write waits and the
+// relay hasn't ended. Its caller holds mu.
+func (g *graceTimer) restart() {
+	if g.armed && !g.writing && !g.ended {
 		g.t.Reset(g.grace)
 	}
 }
@@ -90,28 +120,19 @@ func (g *graceTimer) reset() {
 func (g *graceTimer) stop() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.stopped = true
+	g.ended = true
 	g.t.Stop()
 }
 
-// graceReader is the VM's side of a relay: each read puts the grace off
-// once the client's side has closed.
-type graceReader struct {
-	r          io.Reader
-	clientDone chan struct{}
-	idle       *graceTimer
+// graceWriter is the client's side of a relay, each write to which holds
+// the grace while it waits and starts it again after (graceTimer.write).
+type graceWriter struct {
+	w    io.Writer
+	idle *graceTimer
 }
 
-func (g *graceReader) Read(p []byte) (int, error) {
-	n, err := g.r.Read(p)
-	if n > 0 {
-		select {
-		case <-g.clientDone:
-			g.idle.reset()
-		default:
-		}
-	}
-	return n, err
+func (g *graceWriter) Write(p []byte) (int, error) {
+	return g.idle.write(func() (int, error) { return g.w.Write(p) })
 }
 
 // relayConns is the connections a forward, a link or a link's target

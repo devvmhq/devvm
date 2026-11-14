@@ -48,5 +48,5 @@ internal/upgrade 93.2
 internal/upgrade/upgradetest 97.4
 internal/vm 88.4
 internal/vmname 100.0
-internal/vmssh 91.9
+internal/vmssh 92.0
 packaging 71.4

@@ -147,7 +147,7 @@ func wire(e *Env) *Env {
 	e.finder, e.starter, e.linkRuns, e.syncer = finder{e}, starter{e}, linkRuns{e}, syncer{e}
 	e.remaking, e.clones, e.vmFolders, e.devcontainers = remaking{e}, clones{e}, vmFolders{e}, devcontainers{e}
 	e.launcher, e.lifecycle, e.vmTools = Launch{e}, Lifecycle{e}, Tools{e}
-	e.groups, e.links, e.leftovers = Groups{e}, Links{e}, Leftovers{e}
+	e.groups, e.links, e.leftovers = Groups{e}, Links{Env: e}, Leftovers{e}
 	e.creation = creation{e.launcher}
 	return e
 }

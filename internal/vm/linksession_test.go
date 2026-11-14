@@ -177,11 +177,15 @@ func TestLinkConn(t *testing.T) {
 
 // A burst of a session's connections to one target asks its backend once
 // whether it runs and how ssh reaches it, and each connection is still
-// carried.
+// carried. The session's clock (Now) stands still, so however slowly a
+// busy machine runs the burst, the first answer never gets older than
+// linkRunFor.
 func TestLinkCheckBurst(t *testing.T) {
 	e, f, client, _, l := linkSessionEnv(t)
-	check := e.linkCheck(client.Name())
 	conn := vmssh.Link{Name: l.Name, Target: l.Target, Addr: l.Addr, Port: l.Port}
+	now := time.Unix(1e9, 0)
+	e.Now = func() time.Time { return now }
+	check := e.linkCheck(client.Name())
 	var wg sync.WaitGroup
 	refused := make(chan string, 256)
 	for range 256 {

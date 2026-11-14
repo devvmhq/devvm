@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
@@ -221,7 +222,12 @@ func (l Link) PortTaken(vm string) msg.M { return msg.LinkPortTaken(l.Name, strc
 // ports it publishes for theirs. Nothing here carries a connection: the
 // client's link session does (Session), and changeLinks is where a
 // running client learns of a change.
-type Links struct{ *Env }
+type Links struct {
+	*Env
+	// Now is the link session's clock, which says how old a target's run
+	// is (linkCheck); unset, it's time.Now. Tests set it.
+	Now func() time.Time
+}
 
 // changeLinks records client t's links and says so (said), then applies
 // them while it runs: its setup sent again and its link session running

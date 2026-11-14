@@ -111,9 +111,14 @@ func (e Links) sessionLinks(vm string) ([]vmssh.Link, error) {
 }
 
 // linkCheck is how client's link session checks each connection: its
-// targets' runs shared among the connections for linkRunFor.
+// targets' runs shared among the connections for linkRunFor, on the
+// session's clock (Now).
 func (e Links) linkCheck(client string) func(context.Context, vmssh.Link) (vmssh.LinkTarget, string, string) {
-	runs := &targetRuns{For: linkRunFor, Now: time.Now}
+	now := e.Now
+	if now == nil {
+		now = time.Now
+	}
+	runs := &targetRuns{For: linkRunFor, Now: now}
 	return func(ctx context.Context, l vmssh.Link) (vmssh.LinkTarget, string, string) {
 		return e.linkConn(ctx, client, l, runs)
 	}
