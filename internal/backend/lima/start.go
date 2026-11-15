@@ -18,6 +18,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -33,6 +34,26 @@ const limaHostName = "host.lima.internal"
 // haPIDFile is the pid file of the VM's hostagent, in Lima's own folder
 // for it.
 func (l *Lima) haPIDFile(vm vmname.VM) string { return filepath.Join(l.Dirs.LimaVM(vm), "ha.pid") }
+
+// vmLogs are the logs Lima's processes write in the VM's Lima folder as it
+// runs, each started anew by its start and written at its writer's own
+// offset (backend.Run.Logs): the serial consoles' (serial.log, and
+// serialv.log and serialp.log, Lima's other consoles), which QEMU or
+// Apple's Virtualization framework writes and the VM's root reaches
+// through /dev/hvc0 and the others, and the hostagent's output, which
+// carries QEMU's errors too. The hostagent's error log and the consoles'
+// hold the proxy's password at its start (redactLog), and a console's
+// again at each reboot inside the VM, which QEMU carries out in place
+// (vz ends the VM): the keeper replaces what they gain as they grow
+// (redact.In), and a rotation's copy has it replaced too.
+func (l *Lima) vmLogs(vm vmname.VM) []string {
+	dir := l.Dirs.LimaVM(vm)
+	var out []string
+	for _, name := range []string{"serial.log", "serialv.log", "serialp.log", "ha.stdout.log", "ha.stderr.log"} {
+		out = append(out, filepath.Join(dir, name))
+	}
+	return out
+}
 
 // Start starts a stopped VM as w wants it, confined as c asks, and
 // returns once it answers over ssh. A running VM is left as it is.
@@ -150,7 +171,7 @@ func (l *machines) redactLog(vm vmname.VM) {
 	dir := l.Dirs.LimaVM(vm)
 	serial, _ := filepath.Glob(filepath.Join(dir, "serial*.log"))
 	for _, path := range append([]string{filepath.Join(dir, "ha.stderr.log")}, serial...) {
-		if err := redact.File(path); err != nil {
+		if err := vmlog.Redact(path); err != nil {
 			l.Warn(msg.LimaLogUnredacted(path, err.Error()).Because(err))
 		}
 	}
@@ -439,7 +460,7 @@ func (l *machines) recordStart(vm vmname.VM, n backend.Net) error {
 // Start started with NetProxy (recordStart): anything else (limactl
 // start) is a new hostagent, unconfined.
 func (l *machines) Running(_ context.Context, vm vmname.VM) (backend.Run, error) {
-	r := backend.Run{Lifeline: l.haPIDFile(vm)}
+	r := backend.Run{Lifeline: l.haPIDFile(vm), Logs: l.vmLogs(vm)}
 	fi, err := os.Stat(r.Lifeline)
 	if errors.Is(err, os.ErrNotExist) {
 		return r, nil

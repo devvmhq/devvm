@@ -200,6 +200,12 @@ type Run struct {
 	// when that process does. A stopped VM has it too, as its proxy starts
 	// first. Not a VM's own file: the VM can't write it.
 	Lifeline string
+	// Logs are the files the backend's processes write as the VM runs
+	// that the VM can drive, such as its serial console's, each written
+	// by its program at its own offset or appended to: the VM's proxy
+	// holds each to its cap while it runs (vmlog.KeepVM), and so does a
+	// build while its VM runs. None for a backend that writes none.
+	Logs []string
 	// ReadOnly is, where the backend can tell (FeatureReadOnlyPaths), the
 	// host paths its running VM sees through a read-only mount of their
 	// own, as the process that serves its folders has them now: what its

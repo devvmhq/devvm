@@ -21,6 +21,7 @@ import (
 	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/shell"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmlog"
 )
 
 // envOf returns the value the call's environment gives key, and whether
@@ -1076,6 +1077,36 @@ func TestStartRedactsTheHostagentLog(t *testing.T) {
 	}
 }
 
+// A build without a company proxy has no proxy to hold its VM's logs to
+// their cap: the build's own process does, until it's done.
+func TestBuildKeepsLogs(t *testing.T) {
+	l, _, _ := testLima(t, "darwin")
+	const vm = "devvm-img-0123456789ab"
+	serial := filepath.Join(l.Dirs.LimaVM(vm), "serialv.log")
+	if err := os.MkdirAll(filepath.Dir(serial), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(serial, []byte(strings.Repeat("boot\n", vmlog.VMMax/4)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, done, err := buildProxy(t.Context(), l, vm, backend.NetNone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer done(true)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if fi, err := os.Stat(serial); err == nil && fi.Size() == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("not rotated")
+		}
+	}
+	if fi, err := os.Stat(serial + ".1"); err != nil || fi.Size() > vmlog.VMMax {
+		t.Errorf(".1: %v, %v", fi, err)
+	}
+}
+
 // Running: the hostagent's pid file is the lifeline, stopped or not; its
 // pid and when it was written are the start's ID; and the VM is confined
 // while it runs on the hostagent Start started with NetProxy, which runs.
@@ -1083,7 +1114,14 @@ func TestRunning(t *testing.T) {
 	l, f, _ := testLima(t, "darwin")
 	f.out["limactl list --json"] = `{"name":"v","status":"Stopped"}`
 	ha := l.haPIDFile("v")
-	if r, err := l.Running(t.Context(), "v"); !reflect.DeepEqual(r, backend.Run{Lifeline: ha}) || err != nil {
+	// The logs Lima writes as the VM runs, which its proxy holds to their
+	// cap: the serial consoles' and the hostagent's.
+	dir := l.Dirs.LimaVM("v")
+	logs := []string{
+		filepath.Join(dir, "serial.log"), filepath.Join(dir, "serialv.log"), filepath.Join(dir, "serialp.log"),
+		filepath.Join(dir, "ha.stdout.log"), filepath.Join(dir, "ha.stderr.log"),
+	}
+	if r, err := l.Running(t.Context(), "v"); !reflect.DeepEqual(r, backend.Run{Lifeline: ha, Logs: logs}) || err != nil {
 		t.Errorf("never started: %+v, %v", r, err)
 	}
 	if err := os.MkdirAll(l.Dirs.LimaVM("v"), 0o700); err != nil {

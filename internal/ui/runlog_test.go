@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -339,6 +340,78 @@ func TestKeepsTheLast20Logs(t *testing.T) {
 	if _, err := os.Stat(u.logPath()); err != nil {
 		t.Errorf("this run's log: %v", err)
 	}
+}
+
+// Past runLogsMax together, the oldest run logs go however many are
+// kept, but never the newest, nor one whose run still runs, read from its
+// name.
+func TestRunLogsCapped(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	old := time.Now().Add(-time.Hour)
+	// Each a third of runLogsMax long, all of it a hole: no disk taken.
+	big := func(path string, n int64) {
+		t.Helper()
+		writeFile(t, path, "")
+		if err := os.Truncate(path, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live := fmt.Sprintf("20260101-000000-%d.log", os.Getpid()) // this test's: it runs
+	names := []string{live, "20260101-000001-999999999.log", "20260101-000002-999999998.log", "20260101-000003-999999997.log", "20260101-000004-999999996.log"}
+	for i, name := range names {
+		f := filepath.Join(dir, name)
+		big(f, runLogsMax/3)
+		mod := old.Add(time.Duration(i) * time.Minute)
+		if err := os.Chtimes(f, mod, mod); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pruneLogs(dir, 20)
+	kept, _ := filepath.Glob(filepath.Join(dir, "*.log"))
+	for i, f := range kept {
+		kept[i] = filepath.Base(f)
+	}
+	// The newest three take runLogsMax; the two older go, but the live one.
+	if want := []string{live, names[2], names[3], names[4]}; !slices.Equal(kept, want) {
+		t.Errorf("kept %q, want %q", kept, want)
+	}
+	// The newest stays even past runLogsMax alone.
+	single := t.TempDir()
+	big(filepath.Join(single, names[1]), 2*runLogsMax)
+	if pruneLogs(single, 20); len(mustGlob(t, single)) != 1 {
+		t.Error("the newest log went")
+	}
+	for name, want := range map[string]int{names[1]: 999999999, "old-5.log": 0, "a-b-c.log": 0, "20260101-000000-x.log": 0} {
+		if pid, ok := logPID(filepath.Join(dir, name)); pid != want || ok != (want > 0) {
+			t.Errorf("logPID(%s) = %d, %v", name, pid, ok)
+		}
+	}
+}
+
+// One run writes at most runLogMax to its log: the write that would pass
+// it, and every one after, is dropped, and one line says so.
+func TestLogCap(t *testing.T) {
+	t.Parallel()
+	var b strings.Builder
+	c := &logCap{f: &b, n: runLogMax - 4}
+	for _, s := range []string{"abc\n", "past\n", "more\n"} {
+		if n, err := c.Write([]byte(s)); n != len(s) || err != nil {
+			t.Errorf("Write(%q) = %d, %v", s, n, err)
+		}
+	}
+	if b.String() != "abc\n"+runLogFull {
+		t.Errorf("log %q", b.String())
+	}
+}
+
+func mustGlob(t *testing.T, dir string) []string {
+	t.Helper()
+	m, err := filepath.Glob(filepath.Join(dir, "*.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
 }
 
 func TestRunLogFailures(t *testing.T) {

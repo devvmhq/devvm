@@ -9,6 +9,7 @@ import (
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/shell"
+	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -55,8 +56,22 @@ func buildUpstream(ctx context.Context, cp *settings.CompanyProxy, n backend.Net
 // variable the host sets, and the host's NO_PROXY), and done, which stops
 // the proxy and with ok deletes its folder (a failed build keeps its
 // logs). Without a company proxy, nothing is started and the scripts get
-// nothing.
+// nothing. Either way, this process holds the build VM's logs to their
+// cap (vmlog.KeepVM) until done, or until ctx ends, as a VM's proxy does
+// for a VM it runs for.
 func buildProxy(ctx context.Context, l *Lima, vm vmname.VM, n backend.Net) (backend.Confinement, backend.HostProxy, func(ok bool), error) {
+	c, hp, done, err := companyProxy(ctx, l, vm, n)
+	if err != nil {
+		return c, hp, done, err
+	}
+	keep, stop := context.WithCancel(ctx)
+	go vmlog.KeepVM(keep, l.vmLogs(vm))
+	return c, hp, func(ok bool) { stop(); done(ok) }, nil
+}
+
+// companyProxy is buildProxy's proxy: devvm's for the build alone, with
+// the company proxy buildUpstream finds; none without one.
+func companyProxy(ctx context.Context, l *Lima, vm vmname.VM, n backend.Net) (backend.Confinement, backend.HostProxy, func(ok bool), error) {
 	c := backend.Confinement{Net: n}
 	none := func(bool) {}
 	host, up, err := buildUpstream(ctx, l.Company, n)

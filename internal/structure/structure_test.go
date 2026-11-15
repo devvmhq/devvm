@@ -332,6 +332,8 @@ func devvmExecSites() map[string]string {
 // what waits for them to end, or detached and why nothing does.
 func devvmGoroutineSites() map[string]string {
 	return map[string]string{
+		"internal/backend/lima/buildproxy.go: buildProxy":   detached + "the build VM's logs' keeper (vmlog.KeepVM), which the build's done or the end of its context stops",
+		"internal/vmlog/rotate.go: Keep":                    "Keep's wg.Wait, each log's look ending with ctx",
 		"internal/backend/lima/packages.go: sendPackages":   "sendPackages, on sent, once the VM's tar has stopped reading and the pipe is closed",
 		"internal/backend/lima/packages.go: takePackages":   "takePackages, on taken, once the VM's tar has ended and the pipe is closed",
 		"internal/backend/lima/qemu.go: Connect":            detached + "QEMU's side to the connection, which ends as Connect closes it; devvm _qemu connect exits once Connect returns",
@@ -347,7 +349,7 @@ func devvmGoroutineSites() map[string]string {
 		"internal/platform/pin_linux.go: WatchFolders":      "WatchFolders's stop, which closes the inotify file its read in Go's poller is on",
 		"internal/platform/pinrun_linux.go: runChild":       "runChild, on passed, once it has closed the signals' channel",
 		"internal/platform/pinrun_linux.go: RunPinned":      "keep, which returns the child's end that it sends",
-		"internal/proxy/proxy.go: serve":                    detached + "the lifeline's watch, which runs for the proxy's life and ends it once the VM's hostagent is gone, and the SSH agent relay's accept loop, which ends once serve's deferred close closes its listener",
+		"internal/proxy/proxy.go: serve":                    detached + "the lifeline's watch, which runs for the proxy's life and ends it once the VM's hostagent is gone, the SSH agent relay's accept loop, which ends once serve's deferred close closes its listener, and the VM's logs' keeper (IO.KeepLogs), which serve's deferred stop ends",
 		"internal/proxy/agent.go: agentRelay.serve":         detached + "each connection's relay, which ends when either side closes, when the client sends no whole request within agentIdle, or with the proxy; nothing waits for one waiting on the agent's answer",
 		"internal/proxy/splice.go: splice":                  "splice, on done, once both directions have ended",
 		"internal/proxy/proxy.go: whileHeard":               "whileHeard's cancel, which handleHTTP defers, so it ends with the request's handler",

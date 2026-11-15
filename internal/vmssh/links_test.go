@@ -24,6 +24,7 @@ import (
 	"github.com/devvmhq/devvm/internal/leaktest"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -1000,15 +1001,15 @@ func (s *syncBuffer) String() string {
 }
 
 // sshLines writes whole lines, each behind sshPrefix, cuts one past
-// logWriteMax, and drops the carriage return ending one.
+// vmlog.WriteMax, and drops the carriage return ending one.
 func TestSSHLines(t *testing.T) {
 	var b strings.Builder
 	s := &sshLines{w: &b}
-	for _, p := range []string{"a\r\nb", "c\n", strings.Repeat("x", logWriteMax+1), "\nend"} {
+	for _, p := range []string{"a\r\nb", "c\n", strings.Repeat("x", vmlog.WriteMax+1), "\nend"} {
 		_, _ = s.Write([]byte(p))
 	}
 	s.flush()
-	want := "ssh: a\nssh: bc\nssh: " + strings.Repeat("x", logWriteMax) + "\nssh: x\nssh: end\n"
+	want := "ssh: a\nssh: bc\nssh: " + strings.Repeat("x", vmlog.WriteMax) + "\nssh: x\nssh: end\n"
 	if b.String() != want {
 		t.Errorf("got %q, want %q", b.String(), want)
 	}

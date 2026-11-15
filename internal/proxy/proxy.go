@@ -1213,18 +1213,23 @@ type IO struct {
 	// Capture saves the logins in Config.Captures' replies, in this process (devvm's store of
 	// agents' logins): required with them.
 	Capture Capturer
+	// KeepLogs holds Config.VMLogs to their cap until ctx ends, in this process (devvm's
+	// vmlog.KeepVM, which rotates them): required with them.
+	KeepLogs func(ctx context.Context, paths []string)
 }
 
 // httpServer is the HTTP server that serves s, its handlers counted by its conns, as run serves it
 // and the tests do: a request's headers get 30 seconds and maxHeaderBytes, and a connection
 // idleTimeout between requests. Nothing bounds a request's whole time, so an upload, a download or
-// a stream takes as long as it does.
+// a stream takes as long as it does. Its errors, a handler's panic among them, go to s's own log,
+// held to its limit (rotating), not to the process's stderr, outside it.
 func httpServer(s *server) *http.Server {
 	return &http.Server{
 		Handler:           s.conns.handle(s.handler),
 		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
+		ErrorLog:          s.log,
 		// Each request knows its connection, which its first request with the password admits.
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context { return context.WithValue(ctx, connKey{}, c) },
 	}
@@ -1265,6 +1270,9 @@ func run(args []string, std IO, tick time.Duration) error {
 	if len(c.Captures) > 0 && std.Capture == nil {
 		return errors.New("captures without a capturer")
 	}
+	if len(c.VMLogs) > 0 && std.KeepLogs == nil {
+		return errors.New("the VM's logs without a keeper")
+	}
 	return serve(c, std, tick)
 }
 
@@ -1295,6 +1303,11 @@ func serve(c Config, std IO, tick time.Duration) error {
 	s, err := newServer(c, std, l, out)
 	if err != nil {
 		return err
+	}
+	if len(c.VMLogs) > 0 && std.KeepLogs != nil {
+		ctx, stop := context.WithCancel(context.Background()) //nolint:forbidigo // the proxy's process has no caller: the VM's logs are kept until it ends
+		defer stop()
+		go std.KeepLogs(ctx, c.VMLogs)
 	}
 	ln, err := net.Listen("tcp", c.Listen) //nolint:noctx // listens for the proxy's whole life
 	if err != nil {

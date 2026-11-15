@@ -32,11 +32,17 @@ type Opts struct {
 	Follow bool
 	// OneLink refuses a file with another hard link, which a link in another folder could change.
 	OneLink bool
+	// Write opens it for writing too, as a log that's redacted and emptied in place is: what's
+	// checked is the same.
+	Write bool
 }
 
 // flags are the open flags for o.
 func (o Opts) flags() int {
 	f := os.O_RDONLY | noBlock
+	if o.Write {
+		f = os.O_RDWR | noBlock
+	}
 	if !o.Follow {
 		f |= noFollow
 	}

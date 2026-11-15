@@ -48,6 +48,8 @@ func TestProxyStarter(t *testing.T) {
 	if want := (proxy.Config{
 		Version: proxy.ConfigVersion, Listen: "127.0.0.1:0", VM: "devvm-img-x", Password: p.Password,
 		Policies: []string{filepath.Join(dir, "policy")}, Log: filepath.Join(dir, "events.jsonl"), Lifeline: "/run/ha.pid",
+		// Its own log, held to its limit as a VM's proxy holds its own.
+		ProxyLog: filepath.Join(dir, "proxy.log"),
 		Upstream: up, UpstreamUnresolved: true,
 	}); err != nil || !reflect.DeepEqual(c, want) {
 		t.Errorf("config = %+v, %v; want %+v", c, err, want)

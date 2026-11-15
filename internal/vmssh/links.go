@@ -23,6 +23,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -120,7 +121,9 @@ type Links struct {
 	// carried or not, written whenever they change (writeList). Empty:
 	// none.
 	List string
-	// Log gets its lines.
+	// Log gets its lines, limited (vmlog.Limit): Run limits one that
+	// isn't already, and a caller that warns another way too (Failed)
+	// passes its own, which the warnings take their turns from.
 	Log io.Writer
 	// Tick is how long a lost connection waits to be made again, and
 	// Wait how long a master gets to be ready.
@@ -232,7 +235,9 @@ func (l *Links) Control(target vmname.VM, start string) string {
 
 // defaults sets what Run needs that its caller left unset.
 func (l *Links) defaults() {
-	l.Log = newLogLimit(cmp.Or[io.Writer](l.Log, io.Discard), time.Now)
+	if _, limited := l.Log.(*vmlog.Limit); !limited {
+		l.Log = vmlog.NewLimit(cmp.Or[io.Writer](l.Log, io.Discard), "links", time.Now)
+	}
 	if l.Start == nil {
 		l.Start = l.startSSH
 	}
@@ -878,7 +883,7 @@ const sshPrefix = "ssh: "
 // logPrefix, which only the session's own lines do (ReadLinksLog). ssh
 // prints what the remote side sends it, a disconnect's reason say, with
 // its newlines, so either VM's root could otherwise write a line that
-// reads as the session's. A line longer than logWriteMax is cut, its
+// reads as the session's. A line longer than vmlog.WriteMax is cut, its
 // rest a line of its own; a carriage return ending a line is dropped.
 type sshLines struct {
 	w io.Writer
@@ -895,10 +900,10 @@ func (s *sshLines) Write(p []byte) (int, error) {
 	for {
 		line, rest, ok := bytes.Cut(s.buf, []byte("\n"))
 		if !ok {
-			if len(s.buf) < logWriteMax {
+			if len(s.buf) < vmlog.WriteMax {
 				break
 			}
-			line, rest = s.buf[:logWriteMax], s.buf[logWriteMax:]
+			line, rest = s.buf[:vmlog.WriteMax], s.buf[vmlog.WriteMax:]
 		}
 		out = appendSSHLine(out, line)
 		s.buf = rest
@@ -935,7 +940,7 @@ func (l *Links) commandSSH(ctx context.Context, args []string) error {
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "ssh", args...).CombinedOutput() //nolint:gosec // devvm's own arguments
 	if err != nil {
-		return fmt.Errorf("%w: %s", err, oneLine(out[:min(len(out), logWriteMax)]))
+		return fmt.Errorf("%w: %s", err, oneLine(out[:min(len(out), vmlog.WriteMax)]))
 	}
 	return nil
 }

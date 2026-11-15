@@ -50,7 +50,7 @@ func TestSecret(t *testing.T) {
 		}
 	}
 	if NewSecret("") != (Secret{}) || !NewSecret(" x ").TrimSpace().Empty() && NewSecret(" x ").TrimSpace().Reveal() != "x" ||
-		!NewSecret(" ").TrimSpace().Empty() || (Secret{}).Reveal() != "" {
+		!NewSecret(" ").TrimSpace().Empty() || (Secret{}).Reveal() != "" || (Secret{}).TrimSpace() != (Secret{}) {
 		t.Error("NewSecret, TrimSpace or Reveal of the zero Secret")
 	}
 	if got := fmt.Sprint(s) + s.String() + s.GoString(); got != Hidden+Hidden+Hidden {

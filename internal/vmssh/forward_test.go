@@ -384,30 +384,6 @@ func TestForwarderGap(t *testing.T) {
 	})
 }
 
-// What the VM makes the forwarder log is limited: a burst, then one write
-// per logEvery, those dropped counted; control characters dropped, C1
-// included, long writes cut.
-func TestLogLimit(t *testing.T) {
-	var b bytes.Buffer
-	now := time.Unix(1000, 0)
-	l := newLogLimit(&b, func() time.Time { return now })
-	for range logBurst + 50 {
-		_, _ = l.Write([]byte("x\n"))
-	}
-	if got := strings.Count(b.String(), "x\n"); got != logBurst {
-		t.Errorf("%d writes logged, want %d", got, logBurst)
-	}
-	b.Reset()
-	now = now.Add(2 * logEvery)
-	_, _ = l.Write([]byte("a\x1b[2Jb\302\233c\x9bd\r\n"))
-	_, _ = l.Write([]byte(strings.Repeat("y", logWriteMax+10)))
-	_, _ = l.Write([]byte("dropped\n"))
-	want := "devvm ports: 50 writes not logged\na[2Jbcd\n" + strings.Repeat("y", logWriteMax) + "…\n"
-	if b.String() != want {
-		t.Errorf("log:\n%q\nwant\n%q", b.String(), want)
-	}
-}
-
 // While devvm's ports can't be read, nothing new is forwarded.
 func TestForwarderReservedUnknown(t *testing.T) {
 	p := freePorts(t, 1)[0]

@@ -224,7 +224,7 @@ devvm gc --retention                                   # gc as usual, then apply
 
 | Key | What devvm deletes |
 | --- | --- |
-| `logs.runs` | the [run logs](troubleshooting.md#a-command-fails) beyond the newest this many, which is 20 when it's off |
+| `logs.runs` | the [run logs](troubleshooting.md#a-command-fails) beyond the newest this many, which is 20 when it's off, and older ones past 256 MiB together whatever it is |
 | `history.age` | the [exports of agents' history](coding-agents.md#history) written this long ago or more, such as `90d` |
 | `history.count` | the exports of agents' history beyond the newest this many |
 | `tools.unused-age` | the current shared tools that no VM has had for this long, counted from when devvm first found that no VM has them. While a VM is being made or is getting new shared tools, retention deletes none of them in that run, because that VM may not list the tools it picked yet, and it still applies the other settings |

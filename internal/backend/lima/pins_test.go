@@ -206,6 +206,30 @@ func TestRecordPinEvent(t *testing.T) {
 	}
 }
 
+// The events file has a cap: past it, an event isn't added but marked
+// unrecorded, which the next check names, and those marks have a cap of
+// their own, so a run whose pins keep changing can't fill the disk.
+func TestPinEventsCapped(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "git-pins.jsonl")
+	if err := os.WriteFile(file, []byte(strings.Repeat("x", pinEventsMax-10)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := addPinEvent(file, backend.PinEvent{Path: ".git/config", What: platform.PinAgain}); !errors.Is(err, errPinEventsFull) {
+		t.Errorf("past the cap: %v", err)
+	}
+	recordPinEvent(file, backend.PinEvent{Path: ".git/config", What: platform.PinAgain})
+	b, _ := os.ReadFile(file) //nolint:gosec // the test's own file
+	if want := `{"path":".git/config","what":"unrecorded"}` + "\n"; !strings.HasSuffix(string(b), "x\n"+want) {
+		t.Errorf("the file ends %q", b[len(b)-min(len(b), 80):])
+	}
+	for range 2 * pinEventsSlack / 40 {
+		recordPinEvent(file, backend.PinEvent{Path: ".git/config", What: platform.PinAgain})
+	}
+	if fi, err := os.Stat(file); err != nil || fi.Size() > pinEventsMax+pinEventsSlack {
+		t.Errorf("the file: %v, %v", fi, err)
+	}
+}
+
 // What QEMU's process sees through mounts of its own, from its
 // mountinfo: its pins, the read-only ones apart, their escapes undone;
 // nothing without a QEMU to read.

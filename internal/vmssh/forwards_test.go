@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -63,6 +65,29 @@ func testForwards(t *testing.T) (*Forwards, *[][]string, *msg.Recorder) {
 		Reporter: &msg.Fake{OnWarn: warned.Add},
 	}
 	return f, &starts, warned
+}
+
+// A forwarder's log that an earlier one left past its cap is rotated as
+// the next starts.
+func TestForwardsRunTrimsLog(t *testing.T) {
+	f, starts, _ := testForwards(t)
+	const vm = "devvm-p-0123456789abcd"
+	log := f.Log(vm)
+	if err := os.MkdirAll(filepath.Dir(log), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(log, []byte(strings.Repeat("devvm ports: port 5173: forwarded\n", vmlog.OwnMax/32)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.run(vm, spec{Lifeline: "/lima/ha.pid"}); err != nil || len(*starts) != 1 {
+		t.Fatalf("run: %v, started %q", err, *starts)
+	}
+	if fi, err := os.Stat(log); err != nil || fi.Size() != 0 {
+		t.Errorf("log: %v, %v", fi, err)
+	}
+	if fi, err := os.Stat(log + ".1"); err != nil || fi.Size() > vmlog.OwnMax {
+		t.Errorf(".1: %v, %v", fi, err)
+	}
 }
 
 // The forwarder's start reads which ports the VM forwards from its state

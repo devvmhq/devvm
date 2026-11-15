@@ -28,7 +28,11 @@ const LogLimit = 10 << 20
 // log (Config.ProxyLog) is also the proxy process's stdout and stderr, which
 // devvm opened, where its last error and any crash go: that file is
 // copied to <log>.1 and emptied instead, so those writes, appended to
-// the same file, reach the current log.
+// the same file, reach the current log, and its size is taken from the
+// file before each line, so they count too. The proxy's http.Servers
+// log their errors through it (ErrorLog). devvm's other logs that a VM
+// can drive are internal/vmlog's, which this package, the standard
+// library only, doesn't import.
 type rotating struct {
 	mu    sync.Mutex
 	path  string
@@ -91,6 +95,10 @@ func (r *rotating) Write(p []byte) (int, error) {
 		// A failed check keeps writing to the open file: a line kept
 		// beats a line in the right file.
 		_ = r.follow()
+	} else if fi, err := os.Stat(r.path); err == nil {
+		// A copied log is also the process's stderr: what reached it
+		// there, an error a library printed, counts too.
+		r.size = fi.Size()
 	}
 	if r.size > 0 && r.size+int64(len(p)) > r.limit {
 		// A failed rotation keeps writing to the log as it is: a line

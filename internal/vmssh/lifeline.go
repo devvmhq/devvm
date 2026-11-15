@@ -11,6 +11,8 @@ import (
 	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
+	"github.com/devvmhq/devvm/internal/vmlog"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // recheck is how often a forwarder gives up the ports devvm reserves now,
@@ -36,6 +38,12 @@ func Main(ctx context.Context, args []string, script []byte, d paths.Dirs, log i
 		return errors.New("-lifeline is needed")
 	}
 	fw := Forwards{Dirs: d, Args: platform.ProcessArgs}
+	// Its log is the VM's forwarder log, which devvm opened as its
+	// output: held to its cap as it runs. A -vm that isn't a name fails
+	// in Forwarder.
+	if vm, err := vmname.Parse(fl.name); err == nil {
+		log = vmlog.NewCapped(log, fw.Log(vm), vmlog.OwnMax)
+	}
 	f, err := fl.Forwarder(script, fw.Reserved, log)
 	if err != nil {
 		return err

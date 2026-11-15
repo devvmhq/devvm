@@ -30,7 +30,7 @@ internal/platform 90.4
 internal/ports 92.6
 internal/project 98.5
 internal/proxy 93.6
-internal/redact 98.3
+internal/redact 98.9
 internal/safefile 97.7
 internal/secrets 93.4
 internal/settings 96.4
@@ -49,6 +49,7 @@ internal/ui 97.2
 internal/upgrade 93.8
 internal/upgrade/upgradetest 97.4
 internal/vm 88.4
+internal/vmlog 95.8
 internal/vmname 100.0
 internal/vmssh 92.6
 packaging 71.4

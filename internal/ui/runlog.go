@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
@@ -86,13 +87,46 @@ func (s *stream) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// logTo is where a command's output goes: the run log, and while
-// verbose, the stream too.
-func logTo(u *UI, f *os.File) io.Writer {
+// logTo is where a command's output goes: the run log w (its logCap),
+// and while verbose, the stream too.
+func logTo(u *UI, w io.Writer) io.Writer {
 	if !verbose(u) {
-		return f
+		return w
 	}
-	return io.MultiWriter(f, &stream{u: u})
+	return io.MultiWriter(w, &stream{u: u})
+}
+
+// runLogMax is the most one run writes to its log, as a run that lasts,
+// such as devvm desktop's, can be made to log without end.
+const runLogMax = 128 << 20
+
+// runLogFull is the run log's last line once it's past runLogMax.
+const runLogFull = "\ndevvm: truncated: this run wrote more than 128 MiB to its log, and the rest isn't in it\n"
+
+// logCap is the run's log file, held to runLogMax: the write that would
+// take it past is dropped, with every one after it, and runLogFull says
+// so once.
+type logCap struct {
+	f    io.Writer
+	mu   sync.Mutex
+	n    int64
+	full bool
+}
+
+func (c *logCap) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.full {
+		return len(p), nil
+	}
+	if c.n+int64(len(p)) > runLogMax {
+		c.full = true
+		_, err := io.WriteString(c.f, runLogFull)
+		return len(p), err
+	}
+	n, err := c.f.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // logPath is the run's log, "" before it's opened.
@@ -103,12 +137,13 @@ func (u *UI) logPath() string {
 }
 
 // openLog opens the run's log, the first time in a run, in the run logs
-// folder (owner-only), and deletes all but the newest logs there.
-func (u *UI) openLog() *os.File {
+// folder (owner-only), and deletes all but the newest logs there
+// (pruneLogs).
+func (u *UI) openLog() *logCap {
 	u.log.Lock()
 	defer u.log.Unlock()
 	if u.log.f != nil {
-		return u.log.f
+		return u.log.cap
 	}
 	dir, err := u.runLogs()
 	if err != nil {
@@ -121,9 +156,9 @@ func (u *UI) openLog() *os.File {
 	if err != nil {
 		u.die(msg.RunLogFailed(dir, err.Error()).Because(err))
 	}
-	u.log.f, u.log.path = f, f.Name()
+	u.log.f, u.log.path, u.log.cap = f, f.Name(), &logCap{f: f}
 	pruneLogs(dir, cmp.Or(u.log.keep, keepLogs))
-	return f
+	return u.log.cap
 }
 
 // KeepRunLogs sets how many run logs are kept, the newest (retention's
@@ -144,28 +179,57 @@ func createLog(dir string, now time.Time, pid int) (*os.File, error) {
 	return os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600) //nolint:gosec // devvm's own folder
 }
 
-// pruneLogs deletes all but the newest keep logs in dir.
+// runLogsMax is as much as the run logs in the folder take together: past
+// it, the oldest go, however many logs.runs keeps, but the newest.
+const runLogsMax = 256 << 20
+
+// pruneLogs deletes all but the newest keep logs in dir, and older ones
+// past runLogsMax together, but never the newest, nor a log whose run
+// still runs (logPID): a background process, or another devvm, writing
+// it still, which the system would keep on disk after its name went.
 func pruneLogs(dir string, keep int) {
 	files, _ := filepath.Glob(filepath.Join(dir, "*.log"))
 	type log struct {
 		path string
 		mod  time.Time
+		size int64
 	}
 	var logs []log
 	for _, f := range files {
 		if fi, err := os.Stat(f); err == nil {
-			logs = append(logs, log{f, fi.ModTime()})
+			logs = append(logs, log{f, fi.ModTime(), fi.Size()})
 		}
 	}
 	slices.SortFunc(logs, func(a, b log) int { return b.mod.Compare(a.mod) })
-	for _, l := range logs[min(keep, len(logs)):] {
+	var total int64
+	for i, l := range logs {
+		total += l.size
+		if i == 0 || i < keep && total <= runLogsMax {
+			continue
+		}
+		if pid, ok := logPID(l.path); ok && daemon.Alive(pid) {
+			continue
+		}
 		_ = os.Remove(l.path)
 	}
 }
 
+// logPID is the pid of the run that writes the run log at path, from its
+// name (createLog's): false for a name of another form. A pid the system
+// gave another process since keeps its log until that one ends.
+func logPID(path string) (int, bool) {
+	parts := strings.Split(strings.TrimSuffix(filepath.Base(path), ".log"), "-")
+	if len(parts) != 3 || len(parts[0]) != len("20060102") || len(parts[1]) != len("150405") {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(parts[2])
+	return pid, err == nil && pid > 0
+}
+
 // LogNote says where the details of slow steps go, once per run.
 func (u *UI) LogNote() {
-	path := u.openLog().Name()
+	u.openLog()
+	path := u.logPath()
 	u.log.Lock()
 	noted := u.log.noted
 	u.log.noted = true

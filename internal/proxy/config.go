@@ -61,6 +61,10 @@ type Config struct {
 	// ProxyLog is the file the proxy's stderr appends to, devvm opens it for the process: the
 	// proxy's own log lines go through it, rotated past LogLimit by copying.
 	ProxyLog string `json:"proxy_log,omitempty"`
+	// VMLogs are the logs the VM's backend writes as the VM runs, which the VM can drive, such as
+	// its serial console's (backend.Run.Logs): the proxy, which runs as long as the VM, holds
+	// each to its cap through IO.KeepLogs, required with them.
+	VMLogs []string `json:"vm_logs,omitempty"`
 	// Lifeline is the pid file of the VM's hostagent (daemon.Lifeline): the proxy returns once it
 	// no longer holds the process it followed. "": it runs until it's stopped.
 	Lifeline string `json:"lifeline,omitempty"`
@@ -145,6 +149,7 @@ type configFile struct {
 	Open               bool      `json:"open,omitempty"`
 	Log                string    `json:"log,omitempty"`
 	ProxyLog           string    `json:"proxy_log,omitempty"`
+	VMLogs             []string  `json:"vm_logs,omitempty"`
 	Lifeline           string    `json:"lifeline,omitempty"`
 	CA                 string    `json:"ca,omitempty"`
 	CAKey              string    `json:"ca_key,omitempty"`
@@ -171,7 +176,7 @@ func (c Config) file() configFile {
 	password := c.Password.Reveal() //nolint:forbidigo // proxy.json holds the password: the proxy reads it from there alone
 	return configFile{
 		c.Version, c.Listen, c.VM, password, c.BuiltinPolicies, c.Policies, c.DenyPolicies, c.Open,
-		c.Log, c.ProxyLog, c.Lifeline, c.CA, c.CAKey, c.CANext, c.CANextKey, c.Secrets, c.Captures,
+		c.Log, c.ProxyLog, c.VMLogs, c.Lifeline, c.CA, c.CAKey, c.CANext, c.CANextKey, c.Secrets, c.Captures,
 		c.UpstreamCAs, c.Upstream, c.UpstreamUnresolved, c.NixCache, c.NixCacheMax, c.Links, c.LinkSockets,
 		c.Agent, c.AgentSocket, c.DevvmSHA256, c.CASHA256, c.CANextSHA256,
 	}
@@ -181,7 +186,7 @@ func (c Config) file() configFile {
 func (f configFile) config() Config {
 	return Config{
 		f.Version, f.Listen, f.VM, redact.NewSecret(f.Password), f.BuiltinPolicies, f.Policies, f.DenyPolicies, f.Open,
-		f.Log, f.ProxyLog, f.Lifeline, f.CA, f.CAKey, f.CANext, f.CANextKey, f.Secrets, f.Captures,
+		f.Log, f.ProxyLog, f.VMLogs, f.Lifeline, f.CA, f.CAKey, f.CANext, f.CANextKey, f.Secrets, f.Captures,
 		f.UpstreamCAs, f.Upstream, f.UpstreamUnresolved, f.NixCache, f.NixCacheMax, f.Links, f.LinkSockets,
 		f.Agent, f.AgentSocket, f.DevvmSHA256, f.CASHA256, f.CANextSHA256,
 	}

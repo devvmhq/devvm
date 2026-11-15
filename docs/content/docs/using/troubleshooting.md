@@ -17,7 +17,7 @@ devvm -v build base   # the same for any command
 
 With `-v`, devvm shows each line on standard error as the log gets it, in place of the status line, and it still writes the log. When a step fails with `-v`, devvm names the log instead of printing its end again. Without `-v`, a status line in a terminal shows the step, how long it has run and the log's latest line, and a step that takes more than a few seconds leaves a line with its time.
 
-- **The log** is `~/.local/share/devvm/logs/runs/<date>-<time>-<pid>.log`, one for each run that runs a command, which only you can read, and devvm keeps the newest 20.
+- **The log** is `~/.local/share/devvm/logs/runs/<date>-<time>-<pid>.log`, one for each run that runs a command, which only you can read, and devvm keeps the newest 20, fewer when they take more than 256 MiB together.
 - **Each command** appears in it as a `+` line with its arguments, followed by its output, and a numbered step adds a `# [2/5] <step>` line first.
 - **Passwords and a VM's proxy key** stay out of it, written as `user:<password>@` and `devvm:<key>@`, including a company proxy's password from your shell's `HTTPS_PROXY` ([the run log](../internals/overview.md#the-run-log)).
 
@@ -244,7 +244,13 @@ A stopped VM can give up its port to a VM that starts, and it gets another at it
 
 ## A VM won't boot
 
-A Lima VM that doesn't answer over ssh within a minute of starting is stopped. Read its console log before you start it again, because every start overwrites the log. The log is `serialv.log`, or another `serial*.log`, in the VM's folder in devvm's Lima home, which is `~/.local/share/devvm/lima/<vm>/` unless you set `DEVVM_LIMA_HOME` ([Lima's limits](../backends/lima.md#limits)).
+A Lima VM that doesn't answer over ssh within a minute of starting is stopped. Read the end of its console log before you start it again, because every start overwrites the log:
+
+```sh
+tail -n 100 ~/.local/share/devvm/lima/<vm>/serialv.log
+```
+
+The log is `serialv.log`, or another `serial*.log`, in the VM's folder in devvm's Lima home, which is `~/.local/share/devvm/lima/<vm>/` unless you set `DEVVM_LIMA_HOME` ([Lima's limits](../backends/lima.md#limits)). A log that passed 10 MiB while the VM ran has its earlier lines in the same name with `.1` added, and its own start is then a long run of empty bytes, which is why `tail` reads it better than an editor.
 
 ## A VM whose creation didn't finish
 

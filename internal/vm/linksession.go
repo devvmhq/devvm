@@ -14,6 +14,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
@@ -74,21 +75,35 @@ func (e Links) Session(ctx context.Context, vm vmname.VM, log io.Writer) error {
 		return err
 	}
 	events := linkEvents{path: e.Dirs.VM(vm).EventLog(), vm: vm, mu: &sync.Mutex{}}
+	// Its log is the VM's links log, which devvm opened as its output:
+	// held to its cap, and limited, the warnings included, as each
+	// carries the client's sshd's words and the client paces them.
+	limited := vmlog.NewLimit(vmlog.NewCapped(log, e.Dirs.VM(vm).LinksLog(), vmlog.OwnMax), "links", time.Now)
 	s := &vmssh.Links{
-		VM: vm, SSH: ssh, Dir: e.Dirs.Run(), Log: log, List: e.Dirs.VM(vm).LinkList(),
+		VM: vm, SSH: ssh, Dir: e.Dirs.Run(), Log: limited, List: e.Dirs.VM(vm).LinkList(),
 		Every: linkAliveEvery, Sync: linkSyncEvery, Tick: 2 * time.Second,
 		Alive: func(ctx context.Context) bool {
 			now, err := b.Running(ctx, vm)
 			return err == nil && now.ID == start
 		},
-		Want:  func() ([]vmssh.Link, error) { return e.sessionLinks(vm) },
-		Check: e.linkCheck(vm),
-		Event: events.add,
-		Failed: func(l vmssh.Link, err error) {
-			e.Warn(Link{Name: l.Name, Port: l.Port}.PortTaken(vm).Because(err))
-		},
+		Want:   func() ([]vmssh.Link, error) { return e.sessionLinks(vm) },
+		Check:  e.linkCheck(vm),
+		Event:  events.add,
+		Failed: e.linkFailed(vm, limited),
 	}
 	return s.Run(ctx)
+}
+
+// linkFailed is how client vm's session warns of a link the client
+// refused to listen for: each warning takes a turn of the session's
+// limited log (vmlog.Limit.Allow), which its warnings reach too, as the
+// client paces them and each carries its sshd's words.
+func (e Links) linkFailed(vm vmname.VM, log *vmlog.Limit) func(vmssh.Link, error) {
+	return func(l vmssh.Link, err error) {
+		if log.Allow() {
+			e.Warn(Link{Name: l.Name, Port: l.Port}.PortTaken(vm).Because(err))
+		}
+	}
 }
 
 // sessionLinks returns a client's links as its session carries them:

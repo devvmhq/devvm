@@ -207,4 +207,12 @@ func TestRotateCopies(t *testing.T) {
 			t.Errorf("%s: mode %v", filepath.Base(p), m)
 		}
 	}
+	// What reached the log as stderr counts toward its limit: the next
+	// line, which its own lines alone would leave under it, rotates it.
+	if _, err := r.Write([]byte("x\n")); err != nil {
+		t.Fatal(err)
+	}
+	if a, b := readLog(t, path+".1"), readLog(t, path); a != "failed upstream\ndevvm: the last error\n" || b != "x\n" {
+		t.Errorf("after stderr: .1 %q, log %q", a, b)
+	}
 }

@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/netip"
@@ -19,6 +20,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
@@ -361,6 +363,28 @@ func TestWarnUnenforced(t *testing.T) {
 		if c.status == backend.StatusRunning && policyUnenforced(t.Context(), f, client, target) != c.warns {
 			t.Errorf("%s: policyUnenforced disagrees", c.name)
 		}
+	}
+}
+
+// The client can make its session warn of a refused link as often as it
+// likes: the warnings take their turns from the session's limited log.
+func TestLinkFailedLimited(t *testing.T) {
+	e, _, client, _, _ := linkSessionEnv(t)
+	var warned msg.Recorder
+	e.Reporter = &msg.Fake{OnWarn: warned.Add}
+	var log bytes.Buffer
+	now := time.Unix(1000, 0)
+	failed := e.linkFailed(client.Name(), vmlog.NewLimit(&log, "links", func() time.Time { return now }))
+	for range vmlog.Burst + 5 {
+		failed(vmssh.Link{Name: "db", Port: 5432}, errors.New("refused by the VM"))
+	}
+	if n := len(warned.Names()); n != vmlog.Burst {
+		t.Errorf("%d warnings, want %d", n, vmlog.Burst)
+	}
+	now = now.Add(vmlog.Every)
+	failed(vmssh.Link{Name: "db", Port: 5432}, errors.New("refused by the VM"))
+	if n := len(warned.Names()); n != vmlog.Burst+1 {
+		t.Errorf("%d warnings after Every, want %d", n, vmlog.Burst+1)
 	}
 }
 

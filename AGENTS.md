@@ -19,6 +19,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 | `internal/upgrade/` | devvm upgrade; `upgradetest/` (tests only) |
 | `internal/from/` | `--from`'s references and digests |
 | `internal/redact/` | passwords out of logs; `Secret`, the type of every secret's value |
+| `internal/vmlog/` | every log a VM can drive (but the proxy's own): its rate, its cap while it runs, and the backend's logs, serial consoles' included |
 | `internal/safefile/` | every read of a file a VM can write or swap |
 | `internal/devcontainer/`, `internal/jsonc/` | a project's devcontainer.json; JSON with comments |
 | `internal/tools/` | the shared tools: the lock, host mise, the daily check, tool image builds, the share |
@@ -122,7 +123,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 - **Delete test VMs and temp files afterwards.** Long builds run in the background. Tests that `chflags` real files unlock them (`chflags -R nouchg`), only in their own temp folders.
 - **The testscript runner stops the sandbox's proxies** (`pkill -f` on `_proxy -config` in the sandbox): the stub hostagent is gone before they look, so they'd wait 15 minutes. It also stops the sandbox's port forwarders, link sessions and stub ssh masters.
 - **`limactl shell` reads stdin:** give it none unless the input is meant for it.
-- **Boot problems:** read `<devvm's Lima home>/<vm>/serialv.log` before restarting; every start overwrites it.
+- **Boot problems:** read `<devvm's Lima home>/<vm>/serialv.log` (and its `.1`, past 10 MiB) before restarting; every start overwrites it.
 
 ## Gotchas learned
 

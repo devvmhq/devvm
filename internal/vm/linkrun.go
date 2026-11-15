@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/project"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
@@ -26,10 +27,6 @@ import (
 // (paths.VM.LinksPID). The proxies' seams start, find and signal them
 // (Proxy.Start, Args and Signal), through daemon.Proc.
 type linkRuns struct{ *Env }
-
-// linksLogMax is the most a link session's log keeps: one over it is
-// emptied when the next session starts.
-const linksLogMax = 1 << 20
 
 // linksReportWait bounds how long devvm waits for a session it started,
 // or one whose links changed, to say what came of each link.
@@ -111,11 +108,12 @@ func (e linkRuns) start(vm vmname.VM) (int64, error) {
 			return 0, err
 		}
 	}
-	flags := os.O_APPEND | os.O_CREATE | os.O_WRONLY
-	if fi, err := os.Stat(logPath); err == nil && fi.Size() > linksLogMax {
-		flags |= os.O_TRUNC //nolint:forbidigo // the session's log, which it writes as it runs: started again empty once too long
+	// The session holds its log to its cap as it runs (Session); one an
+	// earlier one left past it is rotated first.
+	if _, err := vmlog.Trim(logPath, vmlog.OwnMax); err != nil {
+		return 0, err
 	}
-	out, err := os.OpenFile(logPath, flags, 0o600) //nolint:gosec // devvm's own log
+	out, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // devvm's own log
 	if err != nil {
 		return 0, err
 	}

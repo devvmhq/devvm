@@ -22,6 +22,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -93,10 +94,6 @@ func (f Forwards) Control(vm vmname.VM) string {
 // run folder: one a forwarder that was killed left, which nothing
 // listens on, devvm gc --orphans deletes.
 const ControlGlob = "port-*.ctl"
-
-// logMax is the most a forwarder's log keeps from earlier starts: past
-// it, a start empties it.
-const logMax = 1 << 20
 
 // ControlMax is the longest control socket path ssh can make.
 const ControlMax = paths.SocketMax - 1 - 17
@@ -380,20 +377,16 @@ func (f Forwards) run(vm vmname.VM, s spec) error {
 			return err
 		}
 	}
+	// The forwarder holds its log to its cap as it runs (Main); one an
+	// earlier one left past it is rotated first.
+	if _, err := vmlog.Trim(f.Log(vm), vmlog.OwnMax); err != nil {
+		return err
+	}
 	out, err := os.OpenFile(f.Log(vm), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = out.Close() }()
-	fi, err := out.Stat()
-	if err != nil {
-		return err
-	}
-	if fi.Size() > logMax {
-		if err := out.Truncate(0); err != nil {
-			return err
-		}
-	}
 	var reserve []string
 	for _, p := range s.Reserve {
 		if p > 0 {

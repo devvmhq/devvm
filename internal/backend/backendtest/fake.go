@@ -54,6 +54,7 @@ type Fake struct {
 	ShellCmd     backend.Command   // Shell's answer
 	Unconfined   bool              // Running's Confined is false (else: true, or for a VM Start started, whether with NetProxy)
 	LifelineFile string            // Running's Lifeline
+	LogFiles     []string          // Running's Logs
 	Missing      []backend.Problem // Problems' answer
 	Format       string            // ToolFormat's answer
 	OriginSteps  []image.Step      // Origin's answer, for any base
@@ -375,7 +376,8 @@ func (f *machines) Start(_ context.Context, vm vmname.VM, w backend.Want, c back
 	return nil
 }
 
-// Running records the call and returns LifelineFile as its Lifeline, a
+// Running records the call and returns LifelineFile as its Lifeline,
+// LogFiles as its Logs, a
 // running instance's start as its ID ("start-N" for its Nth by Start,
 // "start-0" for one preset running; Restart, a start outside Start, gives
 // it another) and Confined: false with Unconfined; else, for a VM the
@@ -391,7 +393,7 @@ func (f *machines) Running(_ context.Context, vm vmname.VM) (backend.Run, error)
 	}
 	in, ok := f.Instances[vm]
 	running := ok && in.Status == backend.StatusRunning
-	r := backend.Run{Lifeline: f.LifelineFile, Confined: running && !f.Unconfined}
+	r := backend.Run{Lifeline: f.LifelineFile, Logs: f.LogFiles, Confined: running && !f.Unconfined}
 	if n, ok := f.nets[vm]; ok && r.Confined {
 		r.Confined = n == backend.NetProxy
 	}

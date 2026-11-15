@@ -1,6 +1,7 @@
 package lima
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"os"
@@ -211,7 +212,20 @@ func recordPinEvent(file string, e backend.PinEvent) {
 	}
 }
 
+// The most the events file takes: pinEventsMax for events, and past it
+// pinEventsSlack more for the backend.PinUnrecorded lines that say an
+// event wasn't added, which the next check names. A run whose pins keep
+// changing can't fill the disk with them.
+const (
+	pinEventsMax   = 1 << 20
+	pinEventsSlack = 64 << 10
+)
+
+// errPinEventsFull is addPinEvent's error for an events file at its cap.
+var errPinEventsFull = errors.New("the pin events file is full")
+
 // addPinEvent adds e to the events file, as a line of JSON; "" is none.
+// A file at its cap takes no more (errPinEventsFull).
 func addPinEvent(file string, e backend.PinEvent) error {
 	if file == "" {
 		return nil
@@ -220,6 +234,13 @@ func addPinEvent(file string, e backend.PinEvent) error {
 	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600) //nolint:gosec // devvm's own, in the VM's run folder
 	if err != nil {
 		return err
+	}
+	limit := int64(pinEventsMax)
+	if e.What == backend.PinUnrecorded {
+		limit += pinEventsSlack
+	}
+	if fi, err := f.Stat(); err != nil || fi.Size()+int64(len(b))+1 > limit {
+		return errors.Join(cmp.Or(err, errPinEventsFull), f.Close())
 	}
 	_, err = f.Write(append(b, '\n'))
 	return errors.Join(err, f.Close())

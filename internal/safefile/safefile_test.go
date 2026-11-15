@@ -113,6 +113,41 @@ func TestRead(t *testing.T) {
 }
 
 // An error names the file it's about.
+// Write opens a regular file to write it too, and refuses a link at the path's end, a FIFO
+// without waiting on it, and a folder, as a read does.
+func TestOpenWrite(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.log")
+	if err := os.WriteFile(path, []byte("abc"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Open(path, Opts{Write: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteAt([]byte("x"), 1); err != nil {
+		t.Errorf("write: %v", err)
+	}
+	_ = f.Close()
+	if b, _ := os.ReadFile(path); string(b) != "axc" { //nolint:gosec // the test's own file
+		t.Errorf("file %q", b)
+	}
+	link, fifo := filepath.Join(dir, "link"), filepath.Join(dir, "fifo")
+	if err := os.Symlink(path, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{link, fifo, dir} {
+		if f, err := Open(p, Opts{Write: true}); err == nil {
+			_ = f.Close()
+			t.Errorf("%s: opened", p)
+		}
+	}
+}
+
 func TestReadErrorNamesFile(t *testing.T) {
 	t.Parallel()
 	dir, _ := folder(t)

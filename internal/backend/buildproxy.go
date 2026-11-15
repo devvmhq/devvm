@@ -64,7 +64,9 @@ func (s ProxyStarter) Start(dir string, c proxy.Config) (*BuildProxy, error) {
 	if err := state.WriteFile(policy, []byte("# a build: any host, not this machine's own or internal addresses\n**\n")); err != nil {
 		return nil, err
 	}
-	c.Listen, c.Password, c.Policies, c.Log = "127.0.0.1:0", pw, []string{policy}, filepath.Join(dir, "events.jsonl")
+	// Its own log is its output, which it holds to its limit as a VM's
+	// proxy does (proxy.Config.ProxyLog).
+	c.Listen, c.Password, c.Policies, c.Log, c.ProxyLog = "127.0.0.1:0", pw, []string{policy}, filepath.Join(dir, "events.jsonl"), logPath
 	// The password and the company proxy's credentials go in the config,
 	// the user's alone: a process's arguments are visible to other users.
 	config := filepath.Join(dir, configFile)

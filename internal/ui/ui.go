@@ -89,6 +89,7 @@ type UI struct {
 		sync.Mutex
 		path  string
 		f     *os.File
+		cap   *logCap    // f, held to runLogMax
 		w     *redacting // LogWriter's, made at its first call
 		noted bool
 		keep  int // run logs kept, the newest; keepLogs when 0

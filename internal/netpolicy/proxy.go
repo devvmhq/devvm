@@ -280,7 +280,7 @@ func prepare(ctx context.Context, p *Proxy, b backend.Backend, st *state.VM, run
 	// start gets a new one. A running VM's proxy starts again, on the same
 	// port, when its config would differ from the one it started with
 	// (stale).
-	cfg, err := p.config(st, tier, key, run.Lifeline, sh)
+	cfg, err := p.config(st, tier, key, run, sh)
 	if err != nil {
 		return none, false, err
 	}
@@ -338,7 +338,8 @@ func (p *Proxy) secretsReady(ctx context.Context, st *state.VM) error {
 
 // config is the config the VM's proxy would start with now, on tier t,
 // listening on the proxy port the VM has (none: port 0), with its key
-// (the password) and following its lifeline. It holds everything that,
+// (the password), following the lifeline of its run, and holding the
+// logs its backend writes to their cap (Run.Logs). It holds everything that,
 // changed, starts a running VM's proxy again: its tier and policies
 // (tools added or removed, a layer of the user's), devvm's binary (an
 // upgrade, which may change the built-in policies' rules), the VM's CAs
@@ -348,7 +349,7 @@ func (p *Proxy) secretsReady(ctx context.Context, st *state.VM) error {
 // (shared), and the shared Nix cache's cap. Every tier's proxy has the
 // VM's CAs and its secrets: an open VM's applies no rules, but still puts
 // its secrets in.
-func (p *Proxy) config(st *state.VM, t Tier, key redact.Secret, lifeline string, sh common) (proxy.Config, error) {
+func (p *Proxy) config(st *state.VM, t Tier, key redact.Secret, run backend.Run, sh common) (proxy.Config, error) {
 	vm, files := st.Name(), p.Dirs.VM(st.Name())
 	ca := files.CA()
 	set := Policies(p.Dirs, vm, t, image.Name(st.Image), tools.Names(st))
@@ -364,7 +365,7 @@ func (p *Proxy) config(st *state.VM, t Tier, key redact.Secret, lifeline string,
 	c := proxy.Config{
 		Listen: listenOn(pp.Host.Proxy), VM: vm, Password: key,
 		BuiltinPolicies: set.Builtin, Policies: set.Files, DenyPolicies: set.Denies, Open: t == TierOpen,
-		Log: files.EventLog(), ProxyLog: files.ProxyLog(), Lifeline: lifeline,
+		Log: files.EventLog(), ProxyLog: files.ProxyLog(), Lifeline: run.Lifeline, VMLogs: run.Logs,
 		UpstreamCAs: string(cas.Bundle()), Upstream: upstream,
 		Links: files.LinkList(), LinkSockets: p.Dirs.Run(),
 		DevvmSHA256: bin,

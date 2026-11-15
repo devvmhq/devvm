@@ -21,6 +21,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -362,6 +363,31 @@ func TestLinkRuns(t *testing.T) {
 	if _, err := os.Stat(r.Dirs.VM(vm).LinksPID()); !os.IsNotExist(err) {
 		t.Errorf("its pid file: %v", err)
 	}
+}
+
+// A session's log that an earlier one left past its cap is rotated as the
+// next starts, which writes from its start.
+func TestLinkRunTrimsLog(t *testing.T) {
+	vm := vmname.VM("devvm-app-0123456789abc1")
+	r, _ := linkRunsEnv(t, "devvm links: started\n")
+	log := r.Dirs.VM(vm).LinksLog()
+	if err := os.MkdirAll(filepath.Dir(log), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(log, []byte(strings.Repeat("ssh: a line from the VM\n", vmlog.OwnMax/16)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ok, from, err := r.ensure(vm)
+	if err != nil || !ok || from != 0 {
+		t.Fatalf("ensure = %v, %d, %v", ok, from, err)
+	}
+	if b, _ := os.ReadFile(log); string(b) != "devvm links: started\n" { //nolint:gosec // the test's own file
+		t.Errorf("log %q", b)
+	}
+	if fi, err := os.Stat(log + ".1"); err != nil || fi.Size() > vmlog.OwnMax {
+		t.Errorf(".1: %v, %v", fi, err)
+	}
+	r.stop(t.Context(), vm)
 }
 
 // zombie reports whether pid ended and only waits to be reaped: the

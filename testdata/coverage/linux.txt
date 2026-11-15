@@ -49,6 +49,7 @@ internal/ui 94.6
 internal/upgrade 93.2
 internal/upgrade/upgradetest 97.4
 internal/vm 87.5
+internal/vmlog 91.1
 internal/vmname 100.0
 internal/vmssh 88.7
 packaging 71.4

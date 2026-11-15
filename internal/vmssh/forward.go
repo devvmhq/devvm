@@ -31,9 +31,9 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/daemon"
-	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -285,56 +285,6 @@ func waitUntil(ctx context.Context, t time.Time) error {
 	case <-time.After(d):
 		return nil
 	}
-}
-
-// What the VM can make the forwarder log (logLimit): logBurst writes at
-// once, then one per logEvery, each at most logWriteMax bytes.
-const (
-	logBurst    = 200
-	logEvery    = 10 * time.Second
-	logWriteMax = 512
-)
-
-// logLimit is the forwarder's log, which the VM can make it write to (its
-// ports, its ssh's errors, and its sshd's stderr): limited, so it can't
-// fill the host's disk, and without control characters but newlines and
-// tabs (msg.Printable).
-type logLimit struct {
-	w   io.Writer
-	now func() time.Time
-
-	mu      sync.Mutex
-	tokens  int
-	at      time.Time
-	dropped int
-}
-
-func newLogLimit(w io.Writer, now func() time.Time) *logLimit {
-	return &logLimit{w: w, now: now, tokens: logBurst, at: now()}
-}
-
-func (l *logLimit) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if n := int(l.now().Sub(l.at) / logEvery); n > 0 {
-		l.tokens, l.at = min(logBurst, l.tokens+n), l.at.Add(time.Duration(n)*logEvery)
-	}
-	if l.tokens == 0 {
-		l.dropped++
-		return len(p), nil
-	}
-	l.tokens--
-	var b []byte
-	if l.dropped > 0 {
-		b = fmt.Appendf(b, "devvm ports: %d writes not logged\n", l.dropped)
-		l.dropped = 0
-	}
-	b = append(b, msg.Printable(string(p[:min(len(p), logWriteMax)]))...)
-	if len(p) > logWriteMax {
-		b = append(b, "…\n"...)
-	}
-	_, err := l.w.Write(b)
-	return len(p), err
 }
 
 // wanted reports whether the forwarder forwards a port the VM listens on:
@@ -796,7 +746,7 @@ func (f *Flags) Forwarder(script []byte, reserved func(vm vmname.VM) (map[int]bo
 			return nil, err
 		}
 	}
-	log = newLogLimit(log, time.Now)
+	log = vmlog.NewLimit(log, "ports", time.Now)
 	return &Forwarder{
 		VM: f.VM, Only: only, Log: log, Tick: 2 * time.Second, Gap: 500 * time.Millisecond,
 		Reserved: func() (map[int]bool, error) {

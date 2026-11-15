@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
+	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/redact"
@@ -33,7 +34,7 @@ func TestCapturer(t *testing.T) {
 	}
 	for _, vm := range []*state.VM{st, newVM(t, d, "devvm-plain-0123456789abc4", "base")} {
 		for _, tier := range []Tier{TierAllowlist, TierInternet, TierNone, TierOpen} {
-			cfg, err := p.config(vm, tier, redact.NewSecret("k3y"), "", common{})
+			cfg, err := p.config(vm, tier, redact.NewSecret("k3y"), backend.Run{}, common{})
 			if err != nil || !reflect.DeepEqual(cfg.Captures, all) {
 				t.Errorf("%s, %s: captures %+v, %v", vm.Name(), tier, cfg.Captures, err)
 			}

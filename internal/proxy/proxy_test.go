@@ -1363,6 +1363,36 @@ func writeConfig(t *testing.T, c Config) string {
 	return f
 }
 
+// The VM's requests are served by an http.Server whose errors, a handler's panic among them, go
+// to the proxy's own log, held to its limit, never to the process's stderr: the handler that
+// panics here is the test's.
+func TestHTTPServerLogs(t *testing.T) {
+	t.Parallel()
+	s := testServer(t, Config{}, "")
+	var b syncBuffer
+	s.log = log.New(&b, "devvm proxy: ", 0)
+	srv := httpServer(s)
+	if srv.ErrorLog != s.log {
+		t.Fatal("not the proxy's own log")
+	}
+	srv.Handler = http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("a bug") })
+	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	must(t, err)
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+ln.Addr().String()+"/", nil)
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		_ = resp.Body.Close()
+	}
+	for range 100 {
+		if strings.Contains(b.String(), "devvm proxy: http: panic serving") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("log %q", b.String())
+}
+
 // Main: -help prints the one flag, -config; bad arguments, a missing config and one that can't run
 // are errors, and nothing is served then. The proxy has no other mode: what the host does alone
 // (the CA, agents' logins, redaction) isn't reachable from its arguments.
@@ -1388,6 +1418,8 @@ func TestMainRefuses(t *testing.T) {
 		{"-config", writeConfig(t, Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), Secrets: filepath.Join(t.TempDir(), "secrets.json")})},
 		// The company proxy's password in a secret, without IO.Secret.
 		{"-config", writeConfig(t, Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), Upstream: &Upstream{HTTPS: "http://u@corp:3128", Secret: UpstreamSecret}})},
+		// The VM's logs without IO.KeepLogs: nothing would hold them to their cap.
+		{"-config", writeConfig(t, Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), VMLogs: []string{filepath.Join(t.TempDir(), "serial.log")}})},
 	} {
 		if err := Main(args, std); err == nil {
 			t.Errorf("%q: no error", args)
@@ -1435,13 +1467,24 @@ func TestMainRuns(t *testing.T) {
 
 	errs := &syncBuffer{}
 	done := make(chan error)
+	// The VM's logs are kept for as long as the proxy runs.
+	kept, keptEnd := make(chan []string, 1), make(chan struct{})
+	keep := func(ctx context.Context, paths []string) {
+		kept <- paths
+		<-ctx.Done()
+		close(keptEnd)
+	}
+	serial := filepath.Join(dir, "serial.log")
 	go func() {
 		done <- run([]string{"--config", writeConfig(t, Config{
 			Listen: addr, VM: "devvm-x", Password: redact.NewSecret("k3y"), Lifeline: pidFile, Log: logFile,
 			Policies: []string{filepath.Join(dir, "missing")}, Links: filepath.Join(dir, "devvm-x.links.json"),
-			BuiltinPolicies: []string{"layers/base.policy"},
-		})}, IO{Stdout: io.Discard, Stderr: errs, FS: fstest.MapFS{"layers/base.policy": {Data: []byte("base.test:8443\n")}}}, tick)
+			BuiltinPolicies: []string{"layers/base.policy"}, VMLogs: []string{serial},
+		})}, IO{Stdout: io.Discard, Stderr: errs, FS: fstest.MapFS{"layers/base.policy": {Data: []byte("base.test:8443\n")}}, KeepLogs: keep}, tick)
 	}()
+	if got := <-kept; !slices.Equal(got, []string{serial}) {
+		t.Errorf("kept %q", got)
+	}
 	pu, _ := url.Parse("http://devvm:k3y@" + addr)
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(pu)}}
 	fetch := func(u string) (int, string, error) {
@@ -1485,6 +1528,11 @@ func TestMainRuns(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatalf("still running after the hostagent was gone: %s", errs.String())
+	}
+	select {
+	case <-keptEnd:
+	case <-time.After(10 * time.Second):
+		t.Error("the VM's logs still kept after the proxy ended")
 	}
 	if s := errs.String(); !strings.Contains(s, "devvm proxy: ") || !strings.Contains(s, "listening on "+addr+" for devvm-x") ||
 		!strings.Contains(s, "hostagent is gone") || !strings.Contains(s, "built-in policy layers/base.policy: 1 rules") {

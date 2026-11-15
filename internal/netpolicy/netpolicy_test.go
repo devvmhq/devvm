@@ -454,6 +454,7 @@ func TestPrepare(t *testing.T) {
 	p, f := testProxy(t, d)
 	lima := backendtest.New("lima", nil)
 	lima.LifelineFile = "/lima/vm/ha.pid"
+	lima.LogFiles = []string{"/lima/vm/serial.log", "/lima/vm/ha.stderr.log"}
 	var excluded []string
 	p.OS = "darwin"
 	p.ExcludeFromBackup = func(_ context.Context, dir string) error { excluded = append(excluded, dir); return nil }
@@ -514,7 +515,9 @@ func TestPrepare(t *testing.T) {
 		BuiltinPolicies: []string{"layers/base.policy", "shared-tools/node.policy", "shared-tools/claude.policy"},
 		Policies:        []string{d.Policy(), files.Policy(), files.SecretsPolicy()},
 		Log:             files.EventLog(), ProxyLog: files.ProxyLog(), Lifeline: "/lima/vm/ha.pid",
-		CA: ca.Cert(), CAKey: ca.Key(), CANext: ca.NextCert(), CANextKey: ca.NextKey(),
+		// The logs its backend writes as it runs, which the proxy holds to their cap.
+		VMLogs: []string{"/lima/vm/serial.log", "/lima/vm/ha.stderr.log"},
+		CA:     ca.Cert(), CAKey: ca.Key(), CANext: ca.NextCert(), CANextKey: ca.NextKey(),
 		Secrets: files.Secrets(), Captures: agentlogin.Endpoints(),
 		// Its links' list: in its run folder, devvm's alone.
 		Links: files.LinkList(), LinkSockets: d.Run(),
