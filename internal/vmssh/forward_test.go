@@ -19,11 +19,13 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/leaktest"
+	"github.com/devvmhq/devvm/internal/memnet"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
@@ -139,17 +141,29 @@ func reach(t *testing.T, addr string) string {
 	return strings.TrimSpace(line)
 }
 
-// eventually waits for addr to answer want.
-func eventually(t *testing.T, addr, want string) {
-	t.Helper()
-	var got string
-	for range 100 {
-		if got = reach(t, addr); got == want {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+// memLoopback is the host's loopback in memory, for a forwarder in a
+// synctest bubble: its Listen (listen), and connections to it (reach).
+type memLoopback struct{ memnet.Network }
+
+func (m *memLoopback) listen(_ context.Context, addr string) (net.Listener, error) {
+	l, err := m.Listen(addr)
+	if err != nil {
+		return nil, err
 	}
-	t.Errorf("%s: %q, want %q", addr, got, want)
+	return l, nil
+}
+
+// reach connects to addr once the bubble's goroutines have done what
+// they can, and returns what comes back, "refused" for nothing there.
+func (m *memLoopback) reach(addr string) string {
+	synctest.Wait()
+	c, err := m.Dial(addr)
+	if err != nil {
+		return "refused"
+	}
+	defer func() { _ = c.Close() }()
+	line, _ := bufio.NewReader(c).ReadString('\n')
+	return strings.TrimSpace(line)
 }
 
 type lockedWriter struct {
@@ -176,74 +190,90 @@ func echo(_ context.Context, conn net.Conn, h string, p int) {
 // longer runs as it did.
 func TestForwarder(t *testing.T) {
 	leaktest.Check(t) // nothing of the forwarder's runs on once it has ended
-	ports := freePorts(t, 5)
-	open, v6only, reserved, hosts, gone := ports[0], ports[1], ports[2], ports[3], ports[4]
-	// The host's own program, on every address.
-	host, err := net.Listen("tcp", ":"+strconv.Itoa(hosts)) //nolint:noctx // the test's
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = host.Close() }()
-	var alive atomic.Bool
-	alive.Store(true)
-	vm := &fakeVM{ready: make(chan struct{}, 4)}
-	var log bytes.Buffer
-	var logMu sync.Mutex
-	f := &Forwarder{
-		VM: "devvm-f", Tick: 10 * time.Millisecond, Every: 10 * time.Millisecond, Log: lockedWriter{&logMu, &log},
-		Alive:    func(context.Context) bool { return alive.Load() },
-		Reserved: func() (map[int]bool, error) { return map[int]bool{reserved: true}, nil },
-		Watch:    vm.watch, Relay: echo, Listen: platform.ListenLoopback,
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- f.Run(ctx) }()
-	<-vm.ready
-	vm.report(t,
-		procLine("0100007F", open), procLine("00000000000000000000000001000000", v6only),
-		procLine("00000000", reserved), procLine("00000000", hosts), procLine("00000000", gone),
-		procLine("00000000", 80), procLine("0100A8C0", 9999),
-	)
-	at := func(p int) string { return net.JoinHostPort("127.0.0.1", strconv.Itoa(p)) }
-	eventually(t, at(open), "to "+at(open))
-	eventually(t, net.JoinHostPort("::1", strconv.Itoa(open)), "to "+at(open))
-	eventually(t, at(v6only), "to "+net.JoinHostPort("::1", strconv.Itoa(v6only)))
-	eventually(t, at(gone), "to "+at(gone))
-	if got := reach(t, at(reserved)); got != "refused" {
-		t.Errorf("reserved port: %q", got)
-	}
-	if got := reach(t, at(hosts)); strings.HasPrefix(got, "to ") {
-		t.Errorf("the host's port taken: %q", got)
-	}
-	// The VM's listener goes: so does its forward.
-	vm.report(t, procLine("0100007F", open))
-	eventually(t, at(gone), "refused")
-	eventually(t, at(open), "to "+at(open))
-	// The connection ends: every forward goes, then it's made again.
-	vm.drop()
-	<-vm.ready
-	eventually(t, at(open), "refused")
-	vm.report(t, procLine("00000000", open))
-	eventually(t, at(open), "to "+at(open))
-	// The VM no longer runs as it did (started again): it ends.
-	alive.Store(false)
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Error(err)
+	synctest.Test(t, func(t *testing.T) {
+		const open, v6only, reserved, hosts, gone = 5000, 5001, 5002, 5003, 5004
+		const every, tick = 10 * time.Second, 2 * time.Second
+		lo := &memLoopback{}
+		// The host's own program, on both addresses, which accepts nothing.
+		for _, a := range []string{"127.0.0.1", "::1"} {
+			if _, err := lo.Listen(net.JoinHostPort(a, strconv.Itoa(hosts))); err != nil {
+				t.Fatal(err)
+			}
 		}
-	case <-time.After(5 * time.Second):
-		t.Error("still running with its VM gone")
-	}
-	cancel()
-	eventually(t, at(open), "refused")
-	logMu.Lock()
-	defer logMu.Unlock()
-	for _, want := range []string{"forwarding devvm-f's ports", fmt.Sprintf("port %d: not forwarded", hosts), fmt.Sprintf("port %d: forwarded", open), "devvm-f stopped"} {
-		if !strings.Contains(log.String(), want) {
-			t.Errorf("log lacks %q:\n%s", want, log.String())
+		var alive atomic.Bool
+		alive.Store(true)
+		vm := &fakeVM{ready: make(chan struct{}, 4)}
+		var log bytes.Buffer
+		var logMu sync.Mutex
+		f := &Forwarder{
+			VM: "devvm-f", Tick: tick, Every: every, Log: lockedWriter{&logMu, &log},
+			Alive:    func(context.Context) bool { return alive.Load() },
+			Reserved: func() (map[int]bool, error) { return map[int]bool{reserved: true}, nil },
+			Watch:    vm.watch, Relay: echo, Listen: lo.listen,
 		}
-	}
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- f.Run(ctx) }()
+		<-vm.ready
+		vm.report(t,
+			procLine("0100007F", open), procLine("00000000000000000000000001000000", v6only),
+			procLine("00000000", reserved), procLine("00000000", hosts), procLine("00000000", gone),
+			procLine("00000000", 80), procLine("0100A8C0", 9999),
+		)
+		at := func(p int) string { return net.JoinHostPort("127.0.0.1", strconv.Itoa(p)) }
+		reach := func(addr, want string) {
+			t.Helper()
+			if got := lo.reach(addr); got != want {
+				t.Errorf("%s: %q, want %q", addr, got, want)
+			}
+		}
+		reach(at(open), "to "+at(open))
+		reach(net.JoinHostPort("::1", strconv.Itoa(open)), "to "+at(open))
+		reach(at(v6only), "to "+net.JoinHostPort("::1", strconv.Itoa(v6only)))
+		reach(at(gone), "to "+at(gone))
+		reach(at(reserved), "refused")
+		reach(at(80), "refused")
+		// The VM's listener goes: so does its forward.
+		vm.report(t, procLine("0100007F", open))
+		reach(at(gone), "refused")
+		reach(at(open), "to "+at(open))
+		// The connection ends: every forward goes, then, a tick later,
+		// it's made again.
+		vm.drop()
+		reach(at(open), "refused")
+		time.Sleep(tick)
+		<-vm.ready
+		vm.report(t, procLine("00000000", open))
+		reach(at(open), "to "+at(open))
+		// The VM no longer runs as it did (started again): it ends within
+		// Every.
+		alive.Store(false)
+		time.Sleep(every)
+		synctest.Wait()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		default:
+			t.Error("still running with its VM gone")
+		}
+		cancel()
+		reach(at(open), "refused")
+		logMu.Lock()
+		defer logMu.Unlock()
+		for _, want := range []string{"forwarding devvm-f's ports", fmt.Sprintf("port %d: not forwarded", hosts), fmt.Sprintf("port %d: forwarded", open), "devvm-f stopped"} {
+			if !strings.Contains(log.String(), want) {
+				t.Errorf("log lacks %q:\n%s", want, log.String())
+			}
+		}
+		// Only the host's program is left listening.
+		for _, l := range []int{open, v6only, gone} {
+			if lo.Listening(at(l)) || lo.Listening(net.JoinHostPort("::1", strconv.Itoa(l))) {
+				t.Errorf("port %d: still listened on", l)
+			}
+		}
+	})
 }
 
 // A VM that isn't running gets no forwarder; one whose connection ends
@@ -253,95 +283,105 @@ func TestForwarderAliveOnEnd(t *testing.T) {
 	if err := f.Run(t.Context()); err == nil {
 		t.Error("ran for a VM that isn't running")
 	}
-	var calls atomic.Int32
-	vm := &fakeVM{ready: make(chan struct{}, 4)}
-	f = &Forwarder{
-		VM: "devvm-f", Tick: time.Hour, Every: time.Hour, Log: io.Discard,
-		Alive:    func(context.Context) bool { return calls.Add(1) <= 2 },
-		Reserved: func() (map[int]bool, error) { return nil, nil },
-		Watch:    vm.watch, Listen: platform.ListenLoopback,
-	}
-	done := make(chan error, 1)
-	go func() { done <- f.Run(t.Context()) }()
-	<-vm.ready
-	vm.drop()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Error(err)
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		vm := &fakeVM{ready: make(chan struct{}, 4)}
+		f := &Forwarder{
+			VM: "devvm-f", Tick: time.Hour, Every: time.Hour, Log: io.Discard,
+			Alive:    func(context.Context) bool { return calls.Add(1) <= 2 },
+			Reserved: func() (map[int]bool, error) { return nil, nil },
+			Watch:    vm.watch, Listen: (&memLoopback{}).listen,
 		}
-	case <-time.After(5 * time.Second):
-		t.Error("still running with its connection ended and its VM gone")
-	}
+		done := make(chan error, 1)
+		go func() { done <- f.Run(t.Context()) }()
+		<-vm.ready
+		vm.drop()
+		synctest.Wait()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		default:
+			t.Error("still running with its connection ended and its VM gone")
+		}
+	})
 }
 
 // With Only (listed ports), the forwarder forwards those alone, below
 // 1024 too, and nothing else the VM listens on.
 func TestForwarderOnly(t *testing.T) {
-	ports := freePorts(t, 3)
-	listed, other, reserved := ports[0], ports[1], ports[2]
-	vm := &fakeVM{ready: make(chan struct{}, 4)}
-	f := &Forwarder{
-		VM: "devvm-f", Tick: 10 * time.Millisecond, Every: time.Hour, Log: io.Discard,
-		Only:     []backend.PortRange{{From: listed, To: listed}, {From: reserved, To: reserved}, {From: 80, To: 80}},
-		Alive:    func(context.Context) bool { return true },
-		Reserved: func() (map[int]bool, error) { return map[int]bool{reserved: true}, nil },
-		Watch:    vm.watch, Relay: echo, Listen: platform.ListenLoopback,
-		ports: map[int]*forward{}, skipped: map[int]failure{},
-	}
-	if !f.wanted(80) || f.wanted(other) || !f.wanted(listed) {
-		t.Error("wanted: not the listed ports alone")
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go func() { _ = f.Run(ctx) }()
-	<-vm.ready
-	vm.report(t, procLine("00000000", listed), procLine("00000000", other), procLine("00000000", reserved))
-	at := func(p int) string { return net.JoinHostPort("127.0.0.1", strconv.Itoa(p)) }
-	eventually(t, at(listed), "to "+at(listed))
-	if got := reach(t, at(other)); got != "refused" {
-		t.Errorf("an unlisted port: %q", got)
-	}
-	if got := reach(t, at(reserved)); got != "refused" {
-		t.Errorf("a listed port devvm reserves: %q", got)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		const listed, other, reserved = 5000, 5001, 5002
+		lo := &memLoopback{}
+		vm := &fakeVM{ready: make(chan struct{}, 4)}
+		f := &Forwarder{
+			VM: "devvm-f", Tick: time.Second, Every: time.Hour, Log: io.Discard,
+			Only:     []backend.PortRange{{From: listed, To: listed}, {From: reserved, To: reserved}, {From: 80, To: 80}},
+			Alive:    func(context.Context) bool { return true },
+			Reserved: func() (map[int]bool, error) { return map[int]bool{reserved: true}, nil },
+			Watch:    vm.watch, Relay: echo, Listen: lo.listen,
+			ports: map[int]*forward{}, skipped: map[int]failure{},
+		}
+		if !f.wanted(80) || f.wanted(other) || !f.wanted(listed) {
+			t.Error("wanted: not the listed ports alone")
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go func() { _ = f.Run(ctx) }()
+		<-vm.ready
+		vm.report(t, procLine("00000000", listed), procLine("00000000", other), procLine("00000000", reserved), procLine("00000000", 80))
+		at := func(p int) string { return net.JoinHostPort("127.0.0.1", strconv.Itoa(p)) }
+		for p, want := range map[int]string{listed: "to " + at(listed), 80: "to " + at(80), other: "refused", reserved: "refused"} {
+			if got := lo.reach(at(p)); got != want {
+				t.Errorf("port %d: %q, want %q", p, got, want)
+			}
+		}
+	})
 }
 
-// A VM that reports faster than Gap waits: reports are applied Gap apart.
+// A VM that reports faster than Gap waits: reports are applied Gap apart,
+// to the moment, on the bubble's clock.
 func TestForwarderGap(t *testing.T) {
-	vm := &fakeVM{ready: make(chan struct{}, 4)}
-	var mu sync.Mutex
-	var applied []time.Time
-	gap := 100 * time.Millisecond
-	f := &Forwarder{
-		VM: "devvm-f", Tick: 10 * time.Millisecond, Every: time.Hour, Gap: gap, Log: io.Discard,
-		Alive: func(context.Context) bool { return true },
-		Reserved: func() (map[int]bool, error) {
-			mu.Lock()
-			defer mu.Unlock()
-			applied = append(applied, time.Now())
-			return nil, nil
-		},
-		Watch: vm.watch, Listen: platform.ListenLoopback,
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go func() { _ = f.Run(ctx) }()
-	<-vm.ready
-	for range 5 {
-		vm.report(t)
-	}
-	time.Sleep(gap)
-	mu.Lock()
-	defer mu.Unlock()
-	if len(applied) < 4 {
-		t.Fatalf("%d reports applied", len(applied))
-	}
-	for i := 1; i < len(applied); i++ {
-		if d := applied[i].Sub(applied[i-1]); d < gap-10*time.Millisecond {
-			t.Errorf("reports %d and %d applied %v apart", i-1, i, d)
+	synctest.Test(t, func(t *testing.T) {
+		vm := &fakeVM{ready: make(chan struct{}, 4)}
+		var mu sync.Mutex
+		var applied []time.Time
+		const gap = 500 * time.Millisecond
+		f := &Forwarder{
+			VM: "devvm-f", Tick: time.Second, Every: time.Hour, Gap: gap, Log: io.Discard,
+			Alive: func(context.Context) bool { return true },
+			Reserved: func() (map[int]bool, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				applied = append(applied, time.Now())
+				return nil, nil
+			},
+			Watch: vm.watch, Listen: (&memLoopback{}).listen,
 		}
-	}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go func() { _ = f.Run(ctx) }()
+		<-vm.ready
+		start := time.Now()
+		for range 5 {
+			vm.report(t)
+		}
+		time.Sleep(gap)
+		synctest.Wait()
+		mu.Lock()
+		defer mu.Unlock()
+		if len(applied) != 5 {
+			t.Fatalf("%d reports applied", len(applied))
+		}
+		for i, at := range applied {
+			// The first at once; each after it, as the VM sent them all at
+			// once, Gap after the one before.
+			if want := start.Add(time.Duration(i) * gap); !at.Equal(want) {
+				t.Errorf("report %d applied at %v, want %v", i, at.Sub(start), want.Sub(start))
+			}
+		}
+	})
 }
 
 // What the VM makes the forwarder log is limited: a burst, then one write
@@ -426,77 +466,95 @@ func TestForwarderReservedLater(t *testing.T) {
 // quiet. The forwarder notes it forwards nothing when it starts, then each
 // change.
 func TestForwarderGivesUpSilently(t *testing.T) {
-	p := freePorts(t, 1)[0]
-	vm := &fakeVM{ready: make(chan struct{}, 4)}
-	var mu sync.Mutex
-	reserved := map[int]bool{}
-	var notes [][]int
-	f := &Forwarder{
-		VM: "devvm-f", Tick: 10 * time.Millisecond, Every: 20 * time.Millisecond, Log: io.Discard,
-		Alive: func(context.Context) bool { return true },
-		Reserved: func() (map[int]bool, error) {
-			mu.Lock()
-			defer mu.Unlock()
-			return maps.Clone(reserved), nil
-		},
-		Note: func(ports []int, _ failedPorts) {
-			mu.Lock()
-			defer mu.Unlock()
-			notes = append(notes, ports)
-		},
-		Watch: vm.watch, Relay: echo, Listen: platform.ListenLoopback,
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go func() { _ = f.Run(ctx) }()
-	<-vm.ready
-	vm.report(t, procLine("00000000", p))
-	at := net.JoinHostPort("127.0.0.1", strconv.Itoa(p))
-	eventually(t, at, "to "+at)
-	// Another VM now lists it; the VM says nothing more.
-	mu.Lock()
-	reserved[p] = true
-	mu.Unlock()
-	eventually(t, at, "refused")
-	mu.Lock()
-	defer mu.Unlock()
-	if !slices.EqualFunc(notes, [][]int{nil, {p}, {}}, slices.Equal) {
-		t.Errorf("noted %v", notes)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		const p, every = 5000, 10 * time.Second
+		lo := &memLoopback{}
+		vm := &fakeVM{ready: make(chan struct{}, 4)}
+		var mu sync.Mutex
+		reserved := map[int]bool{}
+		var notes [][]int
+		f := &Forwarder{
+			VM: "devvm-f", Tick: time.Second, Every: every, Log: io.Discard,
+			Alive: func(context.Context) bool { return true },
+			Reserved: func() (map[int]bool, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				return maps.Clone(reserved), nil
+			},
+			Note: func(ports []int, _ failedPorts) {
+				mu.Lock()
+				defer mu.Unlock()
+				notes = append(notes, ports)
+			},
+			Watch: vm.watch, Relay: echo, Listen: lo.listen,
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go func() { _ = f.Run(ctx) }()
+		<-vm.ready
+		vm.report(t, procLine("00000000", p))
+		at := net.JoinHostPort("127.0.0.1", strconv.Itoa(p))
+		if got := lo.reach(at); got != "to "+at {
+			t.Fatalf("forwarded: %q", got)
+		}
+		// Another VM now lists it; the VM says nothing more. It goes at the
+		// next recheck, Every at most.
+		mu.Lock()
+		reserved[p] = true
+		mu.Unlock()
+		time.Sleep(every)
+		if got := lo.reach(at); got != "refused" {
+			t.Errorf("a reserved port a recheck on: %q", got)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if !slices.EqualFunc(notes, [][]int{nil, {p}, {}}, slices.Equal) {
+			t.Errorf("noted %v", notes)
+		}
+	})
 }
 
 // A forward that goes takes its connections with it: a browser's
 // keep-alive connection, opened while the forward was up, ends when the
-// port is given up, so its later requests never reach this VM.
+// port is given up, so its later requests never reach this VM. Its relay
+// ends with it, though the VM never ends its channel: its ssh is killed,
+// and its slot is free again.
 func TestForwarderClosesConnections(t *testing.T) {
-	p := freePorts(t, 1)[0]
-	var reserved map[int]bool
-	accepted := make(chan struct{}, 1)
-	f := &Forwarder{
-		VM: "devvm-f", Log: io.Discard, ports: map[int]*forward{}, skipped: map[int]failure{}, relays: make(chan struct{}, maxRelays),
-		Reserved: func() (map[int]bool, error) { return reserved, nil },
-		Relay: func(_ context.Context, conn net.Conn, _ string, _ int) {
-			accepted <- struct{}{}
-			_, _ = io.Copy(io.Discard, conn) // until it's closed
-			_ = conn.Close()
-		},
-		Listen: platform.ListenLoopback,
-	}
-	defer f.closeAll()
-	f.apply(t.Context(), map[int]string{p: "127.0.0.1"})
-	d := net.Dialer{Timeout: time.Second}
-	c, err := d.DialContext(t.Context(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = c.Close() }()
-	<-accepted
-	reserved = map[int]bool{p: true}
-	f.release()
-	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
-	if _, err := c.Read(make([]byte, 1)); !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
-		t.Errorf("a connection accepted before the forward went: %v", err)
-	}
+	leaktest.Check(t)
+	synctest.Test(t, func(t *testing.T) {
+		const p = 5000
+		lo := &memLoopback{}
+		ssh := &memSSH{vm: vmSilent}
+		var reserved map[int]bool
+		f := &Forwarder{
+			VM: "devvm-f", Log: io.Discard, ports: map[int]*forward{}, skipped: map[int]failure{}, relays: make(chan struct{}, maxRelays),
+			Reserved: func() (map[int]bool, error) { return reserved, nil },
+			Relay: func(ctx context.Context, conn net.Conn, _ string, _ int) {
+				sshRelay{grace: relayGrace, start: ssh.start}.carry(ctx, conn, nil)
+			},
+			Listen: lo.listen,
+		}
+		defer f.closeAll()
+		f.apply(t.Context(), map[int]string{p: "127.0.0.1"})
+		c, err := lo.Dial(net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = c.Close() }()
+		synctest.Wait()
+		if ssh.running() != 1 || len(f.relays) != 1 {
+			t.Fatalf("relayed: %d ssh, %d slots", ssh.running(), len(f.relays))
+		}
+		reserved = map[int]bool{p: true}
+		f.release()
+		if _, err := c.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+			t.Errorf("a connection accepted before the forward went: %v", err)
+		}
+		synctest.Wait()
+		if ssh.running() != 0 || len(f.relays) != 0 {
+			t.Errorf("once the forward went: %d ssh, %d slots", ssh.running(), len(f.relays))
+		}
+	})
 }
 
 // The forwarder records why it couldn't take each port: a program's

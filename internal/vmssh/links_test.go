@@ -13,14 +13,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
-	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/leaktest"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
@@ -270,25 +270,34 @@ func (f *fakeLinks) newLinks(t *testing.T) *Links {
 	}
 }
 
+// memLinks is newLinks with its links' sockets in memory (lo), for a
+// session in a synctest bubble.
+func (f *fakeLinks) memLinks(t *testing.T) (*Links, *memLoopback) {
+	l := f.newLinks(t)
+	lo := &memLoopback{}
+	l.Listen = lo.listen
+	return l, lo
+}
+
+// within waits, in a synctest bubble, for cond, for at most d of the
+// bubble's time, then fails the test.
+func within(t *testing.T, d time.Duration, what string, cond func() bool) {
+	t.Helper()
+	for end := time.Now().Add(d); ; time.Sleep(time.Millisecond) {
+		synctest.Wait()
+		if cond() {
+			return
+		}
+		if !time.Now().Before(end) {
+			t.Fatalf("waited %s for %s", d, what)
+		}
+	}
+}
+
 func (f *fakeLinks) setWant(ls ...Link) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.want = ls
-}
-
-// dial connects to a link's socket and returns what comes back: "" for a
-// connection closed without a word, "refused" for none.
-func dial(t *testing.T, sock string) string {
-	t.Helper()
-	d := net.Dialer{Timeout: time.Second}
-	c, err := d.DialContext(t.Context(), "unix", sock)
-	if err != nil {
-		return "refused"
-	}
-	defer func() { _ = c.Close() }()
-	_ = c.SetDeadline(time.Now().Add(2 * time.Second))
-	line, _ := bufio.NewReader(c).ReadString('\n')
-	return strings.TrimSpace(line)
 }
 
 // dialMany makes n connections to a link's socket, one after another,
@@ -352,12 +361,17 @@ func (f *fakeLinks) snap(of *[][]string) [][]string {
 // alone; refusals carry nothing; a link that's gone is cancelled and its
 // socket removed; with no links left, the session ends.
 func TestLinks(t *testing.T) {
+	leaktest.Check(t)
+	synctest.Test(t, testLinks)
+}
+
+func testLinks(t *testing.T) {
 	a := netip.MustParseAddr
 	db := Link{Name: "db", Target: "devvm-db-0123456789abcd", Addr: a("127.77.0.1"), Port: 5432}
 	cache := Link{Name: "db", Target: db.Target, Addr: a("127.77.0.1"), Port: 6379}
 	api := Link{Name: "api", Target: "devvm-api-0123456789abcd", Addr: a("127.77.0.2"), Port: 80}
 	f := &fakeLinks{}
-	l := f.newLinks(t)
+	l, lo := f.memLinks(t)
 	f.taken = map[string]bool{"127.77.0.2:80": true}
 	start := "s1"
 	why := map[int]string{}
@@ -376,7 +390,7 @@ func TestLinks(t *testing.T) {
 	f.setWant(db, cache, api)
 	done := make(chan error, 1)
 	go func() { done <- l.Run(t.Context()) }()
-	waitFor(t, "the links", func() bool { return f.count(&f.commands) == 3 })
+	within(t, time.Second, "the links", func() bool { return f.count(&f.commands) == 3 })
 	session := l.Control("", "")
 	if s := f.snap(&f.starts)[0]; s[slices.Index(s, "-S")+1] != session || !slices.Contains(s, "ClearAllForwardings=yes") {
 		t.Errorf("the session's master: %q", s)
@@ -386,34 +400,23 @@ func TestLinks(t *testing.T) {
 			t.Errorf("a forward: %q", c)
 		}
 	}
-	// A link is marked failed after its forward command returns, so wait for it.
-	waitFor(t, "api failed", func() bool {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		return len(f.failed) > 0
-	})
 	f.mu.Lock()
 	if !slices.Equal(f.failed, []string{"api"}) {
 		t.Errorf("failed: %q", f.failed)
 	}
 	f.mu.Unlock()
-	if got := dial(t, l.Socket(api)); got != "refused" {
+	if got := lo.reach(l.Socket(api)); got != "refused" {
 		t.Errorf("api's socket: %q", got)
 	}
 	ctl := filepath.Base(l.Control(db.Target, "s1"))
-	if got := dial(t, l.Socket(db)); got != "127.0.0.1:5432 via "+ctl {
+	if got := lo.reach(l.Socket(db)); got != "127.0.0.1:5432 via "+ctl {
 		t.Errorf("db: %q", got)
 	}
-	if got := dial(t, l.Socket(cache)); got != "127.0.0.1:6379 via "+ctl {
+	if got := lo.reach(l.Socket(cache)); got != "127.0.0.1:6379 via "+ctl {
 		t.Errorf("cache: %q", got)
 	}
 	if n := f.count(&f.starts); n != 2 {
 		t.Errorf("%d masters for one target's start", n-1)
-	}
-	for _, s := range []string{l.Socket(db), l.Socket(cache)} {
-		if fi, err := os.Lstat(s); err != nil || fi.Mode().Perm() != 0o600 {
-			t.Errorf("%s: %v, %v", s, fi, err)
-		}
 	}
 
 	// Refused: each with why, nothing carried.
@@ -421,10 +424,10 @@ func TestLinks(t *testing.T) {
 	why[5432], why[6379] = "unpublished", "stopped"
 	f.mu.Unlock()
 	relays := f.count(&f.relays)
-	if got := dial(t, l.Socket(db)); got != "" {
+	if got := lo.reach(l.Socket(db)); got != "" {
 		t.Errorf("unpublished: %q", got)
 	}
-	if got := dial(t, l.Socket(cache)); got != "" {
+	if got := lo.reach(l.Socket(cache)); got != "" {
 		t.Errorf("stopped: %q", got)
 	}
 	if n := f.count(&f.relays); n != relays {
@@ -437,46 +440,58 @@ func TestLinks(t *testing.T) {
 	why, start = map[int]string{}, "s2"
 	f.mu.Unlock()
 	ctl2 := filepath.Base(l.Control(db.Target, "s2"))
-	if got := dial(t, l.Socket(db)); got != "127.0.0.1:5432 via "+ctl2 {
+	if got := lo.reach(l.Socket(db)); got != "127.0.0.1:5432 via "+ctl2 {
 		t.Errorf("after a restart: %q", got)
 	}
 	f.mu.Lock()
 	close(f.drop[l.Control(db.Target, "s2")])
 	f.mu.Unlock()
-	waitFor(t, "the master's end", func() bool {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		return l.masters[db.Target].dead()
-	})
-	if got := dial(t, l.Socket(db)); got != "127.0.0.1:5432 via "+ctl2 {
+	synctest.Wait()
+	l.mu.Lock()
+	if !l.masters[db.Target].dead() {
+		t.Error("a master whose ssh ended isn't dead")
+	}
+	l.mu.Unlock()
+	if got := lo.reach(l.Socket(db)); got != "127.0.0.1:5432 via "+ctl2 {
 		t.Errorf("after its master ended: %q", got)
 	}
 	if n := f.count(&f.starts); n != 4 {
 		t.Errorf("%d masters, want 4", n)
 	}
 
-	// cache goes: cancelled through the session, its socket removed.
+	// cache goes, at the next sync: cancelled through the session, its
+	// socket removed.
 	f.setWant(db, api)
-	waitFor(t, "the cancel", func() bool { return f.count(&f.commands) == 4 })
+	time.Sleep(l.Sync)
+	synctest.Wait()
+	if n := f.count(&f.commands); n != 4 {
+		t.Fatalf("%d commands a sync on, want 4", n)
+	}
 	if c := f.snap(&f.commands)[3]; c[slices.Index(c, "-O")+1] != "cancel" || !slices.Contains(c, "127.77.0.1:6379:"+l.Socket(cache)) {
 		t.Errorf("the cancel: %q", c)
 	}
-	waitFor(t, "the socket's removal", func() bool { _, err := os.Lstat(l.Socket(cache)); return err != nil })
+	if lo.Listening(l.Socket(cache)) {
+		t.Error("cache's socket stays")
+	}
+	time.Sleep(10 * l.Sync)
+	synctest.Wait()
 	if n := f.count(&f.commands); n != 4 {
 		t.Errorf("api tried again: %d commands", n)
 	}
 
 	f.setWant()
+	time.Sleep(l.Sync)
+	synctest.Wait()
 	select {
 	case err := <-done:
 		if err != nil {
 			t.Errorf("Run: %v", err)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("no links, yet it runs")
+	default:
+		t.Fatal("no links a sync on, yet it runs")
 	}
-	if _, err := os.Lstat(l.Socket(db)); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("db's socket stays: %v", err)
+	if lo.Listening(l.Socket(db)) {
+		t.Error("db's socket stays")
 	}
 	wantEvents := []string{"link db", "link db", "link_refused db unpublished", "link_target_stopped db stopped", "link db", "link db"}
 	f.mu.Lock()
@@ -489,77 +504,94 @@ func TestLinks(t *testing.T) {
 // The session's connection made again once it's lost, its links with it;
 // once the client no longer runs as it did, the session ends.
 func TestLinksSessionLost(t *testing.T) {
-	db := Link{Name: "db", Target: "devvm-db-0123456789abcd", Addr: netip.MustParseAddr("127.77.0.1"), Port: 5432}
-	f := &fakeLinks{}
-	l := f.newLinks(t)
-	var alive sync.Mutex
-	up := true
-	l.Alive = func(context.Context) bool { alive.Lock(); defer alive.Unlock(); return up }
-	f.target = func(Link) (LinkTarget, string, string) { return LinkTarget{}, EventLinkRefused, "x" }
-	f.setWant(db)
-	done := make(chan error, 1)
-	go func() { done <- l.Run(t.Context()) }()
-	waitFor(t, "the link", func() bool { return f.count(&f.commands) == 1 })
-	f.mu.Lock()
-	close(f.drop[l.Control("", "")])
-	f.mu.Unlock()
-	waitFor(t, "the link again", func() bool { return f.count(&f.commands) == 2 })
-	alive.Lock()
-	up = false
-	alive.Unlock()
-	f.mu.Lock()
-	close(f.drop[l.Control("", "")])
-	f.mu.Unlock()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Errorf("Run: %v", err)
+	synctest.Test(t, func(t *testing.T) {
+		db := Link{Name: "db", Target: "devvm-db-0123456789abcd", Addr: netip.MustParseAddr("127.77.0.1"), Port: 5432}
+		f := &fakeLinks{}
+		l, lo := f.memLinks(t)
+		var alive atomic.Bool
+		alive.Store(true)
+		l.Alive = func(context.Context) bool { return alive.Load() }
+		f.target = func(Link) (LinkTarget, string, string) { return LinkTarget{}, EventLinkRefused, "x" }
+		f.setWant(db)
+		done := make(chan error, 1)
+		go func() { done <- l.Run(t.Context()) }()
+		within(t, time.Second, "the link", func() bool { return f.count(&f.commands) == 1 })
+		f.mu.Lock()
+		close(f.drop[l.Control("", "")])
+		f.mu.Unlock()
+		// Made again a tick later.
+		synctest.Wait()
+		if lo.Listening(l.Socket(db)) {
+			t.Error("the link's socket stays with its session gone")
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("the client stopped, yet it runs")
-	}
-	if _, err := os.Lstat(l.Socket(db)); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("the socket stays: %v", err)
-	}
-	l.Alive = func(context.Context) bool { return false }
-	if err := l.Run(t.Context()); err == nil {
-		t.Error("a client that doesn't run: no error")
-	}
+		within(t, l.Tick+time.Second, "the link again", func() bool { return f.count(&f.commands) == 2 })
+		alive.Store(false)
+		f.mu.Lock()
+		close(f.drop[l.Control("", "")])
+		f.mu.Unlock()
+		synctest.Wait()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("Run: %v", err)
+			}
+		default:
+			t.Fatal("the client stopped, yet it runs")
+		}
+		if lo.Listening(l.Socket(db)) {
+			t.Error("the socket stays")
+		}
+		l.Alive = func(context.Context) bool { return false }
+		if err := l.Run(t.Context()); err == nil {
+			t.Error("a client that doesn't run: no error")
+		}
+	})
 }
 
 // At most maxLinkConns connections at once: the next is refused and
 // logged, and one goes once another ends.
 func TestLinksCap(t *testing.T) {
-	db := Link{Name: "db", Target: "devvm-db-0123456789abcd", Addr: netip.MustParseAddr("127.77.0.1"), Port: 5432}
-	f := &fakeLinks{hold: make(chan struct{})}
-	l := f.newLinks(t)
-	f.target = func(lk Link) (LinkTarget, string, string) {
-		return LinkTarget{SSH: SSH{VM: lk.Target, User: "u", Key: "/k2", KnownHosts: "/kh", Port: 62022}, Start: "s"}, "", ""
-	}
-	f.setWant(db)
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- l.Run(ctx) }()
-	defer func() {
-		cancel()
-		if err := <-done; err != nil {
-			t.Errorf("Run: %v", err)
+	leaktest.Check(t)
+	synctest.Test(t, func(t *testing.T) {
+		db := Link{Name: "db", Target: "devvm-db-0123456789abcd", Addr: netip.MustParseAddr("127.77.0.1"), Port: 5432}
+		f := &fakeLinks{hold: make(chan struct{})}
+		l, lo := f.memLinks(t)
+		f.target = func(lk Link) (LinkTarget, string, string) {
+			return LinkTarget{SSH: SSH{VM: lk.Target, User: "u", Key: "/k2", KnownHosts: "/kh", Port: 62022}, Start: "s"}, "", ""
 		}
-	}()
-	waitFor(t, "the link", func() bool { _, err := os.Lstat(l.Socket(db)); return err == nil })
-	dialMany(t, l.Socket(db), maxLinkConns)
-	waitFor(t, "every relay", func() bool { return f.count(&f.relays) == maxLinkConns })
-	if got := dial(t, l.Socket(db)); got != "" {
-		t.Errorf("one past the cap: %q", got)
-	}
-	f.mu.Lock()
-	limit := slices.Contains(f.events, "link_limit db 256")
-	f.mu.Unlock()
-	if !limit {
-		t.Error("the refusal isn't logged")
-	}
-	close(f.hold)
-	waitFor(t, "a free slot", func() bool { return dial(t, l.Socket(db)) != "" })
+		f.setWant(db)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- l.Run(ctx) }()
+		defer func() {
+			cancel()
+			if err := <-done; err != nil {
+				t.Errorf("Run: %v", err)
+			}
+		}()
+		within(t, time.Second, "the link", func() bool { return lo.Listening(l.Socket(db)) })
+		for i := range maxLinkConns {
+			c, err := lo.Dial(l.Socket(db))
+			if err != nil {
+				t.Fatalf("connection %d: %v", i+1, err)
+			}
+			defer func() { _ = c.Close() }()
+		}
+		within(t, time.Second, "every relay", func() bool { return f.count(&f.relays) == maxLinkConns })
+		if got := lo.reach(l.Socket(db)); got != "" {
+			t.Errorf("one past the cap: %q", got)
+		}
+		f.mu.Lock()
+		limit := slices.Contains(f.events, "link_limit db 256")
+		f.mu.Unlock()
+		if !limit {
+			t.Error("the refusal isn't logged")
+		}
+		close(f.hold)
+		if got := lo.reach(l.Socket(db)); got == "" {
+			t.Error("no slot once the relays ended")
+		}
+	})
 }
 
 // A burst of connections, made one after another as fast as the client's
@@ -619,47 +651,27 @@ func TestLinksBurst(t *testing.T) {
 	}
 }
 
-// stuckSSH puts an ssh stand-in first on PATH that never exits on its
-// own, as a relay's ssh whose channel the target never ends, and returns
-// how to read the pids of those that started, in order. Any still running
-// when the test ends are killed.
-func stuckSSH(t *testing.T) func() []int {
-	t.Helper()
-	pids := filepath.Join(t.TempDir(), "pids")
-	fakeSSH(t, "echo $$ >> "+pids+"\nexec sleep 600")
-	read := func() []int {
-		b, _ := os.ReadFile(pids) //nolint:gosec // gosec G304: the test's own temp file
-		var started []int
-		for f := range strings.FieldsSeq(string(b)) {
-			if pid, err := strconv.Atoi(f); err == nil {
-				started = append(started, pid)
-			}
-		}
-		return started
-	}
-	t.Cleanup(func() {
-		for _, pid := range read() {
-			if daemon.Alive(pid) {
-				_ = daemon.Signal(pid, syscall.SIGKILL)
-			}
-		}
-	})
-	return read
-}
-
 // A relay whose target never ends its channel (a VM whose sshd ignores
 // EOF) still ends when its link is removed, or when its target's master
 // is replaced (the target started again): its ssh is killed and its slot
 // is free again, so a target can't keep the session's relays by holding
-// them open.
+// them open. Each step's end is checked at the moment it happens, on the
+// bubble's clock.
 func TestLinksEndStuckRelays(t *testing.T) {
+	// Nothing of the session's is left once it ends: every relay's
+	// goroutines, and the stand-in's pipes, are gone.
+	leaktest.Check(t)
+	synctest.Test(t, testLinksEndStuckRelays)
+}
+
+func testLinksEndStuckRelays(t *testing.T) {
 	a := netip.MustParseAddr
 	db := Link{Name: "db", Target: "devvm-db-0123456789abcd", Addr: a("127.77.0.1"), Port: 5432}
 	api := Link{Name: "api", Target: "devvm-api-0123456789abcd", Addr: a("127.77.0.2"), Port: 80}
-	pids := stuckSSH(t)
+	ssh := &memSSH{vm: vmSilent}
 	f := &fakeLinks{}
-	l := f.newLinks(t)
-	l.Relay = pipeSSH
+	l, lo := f.memLinks(t)
+	l.Relay = sshRelay{grace: relayGrace, start: ssh.start}.carry
 	start := "s1"
 	f.target = func(lk Link) (LinkTarget, string, string) {
 		f.mu.Lock()
@@ -667,9 +679,6 @@ func TestLinksEndStuckRelays(t *testing.T) {
 		return LinkTarget{SSH: SSH{VM: lk.Target, User: "u", Key: "/k2", KnownHosts: "/kh", Port: 62022}, Start: start}, "", ""
 	}
 	f.setWant(db, api)
-	// Nothing of the session's is left once it ends: every relay's
-	// goroutines, and the stand-in's pipes, are gone.
-	leaktest.Check(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- l.Run(ctx) }()
@@ -680,31 +689,45 @@ func TestLinksEndStuckRelays(t *testing.T) {
 		}
 	}()
 	for _, lk := range []Link{db, api} {
-		waitFor(t, lk.Name+"'s socket", func() bool { _, err := os.Lstat(l.Socket(lk)); return err == nil })
+		within(t, time.Second, lk.Name+"'s socket", func() bool { return lo.Listening(l.Socket(lk)) })
 	}
-	// l.conns was made before the first Check, which the test follows
-	// through f.mu.
-	slots := func() int { return len(l.conns) }
+	// connect leaves a connection to sock open, carried once the bubble
+	// has done what it can, until the test ends.
+	connect := func(sock string) {
+		t.Helper()
+		n := ssh.count()
+		c, err := lo.Dial(sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		within(t, time.Second, "the relay", func() bool { return ssh.count() == n+1 })
+	}
+	check := func(what string, started, running, slots int) {
+		t.Helper()
+		synctest.Wait()
+		if ssh.count() != started || ssh.running() != running || len(l.conns) != slots {
+			t.Errorf("%s: %d ssh started, %d running, %d slots; want %d, %d, %d", what, ssh.count(), ssh.running(), len(l.conns), started, running, slots)
+		}
+	}
 
-	// db's link removed: its relay ends, though api's link stays.
-	dialMany(t, l.Socket(db), 1)
-	waitFor(t, "db's ssh", func() bool { return len(pids()) == 1 })
+	// db's link removed: its relay ends at the next sync, though api's
+	// link stays.
+	connect(l.Socket(db))
+	check("db's relay", 1, 1, 1)
 	f.setWant(api)
-	waitFor(t, "db's ssh to end", func() bool { return !daemon.Alive(pids()[0]) })
-	waitFor(t, "db's slot", func() bool { return slots() == 0 })
+	time.Sleep(l.Sync)
+	check("db's link removed", 1, 0, 0)
 
 	// api's target started again: the next connection gets a master of
 	// its own, and the old master's relay ends with it.
-	dialMany(t, l.Socket(api), 1)
-	waitFor(t, "api's ssh", func() bool { return len(pids()) == 2 })
+	connect(l.Socket(api))
 	f.mu.Lock()
 	start = "s2"
 	f.mu.Unlock()
-	dialMany(t, l.Socket(api), 1)
-	waitFor(t, "api's second ssh", func() bool { return len(pids()) == 3 })
-	waitFor(t, "api's first ssh to end", func() bool { return !daemon.Alive(pids()[1]) })
-	waitFor(t, "api's first slot", func() bool { return slots() == 1 })
-	if !daemon.Alive(pids()[2]) {
+	connect(l.Socket(api))
+	check("api's target started again", 3, 1, 1)
+	if !ssh.alive(2) {
 		t.Error("the new master's relay ended too")
 	}
 
@@ -714,10 +737,10 @@ func TestLinksEndStuckRelays(t *testing.T) {
 	other := api
 	other.Target = "devvm-web-0123456789abcd"
 	f.setWant(other)
-	waitFor(t, "the old target's ssh to end", func() bool { return !daemon.Alive(pids()[2]) })
-	waitFor(t, "its slot", func() bool { return slots() == 0 })
-	dialMany(t, l.Socket(other), 1)
-	waitFor(t, "the new target's ssh", func() bool { return len(pids()) == 4 })
+	time.Sleep(l.Sync)
+	check("api's target changed", 3, 0, 0)
+	connect(l.Socket(other))
+	check("the new target", 4, 1, 1)
 	if args := f.snap(&f.starts); !slices.ContainsFunc(args, func(a []string) bool {
 		return slices.Contains(a, l.Control(other.Target, "s2"))
 	}) {
@@ -784,12 +807,14 @@ func TestLinksCarryCut(t *testing.T) {
 // not: each with its names, address, port, target and socket, mode 600,
 // written again when they change or the file goes, and empty once the
 // client has none; a list an earlier session left is replaced.
-func TestLinksList(t *testing.T) {
+func TestLinksList(t *testing.T) { synctest.Test(t, testLinksList) }
+
+func testLinksList(t *testing.T) {
 	a := netip.MustParseAddr
 	db := Link{Name: "db", Target: "devvm-db-0123456789abcd", Addr: a("127.77.0.1"), Port: 5432, Hosts: []string{"db", "db.devvm.internal"}}
 	api := Link{Name: "api", Target: "devvm-api-0123456789abcd", Addr: a("127.77.0.2"), Port: 80, Hosts: []string{"api", "api.devvm.internal"}}
 	f := &fakeLinks{}
-	l := f.newLinks(t)
+	l, lo := f.memLinks(t)
 	l.List = filepath.Join(l.Dir, l.VM.String()+".links.json")
 	f.taken["127.77.0.2:80"] = true
 	f.target = func(lk Link) (LinkTarget, string, string) {
@@ -814,15 +839,15 @@ func TestLinksList(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- l.Run(ctx) }()
-	waitFor(t, "the links listed", func() bool { list, _ := read(); return len(list.Links) == 2 })
-	waitFor(t, "db carried", func() bool { return dial(t, l.Socket(db)) != "refused" })
+	within(t, time.Second, "the links listed", func() bool { list, _ := read(); return len(list.Links) == 2 })
+	within(t, time.Second, "db carried", func() bool { return lo.reach(l.Socket(db)) != "refused" })
 	// api listens on its socket before the client refuses it, and closes
 	// it after: its refusal is told once the socket is gone.
-	waitFor(t, "api refused", func() bool {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		return slices.Contains(f.failed, "api")
-	})
+	f.mu.Lock()
+	if !slices.Contains(f.failed, "api") {
+		t.Error("api not refused")
+	}
+	f.mu.Unlock()
 	list, mode := read()
 	want := []proxy.LinkEntry{
 		{Hosts: db.Hosts, Addr: "127.77.0.1", Port: 5432, Target: db.Target, Socket: l.Socket(db)},
@@ -833,29 +858,32 @@ func TestLinksList(t *testing.T) {
 	if list.Version != proxy.LinkListVersion || !reflect.DeepEqual(list.Links, want) || mode != 0o600 {
 		t.Errorf("the list: %+v, mode %v; want %+v", list, mode, want)
 	}
-	if _, err := os.Lstat(l.Socket(api)); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("api's socket: %v", err)
+	if lo.Listening(l.Socket(api)) {
+		t.Error("api's socket stays")
 	}
 	if want[0].Socket != proxy.LinkSocket(l.Dir, l.VM, db.Addr, db.Port) {
 		t.Errorf("the socket isn't the one the proxy expects: %s", want[0].Socket)
 	}
-	// Removed by something else, it's written again.
+	// Removed by something else, it's written again at the next sync.
 	if err := os.Remove(l.List); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the list again", func() bool { list, _ := read(); return len(list.Links) == 2 })
+	time.Sleep(l.Sync)
+	synctest.Wait()
+	if list, _ := read(); len(list.Links) != 2 {
+		t.Errorf("a sync after its removal, the list: %+v", list)
+	}
 	f.setWant()
-	waitFor(t, "the session's end", func() bool {
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("Run: %v", err)
-			}
-			return true
-		default:
-			return false
+	time.Sleep(l.Sync)
+	synctest.Wait()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Run: %v", err)
 		}
-	})
+	default:
+		t.Error("no links a sync on, yet it runs")
+	}
 	cancel()
 	if list, _ := read(); list.Version != proxy.LinkListVersion || len(list.Links) != 0 {
 		t.Errorf("the list once the client has no links: %+v", list)

@@ -205,16 +205,30 @@ func layerCases() []ruleCase {
 		{
 			name:  "leaktest outside tests",
 			files: map[string]string{"internal/vm/a.go": imports("vm", "internal/leaktest")},
-			want:  &want{ruleLayers, "stubtest and leaktest are for tests"},
+			want:  &want{ruleLayers, "stubtest, leaktest and memnet are for tests"},
 		},
 		{
 			name:  "leaktest in a test",
 			files: map[string]string{"internal/proxy/a_test.go": imports("proxy", "internal/leaktest")},
 		},
 		{
+			name:  "memnet outside tests",
+			files: map[string]string{"internal/vmssh/a.go": imports("vmssh", "internal/memnet")},
+			want:  &want{ruleLayers, "stubtest, leaktest and memnet are for tests"},
+		},
+		{
+			name:  "memnet in a test",
+			files: map[string]string{"internal/proxy/a_test.go": imports("proxy", "internal/memnet")},
+		},
+		{
+			name:  "memnet importing devvm's",
+			files: map[string]string{"internal/memnet/a.go": imports("memnet", "internal/leaktest")},
+			want:  &want{ruleLayers, "leaves import nothing of devvm's"},
+		},
+		{
 			name:  "stubtest outside tests",
 			files: map[string]string{"internal/vm/a.go": imports("vm", "internal/stubtest")},
-			want:  &want{ruleLayers, "stubtest and leaktest are for tests"},
+			want:  &want{ruleLayers, "stubtest, leaktest and memnet are for tests"},
 		},
 		{
 			name:  "stubtest in a test",

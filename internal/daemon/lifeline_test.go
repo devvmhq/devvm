@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -70,68 +71,91 @@ func TestLifelineHolds(t *testing.T) {
 // that runs, as a proxy started before its VM does: past what the file
 // held when it first looked (an earlier start's), but not past a new
 // start's whose process is already gone (a VM that stopped between two
-// looks). With no wait it looks once.
+// looks). With no wait it looks once. Each look is a tick apart on the
+// bubble's clock, so each step ends at the look it's due: the test's own
+// process stands for one that runs, and ended ones' pids, from before the
+// bubble, for those gone.
 func TestFollowLifeline(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "ha.pid")
-	if _, ok := FollowLifeline(path, 0, time.Millisecond); ok {
-		t.Error("none: followed")
-	}
-	start := time.Now()
-	if _, ok := FollowLifeline(path, 100*time.Millisecond, 10*time.Millisecond); ok || time.Since(start) < 80*time.Millisecond {
-		t.Errorf("none: followed %v, after %v", ok, time.Since(start))
-	}
-	// An earlier start's, then this one's.
-	write(t, path, strconv.Itoa(gone(t))+"\n")
-	got := make(chan Lifeline, 1)
-	go func() {
-		l, _ := FollowLifeline(path, 10*time.Second, 10*time.Millisecond)
-		got <- l
-	}()
-	time.Sleep(50 * time.Millisecond)
-	select {
-	case l := <-got:
-		t.Fatalf("followed an earlier start's: %+v", l)
-	default:
-	}
-	h, err := Spawn(Cmd{Path: "sleep", Args: []string{"30"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer h.Stop(time.Second)
-	write(t, path, strconv.Itoa(h.PID())+"\n")
-	select {
-	case l := <-got:
-		if l.Life != strconv.Itoa(h.PID()) || !l.Holds() {
-			t.Errorf("followed %+v", l)
+	path := filepath.Join(t.TempDir(), "ha.pid")
+	earlier, stopped, again := gone(t), gone(t), gone(t)
+	me := strconv.Itoa(os.Getpid())
+	const tick = 10 * time.Millisecond
+	synctest.Test(t, func(t *testing.T) {
+		start := time.Now()
+		if _, ok := FollowLifeline(path, 0, tick); ok || time.Since(start) != 0 {
+			t.Errorf("none, no wait: followed %v, after %v", ok, time.Since(start))
 		}
-		// It holds until its process ends.
-		done := make(chan struct{})
-		go func() { l.Wait(10 * time.Millisecond); close(done) }()
-		h.Stop(time.Second)
+		// Its last look is the last a tick before the wait ends.
+		if _, ok := FollowLifeline(path, 100*time.Millisecond, tick); ok || time.Since(start) != 90*time.Millisecond {
+			t.Errorf("none: followed %v, after %v", ok, time.Since(start))
+		}
+		// An earlier start's, then this one's.
+		write(t, path, strconv.Itoa(earlier)+"\n")
+		got := make(chan Lifeline, 1)
+		go func() {
+			l, _ := FollowLifeline(path, 10*time.Second, tick)
+			got <- l
+		}()
+		time.Sleep(time.Second)
+		synctest.Wait()
 		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Error("Wait: still waiting with its process gone")
+		case l := <-got:
+			t.Fatalf("followed an earlier start's: %+v", l)
+		default:
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("never followed")
-	}
-	// A new start's, already gone, ends the wait at once.
-	write(t, path, strconv.Itoa(gone(t))+"\n")
-	ended := make(chan bool, 1)
-	go func() {
-		_, ok := FollowLifeline(path, 10*time.Second, 10*time.Millisecond)
-		ended <- ok
-	}()
-	time.Sleep(50 * time.Millisecond)
-	write(t, path, strconv.Itoa(gone(t))+"\n")
+		write(t, path, me+"\n")
+		time.Sleep(tick)
+		synctest.Wait()
+		select {
+		case l := <-got:
+			if l.Life != me || !l.Holds() {
+				t.Errorf("followed %+v", l)
+			}
+			// It holds until a new start rewrites it: Wait ends at its next
+			// look.
+			done := make(chan struct{})
+			go func() { l.Wait(tick); close(done) }()
+			time.Sleep(time.Second)
+			synctest.Wait()
+			if isClosed(done) {
+				t.Fatal("Wait: ended while it held")
+			}
+			write(t, path, strconv.Itoa(stopped)+"\n")
+			time.Sleep(tick)
+			synctest.Wait()
+			if !isClosed(done) {
+				t.Error("Wait: still waiting a tick after it no longer held")
+			}
+		default:
+			t.Fatal("not followed a tick after it named a process that runs")
+		}
+		// A new start's, already gone, ends the wait at its next look.
+		ended := make(chan bool, 1)
+		go func() {
+			_, ok := FollowLifeline(path, 10*time.Second, tick)
+			ended <- ok
+		}()
+		time.Sleep(time.Second)
+		write(t, path, strconv.Itoa(again)+"\n")
+		time.Sleep(tick)
+		synctest.Wait()
+		select {
+		case ok := <-ended:
+			if ok {
+				t.Error("followed a lifeline whose process is gone")
+			}
+		default:
+			t.Error("still waiting a tick past a new start's lifeline whose process is gone")
+		}
+	})
+}
+
+// isClosed reports whether ch is closed.
+func isClosed(ch chan struct{}) bool {
 	select {
-	case ok := <-ended:
-		if ok {
-			t.Error("followed a lifeline whose process is gone")
-		}
-	case <-time.After(5 * time.Second):
-		t.Error("still waiting past a new start's lifeline whose process is gone")
+	case <-ch:
+		return true
+	default:
+		return false
 	}
 }

@@ -16,9 +16,11 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/leaktest"
+	"github.com/devvmhq/devvm/internal/memnet"
 )
 
 // farEnd is the other end of a tunnel in a test. Each connection's first byte says what it does:
@@ -182,59 +184,45 @@ func TestConnectLimit(t *testing.T) {
 	if s := testServer(t, Config{}, ""); cap(s.connects) != maxConnects {
 		t.Errorf("a proxy carries %d CONNECTs at once, want %d", cap(s.connects), maxConnects)
 	}
-	s, _, events, addr := linkProxy(t)
-	own := &syncBuffer{}
-	s.log.SetOutput(own)
-	s.connects = make(chan struct{}, 2)
-	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	must(t, err)
-	serveFarEnd(t, ln)
-	target := "127.0.0.1:" + strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-	s.egress.pol = writePolicy(t, target+"\n")
-	var open []net.Conn
-	for range 2 {
-		c, _ := connectTo(t, addr, target)
-		_, _ = c.Write([]byte("e")) // the far end holds it until the client's end
-		open = append(open, c)
-	}
-	for range 2 {
-		code, body := roundTrip(t, addr, "CONNECT "+target+" HTTP/1.1\r\nHost: "+target+"\r\n\r\n")
-		if code != http.StatusServiceUnavailable || !strings.Contains(body, "2 tunnels open already") {
-			t.Errorf("past the limit: %d %q", code, body)
-		}
-	}
-	if l := events.String(); strings.Count(l, `"event":"blocked"`) != 2 || !strings.Contains(l, `"reason":"2 tunnels open already","refused":true`) {
-		t.Errorf("the event log: %s", l)
-	}
-	if l := own.String(); strings.Count(l, "tunnels open at once") != 1 {
-		t.Errorf("the proxy's log: %q", l)
-	}
-	_ = open[0].Close()
-	status := func() int {
-		c, err := new(net.Dialer).DialContext(t.Context(), "tcp", addr)
+	synctest.Test(t, func(t *testing.T) {
+		const target = "127.0.0.1:5000"
+		s := testServer(t, Config{}, target+"\n")
+		events, own := &syncBuffer{}, &syncBuffer{}
+		s.events.out = events
+		s.log.SetOutput(own)
+		s.connects = make(chan struct{}, 2)
+		p := memServe(t, s)
+		ln, err := p.far.Listen(target)
 		must(t, err)
-		defer func() { _ = c.Close() }()
-		_ = c.SetDeadline(time.Now().Add(10 * time.Second))
-		fmt.Fprintf(c, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
-		resp, err := http.ReadResponse(bufio.NewReader(c), &http.Request{Method: http.MethodConnect})
-		if err != nil {
-			return 0
+		serveFarEnd(t, ln)
+		var open []net.Conn
+		for range 2 {
+			c, _, code := p.connect(target)
+			if code != http.StatusOK {
+				t.Fatalf("within the limit: %d", code)
+			}
+			_, _ = c.Write([]byte("e")) // the far end holds it until the client's end
+			open = append(open, c)
 		}
-		_ = resp.Body.Close()
-		return resp.StatusCode
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		code := status()
-		if code == http.StatusOK {
-			break
+		for range 2 {
+			code, body := p.refused(target)
+			if code != http.StatusServiceUnavailable || !strings.Contains(body, "2 tunnels open already") {
+				t.Errorf("past the limit: %d %q", code, body)
+			}
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("a tunnel ended, and a new one still gets %d", code)
+		if l := events.String(); strings.Count(l, `"event":"blocked"`) != 2 || !strings.Contains(l, `"reason":"2 tunnels open already","refused":true`) {
+			t.Errorf("the event log: %s", l)
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	_ = open[1].Close()
+		if l := own.String(); strings.Count(l, "tunnels open at once") != 1 {
+			t.Errorf("the proxy's log: %q", l)
+		}
+		// A tunnel that ends makes room at once.
+		_ = open[0].Close()
+		synctest.Wait()
+		if _, _, code := p.connect(target); code != http.StatusOK {
+			t.Errorf("a tunnel ended, and a new one still gets %d", code)
+		}
+	})
 }
 
 // A tunnel to one of the VM's links.
@@ -253,24 +241,26 @@ func TestLinkTunnelSplices(t *testing.T) {
 // client sent, and returns once the server's bytes end, both connections closed.
 func TestSpliceEnds(t *testing.T) {
 	t.Parallel()
-	client, vm := net.Pipe()
-	server, far := net.Pipe()
-	done := make(chan struct{})
-	go func() { splice(client, server, nil); close(done) }()
-	go func() { _, _ = vm.Write([]byte("hi")); _ = vm.Close() }()
-	_ = far.SetDeadline(time.Now().Add(10 * time.Second))
-	if b, err := io.ReadAll(far); string(b) != "hi" || err != nil {
-		t.Errorf("the server read %q, %v", b, err)
-	}
-	_ = far.Close()
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("splice goes on after the server's end")
-	}
-	if _, err := client.Write([]byte("x")); err == nil {
-		t.Error("the client's connection is open")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		client, vm := net.Pipe()
+		server, far := net.Pipe()
+		done := make(chan struct{})
+		go func() { splice(client, server, nil); close(done) }()
+		go func() { _, _ = vm.Write([]byte("hi")); _ = vm.Close() }()
+		if b, err := io.ReadAll(far); string(b) != "hi" || err != nil {
+			t.Errorf("the server read %q, %v", b, err)
+		}
+		_ = far.Close()
+		synctest.Wait()
+		select {
+		case <-done:
+		default:
+			t.Fatal("splice goes on after the server's end")
+		}
+		if _, err := client.Write([]byte("x")); err == nil {
+			t.Error("the client's connection is open")
+		}
+	})
 }
 
 // hijack answers that the tunnel is open, and the bytes the client sent along with its request
@@ -316,7 +306,12 @@ func TestHijack(t *testing.T) {
 func TestCloseConns(t *testing.T) {
 	t.Parallel()
 	leaktest.Check(t)
-	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	synctest.Test(t, testCloseConns)
+}
+
+func testCloseConns(t *testing.T) {
+	var n memnet.Network
+	ln, err := n.Listen("proxy")
 	must(t, err)
 	var cs conns
 	returned := make(chan string, 2)
@@ -341,10 +336,9 @@ func TestCloseConns(t *testing.T) {
 	})}
 	go func() { _ = srv.Serve(cs.track(ln)) }()
 	open := func(req string) (net.Conn, *bufio.Reader) {
-		c, err := new(net.Dialer).DialContext(t.Context(), "tcp", ln.Addr().String())
+		c, err := ln.Dial()
 		must(t, err)
 		t.Cleanup(func() { _ = c.Close() })
-		_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 		_, _ = io.WriteString(c, req)
 		r := bufio.NewReader(c)
 		if line, _ := r.ReadString('\n'); !strings.HasPrefix(line, "HTTP/1.1 200") && !strings.HasPrefix(line, "HTTP/1.1 101") {
@@ -360,16 +354,20 @@ func TestCloseConns(t *testing.T) {
 			t.Fatalf("a connection ended with the HTTP server: %v", err)
 		}
 	}
-	if !cs.close(5 * time.Second) {
+	start := time.Now()
+	if !cs.close(closeWait) {
 		t.Fatal("close: a handler is still running")
+	}
+	if took := time.Since(start); took != 0 {
+		t.Errorf("close took %s with every handler ending at once", took)
 	}
 	if len(returned) != 2 {
 		t.Errorf("close returned before the handlers: %d of 2 had", len(returned))
 	}
-	// Each one's end, or a reset for the byte it hadn't read yet: not the deadline.
+	// Each one's end.
 	for _, r := range []*bufio.Reader{tr, ur} {
-		if _, err := io.ReadAll(r); errors.Is(err, os.ErrDeadlineExceeded) {
-			t.Errorf("a connection goes on after the close: %v", err)
+		if _, err := io.ReadAll(r); err != nil {
+			t.Errorf("a connection after the close: %v", err)
 		}
 	}
 	// A request after the close is refused.
@@ -381,40 +379,54 @@ func TestCloseConns(t *testing.T) {
 	}
 }
 
+// A handler that doesn't end with its connection, such as one still dialing, is waited for, but
+// for closeWait at most, to the moment on the bubble's clock: close then reports it.
+func TestCloseConnsWaitsBounded(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		var cs conns
+		release := make(chan struct{})
+		h := cs.handle(func(http.ResponseWriter, *http.Request) { <-release })
+		go h(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://x.test/", nil))
+		synctest.Wait()
+		start := time.Now()
+		if cs.close(closeWait) {
+			t.Error("close: no handler running, though one is")
+		}
+		if took := time.Since(start); took != closeWait {
+			t.Errorf("close waited %s, want %s", took, closeWait)
+		}
+		close(release)
+	})
+}
+
 // A tunnel whose far end says nothing still ends once its client's connection is closed, as the
 // proxy's close closes it: the far end's connection closes too.
 func TestSpliceEndsWhenItsClientCloses(t *testing.T) {
 	t.Parallel()
 	leaktest.Check(t)
-	// TCP's, which close their writing side alone: a pipe's would close whole.
-	pair := func() (net.Conn, net.Conn) {
-		ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
-		must(t, err)
-		defer func() { _ = ln.Close() }()
-		a, err := new(net.Dialer).DialContext(t.Context(), "tcp", ln.Addr().String())
-		must(t, err)
-		b, err := ln.Accept()
-		must(t, err)
-		return a, b
-	}
-	client, vm := pair()
-	server, far := pair()
-	defer func() { _ = vm.Close(); _ = far.Close() }()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		splice(client, server, nil)
-	}()
-	_ = client.Close()
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("splice goes on after its client's connection closed")
-	}
-	_ = far.SetDeadline(time.Now().Add(10 * time.Second))
-	if _, err := io.ReadAll(far); errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Error("the far end's connection is open")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		// memnet's, which close their writing side alone, as TCP's do: a net.Pipe's would close
+		// whole.
+		client, vm := memnet.Pipe()
+		server, far := memnet.Pipe()
+		defer func() { _ = vm.Close(); _ = far.Close() }()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			splice(client, server, nil)
+		}()
+		_ = client.Close()
+		synctest.Wait()
+		select {
+		case <-done:
+		default:
+			t.Fatal("splice goes on after its client's connection closed")
+		}
+		if _, err := io.ReadAll(far); err != nil {
+			t.Errorf("the far end's connection: %v", err)
+		}
+	})
 }
 
 // earlyServer is a tunnel's far end that has answered and closed while its client still sends:

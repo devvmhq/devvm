@@ -7,8 +7,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -290,80 +292,134 @@ func TestProcStop(t *testing.T) {
 // fails first): Stop waits until it's gone, so its port is free when Stop
 // returns.
 func TestProcStopWaitsForTheEnd(t *testing.T) {
-	p, start, ours := proc(t)
-	ending := map[int]bool{}
-	args := p.Args
-	p.Args = func(pid int) ([]string, error) {
-		if ending[pid] {
-			return nil, errors.New("ending")
+	synctest.Test(t, func(t *testing.T) {
+		const wait = 2 * time.Second
+		f := &fakeProc{onTerm: 450 * time.Millisecond, unreadable: true}
+		p := f.proc(t)
+		start := time.Now()
+		if !p.Stop(wait) {
+			t.Fatal("not stopped")
 		}
-		return args(pid)
-	}
-	p.Signal = func(pid int, sig syscall.Signal) error {
-		ending[pid] = true
-		return Signal(pid, sig)
-	}
-	out := filepath.Join(t.TempDir(), "out")
-	f, err := os.Create(out) //nolint:gosec // the test's own file
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = f.Close() }()
-	pid, err := p.Start(start, Cmd{Path: "/bin/sh", Args: []string{"-c", `trap "sleep 0.5; exit 0" TERM; echo ready; while :; do sleep 0.05; done`}, Out: f})
-	if err != nil {
-		t.Fatal(err)
-	}
-	output(t, out, "ready")
-	if !ours[pid] {
-		t.Fatal("not the test's")
-	}
-	if !p.Stop(2 * time.Second) {
-		t.Fatal("not stopped")
-	}
-	if Alive(pid) {
-		t.Error("Stop returned while the process was still ending")
-	}
+		if f.alive {
+			t.Error("Stop returned while the process was still ending")
+		}
+		// At its first look after the end: Stop looks every twentieth of
+		// wait.
+		if took := time.Since(start); took != 500*time.Millisecond {
+			t.Errorf("Stop took %s for one that ended %s after SIGTERM, want 500ms", took, f.onTerm)
+		}
+		if !slices.Equal(f.signalled, []string{"terminated"}) {
+			t.Errorf("signalled %v", f.signalled)
+		}
+	})
 }
 
 // SIGKILL goes only to a process whose arguments still say it's the one:
 // one whose arguments can't be read after SIGTERM (still ending, or
-// another given the pid) is waited for, never killed.
+// another given the pid) is waited for, never killed, and Stop gives up
+// after twice wait, to the moment on the bubble's clock.
 func TestProcStopKillsOnlyItsOwn(t *testing.T) {
-	p, start, _ := proc(t)
-	unreadable := map[int]bool{}
-	args := p.Args
-	p.Args = func(pid int) ([]string, error) {
-		if unreadable[pid] {
-			return nil, errors.New("unreadable")
+	synctest.Test(t, func(t *testing.T) {
+		const wait = 200 * time.Millisecond
+		f := &fakeProc{unreadable: true}
+		p := f.proc(t)
+		start := time.Now()
+		if p.Stop(wait) {
+			t.Error("stopped, though it ignores SIGTERM")
 		}
-		return args(pid)
+		if took := time.Since(start); took != 2*wait {
+			t.Errorf("Stop gave up after %s, want %s", took, 2*wait)
+		}
+		if !slices.Equal(f.signalled, []string{"terminated"}) {
+			t.Errorf("signalled %v, want only SIGTERM", f.signalled)
+		}
+		if !f.alive {
+			t.Error("killed")
+		}
+	})
+}
+
+// Stop's steps on the bubble's clock: SIGTERM at once, SIGKILL wait later
+// to one that ignores it, and its pid file gone once it has ended.
+func TestProcStopKillsAfterWait(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const wait = time.Second
+		f := &fakeProc{}
+		p := f.proc(t)
+		start := time.Now()
+		if !p.Stop(wait) {
+			t.Fatal("not stopped")
+		}
+		if !slices.Equal(f.signalled, []string{"terminated", "killed"}) || !f.killedAt.Equal(start.Add(wait)) {
+			t.Errorf("signalled %v, SIGKILL after %s; want SIGTERM, then SIGKILL after %s", f.signalled, f.killedAt.Sub(start), wait)
+		}
+		if _, err := os.Stat(p.PIDFile); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("its pid file stayed: %v", err)
+		}
+	})
+}
+
+// fakeProc is one process, in a test's process table: it ends onTerm
+// after SIGTERM (never, when 0) and at once on SIGKILL, and while it
+// ends after SIGTERM its arguments can't be read when unreadable (macOS's
+// kern.procargs2 fails first).
+type fakeProc struct {
+	onTerm     time.Duration
+	unreadable bool
+
+	mu        sync.Mutex
+	alive     bool
+	termed    bool
+	signalled []string
+	killedAt  time.Time
+}
+
+// fakePID is the fake process's pid, which no test process has.
+const fakePID = 1 << 30
+
+// proc is a Proc for f, which runs, its pid in its pid file.
+func (f *fakeProc) proc(t *testing.T) Proc {
+	t.Helper()
+	f.alive = true
+	p := Proc{
+		PIDFile: filepath.Join(t.TempDir(), "v.pid"),
+		Is:      func(args []string) bool { return HasFlag(args, "_x", "-vm", "v") },
+		Args: func(pid int) ([]string, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if pid != fakePID || !f.alive {
+				return nil, errors.New("no such process")
+			}
+			if f.termed && f.unreadable {
+				return nil, errors.New("ending")
+			}
+			return []string{"/devvm", "_x", "-vm", "v"}, nil
+		},
+		Alive: func(pid int) bool {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			return pid == fakePID && f.alive
+		},
+		Signal: func(_ int, sig syscall.Signal) error {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.signalled = append(f.signalled, sig.String())
+			switch {
+			case sig == syscall.SIGKILL:
+				f.alive, f.killedAt = false, time.Now()
+			case sig == syscall.SIGTERM && f.onTerm > 0:
+				f.termed = true
+				time.AfterFunc(f.onTerm, func() { f.mu.Lock(); f.alive = false; f.mu.Unlock() })
+			case sig == syscall.SIGTERM:
+				f.termed = true
+			}
+			return nil
+		},
 	}
-	var signalled []string
-	p.Signal = func(pid int, sig syscall.Signal) error {
-		signalled = append(signalled, sig.String())
-		unreadable[pid] = true
-		return Signal(pid, sig)
-	}
-	out := filepath.Join(t.TempDir(), "out")
-	f, err := os.Create(out) //nolint:gosec // the test's own file
-	if err != nil {
+	if err := os.WriteFile(p.PIDFile, []byte(strconv.Itoa(fakePID)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = f.Close() }()
-	pid, err := p.Start(start, Cmd{Path: "/bin/sh", Args: []string{"-c", `trap "" TERM; echo ready; while :; do sleep 0.05; done`}, Out: f})
-	if err != nil {
-		t.Fatal(err)
-	}
-	output(t, out, "ready")
-	if p.Stop(200 * time.Millisecond) {
-		t.Error("stopped, though it ignores SIGTERM")
-	}
-	if !slices.Equal(signalled, []string{"terminated"}) {
-		t.Errorf("signalled %v, want only SIGTERM", signalled)
-	}
-	if !Alive(pid) {
-		t.Error("killed")
-	}
+	return p
 }
 
 // A start removes the status file an earlier start left, so readiness is

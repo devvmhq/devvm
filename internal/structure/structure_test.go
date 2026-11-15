@@ -123,9 +123,9 @@ func devvm() rules {
 				to: []string{"internal/upgrade/upgradetest"},
 			},
 			{
-				name: "stubtest and leaktest are for tests",
-				from: []string{"..."}, exceptFrom: []string{"internal/stubtest/...", "internal/leaktest"},
-				to: []string{"internal/stubtest/...", "internal/leaktest"},
+				name: "stubtest, leaktest and memnet are for tests",
+				from: []string{"..."}, exceptFrom: []string{"internal/stubtest/...", "internal/leaktest", "internal/memnet"},
+				to: []string{"internal/stubtest/...", "internal/leaktest", "internal/memnet"},
 			},
 			{
 				name: "internal/stubtest imports only internal/msg and its own",
@@ -149,7 +149,7 @@ func devvm() rules {
 				from: []string{
 					"assets", "locales", "packaging", "internal/platform", "internal/msg/gen", "internal/testbuild", "internal/hostgit",
 					"internal/shell", "internal/vmname", "internal/daemon", "internal/fetch", "internal/jsonc",
-					"internal/redact", "internal/agents", "internal/safefile", "internal/leaktest",
+					"internal/redact", "internal/agents", "internal/safefile", "internal/leaktest", "internal/memnet",
 				},
 				to: []string{"..."},
 			},
@@ -340,6 +340,8 @@ func devvmGoroutineSites() map[string]string {
 		"internal/desktop/relay.go: Relay.dialVM":           detached + "the VM's handshake, which ends once dialVM closes the VM's connection at a timeout or ctx's end, its result in a buffered channel",
 		"internal/desktop/relay.go: Relay.carry":            detached + "the closer, which carry's deferred cancel ends, and the copy to the viewer, which ends once the closer closes both connections",
 		"internal/gitprotect/repos.go: scanAll":             "scanAll's wg.Wait",
+		"internal/memnet/memnet.go: Conn.wake":              detached + "a deadline's AfterFunc, which only wakes the connection's waiting ends, and which a later deadline or its close stops",
+		"internal/memnet/memnet.go: Listener.SetDeadline":   detached + "a deadline's AfterFunc, which only wakes a waiting Accept, and which a later deadline or the listener's close stops",
 		"internal/platform/pin_linux.go: WaitExit":          "the process's end, or WaitExit's stop, which closes the pidfd its wait in Go's poller is on",
 		"internal/platform/pin_linux.go: WatchFolders":      "WatchFolders's stop, which closes the inotify file its read in Go's poller is on",
 		"internal/platform/pinrun_linux.go: runChild":       "runChild, on passed, once it has closed the signals' channel",
@@ -367,7 +369,7 @@ func devvmGoroutineSites() map[string]string {
 		"internal/vmssh/links.go: Links.newTargetMaster":    "the master's ready, closed once it's up or has failed",
 		"internal/vmssh/loopback.go: SSH.forwardLoopback":   "LoopbackForward.Close, through its wg; the listeners' closer ends with the forward's cancel",
 		"internal/vmssh/loopback.go: LoopbackForward.serve": "serve's conns.Wait",
-		"internal/vmssh/relay.go: pipeSSHFor":               detached + "the client's copy to the VM, which ends once the relay closes the client's connection; the AfterFunc that closes it at ctx's end, which the relay's deferred stop ends",
+		"internal/vmssh/relay.go: sshRelay.carry":           detached + "the client's copy to the VM, which ends once the relay closes the client's connection; the AfterFunc that closes it at ctx's end, which the relay's deferred stop ends",
 		"internal/vmssh/relay.go: newGraceTimer":            detached + "the grace's AfterFunc, which cancels the relay once the grace runs out; stopped as the relay ends, it never runs after it",
 	}
 }

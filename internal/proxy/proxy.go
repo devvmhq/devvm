@@ -177,7 +177,10 @@ func newServer(c Config, std IO, l *log.Logger, out io.Writer) (*server, error) 
 	if c.Open {
 		l.Printf("open: every host and address, no rules")
 	}
-	s.egress = &egress{pol: pol, own: own, up: up, log: l, lookup: net.DefaultResolver.LookupNetIP}
+	s.egress = &egress{
+		pol: pol, own: own, up: up, log: l, lookup: net.DefaultResolver.LookupNetIP,
+		connect: (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
+	}
 	s.egress.pol.all()
 	maxSize := c.NixCacheMax
 	if maxSize == 0 {
@@ -477,6 +480,9 @@ type egress struct {
 	log *log.Logger // the proxy's own log: why a name didn't resolve
 	// lookup resolves a name: net.DefaultResolver.LookupNetIP, which tests replace.
 	lookup func(ctx context.Context, network, host string) ([]netip.Addr, error)
+	// connect connects to an address the policy allowed (dial): a net.Dialer's, which tests
+	// replace with one in memory.
+	connect func(ctx context.Context, network, address string) (net.Conn, error)
 
 	abandonMu sync.Mutex
 	abandonAt time.Time // when the minute that abandonN counts began
@@ -580,9 +586,8 @@ func (e *egress) dial(ctx context.Context, host string, port int) (net.Conn, err
 	if port < 1 || port > 65535 { // the policy allows none of these; never dial one wrapped around
 		return nil, fmt.Errorf("port %d", port)
 	}
-	d := net.Dialer{Timeout: 15 * time.Second}
 	for _, a := range addrs {
-		c, err2 := d.DialContext(ctx, "tcp", netip.AddrPortFrom(a, uint16(port)).String())
+		c, err2 := e.connect(ctx, "tcp", netip.AddrPortFrom(a, uint16(port)).String())
 		if err2 == nil {
 			return c, nil
 		}
@@ -1109,6 +1114,12 @@ type IO struct {
 	Capture Capturer
 }
 
+// httpServer is the HTTP server that serves s, its handlers counted by its conns, as run serves it
+// and the tests do.
+func httpServer(s *server) *http.Server {
+	return &http.Server{Handler: s.conns.handle(s.handler), ReadHeaderTimeout: 30 * time.Second, MaxHeaderBytes: maxHeaderBytes}
+}
+
 // Main runs devvm _proxy with args (its flags): the proxy itself, with -config's file, until the
 // VM's hostagent is gone. -help prints the flags to std.Stdout. Errors are returned, not printed.
 func Main(args []string, std IO) error { return run(args, std, lifelineTick) }
@@ -1174,7 +1185,7 @@ func serve(c Config, std IO, tick time.Duration) error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: s.conns.handle(s.handler), ReadHeaderTimeout: 30 * time.Second, MaxHeaderBytes: maxHeaderBytes}
+	srv := httpServer(s)
 	l.Printf("listening on %s for %s", ln.Addr(), s.vm)
 	// What devvm waits for as it starts the proxy: the address it listens on.
 	if err := daemon.Ready(ln.Addr().String()); err != nil {

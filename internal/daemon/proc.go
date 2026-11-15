@@ -23,6 +23,16 @@ type Proc struct {
 	Args func(pid int) ([]string, error)
 	// Signal sends it a signal: Signal, or a test's.
 	Signal func(pid int, sig syscall.Signal) error
+	// Alive reports whether a process has pid: Alive, or a test's.
+	Alive func(pid int) bool
+}
+
+// alive reports whether a process has pid (Alive).
+func (p Proc) alive(pid int) bool {
+	if p.Alive == nil {
+		return Alive(pid)
+	}
+	return p.Alive(pid)
 }
 
 // HasFlag reports whether args, its program first, run devvm's command
@@ -38,7 +48,7 @@ func HasFlag(args []string, cmd, flag, val string) bool {
 // PID returns the process's pid while it runs.
 func (p Proc) PID() (int, bool) {
 	pid, ok := readLine(p.PIDFile)
-	if !ok || !Alive(pid) {
+	if !ok || !p.alive(pid) {
 		return 0, false
 	}
 	args, err := p.Args(pid)
@@ -115,7 +125,7 @@ func (p Proc) Stop(wait time.Duration) bool {
 // port it listens on is still its own a moment after (macOS's
 // kern.procargs2 fails first).
 func (p Proc) ended(pid int) bool {
-	if !Alive(pid) {
+	if !p.alive(pid) {
 		return true
 	}
 	args, err := p.Args(pid)
@@ -138,7 +148,7 @@ func (p Proc) Ready(status string, pid int, tick time.Duration, tries int) (stri
 // once it's gone.
 func (p Proc) starting(pid int) bool {
 	cur, ok := readLine(p.PIDFile)
-	if !ok || cur != pid || !Alive(pid) {
+	if !ok || cur != pid || !p.alive(pid) {
 		return false
 	}
 	args, err := p.Args(pid)

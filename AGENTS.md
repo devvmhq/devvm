@@ -39,7 +39,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 | `internal/platform/`, `internal/ubuntu/`, `internal/testbuild/` | build-tagged OS code; Ubuntu's cloud image (never downloads); whether this is a test build |
 | `assets/` | the files devvm ships, embedded (`assets.FS`) |
 | `internal/structure/` | the structure test |
-| `internal/stubtest/`, `internal/leaktest/` | the test stubs; the goroutine leak checks (`Main`, `Check`) |
+| `internal/stubtest/`, `internal/leaktest/`, `internal/memnet/` | the test stubs; the goroutine leak checks (`Main`, `Check`); the network in memory for synctest bubbles |
 | `testdata/` | CLI tests, golden fixtures, coverage baselines, each release's frozen state (`v<release>/`), `lint/` |
 | `tests/e2e/`, `tests/e2e-mise.lock` | end-to-end tests on real VMs |
 | `scripts/`, `packaging/`, `.goreleaser.yaml`, `VERSION`, `CHANGELOG.md` | pins, releases, the test tasks' scripts, the Homebrew formula, devvm upgrade's key |
@@ -87,7 +87,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 - **Cleanups:** whatever a failure would leave (a build VM, a temp file) registers with the UI's `AddCleanup` and is removed once done; one only for interrupts checks `Interrupted()` and stays once interrupted, as the cleanups run after the command returns. Cleanups get a fresh context.
 - **External commands run with the UI's `LoggedCmd(ctx, step, cmd)`**, a failure after one returned as `backend.Logged(m)` ([CLI conventions](docs/content/docs/contributing/cli.md#cli-conventions)).
 - **OS-specific code goes behind build tags** in `internal/platform` (`*_darwin.go`, `*_linux.go`, `*_other.go`).
-- **Dependencies:** the depguard allowlist (cobra, pflag, cobra/doc, go-i18n, BurntSushi/toml, x/text, x/term, x/sys, x/crypto's `blake2b` only (minisign's prehash); go-internal in tests; cobra/doc's own deps never imported directly). `internal/proxy`, `internal/daemon`, `internal/safefile`, `internal/vmname`, `internal/leaktest` and `internal/redact` are stdlib only. Adding one: ask.
+- **Dependencies:** the depguard allowlist (cobra, pflag, cobra/doc, go-i18n, BurntSushi/toml, x/text, x/term, x/sys, x/crypto's `blake2b` only (minisign's prehash); go-internal in tests; cobra/doc's own deps never imported directly). `internal/proxy`, `internal/daemon`, `internal/safefile`, `internal/vmname`, `internal/leaktest`, `internal/memnet` and `internal/redact` are stdlib only. Adding one: ask.
 - **A secret's value is a `redact.Secret`:** each `Reveal` with a `//nolint:forbidigo` saying why, and a file that holds one writes it through its own wire type ([Secrets in the code](docs/content/docs/contributing/structure.md#secrets-in-the-code)).
 - **External tools are commands, never linked** (`limactl`, `docker`, `security`, `git`, `chflags`…); prefer the standard library to shelling out. Strings into a shell are quoted with `shell.Quote`.
 - **Test seams are fields** tests set (`Host`, `Exec`, `Runner`, `OS`, `Reporter`…), never package vars (reassign: no package sets another's); `internal/proxy`'s are its `server`'s, which each test makes.
@@ -114,6 +114,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 
 - **New logic needs a test:** Go table tests next to the code, and CLI tests (testscript against the built binary and the stubs); neither touches the Keychain, real VMs or your folders ([Tests](docs/content/docs/contributing/tests.md)).
 - **Never touch VMs, images or containers devvm's tests didn't make:** your own stay as they are. Manual runs: `DEVVM_LIMA_HOME=~/.lt LIMA_HOME=~/.lt XDG_DATA_HOME=/tmp/x/data XDG_CONFIG_HOME=/tmp/x/config DEVVM_SECRET_SERVICE=devvm-sandbox-test` (devvm's Lima home is `$XDG_DATA_HOME/devvm/lima` unless `DEVVM_LIMA_HOME`; `LIMA_HOME` is for your `limactl`). Add a `config.toml` with `features = []` and pass `--network TIER` so nothing prompts. Delete test Keychain items. Never use your own tokens or logins: a network-policy VM reads its agent's login file from `HOME`, so give it its own (the Keychain needs the real `HOME`: test it apart).
+- **Timeouts and lifecycles** are tested in a `testing/synctest` bubble on fakes in memory (`memnet`, the seams' fields), never by sleeping on the real clock; each kind keeps one real-process test ([Time and lifecycles](docs/content/docs/contributing/tests.md#time-and-lifecycles)).
 - **Goroutines:** a package that starts them calls `leaktest.Main` in its `TestMain`, and each function that does is in the structure test's `goroutineSites`, with what waits for them or `detached:` and why ([Goroutine leaks](docs/content/docs/contributing/tests.md#goroutine-leaks)).
 - **End-to-end:** `mise run e2e -- --only SECTIONS` in the background for what changed, `--from` before merging `assets/` or `--from` changes ([End-to-end tests](docs/content/docs/contributing/tests.md#end-to-end-tests)).
 - **Linux hosts:** `LIMA_HOME=~/.lt-linux-go`, VM `linuxhost`, set up as [Linux hosts](docs/content/docs/contributing/testing.md#linux-hosts) says, apart from any Lima home of your own.

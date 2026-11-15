@@ -21,6 +21,7 @@ internal/hostsafety 87.5
 internal/image 99.3
 internal/jsonc 97.1
 internal/leaktest 87.0
+internal/memnet 96.8
 internal/msg 68.6
 internal/msg/gen 93.3
 internal/netpolicy 88.5

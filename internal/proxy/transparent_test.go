@@ -19,8 +19,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/redact"
@@ -507,47 +507,54 @@ func TestHostsNotASCII(t *testing.T) {
 	}
 }
 
-// A CONNECT tunnel's ClientHello, once it starts, must arrive whole within the deadline, in a record
-// no longer than TLS's: one that stops, or claims 64 KiB, is refused and closed.
+// helloTunnel is a proxy in memory whose policy allows its one far end, 127.0.0.1:5000, which
+// keeps what it gets in got, and its event log: for a tunnel's ClientHello, in a synctest bubble.
+func helloTunnel(t *testing.T) (p memProxy, ev, got *syncBuffer) {
+	t.Helper()
+	const far = "127.0.0.1:5000"
+	s := testServer(t, Config{}, far+"\n")
+	ev, got = logs(s), &syncBuffer{}
+	p = memServe(t, s)
+	p.farSink(far, got)
+	return p, ev, got
+}
+
+// refusals is how many tunnels ev refused for a broken ClientHello.
+func refusals(ev *syncBuffer) int {
+	return len(slices.DeleteFunc(eventsOf(ev), func(e Event) bool { return e.Reason != reasonHelloBroken }))
+}
+
+// A CONNECT tunnel's ClientHello, once it starts, must arrive whole within helloTimeout, to the
+// moment on the bubble's clock, in a record no longer than TLS's: one that stops is refused and
+// closed at the deadline, and one that claims 64 KiB at once.
 func TestTunnelHelloDeadline(t *testing.T) {
 	t.Parallel()
-	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	must(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
+	synctest.Test(t, func(t *testing.T) {
+		p, ev, got := helloTunnel(t)
+		for _, tc := range []struct {
+			first []byte
+			took  time.Duration
+		}{
+			{[]byte{0x16, 3, 1, 0, 0xff}, helloTimeout},
+			{[]byte{0x16, 3, 1, 0xff, 0xff}, 0},
+		} {
+			c, r, code := p.connect("127.0.0.1:5000")
+			if code != http.StatusOK {
+				t.Fatalf("CONNECT: %d", code)
 			}
-			go func() { _, _ = io.Copy(io.Discard, c) }()
+			_, _ = c.Write(tc.first)
+			start := time.Now()
+			if _, err := r.ReadByte(); !errors.Is(err, io.EOF) || time.Since(start) != tc.took {
+				t.Errorf("% x: %v after %s, want EOF after %s", tc.first, err, time.Since(start), tc.took)
+			}
 		}
-	}()
-	port := portOf(t, ln.Addr())
-	s, addr, ev := transparentServer(t, Config{}, fmt.Sprintf("localhost:%d\n127.0.0.1:%d\n", port, port))
-	s.helloWait = 300 * time.Millisecond
-	for _, first := range [][]byte{{0x16, 3, 1, 0, 0xff}, {0x16, 3, 1, 0xff, 0xff}} {
-		c, err := new(net.Dialer).DialContext(t.Context(), "tcp", addr)
-		must(t, err)
-		fmt.Fprintf(c, "CONNECT localhost:%d HTTP/1.1\r\nHost: localhost:%d\r\n\r\n", port, port)
-		r := bufio.NewReader(c)
-		resp, err := http.ReadResponse(r, &http.Request{Method: http.MethodConnect})
-		must(t, err)
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("CONNECT: %d", resp.StatusCode)
+		if n := refusals(ev); n != 2 {
+			t.Errorf("%d refusals: %s", n, ev.String())
 		}
-		_, _ = c.Write(first)
-		start := time.Now()
-		_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
-		if _, err := r.ReadByte(); !errors.Is(err, io.EOF) || time.Since(start) > 3*time.Second {
-			t.Errorf("% x: %v after %s", first, err, time.Since(start))
+		if got.String() != "" {
+			t.Errorf("the far end got %q", got.String())
 		}
-		_ = c.Close()
-	}
-	if n := len(slices.DeleteFunc(eventsOf(ev), func(e Event) bool { return e.Reason != reasonHelloBroken })); n != 2 {
-		t.Errorf("%d refusals: %s", n, ev.String())
-	}
+	})
 }
 
 // A tunnel whose first byte starts a TLS record is TLS from then on: one that sends that byte alone
@@ -555,54 +562,42 @@ func TestTunnelHelloDeadline(t *testing.T) {
 // whose record header isn't TLS's version, and the far end gets none of their bytes.
 func TestTunnelHelloStall(t *testing.T) {
 	t.Parallel()
-	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	must(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
-	got := &syncBuffer{}
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
+	synctest.Test(t, func(t *testing.T) {
+		p, ev, got := helloTunnel(t)
+		for _, c := range []struct {
+			first, then []byte
+			wait        time.Duration
+		}{
+			{[]byte{0x16}, rawHello("other.test")[1:], helloTimeout + time.Nanosecond},
+			{[]byte{0x16, 2, 1, 0, 5}, []byte("hello"), 0},
+		} {
+			conn, r, _ := p.connect("127.0.0.1:5000")
+			_, _ = conn.Write(c.first)
+			time.Sleep(c.wait)
+			_, _ = conn.Write(c.then)
+			if _, err := r.ReadByte(); !errors.Is(err, io.EOF) {
+				t.Errorf("% x: not closed: %v", c.first, err)
 			}
-			go func() { _, _ = io.Copy(got, c) }()
 		}
-	}()
-	port := portOf(t, ln.Addr())
-	s, addr, ev := transparentServer(t, Config{}, fmt.Sprintf("localhost:%d\n127.0.0.1:%d\n", port, port))
-	s.helloWait = 200 * time.Millisecond
-	for _, c := range []struct {
-		first, then []byte
-		wait        time.Duration
-	}{
-		{[]byte{0x16}, rawHello("other.test")[1:], 500 * time.Millisecond},
-		{[]byte{0x16, 2, 1, 0, 5}, []byte("hello"), 0},
-	} {
-		conn, err := new(net.Dialer).DialContext(t.Context(), "tcp", addr)
-		must(t, err)
-		fmt.Fprintf(conn, "CONNECT localhost:%d HTTP/1.1\r\nHost: localhost:%d\r\n\r\n", port, port)
-		r := bufio.NewReader(conn)
-		resp, err := http.ReadResponse(r, &http.Request{Method: http.MethodConnect})
-		must(t, err)
-		_ = resp.Body.Close()
-		_, _ = conn.Write(c.first)
-		time.Sleep(c.wait)
-		_, _ = conn.Write(c.then)
-		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-		// Closed either way: Linux resets a connection closed with bytes
-		// unread, as the proxy leaves what follows a broken hello.
-		if _, err := r.ReadByte(); !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
-			t.Errorf("% x: not closed: %v", c.first, err)
+		synctest.Wait()
+		if got.String() != "" {
+			t.Errorf("the far end got %q", got.String())
 		}
-		_ = conn.Close()
-	}
-	time.Sleep(100 * time.Millisecond)
-	if got.String() != "" {
-		t.Errorf("the far end got %q", got.String())
-	}
-	if n := len(slices.DeleteFunc(eventsOf(ev), func(e Event) bool { return e.Reason != reasonHelloBroken })); n != 2 {
-		t.Errorf("%d refusals: %s", n, ev.String())
-	}
+		if n := refusals(ev); n != 2 {
+			t.Errorf("%d refusals: %s", n, ev.String())
+		}
+		// A ClientHello whose first byte comes alone and the rest a moment before the deadline
+		// goes on, whole.
+		conn, _, _ := p.connect("127.0.0.1:5000")
+		whole := rawHello("")
+		_, _ = conn.Write(whole[:1])
+		time.Sleep(helloTimeout - time.Nanosecond)
+		_, _ = conn.Write(whole[1:])
+		synctest.Wait()
+		if got.String() != string(whole) {
+			t.Errorf("a ClientHello whole a moment before the deadline: the far end got %d bytes of %d", len(got.String()), len(whole))
+		}
+	})
 }
 
 // An address's tunnel may have no server name, but only in a ClientHello that parsed: one split
@@ -610,60 +605,31 @@ func TestTunnelHelloStall(t *testing.T) {
 // while a whole one without a name goes on.
 func TestTunnelAddressSplitHello(t *testing.T) {
 	t.Parallel()
-	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	must(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
-	got := &syncBuffer{}
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go func() { _, _ = io.Copy(got, c) }()
+	synctest.Test(t, func(t *testing.T) {
+		p, ev, got := helloTunnel(t)
+		hs := rawHello("other.test")[5:]                                                                             // the handshake message, without its record header
+		record := func(b []byte) []byte { return append([]byte{0x16, 3, 1, byte(len(b) >> 8), byte(len(b))}, b...) } //nolint:gosec // G115: a test's few bytes
+		tunnelWith := func(first []byte) {
+			t.Helper()
+			c, r, _ := p.connect("127.0.0.1:5000")
+			_, _ = c.Write(first)
+			_ = c.CloseWrite()
+			_, _ = io.ReadAll(r)
+			synctest.Wait()
 		}
-	}()
-	port := portOf(t, ln.Addr())
-	_, addr, ev := transparentServer(t, Config{}, fmt.Sprintf("127.0.0.1:%d\n", port))
-	hs := rawHello("other.test")[5:]                                                                             // the handshake message, without its record header
-	record := func(b []byte) []byte { return append([]byte{0x16, 3, 1, byte(len(b) >> 8), byte(len(b))}, b...) } //nolint:gosec // G115: a test's few bytes
-	tunnelWith := func(first []byte) {
-		t.Helper()
-		c, err := new(net.Dialer).DialContext(t.Context(), "tcp", addr)
-		must(t, err)
-		defer func() { _ = c.Close() }()
-		fmt.Fprintf(c, "CONNECT 127.0.0.1:%d HTTP/1.1\r\nHost: 127.0.0.1:%d\r\n\r\n", port, port)
-		r := bufio.NewReader(c)
-		resp, err := http.ReadResponse(r, &http.Request{Method: http.MethodConnect})
-		must(t, err)
-		_ = resp.Body.Close()
-		_, _ = c.Write(first)
-		if cw, ok := c.(interface{ CloseWrite() error }); ok {
-			_ = cw.CloseWrite()
-		}
-		_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
-		_, _ = io.ReadAll(r)
-	}
-	tunnelWith(append(record(hs[:10]), record(hs[10:])...))
-	time.Sleep(100 * time.Millisecond)
-	if got.String() != "" {
-		t.Errorf("a split ClientHello reached the far end: % x", got.String())
-	}
-	e := waitEvent(t, ev, func(e Event) bool { return e.Reason == reasonHelloBroken })
-	if !e.Refused || e.Host != "127.0.0.1" {
-		t.Errorf("event %+v", e)
-	}
-	whole := rawHello("")
-	tunnelWith(whole)
-	for range 50 {
+		tunnelWith(append(record(hs[:10]), record(hs[10:])...))
 		if got.String() != "" {
-			break
+			t.Errorf("a split ClientHello reached the far end: % x", got.String())
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if got.String() != string(whole) {
-		t.Errorf("a whole ClientHello without a name didn't reach the far end: %d bytes", len(got.String()))
-	}
+		if es := slices.DeleteFunc(eventsOf(ev), func(e Event) bool { return e.Reason != reasonHelloBroken }); len(es) != 1 || !es[0].Refused || es[0].Host != "127.0.0.1" {
+			t.Errorf("events %+v", es)
+		}
+		whole := rawHello("")
+		tunnelWith(whole)
+		if got.String() != string(whole) {
+			t.Errorf("a whole ClientHello without a name didn't reach the far end: %d bytes", len(got.String()))
+		}
+	})
 }
 
 // A record header that claims more than a TLS record holds is never read past.

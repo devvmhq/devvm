@@ -130,6 +130,9 @@ type Links struct {
 	Start   func(ctx context.Context, args []string) (func() error, error)
 	Command func(ctx context.Context, args []string) error
 	Relay   func(ctx context.Context, conn net.Conn, args []string)
+	// Listen listens on a link's socket (listenSocket). Tests set it; Run
+	// sets it unset.
+	Listen func(ctx context.Context, path string) (net.Listener, error)
 
 	mu      sync.Mutex
 	open    map[linkKey]*linkEnd
@@ -237,6 +240,9 @@ func (l *Links) defaults() {
 	}
 	if l.Relay == nil {
 		l.Relay = pipeSSH
+	}
+	if l.Listen == nil {
+		l.Listen = listenSocket
 	}
 	l.Wait = cmp.Or(l.Wait, 15*time.Second)
 }
@@ -477,7 +483,7 @@ func (l *Links) add(ctx context.Context, ctl string, w Link) {
 		l.logf("%s: %v", w.listen()+line, err)
 	}
 	sock := l.Socket(w)
-	ln, err := listenSocket(ctx, sock)
+	ln, err := l.Listen(ctx, sock)
 	if err != nil {
 		fail(lineNotCarried, err)
 		return

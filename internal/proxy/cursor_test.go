@@ -147,7 +147,8 @@ func TestCursorReplyScans(t *testing.T) {
 	s := &server{captures: newCaptures(nil, nil)}
 	before := strings.Repeat("x", 5000) + "eyJ"
 	var gotAE string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// In memory: its client's transport reaches it whatever the host.
+	srv := httptest.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAE = r.Header.Get("Accept-Encoding")
 		w.Header().Set("Content-Type", "application/proto")
 		body := before + strings.TrimPrefix(cursorJWT, "\x0a\x40eyJ")
@@ -166,12 +167,12 @@ func TestCursorReplyScans(t *testing.T) {
 			_, _ = io.WriteString(w, "\x0a\x03abc")
 		}
 	}))
-	t.Cleanup(srv.Close)
+	tr := srv.Client().Transport
 	for _, p := range []string{"/gzip", "/chunked"} {
-		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+p, nil)
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://cursor.test"+p, nil)
 		req.Header.Set("Accept-Encoding", "br") // the VM's
 		cursorUnencoded(req.Header)
-		resp, err := http.DefaultTransport.RoundTrip(req)
+		resp, err := tr.RoundTrip(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -191,8 +192,8 @@ func TestCursorReplyScans(t *testing.T) {
 			t.Errorf("%s: the server was asked for br", p)
 		}
 	}
-	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+"/plain", nil)
-	resp, err := http.DefaultTransport.RoundTrip(req)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://cursor.test/plain", nil)
+	resp, err := tr.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}

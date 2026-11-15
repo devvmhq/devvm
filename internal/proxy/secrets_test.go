@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/redact"
@@ -667,6 +668,70 @@ func TestSecretValueLooksUpInProcess(t *testing.T) {
 	if used := s.inject(t.Context(), h, []Binding{{Name: "codex", Kind: KindLogin, Header: "Authorization", Placeholder: "PH"}}); used != nil || h.Get("Authorization") != "Bearer PH" {
 		t.Errorf("without a value: used %v, %q", used, h.Get("Authorization"))
 	}
+}
+
+// A lookup that fails is never cached, however it fails: one that hangs is cut at lookupTimeout,
+// to the moment on the bubble's clock, one cancelled or failed gives its error, and the next
+// request looks up again each time. The request's own end doesn't cancel a lookup under way, and a
+// value that's looked up is cached until its time is up, to the moment, then looked up again.
+func TestSecretLookupFailuresNeverCached(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		s := newSecrets("", nil, quiet())
+		b := Binding{Name: "codex", Kind: KindLogin, Agent: "codex"}
+		var lookups int
+		var answer func(ctx context.Context) (string, error)
+		s.lookup = func(ctx context.Context, _ Binding) (redact.Secret, error) {
+			lookups++
+			v, err := answer(ctx)
+			return redact.NewSecret(v), err
+		}
+		hang := func(ctx context.Context) (string, error) { <-ctx.Done(); return "", ctx.Err() }
+		for _, tc := range []struct {
+			name   string
+			answer func(ctx context.Context) (string, error)
+			took   time.Duration
+		}{
+			{"hung", hang, lookupTimeout},
+			{"cancelled", func(context.Context) (string, error) { return "", context.Canceled }, 0},
+			{"failed", func(context.Context) (string, error) { return "", errors.New("locked") }, 0},
+			{"empty", func(context.Context) (string, error) { return " \n", nil }, 0},
+		} {
+			answer = tc.answer
+			before, start := lookups, time.Now()
+			if v, err := s.value(t.Context(), b); err == nil || !v.Empty() {
+				t.Errorf("%s: %q, %v", tc.name, v.Reveal(), err)
+			}
+			if took := time.Since(start); took != tc.took {
+				t.Errorf("%s: took %v, want %v", tc.name, took, tc.took)
+			}
+			if _, ok := s.values[valueKeyOf(b)]; ok || lookups != before+1 {
+				t.Errorf("%s: cached %v, %d lookups", tc.name, ok, lookups-before)
+			}
+		}
+		// A request that ends while its lookup is under way: the lookup goes on, and its value is
+		// cached for the requests after it.
+		ctx, cancel := context.WithCancel(t.Context())
+		answer = func(ctx context.Context) (string, error) {
+			cancel()
+			time.Sleep(time.Second)
+			return "real", ctx.Err()
+		}
+		if v, err := s.value(ctx, b); v.Reveal() != "real" || err != nil {
+			t.Errorf("a lookup whose request ended: %q, %v", v.Reveal(), err)
+		}
+		answer = hang
+		before := lookups
+		time.Sleep(loginTTL - time.Nanosecond)
+		if v, err := s.value(t.Context(), b); v.Reveal() != "real" || err != nil || lookups != before {
+			t.Errorf("within its time: %q, %v, %d lookups", v.Reveal(), err, lookups-before)
+		}
+		time.Sleep(time.Nanosecond)
+		answer = func(context.Context) (string, error) { return "new", nil }
+		if v, err := s.value(t.Context(), b); v.Reveal() != "new" || err != nil || lookups != before+1 {
+			t.Errorf("once its time is up: %q, %v, %d lookups", v.Reveal(), err, lookups-before)
+		}
+	})
 }
 
 // A secret of yours and an agent's login that share a name are cached apart: neither binding's

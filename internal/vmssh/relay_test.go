@@ -2,6 +2,7 @@ package vmssh
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"net"
@@ -9,11 +10,16 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/daemon"
+	"github.com/devvmhq/devvm/internal/leaktest"
+	"github.com/devvmhq/devvm/internal/memnet"
 )
 
 // relayPair is a connection to relay and its client's end, over TCP on
@@ -113,7 +119,7 @@ func TestPipeSSHGrace(t *testing.T) {
 		ended := make(chan struct{})
 		go func() {
 			defer close(ended)
-			pipeSSHFor(t.Context(), relayed, nil, grace)
+			sshRelay{grace: grace, start: execSSH}.carry(t.Context(), relayed, nil)
 		}()
 		pid := pidOf(t, pidFile)
 		if tc.half {
@@ -167,7 +173,7 @@ func TestPipeSSHGraceSlowClient(t *testing.T) {
 	ended := make(chan struct{})
 	go func() {
 		defer close(ended)
-		pipeSSHFor(t.Context(), relayed, nil, grace)
+		sshRelay{grace: grace, start: execSSH}.carry(t.Context(), relayed, nil)
 	}()
 	pid := pidOf(t, pidFile)
 	_ = client.CloseWrite()
@@ -201,33 +207,265 @@ func TestPipeSSHGraceSlowClient(t *testing.T) {
 // A relay whose write waits on a client that stopped reading still ends
 // with its owner's context, as LoopbackForward.Close or a forward's close
 // cancels it: the cancel closes the connection, which ends the write.
-func TestPipeSSHCancelEndsBlockedWrite(t *testing.T) {
-	dir := t.TempDir()
-	pidFile := filepath.Join(dir, "pid")
-	fakeSSH(t, "echo $$ > "+pidFile+".tmp && mv "+pidFile+".tmp "+pidFile+"\nexec yes")
-	relayed, client := relayPair(t)
-	ctx, cancel := context.WithCancel(t.Context())
+func TestRelayCancelEndsBlockedWrite(t *testing.T) {
+	leaktest.Check(t)
+	synctest.Test(t, func(t *testing.T) {
+		ssh := &memSSH{vm: vmYes}
+		ctx, cancel := context.WithCancel(t.Context())
+		_, ended := ssh.relay(ctx, time.Hour)
+		// Never read: the relay's write to the client waits once its
+		// buffer fills.
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		if isClosed(ended) {
+			t.Fatal("the relay ended while its context lasted")
+		}
+		cancel()
+		synctest.Wait()
+		if !isClosed(ended) {
+			t.Fatal("the relay outlived its context while its write waited")
+		}
+		if ssh.running() != 0 {
+			t.Error("its ssh still runs")
+		}
+	})
+}
+
+// memSSH is an ssh -W in memory, for a relay in a synctest bubble: what
+// the VM sends (vm) until it's killed, as exec.CommandContext kills ssh
+// once its context ends, and its input read and dropped. Killed, its
+// output ends and its input takes nothing more.
+type memSSH struct {
+	vm func(ctx context.Context, out io.Writer)
+
+	mu    sync.Mutex
+	procs []chan struct{} // each one started, closed once it has ended
+	ended int
+}
+
+func (m *memSSH) start(ctx context.Context, _ []string) (sshPipes, error) {
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	done := make(chan struct{})
+	m.mu.Lock()
+	m.procs = append(m.procs, done)
+	m.mu.Unlock()
+	kill := func() {
+		_ = outW.Close()
+		_ = inR.CloseWithError(syscall.EPIPE)
+	}
+	stop := context.AfterFunc(ctx, kill)
+	go func() { _, _ = io.Copy(io.Discard, inR) }()
+	go func() {
+		m.vm(ctx, outW)
+		<-ctx.Done() // it never ends its channel: only the kill ends it
+		stop()
+		kill()
+		m.mu.Lock()
+		m.ended++
+		close(done)
+		m.mu.Unlock()
+	}()
+	return sshPipes{in: inW, out: outR, wait: func() error { <-done; return nil }}, nil
+}
+
+// count is how many of its ssh started; running how many run.
+func (m *memSSH) count() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.procs)
+}
+
+func (m *memSSH) running() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.procs) - m.ended
+}
+
+// alive is whether the i-th ssh started still runs.
+func (m *memSSH) alive(i int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return !isClosed(m.procs[i])
+}
+
+// relay carries a connection in memory through m, with grace, until ctx
+// ends: the client's end, and what's closed once the relay has ended.
+func (m *memSSH) relay(ctx context.Context, grace time.Duration) (*memnet.Conn, chan struct{}) {
+	client, relayed := memnet.Pipe()
 	ended := make(chan struct{})
 	go func() {
 		defer close(ended)
-		pipeSSHFor(ctx, relayed, nil, time.Hour)
+		sshRelay{grace: grace, start: m.start}.carry(ctx, relayed, nil)
 	}()
-	pid := pidOf(t, pidFile)
-	// Never read: the relay's write to the client waits once the buffers
-	// fill.
-	time.Sleep(500 * time.Millisecond)
-	cancel()
+	return client, ended
+}
+
+// vmSilent is a VM that sends nothing; vmYes one that sends without end,
+// as yes does.
+func vmSilent(context.Context, io.Writer) {}
+
+func vmYes(_ context.Context, out io.Writer) {
+	line := bytes.Repeat([]byte("y\n"), 2048)
+	for {
+		if _, err := out.Write(line); err != nil {
+			return
+		}
+	}
+}
+
+// vmSays is a VM that sends each line it's given on say.
+func vmSays(say chan string) func(context.Context, io.Writer) {
+	return func(ctx context.Context, out io.Writer) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case s := <-say:
+				if _, err := io.WriteString(out, s+"\n"); err != nil {
+					return
+				}
+			}
+		}
+	}
+}
+
+// isClosed reports whether ch is closed.
+func isClosed(ch chan struct{}) bool {
 	select {
-	case <-ended:
-	case <-time.After(10 * time.Second):
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// endsAt checks, in a bubble, that a relay ends exactly after d more,
+// with its ssh killed, and not a moment before.
+func endsAt(t *testing.T, what string, ended chan struct{}, ssh *memSSH, d time.Duration) {
+	t.Helper()
+	time.Sleep(d - time.Nanosecond)
+	synctest.Wait()
+	if isClosed(ended) {
+		t.Fatalf("%s: ended before %s", what, d)
+	}
+	time.Sleep(time.Nanosecond)
+	synctest.Wait()
+	if !isClosed(ended) {
+		t.Fatalf("%s: still carried after %s", what, d)
+	}
+	if ssh.running() != 0 {
+		t.Errorf("%s: its ssh still runs", what)
+	}
+}
+
+// The grace, on the bubble's clock: a relay whose client has closed,
+// fully or for writing alone, ends exactly the grace after, its ssh
+// killed, though the VM never ends its channel. One whose VM keeps
+// sending to a half-closed client goes on as long as it sends within each
+// grace, and ends the grace after its last line. One whose client has
+// closed fully, its VM still sending, ends the grace after the write that
+// failed.
+func TestRelayGrace(t *testing.T) {
+	const grace = 30 * time.Second
+	for _, tc := range []struct {
+		name string
+		half bool
+	}{{"closed", false}, {"half closed", true}} {
+		t.Run("silent, "+tc.name, func(t *testing.T) {
+			leaktest.Check(t)
+			synctest.Test(t, func(t *testing.T) {
+				ssh := &memSSH{vm: vmSilent}
+				client, ended := ssh.relay(t.Context(), grace)
+				time.Sleep(time.Hour) // nothing ends it while the client's side is open
+				synctest.Wait()
+				if isClosed(ended) {
+					t.Fatal("ended with its client's side open")
+				}
+				if tc.half {
+					_ = client.CloseWrite()
+				} else {
+					_ = client.Close()
+				}
+				endsAt(t, "silent", ended, ssh, grace)
+			})
+		})
+	}
+	t.Run("talking, half closed", func(t *testing.T) {
+		leaktest.Check(t)
+		synctest.Test(t, func(t *testing.T) {
+			say := make(chan string)
+			ssh := &memSSH{vm: vmSays(say)}
+			client, ended := ssh.relay(t.Context(), grace)
+			_ = client.CloseWrite()
+			r := bufio.NewReader(client)
+			for i := range 10 {
+				time.Sleep(grace - time.Nanosecond)
+				say <- strconv.Itoa(i)
+				if line, err := r.ReadString('\n'); err != nil || line != strconv.Itoa(i)+"\n" {
+					t.Fatalf("line %d: %q, %v", i, line, err)
+				}
+			}
+			endsAt(t, "talking", ended, ssh, grace)
+		})
+	})
+	t.Run("talking, closed", func(t *testing.T) {
+		leaktest.Check(t)
+		synctest.Test(t, func(t *testing.T) {
+			say := make(chan string)
+			ssh := &memSSH{vm: vmSays(say)}
+			client, ended := ssh.relay(t.Context(), grace)
+			_ = client.Close()
+			time.Sleep(grace / 2)
+			say <- "x" // its write to the client fails: the grace starts again
+			endsAt(t, "talking", ended, ssh, grace)
+		})
+	})
+}
+
+// A half-closed client that stops reading holds the VM's answer back, and
+// the relay's write to it waits: the grace doesn't run while it does,
+// however long that is. Read again, the answer keeps coming; closed, the
+// relay ends the grace after.
+func TestRelayGraceSlowClient(t *testing.T) {
+	const grace = 30 * time.Second
+	leaktest.Check(t)
+	synctest.Test(t, func(t *testing.T) {
+		ssh := &memSSH{vm: vmYes}
+		client, ended := ssh.relay(t.Context(), grace)
+		_ = client.CloseWrite()
+		time.Sleep(10 * grace)
+		synctest.Wait()
+		if isClosed(ended) {
+			t.Fatal("the relay ended while its write to a slow client waited")
+		}
+		if _, err := io.CopyN(io.Discard, client, 1<<20); err != nil {
+			t.Fatalf("the slow client's answer: %v", err)
+		}
 		_ = client.Close()
-		_ = daemon.Signal(pid, syscall.SIGKILL)
-		<-ended
-		t.Fatal("the relay outlived its context while its write waited")
-	}
-	if daemon.Alive(pid) {
-		t.Error("its ssh still runs")
-	}
+		endsAt(t, "slow client", ended, ssh, grace)
+	})
+}
+
+// A relay whose writes to its client fail ends the grace after the first,
+// with the client's side never seen to close.
+func TestRelayGraceWriteError(t *testing.T) {
+	const grace = 30 * time.Second
+	leaktest.Check(t)
+	synctest.Test(t, func(t *testing.T) {
+		say := make(chan string)
+		ssh := &memSSH{vm: vmSays(say)}
+		block := make(chan struct{})
+		defer close(block)
+		ended := make(chan struct{})
+		go func() {
+			defer close(ended)
+			sshRelay{grace: grace, start: ssh.start}.carry(t.Context(), deafConn{block: block}, nil)
+		}()
+		time.Sleep(time.Hour)
+		say <- "x"
+		endsAt(t, "deaf client", ended, ssh, grace)
+	})
 }
 
 // deafConn is a client that can take nothing more, and whose reads never
@@ -254,7 +492,7 @@ func TestPipeSSHGraceWriteError(t *testing.T) {
 	ended := make(chan struct{})
 	go func() {
 		defer close(ended)
-		pipeSSHFor(t.Context(), deafConn{block: block}, nil, grace)
+		sshRelay{grace: grace, start: execSSH}.carry(t.Context(), deafConn{block: block}, nil)
 	}()
 	defer func() { close(block) }()
 	pid := pidOf(t, pidFile)
@@ -272,11 +510,11 @@ func TestPipeSSHGraceWriteError(t *testing.T) {
 
 // A grace timer runs only once armed, never while a write waits, and
 // never once stopped: an arm or a write after the relay has ended, from
-// the client's goroutine that outlives it, doesn't start it again. Each
-// case's timer either fires within a second, or doesn't within ten
-// graces.
+// the client's goroutine that outlives it, doesn't start it again. On the
+// bubble's clock, a timer that fires does so exactly the grace after its
+// last arm or write, and one that doesn't never does.
 func TestGraceTimer(t *testing.T) {
-	const grace = 20 * time.Millisecond
+	const grace = 30 * time.Second
 	write := func(g *graceTimer, d time.Duration) {
 		_, _ = g.write(func() (int, error) { time.Sleep(d); return 0, nil })
 	}
@@ -287,40 +525,38 @@ func TestGraceTimer(t *testing.T) {
 	}{
 		{"never armed, though written to", func(g *graceTimer) { write(g, 0) }, false},
 		{"armed", func(g *graceTimer) { g.arm() }, true},
-		{"armed, then written to", func(g *graceTimer) { g.arm(); write(g, 0) }, true},
+		{"armed, then written to", func(g *graceTimer) { g.arm(); time.Sleep(grace / 2); write(g, 0) }, true},
+		// Armed, then a write that waits many graces: the grace doesn't run
+		// while it waits, and starts again once it's done.
+		{"armed, then a long write", func(g *graceTimer) { g.arm(); write(g, 10*grace) }, true},
+		// A write that waits many graces, armed while it waits: the grace
+		// starts once it's done.
+		{"armed while a write waits", func(g *graceTimer) {
+			_, _ = g.write(func() (int, error) { g.arm(); time.Sleep(10 * grace); return 0, nil })
+		}, true},
 		{"stopped, then armed", func(g *graceTimer) { g.arm(); g.stop(); g.arm() }, false},
 		{"stopped, then written to", func(g *graceTimer) { g.arm(); g.stop(); write(g, 0) }, false},
 	} {
-		fired := make(chan struct{}, 1)
-		g := newGraceTimer(grace, func() { fired <- struct{}{} })
-		tc.steps(g)
-		wait := 10 * grace
-		if tc.fires {
-			wait = time.Second
-		}
-		select {
-		case <-fired:
-			if !tc.fires {
-				t.Errorf("%s: fired", tc.name)
+		synctest.Test(t, func(t *testing.T) {
+			var fired atomic.Bool
+			g := newGraceTimer(grace, func() { fired.Store(true) })
+			tc.steps(g)
+			time.Sleep(grace - time.Nanosecond)
+			synctest.Wait()
+			if fired.Load() {
+				t.Errorf("%s: fired before the grace", tc.name)
 			}
-		case <-time.After(wait):
-			if tc.fires {
-				t.Errorf("%s: never fired", tc.name)
+			time.Sleep(time.Nanosecond)
+			synctest.Wait()
+			if fired.Load() != tc.fires {
+				t.Errorf("%s: fired %v once the grace passed, want %v", tc.name, fired.Load(), tc.fires)
 			}
-		}
-	}
-	// A write that waits many graces, armed while it waits: the timer
-	// doesn't fire until it's done.
-	fired := make(chan struct{}, 1)
-	g := newGraceTimer(grace, func() { fired <- struct{}{} })
-	_, _ = g.write(func() (int, error) {
-		g.arm()
-		time.Sleep(10 * grace)
-		return 0, nil
-	})
-	select {
-	case <-fired:
-		t.Error("fired while a write waited")
-	default:
+			time.Sleep(time.Hour)
+			synctest.Wait()
+			if fired.Load() != tc.fires {
+				t.Errorf("%s: fired %v an hour on, want %v", tc.name, fired.Load(), tc.fires)
+			}
+			g.stop()
+		})
 	}
 }

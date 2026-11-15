@@ -28,6 +28,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/devvmhq/devvm/internal/memnet"
 	"github.com/devvmhq/devvm/internal/redact"
 )
 
@@ -85,6 +86,94 @@ func listen(t *testing.T, s *server) string {
 		s.closeConns()
 	})
 	return p.Listener.Addr().String()
+}
+
+// memProxy is a proxy served in memory, for a test in a synctest bubble (memServe), and the far
+// ends it connects to, in far.
+type memProxy struct {
+	t   *testing.T
+	l   *memnet.Listener
+	far *memnet.Network
+}
+
+// memServe serves s in memory, as listen serves it on a port, its connections to the far ends
+// going to the returned proxy's far. Once the test ends, s closes as the proxy does.
+func memServe(t *testing.T, s *server) memProxy {
+	t.Helper()
+	var n memnet.Network
+	l, err := n.Listen("proxy")
+	must(t, err)
+	far := &memnet.Network{}
+	s.egress.connect = far.DialContext
+	srv := httpServer(s)
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		_ = srv.Serve(s.conns.track(l))
+	}()
+	t.Cleanup(func() {
+		_ = srv.Close()
+		s.closeConns()
+		<-served
+	})
+	return memProxy{t: t, l: l, far: far}
+}
+
+// farSink listens at addr among p's far ends, keeping what each connection sends in got, until the
+// test ends.
+func (p memProxy) farSink(addr string, got io.Writer) {
+	p.t.Helper()
+	ln, err := p.far.Listen(addr)
+	must(p.t, err)
+	p.t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = c.Close() }()
+				_, _ = io.Copy(got, c)
+			}()
+		}
+	}()
+}
+
+// dial is a connection to the proxy, closed once the test ends.
+func (p memProxy) dial() *memnet.Conn {
+	p.t.Helper()
+	c, err := p.l.Dial()
+	must(p.t, err)
+	p.t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+// connect sends a CONNECT for hostPort and returns the connection, what reads it after the
+// proxy's answer, and the answer's status; refused reads a refusal's body.
+func (p memProxy) connect(hostPort string) (*memnet.Conn, *bufio.Reader, int) {
+	p.t.Helper()
+	c, r, resp := p.send(hostPort)
+	_ = resp.Body.Close()
+	return c, r, resp.StatusCode
+}
+
+func (p memProxy) refused(hostPort string) (int, string) {
+	p.t.Helper()
+	_, _, resp := p.send(hostPort)
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(body)
+}
+
+func (p memProxy) send(hostPort string) (*memnet.Conn, *bufio.Reader, *http.Response) {
+	p.t.Helper()
+	c := p.dial()
+	_, _ = io.WriteString(c, "CONNECT "+hostPort+" HTTP/1.1\r\nHost: "+hostPort+"\r\n\r\n")
+	r := bufio.NewReader(c)
+	resp, err := http.ReadResponse(r, &http.Request{Method: http.MethodConnect})
+	must(p.t, err)
+	return c, r, resp
 }
 
 // logs captures s's event log and its own log lines.

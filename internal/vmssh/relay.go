@@ -10,56 +10,84 @@ import (
 )
 
 // relayGrace is how long a relay goes on once its client has closed its
-// side with nothing coming from the VM (pipeSSHFor).
+// side with nothing coming from the VM (sshRelay.carry).
 const relayGrace = 30 * time.Second
 
 // pipeSSH carries conn through ssh run with args (-W), until either side
 // ends, then closes conn; a VM that never ends its side is cut off
-// relayGrace after the client has (pipeSSHFor).
+// relayGrace after the client has (sshRelay.carry).
 func pipeSSH(ctx context.Context, conn net.Conn, args []string) {
-	pipeSSHFor(ctx, conn, args, relayGrace)
+	sshRelay{grace: relayGrace, start: execSSH}.carry(ctx, conn, args)
 }
 
-// pipeSSHFor is pipeSSH with its grace. The ssh (-W) ends only when the
-// VM's sshd ends its channel, so a VM that ignored the client's EOF would
-// keep it, and its owner's relay slot, for as long as the VM liked. Once
-// the client's side has closed, the ssh is killed when the VM has sent
-// nothing for grace, so a client that closes for writing alone still
-// gets an answer that keeps coming, as long as the VM sends something at
-// least every grace, its first byte included; once the client can take
-// nothing more, it's killed when it hasn't exited within grace. The grace
-// doesn't run while a write to the client waits for it, so a slow client
-// is never cut off from what the VM has sent it, but the owner's context
+// sshRelay carries a connection through an ssh -W (carry).
+type sshRelay struct {
+	// grace is how long the VM may send nothing once the client's side
+	// has closed (carry).
+	grace time.Duration
+	// start starts ssh with args, killed once ctx ends: execSSH, or a
+	// test's stand-in.
+	start func(ctx context.Context, args []string) (sshPipes, error)
+}
+
+// sshPipes is a started ssh's input and output, and how to wait for it
+// to end.
+type sshPipes struct {
+	in   io.WriteCloser
+	out  io.Reader
+	wait func() error
+}
+
+// execSSH starts ssh with args, which ctx's end kills.
+func execSSH(ctx context.Context, args []string) (sshPipes, error) {
+	cmd := exec.CommandContext(ctx, "ssh", args...) //nolint:gosec // devvm's own arguments
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return sshPipes{}, err
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return sshPipes{}, err
+	}
+	if err := cmd.Start(); err != nil {
+		return sshPipes{}, err
+	}
+	return sshPipes{in: in, out: out, wait: cmd.Wait}, nil
+}
+
+// carry carries conn through ssh run with args (-W), until either side
+// ends, then closes conn. The ssh ends only when the VM's sshd ends its
+// channel, so a VM that ignored the client's EOF would keep it, and its
+// owner's relay slot, for as long as the VM liked. Once the client's side
+// has closed, the ssh is killed when the VM has sent nothing for the
+// grace, so a client that closes for writing alone still gets an answer
+// that keeps coming, as long as the VM sends something at least every
+// grace, its first byte included; once the client can take nothing more,
+// it's killed when it hasn't exited within the grace. The grace doesn't
+// run while a write to the client waits for it, so a slow client is
+// never cut off from what the VM has sent it, but the owner's context
 // (ctx) closes the connection when it ends, which ends such a write too.
-func pipeSSHFor(ctx context.Context, conn net.Conn, args []string, grace time.Duration) {
+func (r sshRelay) carry(ctx context.Context, conn net.Conn, args []string) {
 	defer func() { _ = conn.Close() }()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
-	cmd := exec.CommandContext(ctx, "ssh", args...) //nolint:gosec // devvm's own arguments
-	in, err := cmd.StdinPipe()
+	ssh, err := r.start(ctx, args)
 	if err != nil {
 		return
 	}
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		return
-	}
-	if err := cmd.Start(); err != nil {
-		return
-	}
-	idle := newGraceTimer(grace, cancel)
+	idle := newGraceTimer(r.grace, cancel)
 	defer idle.stop()
 	go func() {
-		_, _ = io.Copy(in, conn)
-		_ = in.Close()
+		_, _ = io.Copy(ssh.in, conn)
+		_ = ssh.in.Close()
 		idle.arm()
 	}()
-	_, _ = io.Copy(&graceWriter{w: conn, idle: idle}, out)
+	_, _ = io.Copy(&graceWriter{w: conn, idle: idle}, ssh.out)
 	_ = conn.Close()
 	idle.arm()
-	_ = cmd.Wait()
+	_ = ssh.wait()
 }
 
 // graceTimer cancels a relay once its grace runs out. It runs only once

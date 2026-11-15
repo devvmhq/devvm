@@ -35,7 +35,8 @@ linters:
       rules:
         # The proxy, and the background-process helper, the file reader,
         # the VM names and the secrets' type it uses: the standard library
-        # alone, and each other; and the leak checks, which their tests use.
+        # alone, and each other; and the leak checks and the network in
+        # memory, which their tests use.
         proxy:
           list-mode: strict
           files:
@@ -45,6 +46,7 @@ linters:
             - "**/internal/vmname/**"
             - "**/internal/leaktest/**"
             - "**/internal/redact/**"
+            - "**/internal/memnet/**"
           allow:
             - $gostd
             - github.com/devvmhq/devvm/internal/proxy
@@ -53,6 +55,7 @@ linters:
             - github.com/devvmhq/devvm/internal/vmname
             - github.com/devvmhq/devvm/internal/leaktest
             - github.com/devvmhq/devvm/internal/redact
+            - github.com/devvmhq/devvm/internal/memnet
         main:
           list-mode: strict
           files:
@@ -64,6 +67,7 @@ linters:
             - "!**/internal/vmname/**"
             - "!**/internal/leaktest/**"
             - "!**/internal/redact/**"
+            - "!**/internal/memnet/**"
           allow:
             - $gostd
             - github.com/devvmhq/devvm
@@ -91,6 +95,7 @@ linters:
             - "!**/internal/vmname/**"
             - "!**/internal/leaktest/**"
             - "!**/internal/redact/**"
+            - "!**/internal/memnet/**"
           allow:
             - $gostd
             - github.com/devvmhq/devvm
