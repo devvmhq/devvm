@@ -48,7 +48,7 @@ One proxy runs for each running VM, as `devvm _proxy -config FILE`, with the VM'
 - **Bounds:** at most 1024 `CONNECT` tunnels at once. It keeps at most 1024 of the certificates it made for intercepted hosts for each CA, dropping the one used longest ago. An intercepted connection waits at most 10 minutes between requests.
 - **Listens:** on `127.0.0.1`, on the VM's proxy port ([listeners](#listeners-a-vm-reaches)).
 - **Confinement:** none. It runs as you, with your Keychain and your files.
-- **Starts and ends:** devvm starts it before each start of the VM, on every tier, and waits up to 5 seconds for it to say it's listening. It exits when the hostagent it follows ends, or 15 minutes after it starts if the hostagent never appears, and `devvm stop` stops it ([how long a proxy runs](network.md#how-long-a-proxy-runs)).
+- **Starts and ends:** devvm starts it before each start of the VM, on every tier, and waits up to 5 seconds for it to say it's listening. It exits when the hostagent it follows ends, or 15 minutes after it starts if the hostagent never appears, and `devvm stop` stops it ([how long a proxy runs](network.md#how-long-a-proxy-runs)). When its hostagent ends, it stops listening and closes every connection it accepted, the tunnels it carries and the WebSocket upgrades it passes on included, and refuses one that arrives after that. It then waits for the handlers to return, 5 seconds at most, because Go's HTTP server neither closes a connection that a handler took from it nor waits for a handler. `devvm stop`'s `SIGTERM` ends it at once.
 
 ## A build's proxy
 

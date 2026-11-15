@@ -7,6 +7,7 @@ package proxy
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -29,8 +30,10 @@ func hijack(w http.ResponseWriter) (bufConn, error) {
 
 // splice passes client's bytes to server and server's to client, as they are. The end of what
 // client sends ends what server reads (closeWrite), and server can still answer. Once server's
-// bytes end, or client can't be written to (it went away), splice closes both connections and
-// returns. Server's bytes pass from the start; client's only once before, when there's one, has
+// bytes end, or client can't be written to (it went away), or client can't be read from (it was
+// reset, or closed as the proxy closes: conns.close), splice closes both connections and returns.
+// A server that can't be written to, as it answered early and closed, still has its answer passed
+// to the end. Server's bytes pass from the start; client's only once before, when there's one, has
 // returned true (it may read client's first bytes and pass them on itself), and when it returns
 // false, none do, and both connections close.
 func splice(client, server net.Conn, before func() bool) {
@@ -42,13 +45,35 @@ func splice(client, server net.Conn, before func() bool) {
 			_ = server.Close()
 			return
 		}
-		_, _ = io.Copy(server, client)
+		// Only the client's own failure ends both: a server that answers early and closes while
+		// the client still sends (a 413, a refused login) fails the writes, and its answer still
+		// passes.
+		rc := &readErr{r: client}
+		_, _ = io.Copy(server, rc)
+		if rc.err != nil && !errors.Is(rc.err, io.EOF) {
+			_ = client.Close()
+			_ = server.Close()
+			return
+		}
 		closeWrite(server)
 	}()
 	_, _ = io.Copy(client, server)
 	_ = client.Close()
 	_ = server.Close()
 	<-done
+}
+
+// readErr is r, keeping the error its last read returned: what splice tells a client that failed
+// from a server it couldn't write to.
+type readErr struct {
+	r   io.Reader
+	err error
+}
+
+func (r *readErr) Read(b []byte) (int, error) {
+	n, err := r.r.Read(b)
+	r.err = err
+	return n, err
 }
 
 // closeWrite closes c's writing side, so the other end reads the end of what c sent, or closes c

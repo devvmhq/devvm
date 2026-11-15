@@ -16,6 +16,15 @@ Every change to devvm's logic comes with a test, and Go tests are table tests ne
 - **A `msg.Recorder`** keeps the messages it's given. Set a `msg.Fake`'s `OnInfo` or `OnWarn` to the recorder's `Add`, then compare its `Names` or its `IDs`.
 - **`backendtest.Stored`** is the fake backend with its disks on the host, for the free-space checks.
 
+## Goroutine leaks
+
+A goroutine that outlives its test is one that would outlive its command in devvm, such as a tunnel the proxy carries after it has closed, or a goroutine that passes signals on after its child has ended. `internal/leaktest` finds them in every package that starts goroutines: `internal/proxy`, `vmssh`, `daemon`, `desktop`, `ui`, `vm`, `backend/lima`, `platform`, `cli` and `gitprotect`. It imports only the standard library, so the proxy's and the daemon's tests use it too.
+
+- **`leaktest.Main(m)`**, in a package's `TestMain`, runs the tests and, once they've passed, reads every goroutine's stack. It gives the goroutines that are still ending, such as a closed listener's accept loop, five seconds, then fails the test binary with the stacks of any still running. It leaves out the standard library's own goroutines that outlive every test and that no test can end, which `allowed` lists with why: `signal.Notify`'s loop and an HTTP client's idle connections. It then reads Go's `goroutineleak` profile, which names each goroutine blocked for good on a channel, a lock or a wait group that nothing still running can reach, and fails on any it names. A `TestMain` that makes the test binary a helper process runs the helper first and calls `leaktest.Main` last.
+- **`leaktest.Check(t)`**, called first in a test, fails that test when a goroutine started while it ran is still running once it has ended, its context cancelled and its cleanups run, after the same five seconds. It counts the goroutines the test started, and theirs, followed through those still running, so a test running in parallel doesn't count. Nor does a goroutine that a server shared between tests starts for the test, such as one that `TestMain` or a `sync.Once` started, because it leads back to that server's goroutine, which ran before the test, and `Main` finds those at the end. Its failure names the test, where `Main`'s names only the binary, so a test of something that starts and stops goroutines, such as a link session, the port forwarder or the desktop's relay, calls it.
+
+Anything `Main` or `Check` finds is a leak to fix, with a test that fails without the fix. Only a goroutine the standard library starts, that outlives every test, goes in `allowed`. A new package that starts goroutines gets a `main_test.go` that calls `leaktest.Main`, which the structure test checks, and the structure test lists every goroutine devvm's code starts, with what waits for it to end ([`goroutineSites`](structure.md#the-structure-test)).
+
 ## CLI tests
 
 CLI tests are [testscript](https://pkg.go.dev/github.com/rogpeppe/go-internal/testscript) scripts in `testdata/script/*.txtar`, run by `internal/cli/script_test.go` against a freshly built `devvm`. Call it with `exec devvm …`:

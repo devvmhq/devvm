@@ -23,6 +23,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/daemon"
+	"github.com/devvmhq/devvm/internal/leaktest"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
@@ -174,6 +175,7 @@ func echo(_ context.Context, conn net.Conn, h string, p int) {
 // the connection ends, until it's made again; it ends once the VM no
 // longer runs as it did.
 func TestForwarder(t *testing.T) {
+	leaktest.Check(t) // nothing of the forwarder's runs on once it has ended
 	ports := freePorts(t, 5)
 	open, v6only, reserved, hosts, gone := ports[0], ports[1], ports[2], ports[3], ports[4]
 	// The host's own program, on every address.

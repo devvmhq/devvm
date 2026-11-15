@@ -187,24 +187,45 @@ func ExecUnprivileged(path string, argv, env []string) error {
 }
 
 // WaitExit returns a channel that's closed once the process pid ends,
-// and a stop for the wait; a pid that can't be watched is taken as ended.
+// and a stop for the wait, which closes it too; a pid that can't be
+// watched is taken as ended. It waits in Go's poller, which the stop
+// wakes: a blocking poll(2) wouldn't wake as its fd closed, so its
+// goroutine, and its thread, would stay.
 func WaitExit(pid int) (<-chan struct{}, func()) {
 	done := make(chan struct{})
-	fd, err := unix.PidfdOpen(pid, 0)
+	f, err := pollable(unix.PidfdOpen(pid, 0))
 	if err != nil {
+		close(done)
+		return done, func() {}
+	}
+	rc, err := f.SyscallConn()
+	if err != nil {
+		_ = f.Close()
 		close(done)
 		return done, func() {}
 	}
 	go func() {
 		defer close(done)
-		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}} //nolint:gosec // an fd fits
-		for {
-			if _, err := unix.Poll(fds, -1); !errors.Is(err, unix.EINTR) {
-				return
-			}
-		}
+		// Readable once the process ends; until then the poller waits.
+		_ = rc.Read(func(fd uintptr) bool {
+			n, err := unix.Poll([]unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}, 0) //nolint:gosec // an fd fits
+			return err != nil || n > 0
+		})
 	}()
-	return done, func() { _ = unix.Close(fd) }
+	return done, func() { _ = f.Close() }
+}
+
+// pollable is fd, which open returned, as a file Go's poller waits on:
+// its reads wait there, and its close ends them.
+func pollable(fd int, err error) (*os.File, error) {
+	if err != nil {
+		return nil, err
+	}
+	if err := unix.SetNonblock(fd, true); err != nil {
+		_ = unix.Close(fd)
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), "pollable"), nil
 }
 
 // WatchFolders returns a channel that gets a value (dropped when one is
@@ -225,14 +246,18 @@ func WatchFolders(dirs []string) (<-chan struct{}, func(), error) {
 			return nil, nil, &os.PathError{Op: "watch", Path: d, Err: err}
 		}
 	}
+	// Read in Go's poller, which the stop wakes: a blocking read(2)
+	// wouldn't wake as its fd closed, so its goroutine, and its thread,
+	// would stay, and its next read could take another file's fd.
+	f, err := pollable(fd, nil)
+	if err != nil {
+		return nil, nil, err
+	}
 	ch := make(chan struct{}, 1)
 	go func() {
 		buf := make([]byte, 64*1024)
 		for {
-			if _, err := unix.Read(fd, buf); err != nil {
-				if errors.Is(err, unix.EINTR) {
-					continue
-				}
+			if _, err := f.Read(buf); err != nil {
 				return
 			}
 			select {
@@ -241,7 +266,7 @@ func WatchFolders(dirs []string) (<-chan struct{}, func(), error) {
 			}
 		}
 	}()
-	return ch, func() { _ = unix.Close(fd) }, nil
+	return ch, func() { _ = f.Close() }, nil
 }
 
 // UsernsLimit is why this host refuses an unprivileged user namespace

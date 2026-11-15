@@ -3,15 +3,22 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/leaktest"
 )
 
 // farEnd is the other end of a tunnel in a test. Each connection's first byte says what it does:
@@ -272,6 +279,7 @@ func TestHijack(t *testing.T) {
 	t.Parallel()
 	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	must(t, err)
+	var cs conns
 	srv := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		c, err := hijack(w)
 		if err != nil {
@@ -282,7 +290,7 @@ func TestHijack(t *testing.T) {
 		_, _ = c.Write(append([]byte("read:"), b...))
 		_ = c.Close()
 	})}
-	go func() { _ = srv.Serve(ln) }()
+	go func() { _ = srv.Serve(cs.track(ln)) }()
 	t.Cleanup(func() { _ = srv.Close() })
 	c, err := new(net.Dialer).DialContext(t.Context(), "tcp", ln.Addr().String())
 	must(t, err)
@@ -292,6 +300,198 @@ func TestHijack(t *testing.T) {
 	b, _ := io.ReadAll(c)
 	if string(b) != "HTTP/1.1 200 Connection established\r\n\r\nread:early" {
 		t.Errorf("got %q", b)
+	}
+	// Closed, the connection is let go of.
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if len(cs.open) != 0 {
+		t.Errorf("%d connections still held once closed", len(cs.open))
+	}
+}
+
+// The proxy's close ends every connection a handler took from the HTTP server, which http.Server's
+// Close leaves, a CONNECT's (hijack) or an upgrade's that the handler took itself, as
+// httputil.ReverseProxy does for a WebSocket, and waits for the handlers to return; a request
+// after it is refused.
+func TestCloseConns(t *testing.T) {
+	t.Parallel()
+	leaktest.Check(t)
+	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	must(t, err)
+	var cs conns
+	returned := make(chan string, 2)
+	srv := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: cs.handle(func(w http.ResponseWriter, r *http.Request) {
+		var c io.Reader
+		if r.Method == http.MethodConnect {
+			b, err := hijack(w)
+			if err != nil {
+				return
+			}
+			c = b
+		} else { // an upgrade, taken as ReverseProxy takes one
+			raw, buf, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				return
+			}
+			_, _ = io.WriteString(raw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+			c = buf
+		}
+		_, _ = io.Copy(io.Discard, c) // until the close ends it
+		returned <- r.Method
+	})}
+	go func() { _ = srv.Serve(cs.track(ln)) }()
+	open := func(req string) (net.Conn, *bufio.Reader) {
+		c, err := new(net.Dialer).DialContext(t.Context(), "tcp", ln.Addr().String())
+		must(t, err)
+		t.Cleanup(func() { _ = c.Close() })
+		_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+		_, _ = io.WriteString(c, req)
+		r := bufio.NewReader(c)
+		if line, _ := r.ReadString('\n'); !strings.HasPrefix(line, "HTTP/1.1 200") && !strings.HasPrefix(line, "HTTP/1.1 101") {
+			t.Fatalf("%q: %q", req, line)
+		}
+		return c, r
+	}
+	tunnel, tr := open("CONNECT x.test:443 HTTP/1.1\r\nHost: x.test:443\r\n\r\n")
+	upgrade, ur := open("GET /ws HTTP/1.1\r\nHost: x.test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+	_ = srv.Close() // as the proxy's lifeline ends it: both go on
+	for _, c := range []net.Conn{tunnel, upgrade} {
+		if _, err := c.Write([]byte("x")); err != nil {
+			t.Fatalf("a connection ended with the HTTP server: %v", err)
+		}
+	}
+	if !cs.close(5 * time.Second) {
+		t.Fatal("close: a handler is still running")
+	}
+	if len(returned) != 2 {
+		t.Errorf("close returned before the handlers: %d of 2 had", len(returned))
+	}
+	// Each one's end, or a reset for the byte it hadn't read yet: not the deadline.
+	for _, r := range []*bufio.Reader{tr, ur} {
+		if _, err := io.ReadAll(r); errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Errorf("a connection goes on after the close: %v", err)
+		}
+	}
+	// A request after the close is refused.
+	w := httptest.NewRecorder()
+	cs.handle(func(http.ResponseWriter, *http.Request) { t.Error("a request after the close ran") })(w,
+		httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://x.test/", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("a request after the close: %d, want 503", w.Code)
+	}
+}
+
+// A tunnel whose far end says nothing still ends once its client's connection is closed, as the
+// proxy's close closes it: the far end's connection closes too.
+func TestSpliceEndsWhenItsClientCloses(t *testing.T) {
+	t.Parallel()
+	leaktest.Check(t)
+	// TCP's, which close their writing side alone: a pipe's would close whole.
+	pair := func() (net.Conn, net.Conn) {
+		ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+		must(t, err)
+		defer func() { _ = ln.Close() }()
+		a, err := new(net.Dialer).DialContext(t.Context(), "tcp", ln.Addr().String())
+		must(t, err)
+		b, err := ln.Accept()
+		must(t, err)
+		return a, b
+	}
+	client, vm := pair()
+	server, far := pair()
+	defer func() { _ = vm.Close(); _ = far.Close() }()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		splice(client, server, nil)
+	}()
+	_ = client.Close()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("splice goes on after its client's connection closed")
+	}
+	_ = far.SetDeadline(time.Now().Add(10 * time.Second))
+	if _, err := io.ReadAll(far); errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Error("the far end's connection is open")
+	}
+}
+
+// earlyServer is a tunnel's far end that has answered and closed while its client still sends:
+// every write to it fails, and its answer reads to the end, until splice closes it.
+type earlyServer struct {
+	net.Conn
+	answer *bytes.Reader
+	mu     sync.Mutex
+	closed bool
+}
+
+func (s *earlyServer) Read(b []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return 0, net.ErrClosed
+	}
+	return s.answer.Read(b)
+}
+
+func (s *earlyServer) Write([]byte) (int, error) { return 0, syscall.EPIPE }
+
+func (s *earlyServer) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	return nil
+}
+
+func (s *earlyServer) CloseWrite() error { return nil }
+
+// A server that answers early and closes while the client still sends, such as a 413 to an
+// upload, fails splice's writes to it; the client still gets its whole answer.
+func TestSpliceKeepsAnEarlyAnswer(t *testing.T) {
+	t.Parallel()
+	answer := bytes.Repeat([]byte("413 "), 1<<20)
+	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	must(t, err)
+	defer func() { _ = ln.Close() }()
+	vm, err := new(net.Dialer).DialContext(t.Context(), "tcp", ln.Addr().String())
+	must(t, err)
+	defer func() { _ = vm.Close() }()
+	client, err := ln.Accept()
+	must(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		splice(client, &earlyServer{answer: bytes.NewReader(answer)}, nil)
+	}()
+	// The upload's first bytes, which the server refuses: the client hasn't closed its side, so
+	// it's still sending as far as the tunnel knows. (Bytes splice never read would reset the
+	// connection as it closes, which drops what the client hadn't read yet, on any tunnel.)
+	if _, err := vm.Write(make([]byte, 1024)); err != nil {
+		t.Fatal(err)
+	}
+	_ = vm.SetReadDeadline(time.Now().Add(10 * time.Second))
+	got, err := io.ReadAll(vm)
+	if len(got) != len(answer) {
+		t.Errorf("the client got %d bytes of the server's %d: %v", len(got), len(answer), err)
+	}
+	<-done
+}
+
+// Once the proxy closes, a connection its listener still accepts is closed before anything of it
+// is served.
+func TestConnectAfterClose(t *testing.T) {
+	t.Parallel()
+	s := testServer(t, Config{}, "new.test")
+	addr := listen(t, s)
+	s.closeConns()
+	c, err := new(net.Dialer).DialContext(t.Context(), "tcp", addr)
+	must(t, err)
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	_, _ = io.WriteString(c, "CONNECT new.test:443 HTTP/1.1\r\nHost: new.test:443\r\n\r\n")
+	if b, err := io.ReadAll(c); len(b) != 0 || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Errorf("a CONNECT after the close got %q, %v", b, err)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/backend"
+	"github.com/devvmhq/devvm/internal/leaktest"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/platform"
 )
@@ -41,7 +42,7 @@ func TestMain(m *testing.M) {
 	if f := flag.Lookup("test.gocoverdir"); f != nil && f.Value.String() != "" {
 		_ = os.Setenv("GOCOVERDIR", f.Value.String()) // the test binary's children's coverage
 	}
-	os.Exit(m.Run()) //nolint:forbidigo // the test binary
+	leaktest.Main(m)
 }
 
 // pinsFile writes data, a set of pins as encodePins writes them, to a

@@ -95,6 +95,23 @@ type server struct {
 	// connection's first bytes (helloTimeout; tests shorten it).
 	helloWait   time.Duration
 	transparent *transparent
+	// conns are the connections its listener accepted and its handlers, which its close ends
+	// and waits for (closeConns).
+	conns conns
+}
+
+// closeWait is how long the proxy's close waits for its handlers once it has closed their
+// connections: they end at once, but for a dial or a lookup still under way, which its own
+// timeout ends.
+const closeWait = 5 * time.Second
+
+// closeConns ends every connection the proxy's listener accepted, tunnels and upgrades included,
+// refuses requests to come, and waits for the handlers (conns.close), for at most closeWait: what
+// the proxy does once it has stopped serving, as http.Server's Close leaves them.
+func (s *server) closeConns() {
+	if !s.conns.close(closeWait) {
+		s.log.Printf("a handler was still running %s after the proxy closed", closeWait)
+	}
 }
 
 // maxConnects is how many CONNECTs a VM's proxy carries at once, tunnels and interceptions alike:
@@ -1155,7 +1172,7 @@ func serve(c Config, std IO, tick time.Duration) error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: http.HandlerFunc(s.handler), ReadHeaderTimeout: 30 * time.Second, MaxHeaderBytes: maxHeaderBytes}
+	srv := &http.Server{Handler: s.conns.handle(s.handler), ReadHeaderTimeout: 30 * time.Second, MaxHeaderBytes: maxHeaderBytes}
 	l.Printf("listening on %s for %s", ln.Addr(), s.vm)
 	// What devvm waits for as it starts the proxy: the address it listens on.
 	if err := daemon.Ready(ln.Addr().String()); err != nil {
@@ -1168,7 +1185,9 @@ func serve(c Config, std IO, tick time.Duration) error {
 			_ = srv.Close()
 		}()
 	}
-	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+	err = srv.Serve(s.conns.track(ln))
+	s.closeConns()
+	if !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil

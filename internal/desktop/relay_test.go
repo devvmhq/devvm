@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/leaktest"
 )
 
 func TestNewPassword(t *testing.T) {
@@ -88,9 +90,10 @@ func (f *fakeVM) dial(_ context.Context) (io.ReadWriteCloser, error) {
 }
 
 // serve runs a relay on a loopback port for the test, returning its
-// address.
+// address. Once the test ends, nothing of the relay's runs on.
 func serve(t *testing.T, r *Relay) string {
 	t.Helper()
+	leaktest.Check(t)
 	var lc net.ListenConfig
 	l, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {

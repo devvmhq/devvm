@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,6 +21,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/daemon"
+	"github.com/devvmhq/devvm/internal/leaktest"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -667,7 +667,9 @@ func TestLinksEndStuckRelays(t *testing.T) {
 		return LinkTarget{SSH: SSH{VM: lk.Target, User: "u", Key: "/k2", KnownHosts: "/kh", Port: 62022}, Start: start}, "", ""
 	}
 	f.setWant(db, api)
-	before := runtime.NumGoroutine()
+	// Nothing of the session's is left once it ends: every relay's
+	// goroutines, and the stand-in's pipes, are gone.
+	leaktest.Check(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- l.Run(ctx) }()
@@ -676,9 +678,6 @@ func TestLinksEndStuckRelays(t *testing.T) {
 		if err := <-done; err != nil {
 			t.Errorf("Run: %v", err)
 		}
-		// Nothing of the session's is left once it ends: every relay's
-		// goroutines, and the stand-in's pipes, are gone.
-		waitFor(t, "the session's goroutines to end", func() bool { return runtime.NumGoroutine() <= before })
 	}()
 	for _, lk := range []Link{db, api} {
 		waitFor(t, lk.Name+"'s socket", func() bool { _, err := os.Lstat(l.Socket(lk)); return err == nil })

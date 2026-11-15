@@ -20,9 +20,10 @@ internal/hostgit 100.0
 internal/hostsafety 95.9
 internal/image 99.4
 internal/jsonc 97.1
+internal/leaktest 87.0
 internal/msg 72.1
 internal/msg/gen 93.9
-internal/netpolicy 91.7
+internal/netpolicy 91.8
 internal/paths 98.1
 internal/platform 90.4
 internal/ports 91.7

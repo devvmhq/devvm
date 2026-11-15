@@ -71,11 +71,17 @@ func testServer(t *testing.T, c Config, rules string) *server {
 	return s
 }
 
-// listen serves s for the test, on a port of its own, and returns its address.
+// listen serves s for the test, on a port of its own, and returns its address. Once the test ends,
+// s closes as the proxy does: its HTTP server, then every connection it accepted (closeConns).
 func listen(t *testing.T, s *server) string {
 	t.Helper()
-	p := httptest.NewServer(http.HandlerFunc(s.handler))
-	t.Cleanup(p.Close)
+	p := httptest.NewUnstartedServer(s.conns.handle(s.handler))
+	p.Listener = s.conns.track(p.Listener)
+	p.Start()
+	t.Cleanup(func() {
+		p.Close()
+		s.closeConns()
+	})
 	return p.Listener.Addr().String()
 }
 

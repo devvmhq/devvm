@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/leaktest"
 	"github.com/devvmhq/devvm/internal/msg"
 )
 
@@ -21,7 +22,7 @@ func TestMain(m *testing.M) {
 	if h := os.Getenv("UI_TEST_HELPER"); h != "" {
 		os.Exit(helper(h)) //nolint:forbidigo // the test binary as a helper process
 	}
-	os.Exit(m.Run()) //nolint:forbidigo // the test binary
+	leaktest.Main(m)
 }
 
 // helper runs a devvm-like run through Main: it registers a cleanup that

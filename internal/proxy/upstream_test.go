@@ -75,7 +75,7 @@ func (f *fakeUpstream) serve(c net.Conn) {
 	}
 	defer t.Close()
 	fmt.Fprint(c, "HTTP/1.1 200 Connection established\r\n\r\n")
-	go func() { _, _ = io.Copy(t, br) }()
+	go func() { _, _ = io.Copy(t, br); _ = t.Close() }() // the client's end is the target's
 	_, _ = io.Copy(c, t)
 }
 

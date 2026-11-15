@@ -36,11 +36,20 @@ func runChild(cmd *exec.Cmd) error {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr //nolint:forbidigo // passed on whole, as devvm got them
 	sigs := make(chan os.Signal, 4)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
-	defer signal.Stop(sigs)
+	passed := make(chan struct{})
+	defer func() {
+		signal.Stop(sigs)
+		// Once Stop returns, no signal reaches sigs, so closing it ends
+		// the goroutine that passes them on, which runChild waits for.
+		close(sigs)
+		<-passed
+	}()
 	if err := cmd.Start(); err != nil {
+		close(passed)
 		return err
 	}
 	go func() {
+		defer close(passed)
 		for s := range sigs {
 			_ = cmd.Process.Signal(s) // devvm's own child, by its handle until Wait reaps it
 		}

@@ -85,6 +85,11 @@ type rules struct {
 	vmNames vmNameRule
 	// hosts is where a host is read in one form (checkHosts).
 	hosts hostRule
+	// goroutineSites are the functions that start goroutines, outside
+	// tests, as "file: Func" (siteName), each with what waits for them to
+	// end, or detached and why nothing does; nil checks none
+	// (checkGoroutineSites).
+	goroutineSites map[string]string
 }
 
 // A literalOwner is the package whose string literals alone hold a text,
@@ -206,7 +211,8 @@ func load(fsys fs.FS) (*module, error) {
 func check(m *module, r rules) []violation {
 	vs := slices.Concat(checkMethods(m, r), checkInit(m), checkVars(m, r), checkLayers(m, r), checkCommands(m, r),
 		checkExecSites(m, r), checkGuard(m, r), checkEnv(m, r), checkLiterals(m, r), checkNames(m, r), checkSeparators(m, r),
-		checkPaths(m, r), checkCallers(m, r), checkSwitches(m, r), checkEvery(m, r), checkVMNames(m, r), checkHosts(m, r))
+		checkPaths(m, r), checkCallers(m, r), checkSwitches(m, r), checkEvery(m, r), checkVMNames(m, r), checkHosts(m, r),
+		checkGoroutineSites(m, r))
 	slices.SortFunc(vs, func(a, b violation) int { return strings.Compare(a.String(), b.String()) })
 	return vs
 }

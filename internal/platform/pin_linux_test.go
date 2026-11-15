@@ -8,6 +8,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/leaktest"
 )
 
 // Why the kernel refuses an unprivileged user namespace, from its
@@ -132,8 +134,10 @@ func TestReadOnlyFS(t *testing.T) {
 }
 
 // runChild runs a child to its end and returns its exit; one that can't
-// start is an error.
+// start is an error. Nothing of it runs on once it returns: the goroutine
+// that passes the child signals ends with it.
 func TestRunChild(t *testing.T) {
+	leaktest.Check(t)
 	if err := runChild(exec.Command("/bin/true")); err != nil { //nolint:noctx // ends on its own
 		t.Errorf("true: %v", err)
 	}

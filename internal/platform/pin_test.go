@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/leaktest"
 )
 
 // TestMain makes the test binary the namespace's side of the pin tests
@@ -28,7 +30,7 @@ func TestMain(m *testing.M) {
 	if f := flag.Lookup("test.gocoverdir"); f != nil && f.Value.String() != "" {
 		_ = os.Setenv("GOCOVERDIR", f.Value.String()) // the test binary's children's coverage
 	}
-	os.Exit(m.Run()) //nolint:forbidigo // the test binary
+	leaktest.Main(m)
 }
 
 // pinHelper is the namespace's side: probe DIR (ProbePin); run ROOT,
@@ -286,11 +288,12 @@ func TestPinsWithoutNamespace(t *testing.T) {
 }
 
 // The keeper's two waits: a change in a watched folder, and a process
-// that ends.
+// that ends. Each one's stop ends it, its goroutine with it.
 func TestPinWaits(t *testing.T) {
 	if !HasPins {
 		t.Skip("Linux's")
 	}
+	leaktest.Check(t)
 	dir := t.TempDir()
 	// A folder it can't watch fails the watch, naming it.
 	if _, _, err := WatchFolders([]string{dir, filepath.Join(dir, "gone")}); err == nil || !strings.Contains(err.Error(), "gone") {
@@ -325,4 +328,12 @@ func TestPinWaits(t *testing.T) {
 	gone, unwaitGone := WaitExit(1 << 30)
 	defer unwaitGone()
 	<-gone
+	// A wait stopped before its process ends ends too.
+	still, unwaitStill := WaitExit(os.Getpid())
+	unwaitStill()
+	select {
+	case <-still:
+	case <-time.After(5 * time.Second):
+		t.Error("a stopped wait goes on")
+	}
 }

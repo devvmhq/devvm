@@ -203,9 +203,18 @@ func layerCases() []ruleCase {
 			want:  &want{ruleLayers, "upgradetest is for tests"},
 		},
 		{
+			name:  "leaktest outside tests",
+			files: map[string]string{"internal/vm/a.go": imports("vm", "internal/leaktest")},
+			want:  &want{ruleLayers, "stubtest and leaktest are for tests"},
+		},
+		{
+			name:  "leaktest in a test",
+			files: map[string]string{"internal/proxy/a_test.go": imports("proxy", "internal/leaktest")},
+		},
+		{
 			name:  "stubtest outside tests",
 			files: map[string]string{"internal/vm/a.go": imports("vm", "internal/stubtest")},
-			want:  &want{ruleLayers, "stubtest is for tests"},
+			want:  &want{ruleLayers, "stubtest and leaktest are for tests"},
 		},
 		{
 			name:  "stubtest in a test",
@@ -1060,7 +1069,7 @@ func hostCases() []ruleCase {
 // what it allows.
 func TestRulesFail(t *testing.T) {
 	var broken []string // the layer violations' texts
-	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), commandCases(), envCases(), agentCases(), switchCases(), separatorCases(), runnerCases(), pathCases(), callerCases(), vmNameCases(), hostCases()) {
+	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), commandCases(), envCases(), agentCases(), switchCases(), separatorCases(), runnerCases(), pathCases(), callerCases(), vmNameCases(), hostCases(), goroutineCases()) {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := fstest.MapFS{"go.mod": {Data: []byte("module example.com/m\n\ngo 1.27\n")}}
 			for name, src := range tc.files {

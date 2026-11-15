@@ -41,7 +41,7 @@ func devvm() rules {
 		// hostgit runs git without fsmonitor, hooks, filters, GIT_* or prompts, ssh only; tests, stubtest.Git (GitEnv).
 		commands:     map[string]string{"git": "internal/hostgit"},
 		testCommands: map[string]string{"git": "internal/stubtest"},
-		execSites:    devvmExecSites(),
+		execSites:    devvmExecSites(), goroutineSites: devvmGoroutineSites(),
 		// The registry's backends are behind its guard: only backend.As
 		// finds their other interfaces.
 		guardOwner: "internal/backend/guard.go",
@@ -123,9 +123,9 @@ func devvm() rules {
 				to: []string{"internal/upgrade/upgradetest"},
 			},
 			{
-				name: "stubtest is for tests",
-				from: []string{"..."}, exceptFrom: []string{"internal/stubtest/..."},
-				to: []string{"internal/stubtest/..."},
+				name: "stubtest and leaktest are for tests",
+				from: []string{"..."}, exceptFrom: []string{"internal/stubtest/...", "internal/leaktest"},
+				to: []string{"internal/stubtest/...", "internal/leaktest"},
 			},
 			{
 				name: "internal/stubtest imports only internal/msg and its own",
@@ -149,7 +149,7 @@ func devvm() rules {
 				from: []string{
 					"assets", "locales", "packaging", "internal/platform", "internal/msg/gen", "internal/testbuild", "internal/hostgit",
 					"internal/shell", "internal/vmname", "internal/daemon", "internal/fetch", "internal/jsonc",
-					"internal/redact", "internal/agents", "internal/safefile",
+					"internal/redact", "internal/agents", "internal/safefile", "internal/leaktest",
 				},
 				to: []string{"..."},
 			},
@@ -274,6 +274,7 @@ func devvmVars() map[string]string {
 		"internal/tools.gnuT":                     fixture,
 		"internal/tools.muslT":                    fixture,
 		"internal/structure.update":               "a test flag, set on go test's command line",
+		"internal/leaktest.allowed":               table,
 	}
 }
 
@@ -323,6 +324,51 @@ func devvmExecSites() map[string]string {
 		"internal/stubtest/build.go":           "go build of the test stubs, once for a test process, and their names from the binary",
 		"internal/stubtest/git.go":             "tests' plain git, on their own repos, which they run and read as they like",
 		"internal/stubtest/stub/process.go":    "the stubs' stand-in VM's own commands (git on its files, tar) and the real uname and sw_vers, run in the stub's place",
+	}
+}
+
+// devvmGoroutineSites are the functions that start goroutines, each with
+// what waits for them to end, or detached and why nothing does.
+func devvmGoroutineSites() map[string]string {
+	return map[string]string{
+		"internal/backend/lima/packages.go: sendPackages":   "sendPackages, on sent, once the VM's tar has stopped reading and the pipe is closed",
+		"internal/backend/lima/packages.go: takePackages":   "takePackages, on taken, once the VM's tar has ended and the pipe is closed",
+		"internal/backend/lima/qemu.go: Connect":            detached + "QEMU's side to the connection, which ends as Connect closes it; devvm _qemu connect exits once Connect returns",
+		"internal/cli/release.go: releaseNotice":            detached + "the release check's refresh, which the run waits for up to releaseWait and then leaves: the run's context and the fetch client's timeout bound it",
+		"internal/daemon/daemon.go: Spawn":                  "the Handle's Done, closed once it has reaped the process, which ends it",
+		"internal/desktop/relay.go: Relay.Serve":            "Serve's wg.Wait, for each connection's handle; the listener's closer ends with Serve's deferred cancel",
+		"internal/desktop/relay.go: Relay.dialVM":           detached + "the VM's handshake, which ends once dialVM closes the VM's connection at a timeout or ctx's end, its result in a buffered channel",
+		"internal/desktop/relay.go: Relay.carry":            detached + "the closer, which carry's deferred cancel ends, and the copy to the viewer, which ends once the closer closes both connections",
+		"internal/gitprotect/repos.go: scanAll":             "scanAll's wg.Wait",
+		"internal/platform/pin_linux.go: WaitExit":          "the process's end, or WaitExit's stop, which closes the pidfd its wait in Go's poller is on",
+		"internal/platform/pin_linux.go: WatchFolders":      "WatchFolders's stop, which closes the inotify file its read in Go's poller is on",
+		"internal/platform/pinrun_linux.go: runChild":       "runChild, on passed, once it has closed the signals' channel",
+		"internal/platform/pinrun_linux.go: RunPinned":      "keep, which returns the child's end that it sends",
+		"internal/proxy/proxy.go: serve":                    detached + "the lifeline's watch, which runs for the proxy's life and ends it once the VM's hostagent is gone",
+		"internal/proxy/splice.go: splice":                  "splice, on done, once both directions have ended",
+		"internal/proxy/conns.go: conns.close":              detached + "the handlers' wait, which close gives closeWait at most: it ends with the last handler, as the proxy exits",
+		"internal/proxy/upstream.go: upstream.connect":      detached + "the AfterFunc that ends the handshake at ctx's end, which connect's deferred stop keeps from starting after it; one already started only sets a deadline",
+		"internal/ui/exit.go: UI.main":                      "main, on done; after a signal, interrupt, for returnGrace at most when there are cleanups, then the run ends",
+		"internal/ui/status.go: UI.startStatus":             "the status line's stop, on ended",
+		"internal/vm/clonelfs.go: vmLFS.bring":              "bring, on done, once the VM's stream has ended and the pipe is closed",
+		"internal/vm/cloneseed.go: seeder.sendTar":          detached + "the tar's writer, which ends at its next write once sendTar closes the pipe",
+		"internal/vm/desktop.go: Desktop.serve":             detached + "the VM's check, which serve's deferred cancel ends",
+		"internal/vm/desktop.go: sshChannel.Close":          "Close, which waits for ssh's Wait, killing it after channelClose",
+		"internal/vm/env.go: folderWithin":                  detached + "a look at a folder whose disk may hang, such as an NFS share's, left to finish on its own after folderWait",
+		"internal/vm/home.go: remaking.saveHome":            "saveHome, on copied, once the VM's tar has ended and the pipe is closed",
+		"internal/vmssh/forward.go: Forwarder.Run":          detached + "the VM's watch and the ports' recheck, which Run's deferred cancel ends",
+		"internal/vmssh/forward.go: Forwarder.open":         detached + "each listener's accept loop (serve), which ends as the forward's close closes the listener",
+		"internal/vmssh/forward.go: Forwarder.serve":        detached + "each relay, which holds a slot of the forwarder's relays and ends with its context, which the forward's close cancels",
+		"internal/vmssh/links.go: Links.Run":                detached + "the VM's watch, which Run's deferred cancel ends",
+		"internal/vmssh/links.go: Links.master":             "the master's done, closed once ssh's wait returns, which the session waits on",
+		"internal/vmssh/links.go: Links.add":                detached + "the link's accept loop (serve), which ends as its listener closes",
+		"internal/vmssh/links.go: Links.serve":              "serve, on taken, once it has closed handoff",
+		"internal/vmssh/links.go: Links.take":               detached + "each relay, which holds a slot of the session's conns and ends with its context, which its link's removal, its master's replacement and the session's end cancel",
+		"internal/vmssh/links.go: Links.newTargetMaster":    "the master's ready, closed once it's up or has failed",
+		"internal/vmssh/loopback.go: SSH.forwardLoopback":   "LoopbackForward.Close, through its wg; the listeners' closer ends with the forward's cancel",
+		"internal/vmssh/loopback.go: LoopbackForward.serve": "serve's conns.Wait",
+		"internal/vmssh/relay.go: pipeSSHFor":               detached + "the client's copy to the VM, which ends once the relay closes the client's connection; the AfterFunc that closes it at ctx's end, which the relay's deferred stop ends",
+		"internal/vmssh/relay.go: newGraceTimer":            detached + "the grace's AfterFunc, which cancels the relay once the grace runs out; stopped as the relay ends, it never runs after it",
 	}
 }
 
