@@ -1,4 +1,5 @@
 .dex/
+.worktrees/
 /.claude/
 dist/
 docs/public/
