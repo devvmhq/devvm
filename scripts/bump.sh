@@ -26,7 +26,8 @@
 #       go mod tidy; a module's next major, a new path, is only reported; the indirect ones move as
 #       go mod tidy needs them
 #     deadcode: mise.toml's deadcode task, golang.org/x/tools' newest release
-#   dev-tools: mise.toml's tools but go, through mise lock, so mise.lock keeps their checksums
+#   dev-tools: mise.toml's tools but go, through mise lock, so mise.lock keeps their checksums;
+#     nilaway has no releases, so its pin is a pseudo-version, moved to its newest commit's
 #   ci: ci-mise actions
 #     ci-mise: the mise the workflows install (jdx/mise-action's version), base's mise
 #     actions: every workflow's uses:, by its release's tag's commit, then actionlint and zizmor

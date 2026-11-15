@@ -115,7 +115,8 @@ func restore(v, g, s any, path string, above []pair) (any, error) {
 		if !ok || gs != t || s == nil {
 			return nil, &PlaceholderError{Path: path}
 		}
-		for _, p := range above[max(1, len(above)-2):] {
+		// A file that is one string has no table around it: nothing to compare.
+		for _, p := range above[min(len(above), max(1, len(above)-2)):] {
 			if !reflect.DeepEqual(p.v, p.g) {
 				return nil, &PlaceholderError{Path: path}
 			}

@@ -9,6 +9,8 @@ go = "1.27.4"
 golangci-lint = "2.15.0"
 gotestsum = "1.13.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
+# nilaway has no releases: a pseudo-version, its newest commit's.
+"go:go.uber.org/nilaway/cmd/nilaway" = "0.0.0-20261112030514-ccd005690d1e"
 goreleaser = "2.20.2"
 hugo-extended = "0.169.0"
 vale = "3.26.0"
@@ -98,6 +100,12 @@ run = "scripts/test.sh --raise"
 description = "Check dependencies for known vulnerabilities"
 # Each OS devvm ships for, as the code built for one differs from the other's.
 run = ["GOOS=linux govulncheck ./...", "GOOS=darwin govulncheck ./..."]
+
+[tasks.nilaway]
+description = "Report where a nil value may be dereferenced, and which findings testdata/nilaway-baseline.txt hasn't triaged"
+# scripts/nilaway.sh: devvm's own packages, not the tests or their helpers;
+# it exits 3 on a finding the baseline hasn't. Advisory, so not part of lint.
+run = "scripts/nilaway.sh"
 
 [tasks.deadcode]
 description = "List functions nothing calls"

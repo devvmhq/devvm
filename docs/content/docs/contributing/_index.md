@@ -34,6 +34,7 @@ mise installs every tool at the version pinned in `mise.toml`, checked against `
 | golangci-lint | Go linters and formatters (`.golangci.yml`) |
 | gotestsum | running the tests |
 | govulncheck | checking dependencies for known vulnerabilities |
+| nilaway | finding where a nil value may be dereferenced |
 | goreleaser | release builds ([Maintaining](maintaining.md#releasing)) |
 | hugo-extended | the docs site |
 | vale, markdownlint-cli2, lychee | linting the docs |
@@ -53,6 +54,7 @@ Run the tasks with `mise run <task>`:
 | `test` | runs the tests with the race detector, then checks each package's coverage against its [baseline](tests.md#coverage) |
 | `coverage` | runs the tests, then raises each package's coverage baseline to what they reach (`scripts/test.sh --raise`) |
 | `vuln` | runs govulncheck on the code as built for Linux and as built for macOS |
+| `nilaway` | reports where a nil value may be dereferenced in devvm's own code, not the tests', and the findings that `testdata/nilaway-baseline.txt` hasn't triaged ([Nil checks](#nil-checks)) |
 | `deadcode` | lists functions nothing calls outside the tests: only `backendtest`'s, `stubtest`'s, `upgradetest`'s, `msg.IDOf`, `msg.NamesOf`, `msg.Recorder` and `msg.Fake`, which the tests use, and anything else it lists gets a caller or goes |
 | `cli-docs` | generates the CLI reference |
 | `docs` | generates the CLI reference, then serves the docs site |
@@ -62,7 +64,30 @@ Run the tasks with `mise run <task>`:
 
 Before and after every change, `mise run fmt && mise run lint && mise run test` must pass.
 
-CI runs `lint` and `test` on macOS and Linux, and `vuln` in a job of its own. A weekly workflow also scans `main` and the binaries of the latest releases ([Known vulnerabilities](maintaining.md#known-vulnerabilities)). A change that touches only the docs and Markdown files skips them: the Docs workflow runs `lint:docs` and builds the site instead, and on every push to `main` it deploys next.devvm.dev ([the docs sites](maintaining.md#the-docs-sites)).
+CI runs `lint` and `test` on macOS and Linux, and `vuln` and `nilaway` in jobs of their own. A weekly workflow also scans `main` and the binaries of the latest releases ([Known vulnerabilities](maintaining.md#known-vulnerabilities)). A change that touches only the docs and Markdown files skips them: the Docs workflow runs `lint:docs` and builds the site instead, and on every push to `main` it deploys next.devvm.dev ([the docs sites](maintaining.md#the-docs-sites)).
+
+### Nil checks
+
+```sh
+mise run nilaway   # where a nil value may reach a dereference in devvm's code, and which findings are new
+```
+
+nilaway follows nil values across functions and packages and reports each place one may be dereferenced: a field read, a method call, an index or a slice. It reads only the packages under `github.com/devvmhq/devvm`, and it leaves out the tests and their helpers, `internal/stubtest` and `internal/backend/backendtest`, because a nil panic there fails a test. It checks the code as built for the system it runs on, so the files that build only for macOS or only for Linux need a run on each.
+
+Its findings include false positives, so the findings already triaged as false positives are in `testdata/nilaway-baseline.txt`, and `scripts/nilaway.sh`, which the task runs, prints every finding and then the ones the baseline hasn't. A finding's key in the baseline is its file and its trace without line or column numbers, so moving code doesn't make a triaged finding new. The baseline has a line for each finding, so when two findings share a key, such as two unchecked `os.Stat` results in one file, the key is there twice, and a third finding with that key is new.
+
+The script exits with status 3 when there's a new finding. It exits with status 1 when nilaway can't run, when nilaway's output has a finding the script can't read, and when a baseline line is stale or isn't a group and a key, so a change in nilaway's output can't leave the check comparing nothing. `TestNilawayBaseline` in `internal/structure` checks each of these with a stand-in nilaway.
+
+The task isn't part of `lint`, and it never fails CI: CI's `nilaway` job warns on the run when there's a new finding and lists the new and stale ones, then every finding, in the run's summary. The job fails when the script exits with status 1, and even then it blocks nothing.
+
+Each finding starts with the place a nil value is dereferenced and then traces where it came from, one line for each step. A new finding that is a real bug gets a fix and a test that would have panicked without it. A false positive goes into the baseline as the key the script prints after `new:`, one line for each time it's printed, with one of the baseline's groups in front:
+
+- `checked`: a value used only once its error was checked, in a way nilaway doesn't follow, such as `err == nil && fi.Mode()`.
+- `bounds`: a slice indexed only within its length or sliced where nil is safe, or a variadic parameter that every caller passes.
+- `mapkey`: a map read with a key taken from the same map, or after its `ok`.
+- `nilsafe`: a method that checks for a nil receiver itself, or values that are always set together.
+
+The script lists the baseline's lines that match no finding any more after `stale:`, and you remove one line for each.
 
 ## Go lint rules
 

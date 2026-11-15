@@ -69,6 +69,13 @@ func TestRestorePutsSecretsBack(t *testing.T) {
 			t.Errorf("no %s in:\n%s", s, tout)
 		}
 	}
+
+	// A file that is one string, a placeholder as the VM got it, has no table around it to
+	// compare: the store's value goes back.
+	one := `"testfake devvm-redacted"`
+	if out, err := Restore("json", []byte(one), []byte(one), []byte(`"testfake-one"`)); err != nil || string(out) != "\"testfake-one\"\n" {
+		t.Errorf("Restore of a file that is one string = %q, %v", out, err)
+	}
 }
 
 // A placeholder that wasn't in the VM's copy at that path, that the store has no value for, or

@@ -68,3 +68,59 @@ jobs:
       - run: mise run vuln
         env:
           MISE_TASK_RUN_AUTO_INSTALL: "false"
+
+  # Advisory: nilaway's findings include false positives, so they never fail
+  # CI. A finding testdata/nilaway-baseline.txt hasn't triaged is a warning
+  # on the run, and the run's summary lists the new ones, then every
+  # finding. The job fails only when the check itself breaks (nilaway
+  # can't run, its output can't be read, a stale baseline line), and that
+  # blocks nothing either.
+  nilaway:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Only Go and nilaway, cached apart from the other jobs' tools.
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        with:
+          version: 2026.11.8
+          install_args: go go:go.uber.org/nilaway/cmd/nilaway
+          cache_key_prefix: mise-v1-nilaway
+      # scripts/nilaway.sh exits 3 on a finding the baseline hasn't, and
+      # otherwise non-zero when nilaway couldn't run, its output couldn't be
+      # read or a baseline line is stale: the job fails then, after the
+      # summary.
+      - name: Run nilaway
+        env:
+          MISE_TASK_RUN_AUTO_INSTALL: "false"
+        run: |
+          set -uo pipefail
+          out=$RUNNER_TEMP/nilaway.txt
+          mise run nilaway 2>&1 | tee "$out"
+          status=${PIPESTATUS[0]}
+          n=$(grep -c '^new: ' "$out" || true)
+          {
+            echo "## nilaway: $n new findings"
+            echo
+            echo "A new finding needs triage: see [Nil checks](https://next.devvm.dev/docs/contributing/#nil-checks)."
+            echo
+            # Four backticks: nilaway's own backticks can't end the block.
+            echo '````'
+            grep -E '^(new|stale): |^nilaway: ' "$out" || echo "none"
+            echo '````'
+            echo
+            echo "Every finding, the triaged ones included:"
+            echo
+            echo '````'
+            cat "$out"
+            echo '````'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if (( n > 0 )); then
+            echo "::warning title=nilaway::$n new possible nil dereferences: see the run's summary"
+          fi
+          if (( status != 0 && status != 3 )); then
+            echo "nilaway's check failed with status $status: see the run's summary" >&2
+            exit "$status"
+          fi

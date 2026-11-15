@@ -219,6 +219,9 @@ func readJSON(path string) (map[string]any, error) {
 	if err := d.Decode(&m); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if m == nil { // null, which decodes into no map at all
+		return nil, fmt.Errorf("%s: not a JSON object", path)
+	}
 	return m, nil
 }
 

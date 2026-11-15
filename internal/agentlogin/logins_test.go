@@ -648,3 +648,24 @@ func TestClaudeVMScrubsURLsArgsAndUnknownKeys(t *testing.T) {
 		}
 	}
 }
+
+// An agent's file that isn't a JSON object is refused, null included, which decodes into no map
+// and would panic the first write to it; an empty object is an empty map.
+func TestReadJSONRefusesNonObjects(t *testing.T) {
+	for _, tc := range []struct {
+		in string
+		ok bool
+	}{
+		{"null", false}, {"[]", false}, {`"s"`, false}, {"1", false}, {"", false}, {"{}", true},
+	} {
+		p := filepath.Join(t.TempDir(), "auth.json")
+		must(t, os.WriteFile(p, []byte(tc.in), 0o600))
+		m, err := readJSON(p)
+		if tc.ok != (err == nil) || tc.ok != (m != nil) {
+			t.Errorf("readJSON(%q) = %v, %v", tc.in, m, err)
+		}
+		if m, err := readLogin(p); tc.ok != (err == nil) || tc.ok != (m != nil) {
+			t.Errorf("readLogin(%q) = %v, %v", tc.in, m, err)
+		}
+	}
+}

@@ -52,7 +52,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 
 ## Tasks
 
-`mise run <task>`: `fmt`, `lint` (`lint:code`, `lint:docs`), `test`, `coverage` (commit the baselines it raised with the change), `vuln`, `deadcode` (anything but the tests' helpers gets a caller or goes), `cli-docs` (after changing a command's help, flags or docs page; commit the pages), `docs`, `e2e`: [Tools and tasks](docs/content/docs/contributing/_index.md#tools-and-tasks).
+`mise run <task>`: `fmt`, `lint` (`lint:code`, `lint:docs`), `test`, `coverage` (commit the baselines it raised with the change), `vuln`, `nilaway` (advisory: a new finding gets a fix and a test, or a line in `testdata/nilaway-baseline.txt`), `deadcode` (anything but the tests' helpers gets a caller or goes), `cli-docs` (after changing a command's help, flags or docs page; commit the pages), `docs`, `e2e`: [Tools and tasks](docs/content/docs/contributing/_index.md#tools-and-tasks).
 
 ## Rules
 

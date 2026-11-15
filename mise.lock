@@ -82,6 +82,11 @@ url = "https://dl.google.com/go/go1.27.4.darwin-amd64.tar.gz"
 checksum = "sha256:178ab98950ac69ab25069307dc6ade79f3816e414cce95b4da166a115cde1e7e"
 url = "https://dl.google.com/go/go1.27.4.windows-amd64.zip"
 
+[[tools."go:go.uber.org/nilaway/cmd/nilaway"]]
+version = "0.0.0-20261112030514-ccd005690d1e"
+backend = "go:go.uber.org/nilaway/cmd/nilaway"
+specifiers = ["0.0.0-20261112030514-ccd005690d1e"]
+
 [[tools."go:golang.org/x/vuln/cmd/govulncheck"]]
 version = "1.9.0"
 backend = "go:golang.org/x/vuln/cmd/govulncheck"
