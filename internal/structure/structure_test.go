@@ -77,7 +77,7 @@ func devvm() rules {
 		// paths.Dirs.Home is the home folder, read once: tests set HOME,
 		// and e2e gives a run a HOME of its own.
 		envOwners: map[string]string{"HOME": "internal/paths/dirs.go"},
-		vmNames:   devvmVMNames(),
+		vmNames:   devvmVMNames(), hosts: devvmHosts(),
 		layers: []layer{
 			{
 				name: "only cmd/devvm and internal/cli hold the UI",
@@ -200,6 +200,22 @@ func devvmVMNames() vmNameRule {
 		},
 		free:     []string{"internal/stubtest"}, // the stubs stand in for limactl and ssh, whose arguments are strings
 		notNames: map[string]string{"NewVMs": "backend.Registry's backend for new VMs, by the backend's name"},
+	}
+}
+
+// devvmHosts is where a host is read in one form: proxy.NormHost, which
+// the proxy, its rules and every other judge of a host read it with.
+func devvmHosts() hostRule {
+	return hostRule{
+		owner: "internal/proxy/host.go",
+		free: map[string]string{
+			"internal/proxy/request.go:trimDots": "drops the trailing dots of a path's segments, as servers read /config.json. as /config.json: no host",
+			"internal/vm/cloneseed.go:urlHost":   "a remote's ssh host, which ssh lowercases and keeps its trailing dot of, to find a VM's alias in the ssh config: no host a policy judges",
+			// Trims that hold "." in a set of characters a whole string must be made of.
+			"internal/backend/lima/start.go:machines.fillPassword": "checks the proxy's URL has only characters no YAML scalar treats specially: no host read",
+			"internal/vm/cloneconfig.go:transportHelper":           "checks a transport helper's name has only a scheme's characters: no host read",
+			"internal/vm/cloneworktree.go:safeIndexPath":           "drops a path segment's trailing dots and spaces, as Windows reads .git. as .git: no host",
+		},
 	}
 }
 

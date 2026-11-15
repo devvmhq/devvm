@@ -186,14 +186,17 @@ func (p *Proxy) OtherBinaries(rules []string, vm vmname.VM) {
 
 // sameRule reports whether the policy line text and rule are one rule: the
 // same in the proxy's canonical form, or, for what isn't a rule, the same
-// text in any case.
+// text as proxy.NormHost reads it: ASCII letters' case and one trailing dot
+// aside, and nothing else folded, so a Kelvin sign typed for a k never
+// names the rule with the k (devvm network rm '!Kubernetes.io' with it would
+// otherwise take out the deny of kubernetes.io).
 func sameRule(text, rule string) bool {
 	a, okA := proxy.CanonicalRule(text)
 	b, okB := proxy.CanonicalRule(strings.TrimSpace(rule))
 	if okA && okB {
 		return a == b
 	}
-	return strings.EqualFold(text, strings.TrimSpace(rule))
+	return proxy.NormHost(text) == proxy.NormHost(strings.TrimSpace(rule))
 }
 
 // readRules reads a policy file's lines; a missing file has none. It reads

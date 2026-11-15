@@ -27,7 +27,7 @@ internal/paths 98.1
 internal/platform 90.4
 internal/ports 91.7
 internal/project 98.5
-internal/proxy 93.2
+internal/proxy 93.3
 internal/redact 97.7
 internal/safefile 97.7
 internal/secrets 93.4

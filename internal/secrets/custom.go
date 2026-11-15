@@ -11,7 +11,6 @@ package secrets
 
 import (
 	"cmp"
-	"net/netip"
 	"net/textproto"
 	"slices"
 	"strconv"
@@ -218,23 +217,24 @@ func CheckName(name string) error {
 // nameOK reports whether a secret of yours may have the name (CheckName).
 func nameOK(name string) bool { return CheckName(name) == nil }
 
-// CheckHost returns a host a secret of yours goes to, as given: a host
-// name the proxy takes (proxy.HostOK, lower case, without one trailing
-// dot), of two labels or more, on port 443 alone (":443" may follow it).
+// CheckHost returns a host a secret of yours goes to, as given and read as
+// the proxy reads every host (proxy.NormHost): a host name the proxy takes
+// (proxy.HostOK), of two labels or more, on port 443 alone (":443" may
+// follow it).
 // It refuses a wildcard, which could reach a name anyone may hold under a
 // domain (a site's users' own, on a shared host), an address, and a name
 // that's only ever internal (internalName).
 func CheckHost(given string) (string, error) {
-	h := strings.ToLower(given)
-	if rest, port, ok := strings.Cut(h, ":"); ok {
+	name := given
+	if rest, port, ok := strings.Cut(given, ":"); ok {
 		if port != "443" {
 			return "", msg.BadSecretHost(given)
 		}
-		h = rest
+		name = rest
 	}
-	h = strings.TrimSuffix(h, ".")
-	_, addrErr := netip.ParseAddr(strings.Trim(h, "[]"))
-	if addrErr == nil || strings.Contains(h, "*") || !strings.Contains(h, ".") || !proxy.HostOK(h) || !proxy.ValidRule(h) || internalName(h) {
+	host := proxy.NormHost(name)
+	h := host.String()
+	if _, isAddr := host.Addr(); isAddr || strings.Contains(h, "*") || !strings.Contains(h, ".") || !host.OK() || !proxy.ValidRule(h) || internalName(h) {
 		return "", msg.BadSecretHost(given)
 	}
 	return h, nil

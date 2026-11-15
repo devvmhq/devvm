@@ -87,6 +87,8 @@ func TestPromisorHosts(t *testing.T) {
 		{"ssh://git@host.example/r", "host.example", 22, false},
 		{"git@github.com:x/y.git", "github.com", 22, false},
 		{"git@Host.example:path@x", "host.example", 22, false},
+		{"https://GitHub.com./x/y.git", "github.com", 443, false},
+		{"git@localhost.:x/y.git", "localhost", 22, false},
 		{"[::1]:repo", "::1", 22, false},
 		{"git@[fd00::1]:repo", "fd00::1", 22, false},
 		{"https://h.example:bad/r", "", 0, false},

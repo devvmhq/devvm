@@ -1361,7 +1361,7 @@ func FuzzParseRule(f *testing.F) {
 		if strings.ContainsAny(r.host, " /\\#") {
 			t.Fatalf("%q: host %q", line, r.host)
 		}
-		if h := r.host; h != "" && h != "**" && !strings.HasPrefix(h, "*.") && (!HostOK(h) || !r.matchHost(h)) {
+		if h := r.host; h != "" && h != "**" && !strings.HasPrefix(h, "*.") && (!HostOK(h) || NormHost(h).String() != h || !r.matchHost(NormHost(h))) {
 			t.Fatalf("%q: host %q isn't a host it matches", line, h)
 		}
 		_ = r.matchHost("example.com")

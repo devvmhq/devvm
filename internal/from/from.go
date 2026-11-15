@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -196,21 +195,21 @@ func (l *Lookup) Public(ctx context.Context, ref string) (string, error) {
 }
 
 // publicHost reports whether a registry's host (with any port) may be the
-// internet's by its name: not localhost, nor an address that isn't the
-// internet's. What a name resolves to is checked when it's reached
-// (NewPublicRegistry).
+// internet's by its name, read as the proxy reads every host
+// (proxy.NormHost): not localhost, nor an address that isn't the
+// internet's, nor a name the proxy doesn't take (proxy.HostOK), such as
+// one with anything but printable ASCII, a stray bracket or a shorthand
+// address (10.1), which no registry's name is. What a name resolves to is
+// checked when it's reached (NewPublicRegistry).
 func publicHost(host string) bool {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	host = strings.ToLower(strings.TrimSuffix(strings.Trim(host, "[]"), "."))
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return false
-	}
-	if ip, err := netip.ParseAddr(host); err == nil {
+	h := proxy.NormHost(strings.Trim(host, "[]"))
+	if ip, ok := h.Addr(); ok {
 		return proxy.Public(ip)
 	}
-	return true
+	return h.OK() && !h.Under("localhost")
 }
 
 // DockerID returns Docker's ID for an image (sha256:…), when Docker is

@@ -195,8 +195,8 @@ func replay(c bufConn, rec []byte) bufConn {
 // sniHost is the host a transparent TLS connection names, from its ClientHello's server name, or
 // why it names none: no name, anything but printable ASCII (refused before its case is folded,
 // which would turn the Kelvin sign into k), an address, which RFC 6066 forbids, a name HostOK
-// refuses, or one under ProxyDomain. crypto/tls has already refused a name with a trailing dot, or
-// two names, so the ClientHello gave none.
+// refuses, or one under ProxyDomain. The name is read as NormHost reads every host. crypto/tls has
+// already refused a name with a trailing dot, or two names, so the ClientHello gave none.
 func sniHost(sni string) (string, string) {
 	switch {
 	case sni == "":
@@ -204,17 +204,17 @@ func sniHost(sni string) (string, string) {
 	case !hostASCII(sni):
 		return "", "the TLS server name " + quoteCapped(sni) + " isn't ASCII"
 	}
-	h := strings.ToLower(sni)
-	if _, err := netip.ParseAddr(strings.Trim(h, "[]")); err == nil {
+	h := NormHost(sni)
+	if _, ok := h.Addr(); ok {
 		return "", reasonSNIAddr
 	}
-	if !HostOK(h) {
+	if !h.OK() {
 		return "", "the TLS server name " + quoteCapped(sni) + " isn't a host name"
 	}
-	if ownDomain(h) {
+	if ownDomain(h.String()) {
 		return "", reasonOwnDomain
 	}
-	return h, ""
+	return h.String(), ""
 }
 
 // quoteCapped is s quoted as Go writes it (strconv.Quote), cut to its first 255 bytes, for a reason

@@ -34,7 +34,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -662,9 +661,9 @@ func claudeHost(s map[string]any) string {
 	}
 	// A name only: it goes into the VM's allowlist, where an address, a wildcard or a range would
 	// open more than the one server.
-	h := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
-	if _, err := netip.ParseAddr(h); err != nil && proxy.HostOK(h) && strings.Contains(h, ".") {
-		return h
+	h := proxy.NormHost(u.Hostname())
+	if _, isAddr := h.Addr(); !isAddr && h.OK() && strings.Contains(h.String(), ".") {
+		return h.String()
 	}
 	return ""
 }

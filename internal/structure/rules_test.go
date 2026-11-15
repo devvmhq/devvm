@@ -973,11 +973,94 @@ func vmNameCases() []ruleCase {
 	}
 }
 
+// hostCases break and keep the one form of a host.
+func hostCases() []ruleCase {
+	r := rules{hosts: hostRule{owner: "internal/proxy/host.go"}}
+	free := rules{hosts: hostRule{owner: "internal/proxy/host.go", free: map[string]string{"internal/vm/a.go:f": "x"}}}
+	owner := "package proxy\n\nimport \"strings\"\n\ntype Host string\n\nfunc NormHost(s string) Host { return Host(strings.TrimSuffix(strings.ToLower(s), \".\")) }\n"
+	in := func(p, body string) string { return "package " + p + "\n\nimport \"strings\"\n\n" + body }
+	return []ruleCase{
+		{
+			name:  "a trailing dot dropped",
+			files: map[string]string{"internal/vm/a.go": in("vm", "func f(name string) string { return strings.TrimSuffix(name, \".\") }\n")},
+			r:     r, want: &want{ruleOwners, "drops a trailing dot: read the host with proxy.NormHost"},
+		},
+		{
+			name:  "trailing dots trimmed by a constant",
+			files: map[string]string{"internal/vm/a.go": in("vm", "const dot = \".\"\n\nfunc f(s string) string { return strings.TrimRight(s, dot) }\n")},
+			r:     r, want: &want{ruleOwners, "drops a dot"},
+		},
+		{
+			name:  "a host's case folded",
+			files: map[string]string{"internal/vm/a.go": in("vm", "func f(host string) string { return strings.ToLower(host) }\n")},
+			r:     r, want: &want{ruleOwners, "folds a host's case"},
+		},
+		{
+			name:  "a URL's host compared in any case",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\nimport (\n\t\"net/url\"\n\t\"strings\"\n)\n\nfunc f(u *url.URL) bool { return strings.EqualFold(u.Hostname(), \"x\") }\n"},
+			r:     r, want: &want{ruleOwners, "folds a host's case"},
+		},
+		{
+			name:  "a string made a Host in the proxy",
+			files: map[string]string{"internal/proxy/host.go": owner, "internal/proxy/b.go": "package proxy\n\nfunc f(s string) Host { return Host(s) }\n"},
+			r:     r, want: &want{ruleOwners, "makes a Host of a string: read it with NormHost"},
+		},
+		{
+			name: "a string made a Host elsewhere",
+			files: map[string]string{
+				"internal/proxy/host.go": owner,
+				"internal/vm/a.go":       "package vm\n\nimport \"example.com/m/internal/proxy\"\n\nfunc f(s string) proxy.Host { return proxy.Host(s) }\n",
+			},
+			r: r, want: &want{ruleOwners, "makes a Host of a string"},
+		},
+		{
+			name: "the owner, a literal Host, other folds and a test",
+			files: map[string]string{
+				"internal/proxy/host.go":  owner,
+				"internal/proxy/b.go":     in("proxy", "var _ = Host(\"example.com\")\n\nfunc f(scheme, s string) (string, string) { return strings.ToLower(scheme), strings.TrimSuffix(s, \"/\") }\n"),
+				"internal/vm/a_test.go":   in("vm", "func f(host string) string { return strings.ToLower(strings.TrimSuffix(host, \".\")) }\n"),
+				"internal/netpolicy/a.go": "package netpolicy\n\nimport \"example.com/m/internal/proxy\"\n\nfunc f(s string) proxy.Host { return proxy.NormHost(s) }\n",
+			},
+			r: r,
+		},
+		{
+			name:  "a dot among a cutset's characters",
+			files: map[string]string{"internal/vm/a.go": in("vm", "func f(name string) string { return strings.TrimLeft(name, \"*.\") }\n")},
+			r:     r, want: &want{ruleOwners, "drops a dot"},
+		},
+		{
+			name:  "a host trimmed by a function",
+			files: map[string]string{"internal/vm/a.go": in("vm", "func f(host string, g func(rune) bool) string { return strings.TrimRightFunc(host, g) }\n")},
+			r:     r, want: &want{ruleOwners, "trims a host"},
+		},
+		{
+			name:  "a function free to",
+			files: map[string]string{"internal/vm/a.go": in("vm", "func f(host string) string { return strings.ToLower(host) }\n")},
+			r:     free,
+		},
+		{
+			name:  "another function of a free function's file",
+			files: map[string]string{"internal/vm/a.go": in("vm", "func f(host string) string { return strings.ToLower(host) }\n\nfunc g(host string) string { return strings.ToUpper(host) }\n")},
+			r:     free, want: &want{ruleOwners, "folds a host's case"},
+		},
+		{
+			name:  "a free method",
+			files: map[string]string{"internal/vm/a.go": in("vm", "type T struct{}\n\nfunc (*T) m(host string) string { return strings.ToLower(host) }\n")},
+			r:     rules{hosts: hostRule{owner: "internal/proxy/host.go", free: map[string]string{"internal/vm/a.go:T.m": "x"}}},
+		},
+		{
+			name:  "a free function that reads no host",
+			files: map[string]string{"internal/vm/a.go": in("vm", "func f(name string) string { return strings.ToLower(name) }\n")},
+			r:     free, want: &want{ruleOwners, "internal/vm/a.go:f reads no host of its own"},
+		},
+	}
+}
+
 // Each rule fails on code that breaks it, naming the rule, and passes
 // what it allows.
 func TestRulesFail(t *testing.T) {
 	var broken []string // the layer violations' texts
-	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), commandCases(), envCases(), agentCases(), switchCases(), separatorCases(), runnerCases(), pathCases(), callerCases(), vmNameCases()) {
+	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), commandCases(), envCases(), agentCases(), switchCases(), separatorCases(), runnerCases(), pathCases(), callerCases(), vmNameCases(), hostCases()) {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := fstest.MapFS{"go.mod": {Data: []byte("module example.com/m\n\ngo 1.27\n")}}
 			for name, src := range tc.files {

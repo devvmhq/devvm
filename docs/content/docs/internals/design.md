@@ -298,6 +298,25 @@ The build's policy is `**` alone, so on its own the build's proxy would refuse e
 
 **Not covered:** `https://` and `socks5://` company proxies, which devvm refuses (`upstream_proxy_scheme`); proxy auto-configuration (PAC) files and the macOS system proxy, which devvm doesn't read; Kerberos or NTLM authentication. An open VM goes through its proxy as every VM does, so no project VM gets the host's settings in its `/etc/environment`. What devvm's redaction of Lima's logs leaves open is under [your company proxy's password](../safety/attack-vectors.md#this-machine).
 
+## One form of a host
+
+Every check that judges or compares a host reads it in one form, `proxy.NormHost`'s, so a deny, a binding, a risk or a warning can never hold for one spelling of a host and miss another. A host of printable ASCII is lowercased, in ASCII alone, and loses its one trailing dot. Any other host stays as it is, its case and its dots too, and `HostOK` refuses it, because Unicode's case folding turns some letters into ASCII ones, such as the Kelvin sign into `k`. A host with two trailing dots or more keeps them all, which `HostOK` refuses, so `NormHost` gives the same host however many times it runs, and a caller that reads a host again can't turn `evil.test..` into `evil.test`. A matcher takes a `proxy.Host`, which only `NormHost` makes, and the structure test refuses another copy ([the checks on owners](../contributing/structure.md#the-checks-on-owners)).
+
+**The shapes each reader meets.** Each reader has a differential fuzz target (`FuzzHostSites` in `internal/proxy`, and one beside each reader elsewhere), which checks it against a frozen copy of the readers that each folded and trimmed a host its own way, and allows only these differences:
+
+- **A rule's host and its `!`** read exactly as the frozen copy reads them, so a line is the same rule or no rule, and a line that starts with `!` but isn't a rule is a broken deny, which makes the policy deny everything, never a valid deny. The frozen state's policy files, bindings and links read the same too (`TestFixtureHosts`).
+- **Two trailing dots** in a request's host, an SNI or a host `Allows` or `Denies` judges stay, where the copy drops one. The proxy answers `400` to both, and no rule but `**` matches either spelling, while `**` matches both.
+- **The policy's own matching** (`rulesFor`, `quiet`, `byName`) and `devvm network lock`'s risks and ticks don't fold a host that isn't ASCII, where the copy folds it in Unicode. Neither meets such a host, because the proxy refuses it before the policy sees it, and the lock judges only hosts the proxy took.
+- **Brackets** hold only an IPv6 address, one pair of them, as in a rule, so `HostOK` and `Host.Addr` take an address bare or as `[::1]`, never with a stray bracket, and `NormHost` keeps a dot after a bracket (`[::1].`), so that's no address either. A request for `[evil.com]:443`, `[1.2.3.4]:443`, `1.2.3.4]` or `[[::1]]` gets `400`, where `net.SplitHostPort` or a trim took the brackets off and the name or address in them was judged. An SNI in brackets is refused as no host name rather than as an address.
+- **A host with a stray bracket around an address is an address**, so an MCP server there (`https://1.2.3.4]/`, whose hostname Go's URL parser gives as `1.2.3.4]`) gets no binding.
+- **A line that isn't a rule**, which devvm network rm and its duplicate check compare as text, is the same as another in ASCII letters' case and one trailing dot alone, so a Kelvin sign typed for a `k` never names the rule with the `k`, such as the deny `!kubernetes.io`.
+- **An SNI's trailing dot** on the transparent path is dropped, as a request's is. `crypto/tls` refuses such a ClientHello, so none reaches it.
+- **A `NO_PROXY` name that isn't ASCII** matches no host, so the Kelvin sign's `kubernetes.io` doesn't send `kubernetes.io` directly, and the request goes through the company proxy.
+- **A secret's `--host` or an MCP server's host that isn't ASCII** is refused, as the proxy refuses it, rather than taken as the ASCII host its letters fold into.
+- **`--from`'s registry** isn't on the internet when its name is one the proxy doesn't take (`HostOK`), such as one with anything but printable ASCII, a bracket that a trailing dot hid (`[::1].`) or a shorthand address (`10.1`), none of which a registry's name is, so a registry is never more public than the copy finds it.
+- **A partial clone's promisor remote** loses its trailing dot, so a warning names `example.com` rather than `example.com.`, and `localhost.` or `127.0.0.1.` counts as private, as the proxy refuses it. The Kelvin sign isn't folded.
+- **A remote's ssh host**, which finds a VM's alias in the ssh config, keeps its own reading, lowercased with its trailing dot kept, as ssh reads it, because it's no host a policy judges.
+
 ## The desktop
 
 `devvm desktop` shows a VM's desktop on this machine with VNC, and keeps two things: no one on this machine or the network reaches the desktop without the VM's password, and the desktop gives the VM no new way out. Both hold whatever the VM's own server does, because root in the VM can replace it ([how](desktop.md)).

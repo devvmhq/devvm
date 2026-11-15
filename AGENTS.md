@@ -26,7 +26,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 | `internal/trust/` | your CAs, and each VM's own CA |
 | `internal/agents/` | the coding agents' registry: one `Def` each, which every list of the agents derives from |
 | `internal/agentlogin/` | agents' login and settings files on the host, and their placeholders |
-| `internal/proxy/` | the proxy, run as `devvm _proxy`; see its `README.md` |
+| `internal/proxy/` | the proxy, run as `devvm _proxy`; see its `README.md`; every host's one form (`NormHost`) |
 | `internal/daemon/` | devvm's background processes; the only place a process is signalled by pid |
 | `internal/desktop/` | devvm desktop's relay on the host |
 | `internal/backend/` | `Backend`, its roles, `Caps`, the registry and its guard; `backendtest/`, `registry/`, `lima/` |

@@ -1,9 +1,10 @@
 package netpolicy
 
 import (
-	"net/netip"
 	"slices"
 	"strings"
+
+	"github.com/devvmhq/devvm/internal/proxy"
 )
 
 // Risk is why devvm network lock marks a learned host, which starts
@@ -53,23 +54,25 @@ func riskyHosts() map[Risk][]string {
 	}
 }
 
-// RiskOf returns why host is risky to allow (Risk): an address; a name
+// RiskOf returns why given, a host read as the proxy reads it
+// (proxy.NormHost), is risky to allow (Risk): an address; a name
 // with a punycode label; a host of riskyHosts or under one; an OAST
 // domain (oast.fun, oast.pro and the rest); one of S3's regional hosts,
 // AWS's or AWS China's (bucket.s3.us-east-1.amazonaws.com); or an API
 // Gateway endpoint (id.execute-api.us-east-1.amazonaws.com). "" for any
 // other.
-func RiskOf(host string) Risk {
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	if _, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+func RiskOf(given string) Risk {
+	h := proxy.NormHost(given)
+	if _, ok := h.Addr(); ok {
 		return RiskAddress
 	}
+	host := h.String()
 	labels := strings.Split(host, ".")
 	if slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "xn--") }) {
 		return RiskLookalike
 	}
 	for why, hosts := range riskyHosts() {
-		if slices.ContainsFunc(hosts, func(h string) bool { return host == h || strings.HasSuffix(host, "."+h) }) {
+		if slices.ContainsFunc(hosts, h.Under) {
 			return why
 		}
 	}
@@ -126,12 +129,12 @@ func tickable() map[string]string {
 // Tickable reports whether devvm network lock starts host:port ticked: on
 // port 443, and host is one of tickable's names or under one.
 func Tickable(host string, port int) bool {
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	h := proxy.NormHost(host)
 	if port != 443 {
 		return false
 	}
 	for name := range tickable() {
-		if host == name || strings.HasSuffix(host, "."+name) {
+		if h.Under(name) {
 			return true
 		}
 	}

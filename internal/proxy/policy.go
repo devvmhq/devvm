@@ -91,12 +91,12 @@ const anyPort = -1
 // comment or spaces. It refuses anything that wouldn't match as written: a port that isn't 1 to
 // 65535 in digits, a host that isn't a plain name (HostOK, with no empty label), a zone, a
 // wildcard other than a leading "*." or "**", an address under "*.", an IPv4-mapped prefix shorter
-// than the mapping, anything but printable ASCII. A host's one trailing dot is dropped, as
-// requests' are, and a mapped prefix is its IPv4 one.
+// than the mapping, anything but printable ASCII. A host is read as requests' are (NormHost), so
+// its one trailing dot is dropped and two leave it no rule, and a mapped prefix is its IPv4 one.
 func parseHostRule(s string) (rule, bool) {
 	// Printable ASCII alone: no spaces, and nothing strings.ToLower would fold into ASCII (the
 	// Kelvin sign into k).
-	if s == "" || strings.ContainsAny(s, "#%") || strings.ContainsFunc(s, func(c rune) bool { return c <= ' ' || c > '~' }) {
+	if s == "" || strings.ContainsAny(s, "#%") || !hostASCII(s) {
 		return rule{}, false
 	}
 	line := strings.ToLower(s)
@@ -129,12 +129,12 @@ func parseHostRule(s string) (rule, bool) {
 		r.host = line
 		return r, true
 	}
-	h := strings.TrimSuffix(line, ".")
-	name := strings.TrimPrefix(h, "*.")
+	h := NormHost(line)
+	name := strings.TrimPrefix(h.String(), "*.")
 	if _, err := netip.ParseAddr(name); err == nil || strings.ContainsAny(name, "[]*") || !HostOK(name) {
 		return rule{}, false
 	}
-	r.host = h
+	r.host = h.String()
 	return r, true
 }
 
@@ -275,17 +275,17 @@ func (r rule) portOK(port int) bool {
 	return r.port == port
 }
 
-// matchHost: does a host-name rule cover host (lower-case, no port)?
-func (r rule) matchHost(host string) bool {
+// matchHost: does a host-name rule cover host (no port)?
+func (r rule) matchHost(host Host) bool {
 	switch {
 	case r.host == "":
 		return false
 	case r.host == "**":
 		return true
 	case strings.HasPrefix(r.host, "*."):
-		return strings.HasSuffix(host, r.host[1:])
+		return strings.HasSuffix(host.String(), r.host[1:])
 	default:
-		return r.host == host
+		return r.host == host.String()
 	}
 }
 
@@ -410,8 +410,8 @@ func (p *policy) quiet(host string, port int) bool {
 	if h := p.rulesFor(host, port); h.open || h.broken != "" || len(h.rs) > 0 {
 		return false
 	}
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	return slices.ContainsFunc(p.builtin, func(r rule) bool { return r.quiet && r.portOK(port) && r.matchHost(host) })
+	h := NormHost(host)
+	return slices.ContainsFunc(p.builtin, func(r rule) bool { return r.quiet && r.portOK(port) && r.matchHost(h) })
 }
 
 // loadPolicy is file f's rules from its text b, its denies alone with deniesOnly, logging to l
@@ -471,13 +471,12 @@ func (p *policy) rulesFor(host string, port int) hostRules {
 	if p.open {
 		return hostRules{open: true}
 	}
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	h := NormHost(host)
 	rs, broken := p.all()
 	if broken != "" {
 		return hostRules{broken: broken}
 	}
-	addr, err := netip.ParseAddr(strings.Trim(host, "[]"))
-	isAddr := err == nil
+	addr, isAddr := h.Addr()
 	return hostRules{rs: slices.DeleteFunc(rs, func(r rule) bool {
 		if !r.portOK(port) {
 			return true
@@ -487,7 +486,7 @@ func (p *policy) rulesFor(host string, port int) hostRules {
 			// internal one that no address rule names (addrAllowed).
 			return !r.matchAddr(addr) && r.host != "**"
 		}
-		return !r.matchHost(host)
+		return !r.matchHost(h)
 	})}
 }
 
@@ -671,7 +670,7 @@ func (p Allowlist) coversOn(n rule, port int) bool {
 		if r.deny || r.narrows() || !r.portOK(port) || r.host == "" {
 			continue
 		}
-		if d, wild := strings.CutPrefix(n.host, "*."); !wild && r.matchHost(n.host) ||
+		if d, wild := strings.CutPrefix(n.host, "*."); !wild && r.matchHost(NormHost(n.host)) ||
 			wild && (r.host == "**" || strings.HasPrefix(r.host, "*.") && (d == r.host[2:] || strings.HasSuffix(d, r.host[1:]))) {
 			return true
 		}
@@ -736,13 +735,13 @@ func (p *policy) byName(host string, port int) bool {
 	if p.open {
 		return true
 	}
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	h := NormHost(host)
 	rs, broken := p.all()
 	if broken != "" {
 		return false
 	}
 	for _, r := range rs {
-		if !r.deny && r.host != "**" && r.portOK(port) && r.matchHost(host) {
+		if !r.deny && r.host != "**" && r.portOK(port) && r.matchHost(h) {
 			return true
 		}
 	}

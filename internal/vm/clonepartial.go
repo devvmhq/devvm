@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"maps"
-	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -214,11 +213,13 @@ func (s seedData) keptPromisors(ctx context.Context, dir string) []string {
 // urlHostPort is the host a remote's URL reaches and its port, a
 // scheme's own unless the URL names one, or local for a file:// URL or a
 // path, which reach this machine; host is "" for a URL it can't read.
+// The host is read as the proxy reads every host (proxy.NormHost), so a
+// VM's policies judge the one the proxy would.
 func urlHostPort(u string) (host string, port int, local bool) {
 	scheme, _, hasScheme := strings.Cut(u, "://")
 	if !hasScheme {
 		if h, _, ok := scpHost(u); ok {
-			return strings.ToLower(h), 22, false
+			return proxy.NormHost(h).String(), 22, false
 		}
 		return "", 0, true
 	}
@@ -240,17 +241,18 @@ func urlHostPort(u string) (host string, port int, local bool) {
 	if port == 0 {
 		return "", 0, false
 	}
-	return strings.ToLower(p.Hostname()), port, false
+	return proxy.NormHost(p.Hostname()).String(), port, false
 }
 
 // privateHost is whether host is one the internet tier never reaches:
 // an address that isn't public (proxy.Public), or localhost. A name that
 // resolves to such an address isn't reached either, which it can't tell.
 func privateHost(host string) bool {
-	if a, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+	h := proxy.NormHost(host)
+	if a, ok := h.Addr(); ok {
 		return !proxy.Public(a)
 	}
-	return host == "localhost" || strings.HasSuffix(host, ".localhost")
+	return h.Under("localhost")
 }
 
 // reach is what a VM's policies say of a host's port: whether its

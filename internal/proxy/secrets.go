@@ -245,9 +245,10 @@ func (s *secrets) all() []Binding {
 // forHost: the bindings that apply to host.
 func (s *secrets) forHost(host string) []Binding {
 	var out []Binding
+	to := NormHost(host)
 	for _, b := range s.all() {
 		for _, h := range b.Hosts {
-			if r, ok := parseRule(h); ok && !r.deny && r.matchHost(strings.ToLower(host)) {
+			if r, ok := parseRule(h); ok && !r.deny && r.matchHost(to) {
 				out = append(out, b)
 				break
 			}

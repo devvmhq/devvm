@@ -574,66 +574,6 @@ func (e *egress) dial(ctx context.Context, host string, port int) (net.Conn, err
 
 // --- the proxy ---
 
-// HostOK reports whether h is a host name (letters, digits, '-', '_', '.') or an address. The VM
-// chooses the host, and it ends up in the log, in the policy and in the allow command devvm
-// suggests for the host's shell; agentlogin checks an MCP server's host with it before it goes into
-// a VM's allowlist.
-// A name is splitHostPort's form, with no trailing dot, and has no empty label: a company proxy
-// that drops trailing dots (evil.test.., which splitHostPort leaves as evil.test.) would reach a
-// host that a deny of evil.test never matched.
-func HostOK(h string) bool {
-	if a, err := netip.ParseAddr(strings.Trim(h, "[]")); err == nil {
-		return a.Zone() == "" // a zone (fe80::1%eth0) is any text
-	}
-	if h == "" || len(h) > 253 || slices.Contains(strings.Split(h, "."), "") {
-		return false
-	}
-	// An address in a shorthand netip doesn't read (127.1, 2130706433, 0x7f000001, 10.1): no name
-	// ends in such a label, and a company proxy or resolver that reads it as inet_aton does would
-	// reach an address the floor never judged.
-	if last := h[strings.LastIndexByte(h, '.')+1:]; strings.HasPrefix(last, "0x") || strings.Trim(last, "0123456789") == "" {
-		return false
-	}
-	for _, c := range h {
-		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' && c != '_' && c != '.' {
-			return false
-		}
-	}
-	return true
-}
-
-// splitHostPort: the host, lowercased and without a trailing dot (so the policy, bindings, SNI check
-// and log all see one form), and the port (def when there's none). A host with anything but
-// printable ASCII keeps its case, so HostOK refuses it: strings.ToLower folds some letters into
-// ASCII (the Kelvin sign into k), and the host judged would then not be the one the client named.
-func splitHostPort(hp string, def int) (string, int) {
-	norm := func(h string) string {
-		if !hostASCII(h) {
-			return h
-		}
-		return strings.TrimSuffix(strings.ToLower(h), ".")
-	}
-	h, p, err := net.SplitHostPort(hp)
-	if err != nil {
-		return norm(strings.Trim(hp, "[]")), def
-	}
-	n, err := strconv.Atoi(p)
-	if err != nil {
-		return norm(h), def
-	}
-	return norm(h), n
-}
-
-// hostASCII reports whether s is printable ASCII alone, without spaces: the only bytes a host the
-// proxy takes can have, checked before anything folds its case.
-func hostASCII(s string) bool {
-	return !strings.ContainsFunc(s, func(r rune) bool { return r <= ' ' || r > '~' })
-}
-
-// asciiEqualFold reports whether a and b are the same in ASCII, letters' case aside: never when
-// either has anything but printable ASCII, which a Unicode fold could make equal (U+212A and k).
-func asciiEqualFold(a, b string) bool { return hostASCII(a) && hostASCII(b) && strings.EqualFold(a, b) }
-
 // block records e as a block and answers the request with blockPage.
 func (s *server) block(w http.ResponseWriter, e Event) {
 	e = s.blocked(e)
@@ -912,7 +852,7 @@ func (s *server) carry(ctx context.Context, client bufConn, up net.Conn, host st
 			e.Event, e.Reason, e.Refused = "blocked", reasonHelloBroken, true
 			s.events.record(e)
 			return false
-		case isTLS && !sniMatches(sni, host):
+		case isTLS && !sniMatches(sni, NormHost(host)):
 			e.Event, e.Reason = "blocked", fmt.Sprintf("TLS name %q doesn't match %s", sni, host)
 			s.events.record(e)
 			return false
@@ -933,14 +873,15 @@ const helloTimeout = 10 * time.Second
 // time, or didn't parse, is refused.
 const reasonHelloBroken = "its TLS ClientHello didn't arrive whole in one record in time, or doesn't parse"
 
-// sniMatches reports whether sni, a tunnel's TLS server name, names host, which was checked: in
-// ASCII, letters' case aside, so no Unicode fold makes another name match (asciiEqualFold). An
-// address's tunnel may have none.
-func sniMatches(sni, host string) bool {
-	if _, err := netip.ParseAddr(host); err == nil {
-		return sni == "" || asciiEqualFold(sni, host)
+// sniMatches reports whether sni, a tunnel's TLS server name, names host, which was checked: as
+// NormHost reads it, so no Unicode fold makes another name match. An address's tunnel may have
+// none, and its name, if any, is the address in ASCII, letters' case aside (asciiEqualFold), with
+// no trailing dot.
+func sniMatches(sni string, host Host) bool {
+	if _, err := netip.ParseAddr(host.String()); err == nil {
+		return sni == "" || asciiEqualFold(sni, host.String())
 	}
-	return asciiEqualFold(strings.TrimSuffix(sni, "."), host)
+	return NormHost(sni) == host
 }
 
 // helloRecordMax bounds the TLS record peekClientHello reads: a plaintext record holds 16 KiB at

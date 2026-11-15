@@ -285,18 +285,20 @@ func (ups upstreams) names() string {
 
 // noProxyRule is one NO_PROXY entry, read as Go's clients read it: "*" (every host), an address
 // or CIDR, or a name, which covers its subdomains too ("example.com"), or only them
-// (".example.com", or "*.example.com"); any of them with a port, which it's then limited to.
+// (".example.com", or "*.example.com"); any of them with a port, which it's then limited to. A
+// name is read as every host is (NormHost), so one with anything but printable ASCII matches no
+// host the proxy takes.
 type noProxyRule struct {
 	all    bool
 	prefix netip.Prefix
-	name   string // lowercased; a leading "." matches subdomains only
+	name   string // in NormHost's form; a leading "." matches subdomains only
 	port   int    // 0: any
 }
 
 func parseNoProxy(s string) []noProxyRule {
 	var out []noProxyRule
 	for e := range strings.SplitSeq(s, ",") {
-		e = strings.ToLower(strings.TrimSpace(e))
+		e = strings.TrimSpace(e)
 		if e == "" {
 			continue
 		}
@@ -324,15 +326,15 @@ func parseNoProxy(s string) []noProxyRule {
 		if strings.HasPrefix(e, "*.") {
 			e = e[1:]
 		}
-		r.name = strings.TrimSuffix(e, ".")
-		if r.name != "" && r.name != "." {
+		r.name = NormHost(e).String()
+		if strings.ContainsFunc(r.name, func(c rune) bool { return c != '.' }) { // dots alone are no name
 			out = append(out, r)
 		}
 	}
 	return out
 }
 
-func (r noProxyRule) matches(host string, port int) bool {
+func (r noProxyRule) matches(host Host, port int) bool {
 	if r.all {
 		return true
 	}
@@ -340,22 +342,22 @@ func (r noProxyRule) matches(host string, port int) bool {
 		return false
 	}
 	if r.prefix.IsValid() {
-		a, err := netip.ParseAddr(strings.Trim(host, "[]"))
-		return err == nil && r.prefix.Contains(a.Unmap())
+		a, ok := host.Addr()
+		return ok && r.prefix.Contains(a.Unmap())
 	}
 	if strings.HasPrefix(r.name, ".") {
-		return strings.HasSuffix(host, r.name)
+		return strings.HasSuffix(host.String(), r.name)
 	}
-	return host == r.name || strings.HasSuffix(host, "."+r.name)
+	return host.Under(r.name)
 }
 
 // local: names and addresses that are always the host's own: never sent upstream, so the floor
 // judges them as ever.
-func local(host string) bool {
-	if a, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+func local(host Host) bool {
+	if a, ok := host.Addr(); ok {
 		return a.Unmap().IsLoopback() || a.IsUnspecified()
 	}
-	return host == "localhost" || strings.HasSuffix(host, ".localhost")
+	return host.Under("localhost")
 }
 
 // route: the upstream host:port goes through, nil for direct. plain is a plain HTTP request
@@ -365,11 +367,12 @@ func (ups upstreams) route(host string, port int, plain bool) *upstream {
 	if plain {
 		up = ups.http
 	}
-	if up == nil || local(host) {
+	h := NormHost(host)
+	if up == nil || local(h) {
 		return nil
 	}
 	for _, r := range ups.noProxy {
-		if r.matches(host, port) {
+		if r.matches(h, port) {
 			return nil
 		}
 	}
