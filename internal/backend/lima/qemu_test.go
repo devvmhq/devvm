@@ -1,15 +1,21 @@
 package lima
 
 import (
+	"bufio"
 	"bytes"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/platform"
 )
 
 const fwd = "/x/devvm _qemu connect 127.0.0.1:5"
@@ -194,13 +200,91 @@ func TestConnect(t *testing.T) {
 		_, _ = c.Write([]byte("got: " + got.String()))
 	}()
 	var out bytes.Buffer
-	if err := Connect(ln.Addr().String(), bytes.NewBufferString("CONNECT example.com:443"), &out); err != nil {
+	if err := Connect(ln.Addr().String(), t.TempDir(), bytes.NewBufferString("CONNECT example.com:443"), &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != "got: CONNECT example.com:443" {
 		t.Errorf("out = %q", out.String())
 	}
-	if err := Connect("127.0.0.1:1", bytes.NewBufferString(""), &out); err == nil {
+	if err := Connect("127.0.0.1:1", "", bytes.NewBufferString(""), &out); err == nil {
 		t.Error("connecting to a closed port should fail")
 	}
+}
+
+// Connect carries connectMax connections at once, a slot each: past that
+// it refuses before it connects, saying so once a minute, and a slot let
+// go is taken again.
+func TestConnectSlots(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0") //nolint:noctx // a test's
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	accepted := make(chan struct{}, 1)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepted <- struct{}{}
+			_ = c.Close()
+		}
+	}()
+	dir := t.TempDir()
+	var held []func()
+	defer func() {
+		for _, r := range held {
+			r()
+		}
+	}()
+	for range connectMax {
+		r, ok, err := takeSlot(dir)
+		if err != nil || !ok {
+			t.Fatalf("slot %d: %v, %v", len(held), ok, err)
+		}
+		held = append(held, r)
+	}
+	var out bytes.Buffer
+	err = Connect(ln.Addr().String(), dir, bytes.NewBufferString(""), &out)
+	if msg.IDOf(err) != "qemu_connects_full" {
+		t.Errorf("past the slots: %v, want qemu_connects_full", err)
+	}
+	// The client gets a 503 it can show.
+	resp, rerr := http.ReadResponse(bufio.NewReader(&out), nil)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable || !resp.Close || !strings.Contains(string(b), strconv.Itoa(connectMax)) {
+		t.Errorf("past the slots, the client got %d (closing %v) %q; want a 503 that closes and says why", resp.StatusCode, resp.Close, b)
+	}
+	if err := Connect(ln.Addr().String(), dir, bytes.NewBufferString(""), &out); err != nil {
+		t.Errorf("again within a minute: %v, want it quiet", err)
+	}
+	later := time.Now().Add(connectFullNote)
+	// Another refusal deciding at once (full.lock held) keeps this one quiet.
+	unlock, got, lerr := platform.TryLockFile(filepath.Join(dir, "full.lock"))
+	if lerr != nil || !got {
+		t.Fatal(lerr)
+	}
+	if err := connectsFull(dir, later); err != nil {
+		t.Errorf("with another refusal deciding: %v, want it quiet", err)
+	}
+	unlock()
+	if msg.IDOf(connectsFull(dir, later)) != "qemu_connects_full" {
+		t.Error("a minute on: quiet, want it said again")
+	}
+	select {
+	case <-accepted:
+		t.Error("a refused connection reached the proxy")
+	default:
+	}
+	held[0]()
+	held = held[1:]
+	if err := Connect(ln.Addr().String(), dir, bytes.NewBufferString(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	<-accepted
 }

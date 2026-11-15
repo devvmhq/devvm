@@ -125,7 +125,7 @@ func (t *transparent) take(ctx context.Context, c bufConn, port int) {
 		t.tls(ctx, c, port)
 	case looksHTTP(c.r):
 		_ = c.SetReadDeadline(time.Time{}) // the HTTP server keeps its own
-		serveOne(c, t.handler(port), connServing{header: 30 * time.Second, idle: 10 * time.Minute, maxHeader: maxHeaderBytes}, t.s.log)
+		serveOne(c, t.handler(port), connServing{header: 30 * time.Second, idle: idleTimeout}, t.s.log)
 	default:
 		t.refuse(TransparentHost, port, reasonNotNamed)
 	}

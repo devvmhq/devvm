@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
@@ -22,7 +23,8 @@ import (
 // devvm _qemu exec. For a VM that must reach nothing, or nothing but
 // devvm's proxy, it adds restrict=on (no traffic in or out but Lima's own
 // forwards) to Lima's -netdev and, for the proxy, a guestfwd: one address
-// in the VM that QEMU connects to the proxy, through devvm _qemu connect.
+// in the VM that QEMU connects to the proxy, through devvm _qemu connect,
+// a process for each connection, connectMax at once.
 // When it can't, it refuses to start QEMU: never unrestricted. Only a VM
 // on Lima's own network says so (NetEnv). A start with pins runs QEMU in a
 // namespace that pins them (pins.go).
@@ -74,10 +76,11 @@ func writeWrapper(dir, self, goarch string) (string, error) {
 }
 
 // guestFwdCmd is the command QEMU runs for each connection to the proxy's
-// address: devvm joining it to the proxy's port. QEMU runs it with
-// /bin/sh -c, so devvm's path is quoted.
-func guestFwdCmd(self, proxyAddr string) string {
-	return shell.Quote(self) + " _qemu connect " + proxyAddr
+// address: devvm joining it to the proxy's port, holding one of the slots
+// in slots (Connect). QEMU runs it with /bin/sh -c, so the paths are
+// quoted.
+func guestFwdCmd(self, proxyAddr, slots string) string {
+	return shell.Quote(self) + " _qemu connect " + proxyAddr + " " + shell.Quote(slots)
 }
 
 // RestrictNetdev returns QEMU's arguments with restrict=on, and a guestfwd
@@ -191,11 +194,48 @@ func realDir(d string) string {
 	return paths.Physical(d)
 }
 
+// connectMax is how many of a VM's connections to its proxy devvm _qemu
+// connect carries at once, a process each, which measured about 7.7 MB of
+// memory: about 2 GB for a VM that holds every slot. As many as the port
+// forwarder relays, and many times a package manager's (npm's 15 sockets,
+// uv's 50 downloads), so that builds and installs fit while a VM that
+// opens connections without end can't fill the host with processes. The
+// proxy bounds what each carries.
+const connectMax = 256
+
+// connectsFullReply is what a connection past connectMax gets before it
+// closes, as the proxy answers a request past one of its limits, so a
+// client shows why rather than a closed connection.
+func connectsFullReply() string {
+	body := "devvm proxy: " + strconv.Itoa(connectMax) + " connections to the proxy at once already; try again\n"
+	return "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: " +
+		strconv.Itoa(len(body)) + "\r\n\r\n" + body
+}
+
+// connectFullNote is how long a refusal past connectMax keeps the next
+// ones quiet, so a VM that keeps trying can't fill QEMU's log.
+const connectFullNote = time.Minute
+
 // Connect is devvm _qemu connect: it joins in and out to a TCP connection
 // to addr. Each direction ends on its own (a client may finish sending
 // before the reply), and it returns once the connection has nothing more
-// to say.
-func Connect(addr string, in io.Reader, out io.Writer) error {
+// to say. With slots, a folder (paths.VM.Proxy's .slots), it holds one of its
+// connectMax slots while it runs, and refuses the connection when none is
+// free: it writes connectsFullReply to out and returns QEMUConnectsFull,
+// or nil when that was said within connectFullNote (connectsFull). A VM
+// started before the slots has none, and no limit until its next start.
+func Connect(addr, slots string, in io.Reader, out io.Writer) error {
+	if slots != "" {
+		release, ok, err := takeSlot(slots)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			_, _ = io.WriteString(out, connectsFullReply())
+			return connectsFull(slots, time.Now())
+		}
+		defer release()
+	}
 	c, err := net.Dial("tcp", addr) //nolint:noctx // runs for the whole connection
 	if err != nil {
 		return err
@@ -209,4 +249,46 @@ func Connect(addr string, in io.Reader, out io.Writer) error {
 	}()
 	_, err = io.Copy(out, c)
 	return err
+}
+
+// takeSlot holds one of dir's connectMax slots, a lock file each, until
+// release or the process's end: ok is false while every one is held. It
+// starts at a slot of its own (its pid's), so that many at once don't all
+// try the same ones first.
+func takeSlot(dir string) (release func(), ok bool, err error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, false, err
+	}
+	start := os.Getpid() % connectMax
+	for i := range connectMax {
+		unlock, got, err := platform.TryLockFile(filepath.Join(dir, strconv.Itoa((start+i)%connectMax)))
+		if err != nil {
+			return nil, false, err
+		}
+		if got {
+			return unlock, true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+// connectsFull is a refusal past connectMax, at now: QEMUConnectsFull,
+// unless one was said within connectFullNote (dir's full file, touched
+// each time), then nil. One refusal at a time decides, holding dir's
+// full.lock, and one that finds it held is quiet, so refusals at once
+// say it once.
+func connectsFull(dir string, now time.Time) error {
+	unlock, got, err := platform.TryLockFile(filepath.Join(dir, "full.lock"))
+	if err != nil || !got {
+		return nil
+	}
+	defer unlock()
+	marker := filepath.Join(dir, "full")
+	if fi, err := os.Stat(marker); err == nil && now.Sub(fi.ModTime()) < connectFullNote {
+		return nil
+	}
+	if err := state.WriteFileMode(marker, nil, 0o600); err == nil {
+		_ = os.Chtimes(marker, now, now)
+	}
+	return msg.QEMUConnectsFull(strconv.Itoa(connectMax))
 }

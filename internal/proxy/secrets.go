@@ -745,8 +745,13 @@ func (s *server) intercept(ctx context.Context, client net.Conn, host string, po
 		if !ok {
 			return
 		}
+		release, ok := s.requests.take(w)
+		if !ok {
+			return
+		}
+		defer release()
 		fwd.ServeHTTP(w, r)
-	}), connServing{header: 30 * time.Second, idle: 10 * time.Minute}, s.log)
+	}), connServing{header: 30 * time.Second, idle: idleTimeout}, s.log)
 }
 
 // handshake is TLS with the VM on client, as a server for host, with a leaf for host alone from c
@@ -768,15 +773,19 @@ func handshake(ctx context.Context, client net.Conn, c *ca, host string) (*tls.C
 	return tconn, nil
 }
 
-// connServing is how long serveOne waits for a request's headers, and between requests, and the
-// most its headers may hold (0: http.Server's default).
+// connServing is how long serveOne waits for a request's headers, and between requests.
 type connServing struct {
 	header, idle time.Duration
-	maxHeader    int
 }
 
+// streamsMax is how many requests one HTTP/2 connection the proxy serves carries at once (an
+// intercepted tunnel's, a transparent connection's), each a request upstream: what most servers
+// allow, which clients keep to, where http.Server's default would let each tunnel ask for 250.
+const streamsMax = 100
+
 // serveOne serves HTTP/1.1, or HTTP/2 with prior knowledge, on c alone with h, until c closes or
-// sits idle, logging to l: TLS, when there is any, is already done here.
+// sits idle, logging to l: TLS, when there is any, is already done here. Its requests' headers get
+// maxHeaderBytes, as the proxy's own do, and HTTP/2 streamsMax requests at once.
 func serveOne(c net.Conn, h http.Handler, t connServing, l *log.Logger) {
 	cn := &closeNotifyConn{Conn: c, done: make(chan struct{})}
 	srv := &http.Server{
@@ -784,7 +793,8 @@ func serveOne(c net.Conn, h http.Handler, t connServing, l *log.Logger) {
 		Protocols:         new(http.Protocols),
 		IdleTimeout:       t.idle,
 		ReadHeaderTimeout: t.header,
-		MaxHeaderBytes:    t.maxHeader,
+		MaxHeaderBytes:    maxHeaderBytes,
+		HTTP2:             &http.HTTP2Config{MaxConcurrentStreams: streamsMax},
 		ErrorLog:          l,
 	}
 	srv.Protocols.SetHTTP1(true)

@@ -20,11 +20,14 @@ import (
 // either, never on a port a program on this machine has (ListenLoopback),
 // and each connection is an ssh channel of its own (ssh -W) to the VM's
 // 127.0.0.1, which the VM's sshd opens: no master, nothing forwarded the
-// other way.
+// other way, and loopbackConnsMax at once.
 type LoopbackForward struct {
 	ls     []net.Listener
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	// slots holds one for each connection carried (loopbackConnsMax), on
+	// every listener together.
+	slots chan struct{}
 }
 
 // ErrPortTaken is ForwardLoopback's error when a program on this machine
@@ -54,7 +57,7 @@ func (o SSH) forwardLoopback(ctx context.Context, carry func(context.Context, ne
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	f := &LoopbackForward{ls: []net.Listener{l}, cancel: cancel}
+	f := &LoopbackForward{ls: []net.Listener{l}, cancel: cancel, slots: make(chan struct{}, loopbackConnsMax)}
 	ports := []int{need} // each listener's, in f.ls's order
 	for _, p := range slices.Concat([]int{need}, also) {
 		for _, h := range []string{Loopback, "::1"} {
@@ -76,16 +79,36 @@ func (o SSH) forwardLoopback(ctx context.Context, carry func(context.Context, ne
 	return f, nil
 }
 
-// serve accepts l's connections until it's closed, carrying each to port.
+// loopbackConnsMax is how many connections a LoopbackForward carries at
+// once, an ssh process each: a browser's callback takes one or two, and
+// whatever else on this machine connects can't start ssh without end.
+const loopbackConnsMax = 16
+
+// serve accepts l's connections until it's closed (acceptRetry), carrying
+// each to port, and closing those past loopbackConnsMax at once.
 func (f *LoopbackForward) serve(ctx context.Context, l net.Listener, port int, carry func(context.Context, net.Conn, int)) {
 	var conns sync.WaitGroup
 	defer conns.Wait()
+	var retry acceptRetry
 	for {
 		c, err := l.Accept()
 		if err != nil {
+			if retry.failed(ctx, err, nil) {
+				continue
+			}
 			return
 		}
-		conns.Go(func() { carry(ctx, c, port) })
+		retry.accepted()
+		select {
+		case f.slots <- struct{}{}:
+		default:
+			_ = c.Close() // too many at once
+			continue
+		}
+		conns.Go(func() {
+			defer func() { <-f.slots }()
+			carry(ctx, c, port)
+		})
 	}
 }
 

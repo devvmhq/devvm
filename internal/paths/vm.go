@@ -51,7 +51,9 @@ func (v VM) RemakeLock() string { return filepath.Join(v.Run(), "remake.lock") }
 func (v VM) ProxyConfig() string { return filepath.Join(v.Run(), "proxy.json") }
 
 // Proxy is a file of the VM's proxy's own, by ext: .pid, its pid file,
-// and .status, the status file it writes once it listens.
+// .status, the status file it writes once it listens, and .slots, on a
+// Linux host the folder of the slots of the VM's connections to it, a
+// lock file for each that devvm _qemu connect carries at once.
 func (v VM) Proxy(ext string) string { return filepath.Join(v.Run(), "proxy"+ext) }
 
 // GitPins is a file of a Linux host's pins in QEMU's namespace, by ext:

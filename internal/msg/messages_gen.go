@@ -3958,6 +3958,11 @@ func Published(ports string, vm vmname.VM) M {
 	return M{id: "published", vals: []val{{"ports", ports}, {"vm", string(vm)}}}
 }
 
+// QEMUConnectsFull is [qemu_connects_full]: "The VM already has {{.limit}} connections to its proxy open, the most devvm carries at once, so devvm refused another. Connections it refuses in the next minute aren't logged."
+func QEMUConnectsFull(limit string) M {
+	return M{id: "qemu_connects_full", vals: []val{{"limit", limit}}}
+}
+
 // QEMUPinsFailed is [qemu_pins_failed]: "devvm couldn't pin .git's hooks and config for the VM ({{.reason}}), so devvm didn't start QEMU."
 func QEMUPinsFailed(reason string) M {
 	return M{id: "qemu_pins_failed", vals: []val{{"reason", reason}}}
@@ -6105,6 +6110,7 @@ var specs = map[string]spec{
 	"proxy_start_failed":             {fields: []string{"log", "vm"}},
 	"proxy_stop_failed":              {fields: []string{"vm"}},
 	"published":                      {fields: []string{"ports", "vm"}},
+	"qemu_connects_full":             {fields: []string{"limit"}},
 	"qemu_pins_failed":               {fields: []string{"reason"}},
 	"qemu_pins_invalid":              {fields: []string{"path"}},
 	"qemu_refused":                   {},

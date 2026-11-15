@@ -19,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/redact"
+	"github.com/devvmhq/devvm/internal/shell"
 	"github.com/devvmhq/devvm/internal/state"
 )
 
@@ -62,7 +63,7 @@ func TestStartConfined(t *testing.T) {
 		edits    []string // the --set values
 		wrapped  bool     // under sandbox-exec
 		qemu     bool     // through the QEMU wrapper
-		guestfwd string   // DEVVM_GUESTFWD; "" for unset
+		guestfwd string   // DEVVM_GUESTFWD, SLOTS the VM's slots; "" for unset
 		net      string   // DEVVM_QEMU_NET
 		pins     string   // DEVVM_QEMU_PINS
 	}{
@@ -76,7 +77,7 @@ func TestStartConfined(t *testing.T) {
 		},
 		{
 			name: "Linux, the proxy", os: "linux", c: proxy, qemu: true,
-			guestfwd: `'/opt/my devvm/devvm' _qemu connect 127.0.0.1:23456`,
+			guestfwd: `'/opt/my devvm/devvm' _qemu connect 127.0.0.1:23456 SLOTS`,
 			edits: []string{
 				".ssh.localPort=2222",
 				`.env = {"HTTPS_PROXY":"http://devvm:devvm-proxy-password@192.168.5.4:3128","HTTP_PROXY":"http://devvm:devvm-proxy-password@192.168.5.4:3128","NO_PROXY":"localhost","http_proxy":"http://devvm:devvm-proxy-password@192.168.5.4:3128","https_proxy":"http://devvm:devvm-proxy-password@192.168.5.4:3128"}`,
@@ -99,7 +100,7 @@ func TestStartConfined(t *testing.T) {
 		{
 			// Pins, which QEMU's namespace pins: .git first.
 			name: "Linux, the proxy and pins", os: "linux", c: pinned, qemu: true,
-			guestfwd: `'/opt/my devvm/devvm' _qemu connect 127.0.0.1:23456`,
+			guestfwd: `'/opt/my devvm/devvm' _qemu connect 127.0.0.1:23456 SLOTS`,
 			pins:     `{"root":"/p","pins":[{"path":".git","read_only":false},{"path":".git/config","read_only":true},{"path":".git/hooks","read_only":true}]}`,
 			edits: []string{
 				".ssh.localPort=2222",
@@ -166,8 +167,9 @@ func TestStartConfined(t *testing.T) {
 			if ok != tc.qemu || ok && w != filepath.Join(l.Dirs.Run(), "qemu", "qemu-system-aarch64") {
 				t.Errorf("QEMU_SYSTEM_AARCH64=%q (%v)", w, ok)
 			}
-			if fwd, _ := envOf(s, GuestFwdEnv); tc.qemu && fwd != tc.guestfwd {
-				t.Errorf("%s=%q, want %q", GuestFwdEnv, fwd, tc.guestfwd)
+			wantFwd := strings.ReplaceAll(tc.guestfwd, "SLOTS", shell.Quote(l.Dirs.VM("v").Proxy(".slots")))
+			if fwd, _ := envOf(s, GuestFwdEnv); tc.qemu && fwd != wantFwd {
+				t.Errorf("%s=%q, want %q", GuestFwdEnv, fwd, wantFwd)
 			}
 			if n, _ := envOf(s, NetEnv); tc.qemu && n != tc.net {
 				t.Errorf("%s=%q, want %q", NetEnv, n, tc.net)

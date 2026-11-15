@@ -95,8 +95,13 @@ type server struct {
 	connectsFull atomic.Bool
 	// helloWait bounds how long a tunnel's TLS ClientHello takes once it starts, and a transparent
 	// connection's first bytes (helloTimeout; tests shorten it).
-	helloWait   time.Duration
+	helloWait time.Duration
+	// goneWait is how long a plain-HTTP request goes on, its client gone, with nothing passed on
+	// (goneWait; tests shorten it).
+	goneWait    time.Duration
 	transparent *transparent
+	// requests are the slots of its requests upstream (maxRequests).
+	requests *requests
 	// conns are the connections its listener accepted and its handlers, which its close ends
 	// and waits for (closeConns).
 	conns conns
@@ -135,8 +140,17 @@ func newServer(c Config, std IO, l *log.Logger, out io.Writer) (*server, error) 
 		links:          newLinks(c.Links, c.LinkSockets, c.VM, l, ev),
 		connects:       make(chan struct{}, maxConnects),
 		helloWait:      helloTimeout,
+		goneWait:       goneWait,
 	}
 	s.transparent = &transparent{s: s}
+	s.requests = newRequests(maxRequests, l)
+	s.conns.max, s.conns.waitMax = maxConns, maxWaiting
+	var fullSaid everyMinute
+	s.conns.full = func(n int) {
+		if fullSaid.allow(time.Now()) {
+			l.Printf("%d connections open at once, the VM's limit: refusing more until one ends", n)
+		}
+	}
 	var err error
 	if c.CA != "" {
 		if s.ca, err = loadCA(c.CA, c.CAKey); err != nil {
@@ -1011,15 +1025,82 @@ func (s *server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Some clients half-close after sending; don't treat that as the client going away.
+	release, ok := s.requests.take(w)
+	if !ok {
+		return
+	}
+	defer release()
 	fwd, done := s.forwarder(scheme, r.URL.Host, host, port) //nolint:contextcheck // its Rewrite takes each request's own context (pr.In), which contextcheck can't follow
 	defer done()
-	fwd.ServeHTTP(noCloseNotify{w}, r.WithContext(context.WithoutCancel(r.Context()))) //nolint:contextcheck // derived from the request's context, its values kept; contextcheck doesn't count WithoutCancel as deriving one
+	hw := &heardWriter{ResponseWriter: w}
+	ctx, cancel := whileHeard(r.Context(), hw, s.goneWait)
+	defer cancel()
+	fwd.ServeHTTP(hw, r.WithContext(ctx)) //nolint:contextcheck // derived from the request's context by whileHeard, its values kept; contextcheck doesn't count WithoutCancel as deriving one
 }
 
-type noCloseNotify struct{ http.ResponseWriter }
+// goneWait is how long a plain-HTTP request goes on once its client has stopped sending, with
+// nothing passed on to it (whileHeard).
+const goneWait = time.Minute
 
-func (w noCloseNotify) Flush() { _ = http.NewResponseController(w.ResponseWriter).Flush() }
+// whileHeard is ctx, a plain-HTTP request's, to forward it with: its values, but not its end, as
+// some clients half-close after sending, which ends it as a client that went away would. It ends
+// once ctx has ended and w has passed nothing on for wait since, so a client that half-closed still
+// gets an answer that keeps coming, and one that went away, whose next write would fail, frees
+// what its request holds, an upstream that never answers included. cancel ends it.
+func whileHeard(ctx context.Context, w *heardWriter, wait time.Duration) (context.Context, context.CancelFunc) {
+	heard, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	go func() {
+		select {
+		case <-heard.Done():
+			return
+		case <-ctx.Done():
+		}
+		since := time.Now()
+		t := time.NewTimer(wait)
+		defer t.Stop()
+		for {
+			select {
+			case <-heard.Done():
+				return
+			case <-t.C:
+			}
+			if last := time.Unix(0, w.last.Load()); last.After(since) {
+				since = last
+			}
+			if left := wait - time.Since(since); left > 0 {
+				t.Reset(left)
+				continue
+			}
+			cancel()
+			return
+		}
+	}()
+	return heard, cancel
+}
+
+// heardWriter is a plain-HTTP request's ResponseWriter, which keeps when it last passed anything on
+// (whileHeard) and, by not having CloseNotify, keeps the reverse proxy from ending the request when
+// the client only half-closes.
+type heardWriter struct {
+	http.ResponseWriter
+	last atomic.Int64 // when it last wrote, in Unix nanoseconds
+}
+
+func (w *heardWriter) WriteHeader(code int) {
+	w.last.Store(time.Now().UnixNano())
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *heardWriter) Write(b []byte) (int, error) {
+	w.last.Store(time.Now().UnixNano())
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *heardWriter) Flush() { _ = http.NewResponseController(w.ResponseWriter).Flush() }
+
+// Unwrap is the ResponseWriter it wraps, which the reverse proxy takes a WebSocket's connection
+// from (http.ResponseController's Hijack).
+func (w *heardWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // nothingBlocked is devvm-why's answer when the proxy blocked nothing: a
 // connection refused, or a DNS error, then comes from a tool that skipped
@@ -1082,8 +1163,16 @@ func (s *server) serveReserved(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handler(w http.ResponseWriter, r *http.Request) {
 	if !s.authorized(r) {
+		// Closed after it: whatever lacks the password gets no connection kept open for more.
+		w.Header().Set("Connection", "close")
 		w.Header().Set("Proxy-Authenticate", `Basic realm="devvm"`)
 		http.Error(w, "devvm proxy: this proxy belongs to another VM", http.StatusProxyAuthRequired)
+		return
+	}
+	// The connection counts toward the VM's room from its first request with the password.
+	if c, ok := r.Context().Value(connKey{}).(net.Conn); ok && !s.conns.admit(c) {
+		w.Header().Set("Connection", "close")
+		http.Error(w, "devvm proxy: "+strconv.Itoa(s.conns.max)+" connections open already; try again", http.StatusServiceUnavailable)
 		return
 	}
 	if r.Method == http.MethodConnect {
@@ -1127,9 +1216,18 @@ type IO struct {
 }
 
 // httpServer is the HTTP server that serves s, its handlers counted by its conns, as run serves it
-// and the tests do.
+// and the tests do: a request's headers get 30 seconds and maxHeaderBytes, and a connection
+// idleTimeout between requests. Nothing bounds a request's whole time, so an upload, a download or
+// a stream takes as long as it does.
 func httpServer(s *server) *http.Server {
-	return &http.Server{Handler: s.conns.handle(s.handler), ReadHeaderTimeout: 30 * time.Second, MaxHeaderBytes: maxHeaderBytes}
+	return &http.Server{
+		Handler:           s.conns.handle(s.handler),
+		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+		// Each request knows its connection, which its first request with the password admits.
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context { return context.WithValue(ctx, connKey{}, c) },
+	}
 }
 
 // Main runs devvm _proxy with args (its flags): the proxy itself, with -config's file, until the
@@ -1169,6 +1267,11 @@ func run(args []string, std IO, tick time.Duration) error {
 	}
 	return serve(c, std, tick)
 }
+
+// idleTimeout is how long a connection to the proxy, or an intercepted tunnel's or a transparent
+// connection's HTTP, waits for its next request before it's closed: longer than any client keeps
+// one idle (Chrome's 5 minutes).
+const idleTimeout = 10 * time.Minute
 
 // serve runs the proxy with c until the VM's hostagent is gone (c.Lifeline).
 func serve(c Config, std IO, tick time.Duration) error {

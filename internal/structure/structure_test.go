@@ -348,6 +348,7 @@ func devvmGoroutineSites() map[string]string {
 		"internal/platform/pinrun_linux.go: RunPinned":      "keep, which returns the child's end that it sends",
 		"internal/proxy/proxy.go: serve":                    detached + "the lifeline's watch, which runs for the proxy's life and ends it once the VM's hostagent is gone",
 		"internal/proxy/splice.go: splice":                  "splice, on done, once both directions have ended",
+		"internal/proxy/proxy.go: whileHeard":               "whileHeard's cancel, which handleHTTP defers, so it ends with the request's handler",
 		"internal/proxy/conns.go: conns.close":              detached + "the handlers' wait, which close gives closeWait at most: it ends with the last handler, as the proxy exits",
 		"internal/proxy/upstream.go: upstream.connect":      detached + "the AfterFunc that ends the handshake at ctx's end, which connect's deferred stop keeps from starting after it; one already started only sets a deadline",
 		"internal/ui/exit.go: UI.main":                      "main, on done; after a signal, interrupt, for returnGrace at most when there are cleanups, then the run ends",

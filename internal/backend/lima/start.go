@@ -229,7 +229,7 @@ func (l *machines) confine(vm vmname.VM, c backend.Confinement, sshPort int, for
 		}
 		return []string{sandboxExec, "-f", l.Dirs.VM(vm).Profile()}, env, nil
 	case "linux":
-		qenv, err := l.qemuEnv(c)
+		qenv, err := l.qemuEnv(vm, c)
 		return nil, append(env, qenv...), err
 	}
 	return nil, nil, msg.LimaHostUnsupported(l.OS)
@@ -237,8 +237,9 @@ func (l *machines) confine(vm vmname.VM, c backend.Confinement, sshPort int, for
 
 // qemuEnv is the environment a Linux host's start gives Lima, so its QEMU
 // runs through devvm's wrapper (qemu.go): its network as c's tier says,
-// and c's pins, or none.
-func (l *machines) qemuEnv(c backend.Confinement) ([]string, error) {
+// and c's pins, or none. vm's connections to the proxy hold its slots
+// (paths.VM.Proxy's .slots).
+func (l *machines) qemuEnv(vm vmname.VM, c backend.Confinement) ([]string, error) {
 	w, err := writeWrapper(l.Dirs.QEMUWrapper(), l.Self, l.Arch)
 	if err != nil {
 		return nil, err
@@ -250,7 +251,7 @@ func (l *machines) qemuEnv(c backend.Confinement) ([]string, error) {
 		// VM's guest reaches devvm's proxy as host loopback (proxyURL).
 		env = append(env, NetEnv+"="+netOpen, GuestFwdEnv)
 	case backend.NetProxy:
-		env = append(env, NetEnv, GuestFwdEnv+"="+guestFwdCmd(l.Self, "127.0.0.1:"+strconv.Itoa(c.ProxyPort)))
+		env = append(env, NetEnv, GuestFwdEnv+"="+guestFwdCmd(l.Self, "127.0.0.1:"+strconv.Itoa(c.ProxyPort), l.Dirs.VM(vm).Proxy(".slots")))
 	case backend.NetNone:
 		env = append(env, NetEnv, GuestFwdEnv) // nothing forwarded
 	}

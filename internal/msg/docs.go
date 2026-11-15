@@ -58,6 +58,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"image_in_use":                   "using/images#deleting-images",
 	"image_building":                 "using/images#deleting-images",
 	"qemu_refused":                   "internals/lima#confinement",
+	"qemu_connects_full":             "internals/processes#the-qemu-wrapper-and-its-keeper",
 	"qemu_pins_invalid":              "safety/git-protection#linux-hosts",
 	"qemu_pins_failed":               "safety/git-protection#linux-hosts",
 	"start_no_ssh":                   "using/troubleshooting#a-vm-wont-boot",

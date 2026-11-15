@@ -173,6 +173,9 @@ func internalDocLinks() map[string]string {
 		// Lima's QEMU arguments changed shape: devvm's own failure, nothing the
 		// user can do but report it.
 		"qemu_refused": "internal failure",
+		// QEMU's log, which only a VM opening connections without end makes
+		// say it, and which the user never sees unless they look.
+		"qemu_connects_full": "internal failure",
 		// The tools' build wrote something other than a plain file: devvm's own
 		// failure.
 		"tool_bad_output": "internal failure",

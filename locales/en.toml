@@ -351,6 +351,10 @@ other = "Changing {{.vm}}'s Lima settings failed."
 [qemu_refused]
 other = "The arguments for QEMU don't have exactly one -netdev user,id=net0,… for devvm to restrict, so devvm didn't start it."
 
+[qemu_connects_full]
+description = "limit is how many of a VM's connections to its proxy devvm carries at once on a Linux host"
+other = "The VM already has {{.limit}} connections to its proxy open, the most devvm carries at once, so devvm refused another. Connections it refuses in the next minute aren't logged."
+
 [qemu_pins_invalid]
 description = "path is a path in what devvm pins, or the file of them"
 other = "devvm can't pin {{.path}} in the VM's project folder, so devvm didn't start QEMU."

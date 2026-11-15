@@ -653,6 +653,7 @@ func (l *Links) serve(ctx context.Context, end *linkEnd) {
 		<-taken
 	}()
 	ul, _ := end.ln.(interface{ SetDeadline(time.Time) error })
+	var retry acceptRetry
 	for {
 		if ul != nil {
 			var d time.Time
@@ -672,20 +673,16 @@ func (l *Links) serve(ctx context.Context, end *linkEnd) {
 		case errors.Is(err, os.ErrDeadlineExceeded):
 			release(false)
 			continue
-		case errors.Is(err, net.ErrClosed):
-			return
 		case err != nil:
 			// Out of files, say, in a burst: what's accepted goes on, and the
 			// socket is tried again shortly.
 			release(true)
-			l.logf("%s: %v", end.sock, err)
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(100 * time.Millisecond):
+			if retry.failed(ctx, err, func(err error) { l.logf("%s: %v", end.sock, err) }) {
+				continue
 			}
-			continue
+			return
 		}
+		retry.accepted()
 		if len(batch) == 0 {
 			first = time.Now()
 		}
