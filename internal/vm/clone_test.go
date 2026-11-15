@@ -2,6 +2,7 @@ package vm
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -123,6 +124,48 @@ func TestUpClone(t *testing.T) {
 	calls := strings.Join((&stubtest.Stubs{Dir: filepath.Dir(vmfs)}).Calls(t), "\n")
 	if strings.Contains(calls, "git-receive-pack") || strings.Contains(calls, "elsewhere") {
 		t.Errorf("pushed:\n%s", calls)
+	}
+}
+
+// A --clone VM's host keys are pinned for each start whatever it
+// forwards, and for a running VM without a record of its start: one
+// that forwards no port, or whose listed ports are all a program's, has
+// no forwarder to pin them, and a fetch that starts it, or finds it
+// running, reaches it all the same.
+func TestFetchPinsHostKeys(t *testing.T) {
+	for _, tc := range []struct {
+		name, ports    string
+		taken, running bool
+	}{
+		{"forwarding none", "none", false, false},
+		{"every port taken", "3000,5173", true, false},
+		{"running without a record", "none", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, f, vmfs := cloneEnv(t)
+			e.PortInUse = func(context.Context, int) bool { return tc.taken }
+			vm := existingVM(t, e, Options{Network: "open", Clone: true, Ports: tc.ports}).Name()
+			clone := vmfs + e.Dir
+			gitIn(t, clone, "checkout", "-q", "-b", "agent/x")
+			gitIn(t, clone, "commit", "-q", "--allow-empty", "-m", "from-vm")
+			if tc.running {
+				if err := os.Remove(e.Dirs.VM(vm).KnownHosts()); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := f.Stop(t.Context(), vm); err != nil {
+				t.Fatal(err)
+			}
+			got, err := (Clone{e}).Fetch(t.Context())
+			if err != nil {
+				t.Fatal(msg.NamesOf(err))
+			}
+			if len(got.Repos) != 1 || !slices.Contains(got.Repos[0].Branches, "agent/x") {
+				t.Errorf("fetched %+v", got)
+			}
+			if forwarderRuns(e, vm) {
+				t.Error("a forwarder runs")
+			}
+		})
 	}
 }
 

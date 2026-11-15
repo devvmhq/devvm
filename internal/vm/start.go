@@ -53,9 +53,10 @@ type upOpts struct {
 // backend refused where the backend can't (requirements); the user's
 // agent checked for keys when it forwards it; then a stopped VM started
 // (start), or a running one gone on with as it runs (runningConfinement),
-// what its next start changes said (nextStart); last, the self-check,
-// which stops a VM whose network tier doesn't hold. It returns the
-// confinement the VM runs with.
+// what its next start changes said (nextStart); then the self-check,
+// which stops a VM whose network tier doesn't hold; last, its host keys
+// pinned for its current start (pinHostKeys). It returns the confinement
+// the VM runs with.
 func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Confinement, error) {
 	vm, st, b := t.f.Name, t.st, t.b
 	if err := refuseUnfinished(vm, st); err != nil {
@@ -125,10 +126,33 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 	if err := s.Proxy.SelfCheck(ctx, b, st, start); err != nil {
 		return conf, err
 	}
+	if err := s.pinHostKeys(ctx, b, vm); err != nil {
+		return conf, err
+	}
 	s.remindLearning(st, o.made)
 	// devvm's connections to it carry the agent it runs with.
 	t.agent = conf.AgentSocket
 	return conf, nil
+}
+
+// pinHostKeys pins the running VM's host keys for its current start
+// (vmssh.PinHostKeys), whatever ports it forwards, once its start, or a
+// launch of it running, has gone through: its forwarder pins them only
+// when it has ports to forward, and devvm's own ssh (ownSSH), which a
+// --clone VM's fetch and links' sessions take, only reads the record. A
+// record of its current start already is kept, without reading the VM.
+// A VM whose backend's ssh isn't usable has nothing to pin for, and one
+// whose keys can't be pinned (vmssh.ErrNoHostKeys) runs on without them,
+// as the ssh config leaves it out: what needs them then fails, naming the
+// VM.
+func (s starter) pinHostKeys(ctx context.Context, b backend.Backend, vm string) error {
+	if !s.Registry.Allowed(b, backend.FeatureSSH) {
+		return nil
+	}
+	if _, err := vmssh.PinHostKeys(ctx, s.Dirs, b, vm); err != nil && !errors.Is(err, vmssh.ErrNoHostKeys) {
+		return err
+	}
+	return nil
 }
 
 // remindLearning says, for a VM that learns the hosts it reaches, since

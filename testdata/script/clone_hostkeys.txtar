@@ -1,0 +1,40 @@
+# Every start pins the VM's host keys, whatever it forwards: a --clone
+# VM whose listed ports a program on this machine has, every one, and
+# one that forwards none, are fetched from once a fetch starts them.
+# Neither has a forwarder to pin them. The ports are the script's own
+# listeners, so what this machine has listening doesn't matter.
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+listen_any TAKEN
+listen_any TAKEN2
+mkdir $WORK/web
+cd $WORK/web
+exec git init -q -b main
+exec git commit -q --allow-empty -m one
+exec devvm --clone --network open --ports $TAKEN,$TAKEN2
+vm_name WEB web
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" checkout -q -b agent/x && git -C "$STUB_DIR/vmfs$(pwd -P)" commit -q --allow-empty -m from-vm'
+
+# Stopped, then started by the fetch: both ports are the programs', so
+# nothing is forwarded, and the fetch reaches the VM with its keys.
+exec devvm stop
+exec devvm clone fetch
+stderr '^devvm: ports_taken count=2 ports='
+stdout '^agent/x: \.$'
+exists $WEB_dir/run/known_hosts
+! exec sh -c 'ps -axww -o command= | grep -- "[_]ports -vm $WEB "'
+
+# Forwarding none: the same.
+exec devvm ports none
+exec devvm stop
+exec sh -c 'git -C "$STUB_DIR/vmfs$(pwd -P)" commit -q --allow-empty -m from-vm-2'
+exec devvm clone fetch
+! stderr ports_taken
+stdout '^agent/x: \.$'
+exec git log --format=%s -1 devvm/agent/x
+stdout '^from-vm-2$'
+
+# Running without a record of its start, as one started this way by an
+# earlier devvm: the fetch pins them.
+rm $WEB_dir/run/known_hosts
+exec devvm clone fetch
+exists $WEB_dir/run/known_hosts

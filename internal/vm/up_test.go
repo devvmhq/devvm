@@ -30,9 +30,11 @@ func TestUp(t *testing.T) {
 	}
 	ms := f.Methods()
 	// Its proxy's lifeline (Running) before it starts; the open self-check
-	// (Exec) once it runs; the ssh config's entry: how to reach it, its
-	// host keys for its start (asked which start, read, then asked again).
-	want := []string{"Problems", "Inspect", "PinOrigin", "Images", "BuildImage", "CreateVM", "Running", "Start", "Running", "Exec", "Exec", "List", "SSH", "Running", "Exec", "Running", "Shell"}
+	// (Exec) once it runs; its host keys for its start, though it forwards
+	// no port (asked which start, read, then asked again); its setup
+	// (Exec); the ssh config's entry: how to reach it, its host keys found
+	// pinned for this start.
+	want := []string{"Problems", "Inspect", "PinOrigin", "Images", "BuildImage", "CreateVM", "Running", "Start", "Running", "Exec", "Running", "Exec", "Running", "Exec", "List", "SSH", "Running", "Shell"}
 	if !slices.Equal(ms, want) {
 		t.Errorf("calls = %q, want %q", ms, want)
 	}
@@ -140,9 +142,10 @@ func TestUpNetworkPolicy(t *testing.T) {
 		t.Errorf("forwarder starts = %q, want one", *starts)
 	}
 	// Its forwarder, once it runs: how to reach it, its host keys for its
-	// start (asked which start, read, then asked again); then the ssh
-	// config's entry, which finds them pinned for this start.
-	want := []string{"Problems", "Inspect", "PinOrigin", "Images", "BuildImage", "CreateVM", "Running", "Start", "SSH", "Running", "Exec", "Running", "Running", "Running", "Running", "Exec", "Exec", "List", "SSH", "Running", "Shell"}
+	// start (asked which start, read, then asked again); then, after the
+	// self-check, the start's own pin and the ssh config's entry, each of
+	// which finds them pinned for this start.
+	want := []string{"Problems", "Inspect", "PinOrigin", "Images", "BuildImage", "CreateVM", "Running", "Start", "SSH", "Running", "Exec", "Running", "Running", "Running", "Running", "Exec", "Running", "Exec", "List", "SSH", "Running", "Shell"}
 	if ms := f.Methods(); !slices.Equal(ms, want) {
 		t.Errorf("calls = %q, want %q", ms, want)
 	}
@@ -265,7 +268,7 @@ func TestUpTools(t *testing.T) {
 		t.Errorf("said %q", said.Names())
 	}
 	// A tools build for each of node, pnpm, bun and claude.
-	if ms := f.Methods(); !slices.Equal(ms, []string{"Problems", "Inspect", "PinOrigin", "Images", "BuildImage", "Images", "BuildTools", "BuildTools", "BuildTools", "BuildTools", "CreateVM", "Running", "Start", "SSH", "Running", "Exec", "Running", "Running", "Running", "Exec", "Exec", "List", "SSH", "Running", "Shell"}) {
+	if ms := f.Methods(); !slices.Equal(ms, []string{"Problems", "Inspect", "PinOrigin", "Images", "BuildImage", "Images", "BuildTools", "BuildTools", "BuildTools", "BuildTools", "CreateVM", "Running", "Start", "SSH", "Running", "Exec", "Running", "Running", "Running", "Exec", "Running", "Exec", "List", "SSH", "Running", "Shell"}) {
 		t.Errorf("calls = %q", ms)
 	}
 	data, err := os.ReadFile(e.Dirs.ToolLock())
