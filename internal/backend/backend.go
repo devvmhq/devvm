@@ -601,6 +601,22 @@ func (c Confinement) GuestProxy() bool {
 	return c.Net == NetProxy || c.Net == NetDirect && c.ProxyPort != 0
 }
 
+// confinedResolver is a NetProxy guest's one name server: its own
+// loopback, where only transparent mode answers (assets/guest/transparent.sh
+// sends 127.0.0.1:53 to its dnsmasq), so nothing else does.
+const confinedResolver = "127.0.0.1"
+
+// Resolver is the one name server the guest's DNS settings name, which
+// its programs ask directly (assets/guest/sync.sh), or "" when the
+// backend's own network gives its DNS: NetProxy's names resolve in the
+// proxy.
+func (c Confinement) Resolver() string {
+	if c.Net == NetProxy {
+		return confinedResolver
+	}
+	return ""
+}
+
 // Status is a VM's state as its backend reports it.
 type Status string
 

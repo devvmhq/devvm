@@ -7,6 +7,26 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 )
 
+// Only a confined VM's guest has its own loopback as its one name server;
+// an open VM, with or without devvm's proxy, and a build keep their
+// network's own.
+func TestResolver(t *testing.T) {
+	for _, tc := range []struct {
+		c    Confinement
+		want string
+	}{
+		{Confinement{Net: NetProxy, ProxyPort: 3128}, "127.0.0.1"},
+		{Confinement{Net: NetDirect}, ""},
+		{Confinement{Net: NetDirect, ProxyPort: 3128}, ""},
+		{Confinement{Net: NetInternet}, ""},
+		{Confinement{Net: NetNone}, ""},
+	} {
+		if got := tc.c.Resolver(); got != tc.want {
+			t.Errorf("%+v: Resolver() = %q, want %q", tc.c.Net, got, tc.want)
+		}
+	}
+}
+
 // A start refuses only a disk smaller than the VM's: zero is the VM's
 // own, and the rest changes.
 func TestValidate(t *testing.T) {

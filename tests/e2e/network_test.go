@@ -543,9 +543,12 @@ func netBlocks(n *netRun) {
 	// once, and Lima's network's DNS (192.168.5.3) and the host's address on
 	// it, asked directly, answer nothing: a refusal or no answer passes, an
 	// address for example.com fails.
-	s.Check("with transparent mode stopped, DNS fails at once, not after a timeout, and Lima's network's DNS addresses, asked directly, answer nothing", func() error {
+	// The VM's programs ask 127.0.0.1 themselves, past systemd-resolved's
+	// stub, which could keep retrying it without answering.
+	s.Check("with transparent mode stopped, DNS fails at once, not after a timeout, asking 127.0.0.1 alone, and Lima's network's DNS addresses, asked directly, answer nothing", func() error {
 		return withoutTransparent(s, vm, func() error {
-			if err := inVM(s, vm, "timeout 3 getent hosts example.com; [ $? -eq 2 ]"); err != nil {
+			if err := inVM(s, vm, `[ ! -L /etc/resolv.conf ] && [ "$(awk '$1 == "nameserver"' /etc/resolv.conf)" = "nameserver 127.0.0.1" ] &&
+{ timeout 3 getent hosts example.com; [ $? -eq 2 ]; }`); err != nil {
 				return err
 			}
 			return inVM(s, vm, limaDNSAsked)

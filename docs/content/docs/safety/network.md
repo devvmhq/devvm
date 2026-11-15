@@ -597,7 +597,7 @@ $ devvm network transparent off
 ==> devvm turns transparent mode off for devvm-web-0c3c7077e29f06 at its next launch, and it applies while the VM is on a confined tier.
 ```
 
-With transparent mode off, names don't resolve in a confined VM at all, so a tool that skips the proxy fails with a DNS error. Most tools, such as curl, get that error at once, on macOS and on a Linux host alike. On a Linux host, a few, such as workerd under `wrangler dev`, can wait about 40 seconds for each lookup before they fail. On the open tier there's no transparent mode, and the VM resolves names with Lima's DNS. A VM made from an image built before devvm had transparent mode lacks the programs it runs, so each launch says so, and `devvm update` makes the VM again from a newer image.
+With transparent mode off, names don't resolve in a confined VM at all, so a tool that skips the proxy fails with a DNS error. Tools such as curl and workerd under `wrangler dev` get that error at once, on macOS and on a Linux host alike. On the open tier there's no transparent mode, and the VM resolves names with Lima's DNS. A VM made from an image built before devvm had transparent mode lacks the programs it runs, so each launch says so, and `devvm update` makes the VM again from a newer image.
 
 `devvm network transparent --json` prints the same as JSON, with `on` and `from`, which is `vm`, `config` or `default`, and `devvm network --json` has it too, as `transparent`:
 

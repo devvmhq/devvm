@@ -17,7 +17,9 @@
 #                DEVVM_LOCAL_PROXY (ADDRESS:PORT on the VM's loopback, where devvm-local-proxy
 #                listens; empty without a proxy), DEVVM_TRANSPARENT_ADDR and
 #                DEVVM_TRANSPARENT_HOST (transparent mode's stand-in address, empty for off, and the
-#                proxy's reserved target; transparent.sh), and DEVVM_PASTE_DIR (the folder devvm
+#                proxy's reserved target; transparent.sh), DEVVM_RESOLVER (on a confined VM, the
+#                one name server its programs ask, past systemd-resolved; empty for the system's
+#                own), and DEVVM_PASTE_DIR (the folder devvm
 #                paste writes to, config.toml's paste-dir: made here, the user's own, mode 700)
 #   transparent.sh  devvm-transparent: transparent mode, for tools that ignore the proxy settings
 #   tools        the VM's shared tool images, "FILE TOOL VERSION" lines; tools.sh mounts them
@@ -534,6 +536,46 @@ else
   if $systemd; then sudo rm -f "$dropin"; else conf_block "$dropin"; fi
   [[ ! -f ~/.ssh/config ]] || proxy_block ~/.ssh/config
 fi
+# A confined VM's resolver (DEVVM_RESOLVER, 127.0.0.1): glibc asks that one name server itself, as
+# musl does on Alpine, not systemd-resolved's stub, so a lookup fails at once when nothing answers
+# there (transparent mode off). The stub, with 127.0.0.1 as its only server, can keep retrying it
+# over UDP and TCP without answering, so a lookup waited out its timeout. /etc/resolv.conf, the
+# stub's link, becomes devvm's file, with the stub's search line and a second's timeout, tried
+# twice (dnsmasq answers in the VM); on an open VM, devvm's file goes back to the stub's link, and
+# systemd-resolved restarts, which forgets what it read from devvm's file. The file is written only
+# on systemd guests that have the stub's file, whose /etc/resolv.conf is its link or devvm's file;
+# going back needs devvm's file alone.
+# resolver_conf FILE STUB: FILE (/etc/resolv.conf) as DEVVM_RESOLVER has it, STUB the stub's file.
+resolver_conf() {
+  local f=$1 stub=$2 was first want tmp
+  local mark='# devvm: a confined VM asks its one name server directly (DEVVM_RESOLVER)'
+  was=$(readlink "$f" 2>/dev/null || true)
+  first=$(head -n 1 "$f" 2>/dev/null || true)
+  if [[ -z ${DEVVM_RESOLVER:-} ]] || ! $systemd; then
+    # devvm's file alone is enough to go back: it's only ever written in place of the stub's link.
+    [[ -z $was && $first == "$mark" ]] || return 0
+    sudo ln -sfn "$stub" "$f"
+    # systemd-resolved took devvm's file as its own servers and search domain ("." routes every
+    # name to 127.0.0.1), and keeps them once the file is its link again, until it restarts.
+    ! $systemd || sudo systemctl try-restart systemd-resolved || true
+    [[ -e $stub ]] || echo "devvm: $f leads to $stub again, which systemd-resolved hasn't made, so names may not resolve in this VM" >&2
+    return 0
+  fi
+  [[ -e $stub ]] || return 0
+  [[ (-n $was && "$(readlink -f "$f")" == "$(readlink -f "$stub")") || (-z $was && $first == "$mark") ]] || return 0
+  want=$(printf '%s\nnameserver %s\n' "$mark" "$DEVVM_RESOLVER"
+    grep '^search ' "$stub" 2>/dev/null || true
+    echo 'options timeout:1 attempts:2')
+  [[ -n $was || "$(cat "$f")" != "$want" ]] || return 0
+  tmp=$(mktemp)
+  printf '%s\n' "$want" >"$tmp"
+  if ! { sudo install -m 644 "$tmp" "$f.devvm" && sudo mv -f "$f.devvm" "$f"; }; then
+    sudo rm -f "$f.devvm"
+    echo "devvm: couldn't write $f, so with transparent mode off a lookup in this VM may wait out its timeout" >&2
+  fi
+  rm -f "$tmp"
+}
+resolver_conf /etc/resolv.conf /run/systemd/resolve/stub-resolv.conf
 # Transparent mode (transparent.sh, devvm-transparent) on a confined VM: every name resolves to the
 # stand-in address, whose ports 80, 443 and those the rules name go to the proxy, which reads the host
 # from the connection. The proxy URL, which holds the password, goes on stdin, never in arguments.

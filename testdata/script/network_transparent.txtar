@@ -26,6 +26,7 @@ stdout '"from": "default"'
 exec tar -xOf $STUB_DIR/sync.tar vm
 stdout '^DEVVM_TRANSPARENT_ADDR=''198\.18\.0\.1''$'
 stdout '^DEVVM_TRANSPARENT_HOST=''transparent\.devvm\.proxy''$'
+stdout '^DEVVM_RESOLVER=''127\.0\.0\.1''$'
 exec devvm network --json
 stdout '"transparent": \{\n *"on": true,\n *"from": "default"\n *\}'
 vm_state $WEB_dir/vm.json
@@ -33,7 +34,8 @@ vm_state $WEB_dir/vm.json
 ! exec devvm network transparent --json off
 stderr '^devvm: json_shows_only command=devvm network transparent$'
 
-# config.toml turns it off for every VM, from the next launch.
+# config.toml turns it off for every VM, from the next launch; the VM's
+# programs still ask its one name server directly, so names fail at once.
 cp $WORK/off.toml $CFG/config.toml
 exec devvm network transparent
 stdout '\Aoff # \S*/config/devvm/config\.toml\n\z'
@@ -42,6 +44,7 @@ stdout '"from": "config"'
 exec devvm
 exec tar -xOf $STUB_DIR/sync.tar vm
 stdout '^DEVVM_TRANSPARENT_ADDR=''''$'
+stdout '^DEVVM_RESOLVER=''127\.0\.0\.1''$'
 
 # The VM's own setting comes first, from its next launch; the same again
 # changes nothing.
@@ -65,13 +68,14 @@ exec devvm network transparent --json
 stdout '"on": false'
 stdout '"from": "vm"'
 
-# An open VM: none, whatever its setting.
+# An open VM: none, whatever its setting, and the system's own resolver.
 rm $STUB_DIR/hostagent
 rm $CFG/config.toml
 project open
 exec devvm --network open --no-git-protect
 exec tar -xOf $STUB_DIR/sync.tar vm
 stdout '^DEVVM_TRANSPARENT_ADDR=''''$'
+stdout '^DEVVM_RESOLVER=''''$'
 
 # A value that isn't true or false, for a VM without its own: the command
 # fails, naming the line.

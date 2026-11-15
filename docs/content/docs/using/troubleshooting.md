@@ -175,9 +175,18 @@ On a confined tier, devvm's [transparent mode](../safety/network.md#tools-that-i
 
 - **A connection refused on another port,** such as `ECONNREFUSED` or `Connection refused` for `db.example.com:5432`. `devvm-why` lists the port under the connections the VM refused lately. Give the tool the proxy's address in `$HTTPS_PROXY` or its own setting, or, for HTTPS or HTTP on that port, allow the host with that port, such as `devvm network allow db.example.com:8443`, which redirects the port within 10 seconds.
 - **A protocol that names no host,** such as a database's or SSH, which the proxy refuses and logs as a refused block of `transparent.devvm.proxy`. SSH in the VM goes through the proxy already, and a database client needs a proxy setting of its own.
-- **A DNS error,** such as `no such host`, `Temporary failure in name resolution`, `ENOTFOUND` or `EAI_AGAIN`, which means transparent mode is off for the VM (`devvm network transparent`), or the VM comes from an image that predates it, which each launch says, and `devvm update` makes it again from a newer image. Most tools get the error at once. On a Linux host, a few, such as workerd under `wrangler dev`, wait about 40 seconds for each lookup first, so a tool that seems to hang at its start may be waiting for one.
+- **A DNS error,** such as `no such host`, `Temporary failure in name resolution`, `ENOTFOUND` or `EAI_AGAIN`, which means transparent mode is off for the VM (`devvm network transparent`), or the VM comes from an image that predates it, which each launch says, and `devvm update` makes it again from a newer image. The tool gets the error at once.
 
 Some tools read the proxy variables only when a setting of their own turns them on, or never. Turn on the tool's own proxy setting, so that it uses the environment, or give it the address in `$HTTPS_PROXY`. Hugo's `resources.GetRemote`, for example, uses the proxy only when `security.http.proxyFromEnvironment` is `true` in the site's config ([inside the VM](../safety/network.md#inside-the-vm)).
+
+## An open VM resolves no names after a downgrade
+
+A confined VM's programs ask the VM's own name server directly, through an `/etc/resolv.conf` that devvm writes, and devvm puts systemd-resolved's back when the VM runs open ([the VM's resolver](../internals/network.md#the-vms-resolver)). An older devvm doesn't know that file, so after a downgrade, a VM that was confined and now runs open can keep it and resolve no names. When the VM's `/etc/resolv.conf` starts with `# devvm:`, launch it with a current devvm, or put systemd-resolved's file back yourself:
+
+```sh
+head -1 /etc/resolv.conf   # in the VM: "# devvm: ..." means devvm's file
+sudo ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf && sudo systemctl restart systemd-resolved
+```
 
 ## A server's port is taken in a confined VM
 

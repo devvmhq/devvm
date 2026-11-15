@@ -327,7 +327,6 @@ func (l *machines) startSets(cfg *config, c backend.Confinement, sshPort int) (o
 	if sshPort != 0 && cfg.SSH.LocalPort != sshPort {
 		sets = append(sets, ".ssh.localPort="+strconv.Itoa(sshPort))
 	}
-	proxy := c.Net == backend.NetProxy
 	if env := l.guestEnv(c); !maps.Equal(env, cfg.Env) && (len(env) > 0 || len(cfg.Env) > 0) {
 		if len(env) == 0 {
 			sets = append(sets, "del(.env)")
@@ -353,9 +352,12 @@ func (l *machines) startSets(cfg *config, c backend.Confinement, sshPort int) (o
 	}
 	// Names resolve in the proxy. On Linux restrict=on drops Lima's DNS
 	// too, so lookups would time out; on macOS Lima's host resolver binds
-	// loopback ports, which the sandbox denies (seatbelt.go). A resolver
-	// nothing listens on fails at once.
-	noDNS := proxy
+	// loopback ports, which the sandbox denies (seatbelt.go). The guest's
+	// one name server is its own loopback (Confinement.Resolver), which
+	// its programs ask directly (guest/sync.sh), so with nothing listening
+	// there a lookup fails at once.
+	dns := c.Resolver()
+	noDNS := dns != ""
 	resolver := cfg.HostResolver.Enabled == nil || *cfg.HostResolver.Enabled
 	switch {
 	case noDNS && resolver:
@@ -364,8 +366,8 @@ func (l *machines) startSets(cfg *config, c backend.Confinement, sshPort int) (o
 		sets = append(sets, "del(.hostResolver)")
 	}
 	switch {
-	case noDNS && !slices.Equal(cfg.DNS, []string{"127.0.0.1"}):
-		sets = append(sets, `.dns=["127.0.0.1"]`)
+	case noDNS && !slices.Equal(cfg.DNS, []string{dns}):
+		sets = append(sets, ".dns="+yqJSON([]string{dns}))
 	case !noDNS && len(cfg.DNS) > 0:
 		sets = append(sets, "del(.dns)")
 	}

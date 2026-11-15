@@ -59,7 +59,10 @@ func (e syncer) sync(ctx context.Context, b backend.Backend, st *state.VM, slug 
 	if err != nil {
 		return err
 	}
-	in := setupInputs{slug: slug, files: files, proxyURL: b.ProxyURL(conf), links: links, moved: moved.From, transparent: netpolicy.TransparentAddr(conf, tp)}
+	in := setupInputs{
+		slug: slug, files: files, proxyURL: b.ProxyURL(conf), links: links, moved: moved.From,
+		transparent: netpolicy.TransparentAddr(conf, tp), resolver: conf.Resolver(),
+	}
 	s, err := e.stage(ctx, st, in)
 	if err != nil {
 		return err
@@ -149,11 +152,12 @@ func reported(files []string, report []byte) []string {
 // when the backend gives the guest none), its links, the path its folder moved
 // from, "" when it didn't (its moved section), and the stand-in address its
 // names lead to its proxy by, "" when its transparent mode is off
-// (netpolicy.TransparentAddr).
+// (netpolicy.TransparentAddr), and the one name server its programs ask
+// directly, "" for its system's own (backend.Confinement.Resolver).
 type setupInputs struct {
-	slug, proxyURL, moved, transparent string
-	files                              []string
-	links                              []GuestLink
+	slug, proxyURL, moved, transparent, resolver string
+	files                                        []string
+	links                                        []GuestLink
 }
 
 // GuestLink is one target a client VM reaches through its links: the
@@ -317,6 +321,9 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 		// none for off, and the proxy's reserved target.
 		{"DEVVM_TRANSPARENT_ADDR", in.transparent},
 		{"DEVVM_TRANSPARENT_HOST", proxy.TransparentHost},
+		// The one name server the guest's programs ask, past
+		// systemd-resolved, on a confined VM; none for the system's own.
+		{"DEVVM_RESOLVER", in.resolver},
 		{"DEVVM_PASTE_DIR", pasteDir},
 	}
 	// The devcontainer.json's variables first: devvm's own win.

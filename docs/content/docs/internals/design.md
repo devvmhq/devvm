@@ -109,7 +109,7 @@ These settings guard against the host's ssh asking for a forward that devvm's en
 - On a running VM, `devvm ports` changes the forwarder's ports at once. A port that `devvm ports add` lists has its server reach the host at once, and once `devvm ports rm` takes it out, it doesn't. The VM's boot ID is the same throughout, so it never restarted.
 - `devvm stop` stops the forwarder, `limactl stop` outside devvm ends it (on macOS), and `rm` stops it and deletes its files.
 - On macOS, a confined VM has a profile that denies every bind but its ssh port's over TCP and unix sockets in its Lima folder, and the same binds that work outside the profile, a TCP port and a UDP socket on the ssh port, fail under it. Its hostagent listens on its ssh port alone, with Lima's resolver off. Started again with Lima's own forwarding rule put back inside the sandbox, the hostagent tries a VM server's TCP and UDP ports and is refused, and has neither. The VM still works: ssh by name, devvm's forwarder (on the host's loopback alone), the proxy and the self-check. Its next start puts the ignore rules back.
-- On a confined tier, with transparent mode stopped, DNS fails at once, and Lima's network's DNS address and the host's address on it give no answer for a name, with transparent mode running too.
+- On a confined tier, with transparent mode stopped, DNS fails at once, because the guest's programs ask `127.0.0.1` alone, and Lima's network's DNS address and the host's address on it give no answer for a name, with transparent mode running too.
 
 ## devcontainer.json
 
