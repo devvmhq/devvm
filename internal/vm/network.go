@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Net shows and changes the folder's VM's network tier, its network log
@@ -171,9 +172,9 @@ func (e Net) setTier(ctx context.Context, to netpolicy.Tier, learn bool, command
 // goes back that far. Without the mark, it only warns that the log may
 // have lost hosts, so a mark that can't be written is logged, not a
 // failure.
-func (e *Env) markLearning(vm string) {
+func (e *Env) markLearning(vm vmname.VM) {
 	if err := netpolicy.NewLog(e.Dirs, vm).MarkLearning(vm); err != nil {
-		_, _ = io.WriteString(e.LogWriter(), "devvm: marking the network log of "+vm+": "+err.Error()+"\n")
+		_, _ = io.WriteString(e.LogWriter(), "devvm: marking the network log of "+vm.String()+": "+err.Error()+"\n")
 	}
 }
 
@@ -335,7 +336,7 @@ const lockTickMax = 30
 // hosts. Where the picker can't show, it's refused, naming --all and
 // --none, and so it is when the terminal won't let it show, rather than
 // go on with the ticks it starts with. With no hosts, nothing is asked.
-func (e Net) chooseLearned(vm string, l netpolicy.LearnedHosts, o LockOptions) ([]string, error) {
+func (e Net) chooseLearned(vm vmname.VM, l netpolicy.LearnedHosts, o LockOptions) ([]string, error) {
 	var all []string
 	for _, h := range l.Hosts {
 		all = append(all, h.Rule)
@@ -452,7 +453,7 @@ func (e Net) LogBlocks(ctx context.Context) ([]netpolicy.Block, error) {
 // netLog returns the folder's VM's network log and the VM's name; a nil
 // log when there's nothing to show (follow: nothing to follow). An open
 // VM's log has only what goes through its proxy, and devvm says so.
-func (e Net) netLog(ctx context.Context, follow bool) (*netpolicy.Log, string, error) {
+func (e Net) netLog(ctx context.Context, follow bool) (*netpolicy.Log, vmname.VM, error) {
 	t, err := e.finder.target(ctx, need{has: hasVM})
 	if err != nil {
 		return nil, "", err
@@ -527,7 +528,8 @@ func (e Net) PolicyChange(ctx context.Context, given []string, c RuleChange) err
 		return err
 	}
 	deny, remove, global := c.Deny, c.Remove, c.Global
-	file, vm := e.Dirs.Policy(), ""
+	file := e.Dirs.Policy()
+	var vm vmname.VM
 	var st *state.VM
 	if !global {
 		// The folder's VM, which its backend has, made for this folder.

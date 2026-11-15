@@ -23,20 +23,20 @@ func toolsSpec(t *testing.T, out string) backend.ToolsSpec {
 // uncached, started confined, the script run with its arguments, and the VM deleted.
 func TestBuildTools(t *testing.T) {
 	l, f := buildLima(t, "linux", "Running")
-	f.out["limactl list --json"] += `{"name":"` + ToolsVM + `","status":"Stopped"}` + "\n"
+	f.out["limactl list --json"] += `{"name":"` + string(ToolsVM) + `","status":"Stopped"}` + "\n"
 	out := t.TempDir()
 	if err := l.BuildTools(t.Context(), toolsSpec(t, out)); err != nil {
 		t.Fatal(err)
 	}
 	checkLines(t, f.lines(), []string{
 		"limactl stop devvm-img-" + baseKey,
-		"limactl delete -f " + ToolsVM,
+		"limactl delete -f " + string(ToolsVM),
 		`limactl clone --tty=false --mount-none --set .mounts = [{"location":"` + out +
-			`","mountPoint":"/mnt/devvm-tools","writable":true,"9p":{"cache":"none"}}] devvm-img-` + baseKey + " " + ToolsVM,
-		"limactl edit --tty=false " + ToolsVM + " --set .ssh.localPort=",
-		"limactl start --tty=false " + ToolsVM,
-		"limactl shell --workdir / " + ToolsVM + " bash -s -- node 24.21.0 node-24.21.0-0123456789ab.erofs",
-		"limactl delete -f " + ToolsVM,
+			`","mountPoint":"/mnt/devvm-tools","writable":true,"9p":{"cache":"none"}}] devvm-img-` + baseKey + " " + string(ToolsVM),
+		"limactl edit --tty=false " + string(ToolsVM) + " --set .ssh.localPort=",
+		"limactl start --tty=false " + string(ToolsVM),
+		"limactl shell --workdir / " + string(ToolsVM) + " bash -s -- node 24.21.0 node-24.21.0-0123456789ab.erofs",
+		"limactl delete -f " + string(ToolsVM),
 	})
 }
 
@@ -64,13 +64,13 @@ func TestBuildToolsTrust(t *testing.T) {
 // run's cleanup, so the run log ends with the script's output.
 func TestBuildToolsFails(t *testing.T) {
 	l, f := buildLima(t, "darwin", "Stopped")
-	f.fail = []string{"limactl shell --workdir / " + ToolsVM + " bash -s"}
+	f.fail = []string{"limactl shell --workdir / " + string(ToolsVM) + " bash -s"}
 	err := l.BuildTools(t.Context(), toolsSpec(t, t.TempDir()))
 	if e, ok := errors.AsType[*backend.LoggedError](err); !ok || e.Msg.ID() != "tools_build_failed" {
 		t.Fatalf("BuildTools = %v", err)
 	}
 	lines := f.lines()
-	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "limactl shell --workdir / "+ToolsVM) {
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "limactl shell --workdir / "+string(ToolsVM)) {
 		t.Errorf("last call %q, want the script", last)
 	}
 }

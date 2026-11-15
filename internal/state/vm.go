@@ -23,12 +23,12 @@ import (
 // VMNames returns the names of the VMs that have state, sorted: the name
 // each VM's folder (paths.Dirs.VMDir) records. Anything else in the VMs'
 // folder, and a folder without state, isn't a VM.
-func VMNames(d paths.Dirs) ([]string, error) {
+func VMNames(d paths.Dirs) ([]vmname.VM, error) {
 	all, err := ReadAll(d)
 	if err != nil {
 		return nil, err
 	}
-	var names []string
+	var names []vmname.VM
 	for _, r := range all {
 		if r.VM == nil {
 			return nil, r.Err
@@ -75,7 +75,7 @@ func ReadAll(d paths.Dirs) ([]Read, error) {
 		case !v.Exists():
 			continue
 		case !inFolder(v.Name(), r.Hash):
-			r.VM, r.Err = v, &CorruptError{Path: v.file.State(), Reason: "its name " + v.Name() + " isn't its folder's"}
+			r.VM, r.Err = v, &CorruptError{Path: v.file.State(), Reason: "its name " + v.Name().String() + " isn't its folder's"}
 		default:
 			r.VM = v
 		}
@@ -86,8 +86,8 @@ func ReadAll(d paths.Dirs) ([]Read, error) {
 
 // inFolder reports whether the VM named name keeps its state in the
 // folder named hash.
-func inFolder(name, hash string) bool {
-	h, ok := vmname.HashOf(name)
+func inFolder(name vmname.VM, hash string) bool {
+	h, ok := name.Hash()
 	return ok && h == hash
 }
 
@@ -135,7 +135,7 @@ type VM struct {
 	// name is the VM's name, chosen when it's made for the backend it's
 	// made on (project.New), and never again: a folder's VM is found by
 	// its hash (ReadHash), whatever name that backend gave it.
-	name     string
+	name     vmname.VM
 	sections map[string]json.RawMessage
 	// file is its folder's files; Dir "" for a name whose folder is
 	// another VM's (ReadVM), which is never written.
@@ -148,7 +148,7 @@ type VM struct {
 type core struct {
 	Version   int       `json:"version"`
 	ID        string    `json:"id"`
-	Name      string    `json:"name"`
+	Name      string    `json:"name"` // the VM's, which decode parses
 	Alias     string    `json:"alias,omitempty"`
 	Image     string    `json:"image"`
 	Chain     string    `json:"chain,omitempty"`
@@ -168,8 +168,8 @@ func coreFields() []string {
 
 // New is a new VM's state, not written yet: Create writes it, once its
 // fields and sections are set.
-func New(d paths.Dirs, name string) (*VM, error) {
-	if !vmname.IsVM(name) {
+func New(d paths.Dirs, name vmname.VM) (*VM, error) {
+	if !name.IsProject() {
 		return nil, fmt.Errorf("invalid VM name %q", name)
 	}
 	return &VM{name: name, file: d.VM(name), claims: d.ClaimsLock()}, nil
@@ -193,8 +193,8 @@ func ReadHash(d paths.Dirs, hash string) (*VM, error) {
 // name's hash names. A VM with no state file has empty state: every field
 // is empty, and Exists reports false; so does one whose folder records
 // another name, whose state is never written through this one.
-func ReadVM(d paths.Dirs, name string) (*VM, error) {
-	h, ok := vmname.HashOf(name)
+func ReadVM(d paths.Dirs, name vmname.VM) (*VM, error) {
+	h, ok := name.Hash()
 	if !ok {
 		return nil, fmt.Errorf("invalid VM name %q", name)
 	}
@@ -234,8 +234,9 @@ func (v *VM) decode(data []byte) error {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return &CorruptError{Path: path, Reason: err.Error()}
 	}
+	name, nameErr := vmname.Parse(c.Name)
 	for f, missing := range map[string]bool{
-		"version": c.Version < 1, "id": c.ID == "", "name": !vmname.IsVM(c.Name),
+		"version": c.Version < 1, "id": c.ID == "", "name": nameErr != nil,
 		"image": c.Image == "", "dir": c.Dir == "", "backend": c.Backend == "",
 	} {
 		if missing {
@@ -248,7 +249,7 @@ func (v *VM) decode(data []byte) error {
 	*v = VM{
 		ID: c.ID, Alias: c.Alias, Image: c.Image, Chain: c.Chain, From: c.From, Dir: c.Dir, Folder: c.Folder,
 		Backend: c.Backend, BackendAt: c.BackendAt, Created: c.Created, MadeBy: c.MadeBy,
-		name: c.Name, sections: all, file: v.file, claims: v.claims, exists: true,
+		name: name, sections: all, file: v.file, claims: v.claims, exists: true,
 	}
 	return nil
 }
@@ -257,7 +258,7 @@ func (v *VM) decode(data []byte) error {
 // sections by name, indented.
 func (v *VM) encode() ([]byte, error) {
 	c, err := json.Marshal(core{
-		Version: vmVersion, ID: v.ID, Name: v.name, Alias: v.Alias, Image: v.Image, Chain: v.Chain, From: v.From,
+		Version: vmVersion, ID: v.ID, Name: v.name.String(), Alias: v.Alias, Image: v.Image, Chain: v.Chain, From: v.From,
 		Dir: v.Dir, Folder: v.Folder, Backend: v.Backend, BackendAt: v.BackendAt, Created: v.Created, MadeBy: v.MadeBy,
 	})
 	if err != nil {
@@ -287,7 +288,7 @@ func (v *VM) encode() ([]byte, error) {
 }
 
 // Name is the VM's name.
-func (v *VM) Name() string { return v.name }
+func (v *VM) Name() vmname.VM { return v.name }
 
 // Exists reports whether the VM has a state file.
 func (v *VM) Exists() bool { return v.exists }
@@ -455,7 +456,7 @@ func (v *VM) write() error {
 // another devvm is making to its state lands first, and none lands after,
 // as one waiting for the lock takes it again on a new lock file, finding
 // no state. A missing folder is no error.
-func RemoveFolder(ctx context.Context, d paths.Dirs, name string) error {
+func RemoveFolder(ctx context.Context, d paths.Dirs, name vmname.VM) error {
 	f := d.VM(name)
 	if _, err := os.Lstat(f.Dir); errors.Is(err, fs.ErrNotExist) {
 		return nil

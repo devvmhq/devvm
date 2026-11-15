@@ -21,11 +21,12 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // testVM is the name of the test VM of a folder named f: each folder name
 // has a hash of its own, as VMs that shared one would share a folder.
-func testVM(f string) string {
+func testVM(f string) vmname.VM {
 	h := map[string]string{
 		"app": "abc1", "db": "abc2", "api": "abc3", "web": "abc4", "web2": "abc5", "cache": "abc6",
 		"local": "abc7", "x": "abc8", "cl": "abc9", "half": "abce", "b": "abcb", "img-foo": "abcc",
@@ -33,7 +34,7 @@ func testVM(f string) string {
 	if h == "" {
 		h = "abcd"
 	}
-	return "devvm-" + f + "-0123456789" + h
+	return vmname.VM("devvm-" + f + "-0123456789" + h)
 }
 
 // linkVMs makes the states of project VMs by folder name, each finished
@@ -103,18 +104,18 @@ func TestTierLinked(t *testing.T) {
 		}
 	}
 	check(db, netpolicy.TierOpen, "")
-	check(app, netpolicy.TierAllowlist, "tier_linked_targets targets="+db.Name()+" tier=allowlist vm="+app.Name())
+	check(app, netpolicy.TierAllowlist, "tier_linked_targets targets="+db.Name().String()+" tier=allowlist vm="+app.Name().String())
 	setNet(t, db, "on")
 	check(app, netpolicy.TierAllowlist, "")
 	check(app, netpolicy.TierInternet, "")
-	check(app, netpolicy.TierNone, "tier_linked_targets targets="+db.Name()+" tier=none vm="+app.Name())
+	check(app, netpolicy.TierNone, "tier_linked_targets targets="+db.Name().String()+" tier=none vm="+app.Name().String())
 	setNet(t, app, "on")
 	setNet(t, web, "on")
 	check(db, netpolicy.TierNone, "")
-	check(db, netpolicy.TierOpen, "tier_linked_clients tier=open vm="+db.Name()+" vms="+app.Name()+", "+web.Name())
-	check(db, netpolicy.TierInternet, "tier_linked_clients tier=internet vm="+db.Name()+" vms="+app.Name()+", "+web.Name())
+	check(db, netpolicy.TierOpen, "tier_linked_clients tier=open vm="+db.Name().String()+" vms="+app.Name().String()+", "+web.Name().String())
+	check(db, netpolicy.TierInternet, "tier_linked_clients tier=internet vm="+db.Name().String()+" vms="+app.Name().String()+", "+web.Name().String())
 	setNet(t, web, "off")
-	check(db, netpolicy.TierOpen, "tier_linked_clients tier=open vm="+db.Name()+" vms="+app.Name())
+	check(db, netpolicy.TierOpen, "tier_linked_clients tier=open vm="+db.Name().String()+" vms="+app.Name().String())
 	// db made again: app's link is to the one before.
 	db = vmState(t, d, db.Name(), withNet(false))
 	check(db, netpolicy.TierOpen, "")
@@ -138,7 +139,7 @@ func TestTierLinkedLearning(t *testing.T) {
 	if got := msg.NamesOf(tierLinked(d, db, netpolicy.TierInternet)); got != "" {
 		t.Errorf("a learning target for a learning client: %q", got)
 	}
-	want := "tier_linked_targets targets=" + db.Name() + " tier=allowlist vm=" + app.Name()
+	want := "tier_linked_targets targets=" + db.Name().String() + " tier=allowlist vm=" + app.Name().String()
 	if got := msg.NamesOf(tierLinked(d, app, netpolicy.TierAllowlist)); got != want {
 		t.Errorf("locking a client of a learning target: %q, want %q", got, want)
 	}
@@ -165,7 +166,7 @@ func TestUnlinkTarget(t *testing.T) {
 	if err := (linkRuns{e}).unlinkTarget(t.Context(), db.Name()); err != nil {
 		t.Fatal(err)
 	}
-	want := "links_target_gone count=2 vm=" + db.Name() + " vms=" + app.Name() + ", " + web.Name()
+	want := "links_target_gone count=2 vm=" + db.Name().String() + " vms=" + app.Name().String() + ", " + web.Name().String()
 	if !slices.Equal(said.Names(), []string{want}) {
 		t.Errorf("said %q, want %q", said.Names(), want)
 	}
@@ -290,7 +291,7 @@ func linkRunsEnv(t *testing.T, logged string) (linkRuns, *[][]string) {
 // A client's link session is started once, found by its pid file and
 // arguments, waited for to say what came of its links, and stopped.
 func TestLinkRuns(t *testing.T) {
-	vm := "devvm-app-0123456789abc1"
+	vm := vmname.VM("devvm-app-0123456789abc1")
 	db := Link{Name: "db", Port: 5432, Addr: netip.MustParseAddr("127.77.0.1")}
 	api := Link{Name: "api", Port: 3000, Addr: netip.MustParseAddr("127.77.0.2")}
 	r, started := linkRunsEnv(t, "devvm links: 127.77.0.1:5432: carried\ndevvm links: 127.77.0.2:3000: refused by the VM: exit status 255\n")
@@ -303,12 +304,12 @@ func TestLinkRuns(t *testing.T) {
 	if err != nil || !ok || from != 0 {
 		t.Fatalf("ensure = %v, %d, %v", ok, from, err)
 	}
-	if ok, _, err := r.ensure(vm); err != nil || ok || len(*started) != 1 || !slices.Equal((*started)[0], []string{"_links", vm}) {
+	if ok, _, err := r.ensure(vm); err != nil || ok || len(*started) != 1 || !slices.Equal((*started)[0], []string{"_links", vm.String()}) {
 		t.Errorf("ensure again: %v, %v; started %v", ok, err, *started)
 	}
 	start := time.Now()
 	r.report(t.Context(), vm, []Link{db, api}, from)
-	if !slices.Equal(warned.Names(), []string{"link_port_taken name=api port=3000 vm=" + vm}) || time.Since(start) > time.Second {
+	if !slices.Equal(warned.Names(), []string{"link_port_taken name=api port=3000 vm=" + vm.String()}) || time.Since(start) > time.Second {
 		t.Errorf("warned %q after %v", warned.Names(), time.Since(start))
 	}
 	// Lines before from aren't this change's.
@@ -399,8 +400,8 @@ func TestLinksAtLaunch(t *testing.T) {
 		t.Fatalf("atLaunch: %v, started %v", err, *started)
 	}
 	want := []string{
-		"link_target_stopped target=" + db.Name() + " vm=" + app.Name(),
-		"link_tier_mismatch target=" + web.Name() + " target_tier=open tier=allowlist vm=" + app.Name(),
+		"link_target_stopped target=" + db.Name().String() + " vm=" + app.Name().String(),
+		"link_tier_mismatch target=" + web.Name().String() + " target_tier=open tier=allowlist vm=" + app.Name().String(),
 	}
 	if !slices.Equal(warned.Names(), want) {
 		t.Errorf("warned %q, want %q", warned.Names(), want)
@@ -416,8 +417,8 @@ func TestLinksAtLaunch(t *testing.T) {
 		t.Fatalf("atLaunch, unenforced: %v", err)
 	}
 	want = []string{
-		"link_target_unenforced target=" + db.Name() + " vm=" + app.Name(),
-		"link_tier_mismatch target=" + web.Name() + " target_tier=open tier=allowlist vm=" + app.Name(),
+		"link_target_unenforced target=" + db.Name().String() + " vm=" + app.Name().String(),
+		"link_tier_mismatch target=" + web.Name().String() + " target_tier=open tier=allowlist vm=" + app.Name().String(),
 	}
 	if !slices.Equal(warned.Names(), want) {
 		t.Errorf("unenforced: warned %q, want %q", warned.Names(), want)
@@ -430,7 +431,7 @@ func TestLinksAtLaunch(t *testing.T) {
 	f.Unconfined = false
 
 	f.Capabilities = backend.Caps{}
-	if err := r.atLaunch(t.Context(), f, app); msg.NamesOf(err) != "backend_lacks backend=fake feature=link vm="+app.Name() {
+	if err := r.atLaunch(t.Context(), f, app); msg.NamesOf(err) != "backend_lacks backend=fake feature=link what="+app.Name().String() {
 		t.Errorf("a backend without links: %v", err)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/ubuntu"
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
@@ -139,8 +140,8 @@ func TestSocketsFit(t *testing.T) {
 	if _, err := New(d, assets.FS, &msg.Fake{}, Overrides{}, nil); err != nil {
 		t.Fatal(err)
 	}
-	vm := "devvm-" + strings.Repeat("a", 20) + "-0123456789abcd" // the longest folder part
-	target := "devvm-" + strings.Repeat("b", 20) + "-0123456789abce"
+	vm := vmname.VM("devvm-" + strings.Repeat("a", 20) + "-0123456789abcd") // the longest folder part
+	target := vmname.VM("devvm-" + strings.Repeat("b", 20) + "-0123456789abce")
 	fw := vmssh.NewForwards(d, backend.Review{}, "")
 	links := vmssh.Links{VM: vm, Dir: d.Run()}
 	ctls := []string{
@@ -161,7 +162,7 @@ func TestSocketsFit(t *testing.T) {
 	// None of them is in the VM's folder, and none's length is the VM
 	// name's: the same for the shortest name.
 	for _, p := range slices.Concat(ctls, socks) {
-		if strings.HasPrefix(p, d.VMs()) || strings.Contains(p, vm) {
+		if strings.HasPrefix(p, d.VMs()) || strings.Contains(p, vm.String()) {
 			t.Errorf("%s: in a VM's folder, or named by the VM", p)
 		}
 	}

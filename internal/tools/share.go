@@ -122,7 +122,7 @@ func (t Share) Build(ctx context.Context, rv backend.Review, b backend.Backend, 
 		}
 	}
 	spec := backend.ToolsSpec{Net: backend.NetInternet}
-	if err := rv.Require(b, Label(todo), spec.Features()...); err != nil {
+	if err := rv.RequireFor(b, Label(todo), spec.Features()...); err != nil {
 		return err
 	}
 	unlock, err := t.LockShare(ctx)

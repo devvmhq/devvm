@@ -46,7 +46,7 @@ func TestPrintableBidi(t *testing.T) {
 // Every value of a message renders on one line, without control
 // characters, whoever made it: in its text, its segments and its names.
 func TestValuesArePrintable(t *testing.T) {
-	hostile := "vm\033[2J\033]0;title\007\ndevvm: \302\233x"
+	const hostile = "vm\033[2J\033]0;title\007\ndevvm: \302\233x"
 	t.Parallel()
 	m := StopFailed(hostile)
 	text := m.Text()

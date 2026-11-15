@@ -22,7 +22,7 @@ vm_name WEB web
 exec limactl stop $WEB
 stub_reset
 exec devvm host
-stdout '^==> starting vm=devvm-web-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-web-[0-9a-f]{14}$'
 stdout '^ssh_include_needed line=Include /\S*/data/devvm/ssh_config$'
 stderr '^devvm: ssh_include_yourself$'
 stdout '^ssh_host_info dir=/\S*/web host=devvm-web$'

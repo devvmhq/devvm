@@ -10,6 +10,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // SecretToSave is the secret devvm secret set NAME saves, checked before
@@ -106,7 +107,7 @@ func (e Net) saveCustom(ctx context.Context, sec secrets.Secret, value string) e
 	if err != nil || len(users) == 0 {
 		return err
 	}
-	vms := strings.Join(namesOf(users), ", ")
+	vms := vmname.Join(namesOf(users), ", ")
 	if lost {
 		e.Info(msg.SecretHostsChanged(len(users), strings.Join(sec.Hosts, ", "), sec.Name, vms))
 	}
@@ -206,7 +207,7 @@ func confirmRm(e Net, name string, users []*state.VM, force bool) (bool, error) 
 	}
 	q := msg.SecretRmConfirm(name).AnsweredBy("--force")
 	if len(users) > 0 {
-		q = q.About(msg.SecretRmUsers(len(users), name, strings.Join(namesOf(users), ", ")))
+		q = q.About(msg.SecretRmUsers(len(users), name, vmname.Join(namesOf(users), ", ")))
 	}
 	ok, err := e.Ask(q)
 	if err == nil && !ok {
@@ -225,8 +226,8 @@ func removed(ctx context.Context, e Net, name string) error {
 }
 
 // namesOf are the VMs' names, in order.
-func namesOf(sts []*state.VM) []string {
-	out := make([]string, len(sts))
+func namesOf(sts []*state.VM) []vmname.VM {
+	out := make([]vmname.VM, len(sts))
 	for i, st := range sts {
 		out[i] = st.Name()
 	}
@@ -239,7 +240,7 @@ type SecretListed struct {
 	// Saved is whether a value is saved (or, for claude, in devvm's
 	// environment).
 	Saved  bool
-	UsedBy []string // the VMs using it, by name
+	UsedBy []vmname.VM // the VMs using it, by name
 }
 
 // Secrets returns every secret, the known ones then yours, each with
@@ -249,7 +250,7 @@ func (e Net) Secrets(ctx context.Context) ([]SecretListed, error) {
 	if err != nil {
 		return nil, err
 	}
-	users := map[string][]string{}
+	users := map[string][]vmname.VM{}
 	for _, st := range inv.States() {
 		for _, s := range secrets.Names(st) {
 			users[s] = append(users[s], st.Name())
@@ -338,7 +339,7 @@ func useYours(ctx context.Context, e Net, st *state.VM, name string) (secrets.Se
 
 // warnUnsaved warns when the VM uses a secret that has no value saved:
 // claude (unless devvm keeps a Claude Code login), github or one of yours.
-func (e Net) warnUnsaved(ctx context.Context, name, vm string) error {
+func (e Net) warnUnsaved(ctx context.Context, name string, vm vmname.VM) error {
 	if l, err := secrets.ClaudeOf(e.Proxy.Secrets).Login(ctx); name == secrets.ClaudeToken && err == nil && l != "" {
 		return nil
 	}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Feature is something a backend may have. Its name is the one the backends
@@ -184,30 +185,36 @@ func ParseUnreviewed(v string) map[string]bool {
 // Require returns nil when b has every feature usable or let through, else
 // the refusal for the first one it lacks or only emulates unreviewed,
 // naming vm.
-func (r Review) Require(b Backend, vm string, features ...Feature) error {
+func (r Review) Require(b Backend, vm vmname.VM, features ...Feature) error {
+	return r.RequireFor(b, vm.String(), features...)
+}
+
+// RequireFor is Require for what isn't a VM, naming what: an image being
+// built (image.Name), or the shared tools.
+func (r Review) RequireFor(b Backend, what string, features ...Feature) error {
 	var warn func(msg.M)
 	if r.Reporter != nil {
 		warn = r.Warn
 	}
-	return r.refusal(b, vm, warn, features)
+	return r.refusal(b, what, warn, features)
 }
 
 // refusal is Require's, telling warn of each unreviewed emulation let
 // through, or no one when warn is nil (the guard: the caller's Require
-// told).
-func (r Review) refusal(b Backend, vm string, warn func(msg.M), features []Feature) error {
+// told), naming what needs them.
+func (r Review) refusal(b Backend, what string, warn func(msg.M), features []Feature) error {
 	caps := b.Caps()
 	for _, f := range features {
 		switch s := caps[f]; {
 		case s.Usable():
 		case s.IsEmulated() && r.Unreviewed[b.Name()+":"+string(f)]:
 			if warn != nil {
-				warn(msg.BackendUnreviewedUsed(b.Name(), string(f), vm))
+				warn(msg.BackendUnreviewedUsed(b.Name(), string(f), what))
 			}
 		case s.IsEmulated():
-			return msg.BackendUnreviewed(b.Name(), string(f), vm)
+			return msg.BackendUnreviewed(b.Name(), string(f), what)
 		default:
-			return msg.BackendLacks(b.Name(), string(f), vm)
+			return msg.BackendLacks(b.Name(), string(f), what)
 		}
 	}
 	return nil

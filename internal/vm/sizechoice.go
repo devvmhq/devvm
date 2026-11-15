@@ -8,6 +8,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/settings"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // SizeChoice chooses the size new VMs get, which devvm size -g saves in
@@ -124,7 +125,7 @@ func typedDisk(v string) (Size, error) {
 // one; a value the host can't give, or a disk below the image's
 // (backend.BaseDiskGiB), is said, and asked for again. It returns s with
 // what's typed; where it can't ask, s as it is. Nothing is saved.
-func (c SizeChoice) AskVM(s, shown, given Size, vm string) Size {
+func (c SizeChoice) AskVM(s, shown, given Size, vm vmname.VM) Size {
 	about := []msg.M{msg.NewVMSizeQuestion(strconv.Itoa(c.Host.CPUs), strconv.Itoa(c.Host.MemoryGiB))}
 	for _, q := range []struct {
 		given  string
@@ -164,7 +165,7 @@ func (c SizeChoice) ask(q msg.Question, about []msg.M, parse func(string) (Size,
 
 // askFor is ask, with a disk typed for vm checked against minDisk too
 // (Size.Check).
-func (c SizeChoice) askFor(q msg.Question, about []msg.M, parse func(string) (Size, error), minDisk float64, vm string) (string, error) {
+func (c SizeChoice) askFor(q msg.Question, about []msg.M, parse func(string) (Size, error), minDisk float64, vm vmname.VM) (string, error) {
 	for {
 		v, err := c.Answer(q.About(about...))
 		if err != nil || v == "" {

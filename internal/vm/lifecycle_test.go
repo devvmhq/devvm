@@ -15,6 +15,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // rm asks first in a terminal and refuses without one, unless --force;
@@ -22,7 +23,7 @@ import (
 func TestRmConfirms(t *testing.T) {
 	e, f, _ := upEnv(t, allNative())
 	lc := Lifecycle{e}
-	vm := existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "open"}).Name()
+	vm := existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "open"}).Name().String()
 	if err := lc.Rm(t.Context(), RmOptions{}); msg.NamesOf(err) != "no_input answer=--force" {
 		t.Errorf("no terminal: %v", msg.NamesOf(err))
 	}
@@ -30,18 +31,18 @@ func TestRmConfirms(t *testing.T) {
 	if err := lc.Rm(t.Context(), RmOptions{}); err != nil || !slices.Equal(*asked, []string{"rm_confirm vm=" + vm}) {
 		t.Errorf("declined: %v, asked %q", msg.NamesOf(err), *asked)
 	}
-	if _, ok := f.Instances[vm]; !ok {
+	if _, ok := f.Instances[vmname.VM(vm)]; !ok {
 		t.Fatal("deleted when declined")
 	}
 	exported := false
-	f.ExecFunc = func(_ string, argv []string, _ backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, argv []string, _ backend.ExecOpts) error {
 		exported = exported || (len(argv) == 3 && strings.Contains(argv[2], "tar -czf"))
 		return nil
 	}
 	if err := lc.Rm(t.Context(), RmOptions{Force: true, NoExport: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if _, ok := f.Instances[vm]; ok || exported || len(*asked) != 1 {
+	if _, ok := f.Instances[vmname.VM(vm)]; ok || exported || len(*asked) != 1 {
 		t.Errorf("--force --no-export: deleted %v, exported %v, asked %q", !ok, exported, *asked)
 	}
 }
@@ -53,8 +54,8 @@ func TestRm(t *testing.T) {
 	e, f, _ := upEnv(t, allNative())
 	lc := Lifecycle{e}
 	st := existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "open"})
-	vm := st.Name()
-	f.ExecFunc = func(_ string, argv []string, _ backend.ExecOpts) error {
+	vm := st.Name().String()
+	f.ExecFunc = func(_ vmname.VM, argv []string, _ backend.ExecOpts) error {
 		if len(argv) == 3 && strings.Contains(argv[2], "tar -czf") {
 			return errors.New("tar failed")
 		}
@@ -63,14 +64,14 @@ func TestRm(t *testing.T) {
 	if err := lc.Rm(t.Context(), RmOptions{Force: true}); msg.NamesOf(err) != "export_failed_kept command=devvm rm vm="+vm {
 		t.Errorf("Rm = %v", msg.NamesOf(err))
 	}
-	if _, ok := f.Instances[vm]; !ok {
+	if _, ok := f.Instances[vmname.VM(vm)]; !ok {
 		t.Fatal("deleted after a failed export")
 	}
 	if es, _ := os.ReadDir(e.Dirs.Exports()); len(es) > 0 {
 		t.Errorf("exports %v", es)
 	}
 	var script string
-	f.ExecFunc = func(_ string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
 		if len(argv) == 3 && strings.Contains(argv[2], "tar -czf") {
 			script = argv[2]
 			_, err := o.Stdout.Write([]byte("tarball"))
@@ -97,10 +98,10 @@ func TestRm(t *testing.T) {
 	if data, _ := os.ReadFile(paths.ExportFolder(export)); string(data) != e.Dir+"\nopen\n" {
 		t.Errorf("folder = %q, want %q", data, e.Dir)
 	}
-	if _, ok := f.Instances[vm]; ok {
+	if _, ok := f.Instances[vmname.VM(vm)]; ok {
 		t.Error("not deleted")
 	}
-	if _, err := os.Stat(e.Dirs.VM(vm).Dir); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(e.Dirs.VM(vmname.VM(vm)).Dir); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("its folder: %v", err)
 	}
 
@@ -113,7 +114,7 @@ func TestRm(t *testing.T) {
 	if err := lc.Rm(t.Context(), RmOptions{Force: true, NoExport: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if _, ok := f.Instances[vm]; !ok || !slices.Equal(*asked, []string{"delete_other_folder_vm vm=" + vm + " was=" + e.Dir}) {
+	if _, ok := f.Instances[vmname.VM(vm)]; !ok || !slices.Equal(*asked, []string{"delete_other_folder_vm vm=" + vm + " was=" + e.Dir}) {
 		t.Fatalf("declined: asked %q", *asked)
 	}
 	answers(t, e, true)
@@ -121,7 +122,7 @@ func TestRm(t *testing.T) {
 	if err := lc.Rm(t.Context(), RmOptions{Force: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if _, ok := f.Instances[vm]; ok || script != "" {
+	if _, ok := f.Instances[vmname.VM(vm)]; ok || script != "" {
 		t.Errorf("confirmed: deleted %v, export %q", !ok, script)
 	}
 }
@@ -154,8 +155,8 @@ func TestExportTooLarge(t *testing.T) {
 	fake(e).Log = &log
 	e.HistoryMax = 1 << 20
 	lc := Lifecycle{e}
-	vm := existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "open"}).Name()
-	f.ExecFunc = func(_ string, argv []string, o backend.ExecOpts) error { return streamForever(argv, o) }
+	vm := existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "open"}).Name().String()
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error { return streamForever(argv, o) }
 	file := filepath.Join(t.TempDir(), "h.tar.gz")
 	if err := lc.Export(t.Context(), file); msg.NamesOf(err) != "history_too_large vm="+vm {
 		t.Errorf("Export = %v", msg.NamesOf(err))
@@ -172,7 +173,7 @@ func TestExportTooLarge(t *testing.T) {
 	if err := lc.Rm(t.Context(), RmOptions{Force: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if _, ok := f.Instances[vm]; ok || !slices.Equal(warned, []string{"history_too_large vm=" + vm}) {
+	if _, ok := f.Instances[vmname.VM(vm)]; ok || !slices.Equal(warned, []string{"history_too_large vm=" + vm}) {
 		t.Errorf("rm: deleted %v, warned %q", !ok, warned)
 	}
 	if es, _ := os.ReadDir(e.Dirs.Exports()); len(es) != 0 {
@@ -187,7 +188,7 @@ func TestExportTooLarge(t *testing.T) {
 func TestImportWarnsOfTier(t *testing.T) {
 	e, f, _ := upEnv(t, allNative())
 	f.ExecFunc = noDirect
-	vm := existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "allowlist"}).Name()
+	vm := existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "allowlist"}).Name().String()
 	x := Exports{Dirs: e.Dirs}
 	write := func(dir, name string, tier netpolicy.Tier) string {
 		p := filepath.Join(dir, name)
@@ -246,7 +247,7 @@ func TestImportWarnsOfTier(t *testing.T) {
 func TestRmVMChecksAgain(t *testing.T) {
 	e, f, _ := upEnv(t, allNative())
 	lc := Lifecycle{e}
-	vm := existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "open"}).Name()
+	vm := existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "open"}).Name().String()
 	dir := e.Dir
 	if err := os.Remove(dir); err != nil {
 		t.Fatal(err)
@@ -257,22 +258,22 @@ func TestRmVMChecksAgain(t *testing.T) {
 	if err := lc.RmVM(t.Context(), vm, RmOptions{}); msg.NamesOf(err) != "rm_vm_folder_there dir="+dir+" vm="+vm {
 		t.Errorf("a folder back: %v", msg.NamesOf(err))
 	}
-	if _, ok := f.Instances[vm]; !ok {
+	if _, ok := f.Instances[vmname.VM(vm)]; !ok {
 		t.Fatal("deleted though its folder came back")
 	}
 	if err := os.Remove(dir); err != nil {
 		t.Fatal(err)
 	}
 	fake(e).OnAsk = func(msg.M) bool {
-		in := f.Instances[vm]
+		in := f.Instances[vmname.VM(vm)]
 		in.Status = backend.StatusStopped
-		f.Instances[vm] = in
+		f.Instances[vmname.VM(vm)] = in
 		return true
 	}
 	if err := lc.RmVM(t.Context(), vm, RmOptions{}); msg.NamesOf(err) != "rm_gone_stopped dir="+dir+" vm="+vm {
 		t.Errorf("stopped meanwhile: %v", msg.NamesOf(err))
 	}
-	if _, ok := f.Instances[vm]; !ok {
+	if _, ok := f.Instances[vmname.VM(vm)]; !ok {
 		t.Error("deleted though it stopped")
 	}
 }
@@ -283,7 +284,7 @@ func TestRmVMChecksAgain(t *testing.T) {
 func TestRmVMFolderOfAnother(t *testing.T) {
 	e, f, _ := upEnv(t, allNative())
 	web := e.Dir
-	own := existingVM(t, e, Options{Network: "open"}).Name()
+	own := existingVM(t, e, Options{Network: "open"}).Name().String()
 	subfolder(t, e, filepath.Dir(web), "api")
 	e.Folder = FolderHere
 	if err := (Launch{e}).Up(t.Context(), Options{Network: "open"}); err != nil {
@@ -297,12 +298,12 @@ func TestRmVMFolderOfAnother(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.Dir, e.Folder = web, FolderAuto
-	err = (Lifecycle{e}).RmVM(t.Context(), other.f.Name, RmOptions{Force: true, NoExport: true})
-	if msg.NamesOf(err) != "rm_vm_folder_there dir="+web+" vm="+other.f.Name {
+	err = (Lifecycle{e}).RmVM(t.Context(), other.f.Name.String(), RmOptions{Force: true, NoExport: true})
+	if msg.NamesOf(err) != "rm_vm_folder_there dir="+web+" vm="+other.f.Name.String() {
 		t.Errorf("rm VM of another folder's state: %v", msg.NamesOf(err))
 	}
-	for _, vm := range []string{own, other.f.Name} {
-		if _, ok := f.Instances[vm]; !ok {
+	for _, vm := range []string{own, other.f.Name.String()} {
+		if _, ok := f.Instances[vmname.VM(vm)]; !ok {
 			t.Errorf("%s deleted", vm)
 		}
 	}
@@ -313,9 +314,9 @@ func TestRmVMFolderOfAnother(t *testing.T) {
 func TestExport(t *testing.T) {
 	e, f, _ := upEnv(t, allNative())
 	lc := Lifecycle{e}
-	vm := existingVM(t, e, Options{Network: "open"}).Name()
+	vm := existingVM(t, e, Options{Network: "open"}).Name().String()
 	tarball := "tarball"
-	f.ExecFunc = func(_ string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
 		if len(argv) == 3 && strings.Contains(argv[2], "tar -czf") {
 			if tarball == "" {
 				_, _ = o.Stdout.Write([]byte("partial"))
@@ -384,7 +385,7 @@ func TestExport(t *testing.T) {
 	if es, _ := os.ReadDir(dir); len(es) != 1 {
 		t.Errorf("left %v", es)
 	}
-	if _, ok := f.Instances[vm]; !ok {
+	if _, ok := f.Instances[vmname.VM(vm)]; !ok {
 		t.Error("deleted")
 	}
 }
@@ -405,7 +406,7 @@ func TestExportStartsAsLaunch(t *testing.T) {
 		}}, &msg.Fake{})
 	}
 	direct := false
-	f.ExecFunc = func(_ string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
 		switch {
 		case argv[0] == "curl" && !direct:
 			return errors.New("curl: (7) Failed to connect")
@@ -438,11 +439,11 @@ func TestExportStartsAsLaunch(t *testing.T) {
 
 	// Running, then stopped: either way the self-check stops it.
 	direct = true
-	if err := lc.Export(t.Context(), ""); msg.NamesOf(err) != "net_direct_route vm="+vm || running() {
+	if err := lc.Export(t.Context(), ""); msg.NamesOf(err) != "net_direct_route vm="+vm.String() || running() {
 		t.Errorf("running, gets out directly: %v, running %v", msg.NamesOf(err), running())
 	}
 	stop()
-	if err := lc.Export(t.Context(), ""); msg.NamesOf(err) != "net_direct_route vm="+vm || running() {
+	if err := lc.Export(t.Context(), ""); msg.NamesOf(err) != "net_direct_route vm="+vm.String() || running() {
 		t.Errorf("gets out directly: %v, running %v", msg.NamesOf(err), running())
 	}
 	direct = false
@@ -460,7 +461,7 @@ func TestAdopt(t *testing.T) {
 	if err := set(t, st, keyFolder, "0:0"); err != nil {
 		t.Fatal(err)
 	}
-	if err := l.Up(t.Context(), Options{}); msg.NamesOf(err) != "vm_other_folder vm="+st.Name()+" was="+e.Dir {
+	if err := l.Up(t.Context(), Options{}); msg.NamesOf(err) != "vm_other_folder vm="+st.Name().String()+" was="+e.Dir {
 		t.Errorf("Up = %v", msg.NamesOf(err))
 	}
 	asked := answers(t, e, false)
@@ -479,7 +480,7 @@ func TestAdopt(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake(e).Terminal = false
-	if err := lc.Adopt(t.Context(), "", false); msg.NamesOf(err) != "vm_other_folder_adopt vm="+st.Name()+" was="+e.Dir {
+	if err := lc.Adopt(t.Context(), "", false); msg.NamesOf(err) != "vm_other_folder_adopt vm="+st.Name().String()+" was="+e.Dir {
 		t.Errorf("no terminal: %v", msg.NamesOf(err))
 	}
 	asked = answers(t, e, false)

@@ -81,6 +81,8 @@ type rules struct {
 	// tests: the function, as its package's folder then .Name, then the
 	// file, from the module's root.
 	callers map[string]string
+	// vmNames is where a VM's name is a vmname.VM (checkVMNames).
+	vmNames vmNameRule
 }
 
 // A literalOwner is the package whose string literals alone hold a text,
@@ -202,7 +204,7 @@ func load(fsys fs.FS) (*module, error) {
 func check(m *module, r rules) []violation {
 	vs := slices.Concat(checkMethods(m, r), checkInit(m), checkVars(m, r), checkLayers(m, r), checkCommands(m, r),
 		checkExecSites(m, r), checkGuard(m, r), checkEnv(m, r), checkLiterals(m, r), checkNames(m, r), checkSeparators(m, r),
-		checkPaths(m, r), checkCallers(m, r), checkSwitches(m, r), checkEvery(m, r))
+		checkPaths(m, r), checkCallers(m, r), checkSwitches(m, r), checkEvery(m, r), checkVMNames(m, r))
 	slices.SortFunc(vs, func(a, b violation) int { return strings.Compare(a.String(), b.String()) })
 	return vs
 }

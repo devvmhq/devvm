@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/sshagent"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // subfolder makes dir (relative to the project folder web) and runs e in
@@ -266,7 +267,7 @@ func TestWarnMounted(t *testing.T) {
 	}
 	lib := subfolder(t, e, web, "src/lib")
 	e.Folder = FolderHere
-	nested := "project_in_vm_folder dir=" + lib + " vm=" + webVM
+	nested := "project_in_vm_folder dir=" + lib + " vm=" + webVM.String()
 	up("src/lib's new VM", Options{Network: "open"}, nested)
 	up("src/lib's VM again", Options{}, nested)
 	e.Folder = FolderAuto
@@ -281,7 +282,7 @@ func TestWarnMounted(t *testing.T) {
 	up("below a --clone VM", Options{}, "")
 }
 
-func vmNames(t *testing.T, e *Env) []string {
+func vmNames(t *testing.T, e *Env) []vmname.VM {
 	t.Helper()
 	ns, err := state.VMNames(e.Dirs)
 	if err != nil {
@@ -307,7 +308,7 @@ func TestUpInSubfolder(t *testing.T) {
 	if c := call(f, "Shell"); c.Args[0] != vm || shellOpts(c).Dir != src {
 		t.Errorf("Shell = %v, want %s in %s", c.Args, vm, src)
 	}
-	if !slices.Contains(infos.Names(), "using_parent_vm dir="+web+" vm="+vm) {
+	if !slices.Contains(infos.Names(), "using_parent_vm dir="+web+" vm="+vm.String()) {
 		t.Errorf("infos = %q", infos.Names())
 	}
 	// In a terminal the same, nothing asked.
@@ -316,7 +317,7 @@ func TestUpInSubfolder(t *testing.T) {
 	if err := (Launch{e}).Up(t.Context(), Options{}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if len(*asked) != 0 || len(vmNames(t, e)) != 1 || !slices.Contains(infos.Names(), "using_parent_vm dir="+web+" vm="+vm) {
+	if len(*asked) != 0 || len(vmNames(t, e)) != 1 || !slices.Contains(infos.Names(), "using_parent_vm dir="+web+" vm="+vm.String()) {
 		t.Errorf("in a terminal: asked %q, %d VMs, infos %q", *asked, len(vmNames(t, e)), infos.Names())
 	}
 	// --clone: as --here, a new VM's checks (this subfolder isn't a
@@ -368,7 +369,7 @@ func TestShellDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	var missing bool
-	f.ExecFunc = func(_ string, argv []string, _ backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, argv []string, _ backend.ExecOpts) error {
 		if !slices.Equal(argv, []string{"test", "-d", src}) {
 			t.Errorf("Exec %q", argv)
 		}
@@ -403,7 +404,7 @@ func TestCommandsInSubfolder(t *testing.T) {
 	if err := (Lifecycle{e}).Stop(t.Context()); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if want := []string{"using_parent_vm dir=" + web + " vm=" + vm, "stopped vm=" + vm}; !slices.Equal(infos.Names(), want) {
+	if want := []string{"using_parent_vm dir=" + web + " vm=" + vm.String(), "stopped vm=" + vm.String()}; !slices.Equal(infos.Names(), want) {
 		t.Errorf("infos = %q, want %q", infos.Names(), want)
 	}
 	if c := call(f, "Stop"); c.Args[0] != vm {
@@ -415,10 +416,10 @@ func TestCommandsInSubfolder(t *testing.T) {
 	// rm: refused without a terminal, -f or not; asked in one, a no
 	// keeping it.
 	infos.Reset()
-	if err := (Lifecycle{e}).Rm(t.Context(), RmOptions{Force: true, NoExport: true}); msg.NamesOf(err) != "rm_parent_vm dir="+web+" vm="+vm {
+	if err := (Lifecycle{e}).Rm(t.Context(), RmOptions{Force: true, NoExport: true}); msg.NamesOf(err) != "rm_parent_vm dir="+web+" vm="+vm.String() {
 		t.Errorf("Rm without a terminal = %v", msg.NamesOf(err))
 	}
-	if i := infos.Names(); len(i) == 0 || i[0] != "using_parent_vm dir="+web+" vm="+vm {
+	if i := infos.Names(); len(i) == 0 || i[0] != "using_parent_vm dir="+web+" vm="+vm.String() {
 		t.Errorf("Rm's infos = %q", i)
 	}
 	asked := answers(t, e, false)
@@ -428,14 +429,14 @@ func TestCommandsInSubfolder(t *testing.T) {
 	if n := len(vmNames(t, e)); n != 1 {
 		t.Errorf("%d VMs after no", n)
 	}
-	if want := "delete_parent_vm dir=" + web + " vm=" + vm; !slices.Equal(*asked, []string{want}) {
+	if want := "delete_parent_vm dir=" + web + " vm=" + vm.String(); !slices.Equal(*asked, []string{want}) {
 		t.Errorf("asked %q, want %q", *asked, want)
 	}
 	asked = answers(t, e, true)
 	if err := (Lifecycle{e}).Rm(t.Context(), RmOptions{Force: true, NoExport: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if want := "delete_parent_vm dir=" + web + " vm=" + vm; !slices.Equal(*asked, []string{want}) {
+	if want := "delete_parent_vm dir=" + web + " vm=" + vm.String(); !slices.Equal(*asked, []string{want}) {
 		t.Errorf("asked %q, want %q", *asked, want)
 	}
 	if n := len(vmNames(t, e)); n != 0 {
@@ -489,7 +490,7 @@ func TestWidenParentVM(t *testing.T) {
 	}
 	for _, c := range cases {
 		fake(e).Terminal = false
-		want := "widen_parent_vm_refused cmd=" + c.cmd + " dir=" + web + " vm=" + vm
+		want := "widen_parent_vm_refused cmd=" + c.cmd + " dir=" + web + " vm=" + vm.String()
 		if err := c.do(); msg.NamesOf(err) != want {
 			t.Errorf("%s without a terminal = %v, want %s", c.cmd, msg.NamesOf(err), want)
 		}
@@ -497,7 +498,7 @@ func TestWidenParentVM(t *testing.T) {
 		if err := c.do(); err != nil {
 			t.Errorf("%s, answered no: %v", c.cmd, msg.NamesOf(err))
 		}
-		if want := "widen_parent_vm cmd=" + c.cmd + " dir=" + web + " vm=" + vm; !slices.Equal(*asked, []string{want}) {
+		if want := "widen_parent_vm cmd=" + c.cmd + " dir=" + web + " vm=" + vm.String(); !slices.Equal(*asked, []string{want}) {
 			t.Errorf("%s asked %q, want %q", c.cmd, *asked, want)
 		}
 		if c.changed() {
@@ -534,7 +535,7 @@ func TestWidenParentVM(t *testing.T) {
 	if err := n.PolicyChange(t.Context(), []string{"!bad.example.com"}, RuleChange{Remove: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if want := "widen_parent_vm cmd=devvm network rm dir=" + web + " vm=" + vm; !slices.Equal(*asked, []string{want}) {
+	if want := "widen_parent_vm cmd=devvm network rm dir=" + web + " vm=" + vm.String(); !slices.Equal(*asked, []string{want}) {
 		t.Errorf("network rm of a deny asked %q", *asked)
 	}
 	if !policyHas(t, e, vm, "!bad.example.com") {
@@ -549,7 +550,7 @@ func TestWidenParentVM(t *testing.T) {
 }
 
 // reread is vm's state as it is now.
-func reread(t *testing.T, e *Env, vm string) *state.VM {
+func reread(t *testing.T, e *Env, vm vmname.VM) *state.VM {
 	t.Helper()
 	st, err := state.ReadVM(e.Dirs, vm)
 	if err != nil {
@@ -559,7 +560,7 @@ func reread(t *testing.T, e *Env, vm string) *state.VM {
 }
 
 // policyHas reports whether vm's own policy file has rule.
-func policyHas(t *testing.T, e *Env, vm, rule string) bool {
+func policyHas(t *testing.T, e *Env, vm vmname.VM, rule string) bool {
 	t.Helper()
 	data, err := os.ReadFile(e.Dirs.VM(vm).Policy())
 	if errors.Is(err, os.ErrNotExist) {

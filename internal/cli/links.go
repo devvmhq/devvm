@@ -5,6 +5,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // newLinksCmd is devvm _links VM: the link session of a running client
@@ -19,7 +20,11 @@ func newLinksCmd(a *app) *cobra.Command {
 		Args:   exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.env(func(env *vm.Env) error {
-				return vm.Links{Env: env}.Session(cmd.Context(), args[0], a.u.Stderr())
+				name, err := vmname.Parse(args[0])
+				if err != nil {
+					return err
+				}
+				return vm.Links{Env: env}.Session(cmd.Context(), name, a.u.Stderr())
 			}, msg.LinkSessionFailed)
 		},
 	}

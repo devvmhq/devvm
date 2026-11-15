@@ -23,6 +23,7 @@ import (
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"golang.org/x/text/language"
 
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/locales"
 )
 
@@ -89,6 +90,10 @@ func (m M) Value(key string) string {
 	}
 	return ""
 }
+
+// VM returns the VM the message's vm field names, as its function took
+// it, or "" when it has none.
+func (m M) VM() vmname.VM { return vmname.VM(m.Value("vm")) }
 
 // Names returns the message's ID and values: no_vm dir=/x.
 func (m M) Names() string {

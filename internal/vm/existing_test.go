@@ -54,7 +54,7 @@ func TestOpenNetworkPolicy(t *testing.T) {
 	}
 	// Started outside devvm: no terminal to ask in, so it's stopped.
 	f.Unconfined = true
-	if err := l.Up(t.Context(), Options{}); msg.NamesOf(err) != "net_unenforced_stop vm="+vm {
+	if err := l.Up(t.Context(), Options{}); msg.NamesOf(err) != "net_unenforced_stop vm="+vm.String() {
 		t.Errorf("Up unconfined = %v", msg.NamesOf(err))
 	}
 	if f.Instances[vm].Status != backend.StatusStopped || len(*execs) != 3 {
@@ -84,7 +84,7 @@ func TestPartsFlagsIgnored(t *testing.T) {
 		if err := l.Up(t.Context(), *o); err != nil {
 			t.Fatalf("Up %+v = %v", o, msg.NamesOf(err))
 		}
-		if !slices.Equal(warned.Names(), []string{"new_vm_flags_ignored_run " + want + " vm=" + vm}) {
+		if !slices.Equal(warned.Names(), []string{"new_vm_flags_ignored_run " + want + " vm=" + vm.String()}) {
 			t.Errorf("Up %+v warned %q", o, warned.Names())
 		}
 		if ms := f.Methods()[before:]; slices.Contains(ms, "BuildTools") || slices.Contains(ms, "BuildImage") {
@@ -169,7 +169,7 @@ func TestToolsAdd(t *testing.T) {
 	if dirs := f.Instances[vm].AgentDirs; !slices.Equal(dirs, []string{skills}) {
 		t.Errorf("agent dirs = %q", dirs)
 	}
-	if !slices.Contains(said.Names(), "has_tools tools=go vm="+vm) || !slices.Contains(said.Names(), "vm_tools_now tools=go claude vm="+vm) {
+	if !slices.Contains(said.Names(), "has_tools tools=go vm="+vm.String()) || !slices.Contains(said.Names(), "vm_tools_now tools=go claude vm="+vm.String()) {
 		t.Errorf("said %q", said.Names())
 	}
 
@@ -187,7 +187,7 @@ func TestToolsAdd(t *testing.T) {
 		t.Errorf("tool_names = %s", get(st, keyToolNames))
 	}
 	ms = f.Methods()[before:]
-	if !slices.Equal(*asked, []string{"restart_now count=1 vm=" + vm}) || !slices.Contains(ms, "Stop") ||
+	if !slices.Equal(*asked, []string{"restart_now count=1 vm=" + vm.String()}) || !slices.Contains(ms, "Stop") ||
 		!slices.Contains(f.Instances[vm].AgentDirs, prompts) {
 		t.Errorf("asked %q, calls %q, agent dirs %q", *asked, ms, f.Instances[vm].AgentDirs)
 	}
@@ -427,7 +427,7 @@ func TestRemoveUpdateRestart(t *testing.T) {
 	if get(st, keyToolNames) != "go" || strings.Contains(get(st, KeyTools), "claude") {
 		t.Errorf("state tool_names=%s tools=%s", get(st, keyToolNames), get(st, KeyTools))
 	}
-	if err := tl.Remove(t.Context(), Options{}, []string{"python"}); msg.NamesOf(err) != "vm_lacks has=go tool=python vm="+vm {
+	if err := tl.Remove(t.Context(), Options{}, []string{"python"}); msg.NamesOf(err) != "vm_lacks has=go tool=python vm="+vm.String() {
 		t.Errorf("Remove python = %v", msg.NamesOf(err))
 	}
 	if err := tl.Update(t.Context(), Options{}); err != nil {
@@ -535,9 +535,9 @@ func TestRestartToApply(t *testing.T) {
 				ms := f.Methods()[before:]
 				i, j := slices.Index(ms, "Stop"), slices.Index(ms, "Start")
 				restarted := i >= 0 && j > i && len(*execs) == shells+1
-				later := c.later + " vm=" + vm
+				later := c.later + " vm=" + vm.String()
 				switch {
-				case a.canAsk && !slices.Equal(*asked, []string{"restart_now count=1 vm=" + vm}):
+				case a.canAsk && !slices.Equal(*asked, []string{"restart_now count=1 vm=" + vm.String()}):
 					t.Errorf("asked %q", *asked)
 				case !a.canAsk && len(*asked) != 0:
 					t.Errorf("asked %q without a question that shows", *asked)

@@ -24,6 +24,7 @@ import (
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
 	"github.com/devvmhq/devvm/internal/trust"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Options is what up was asked for.
@@ -486,7 +487,7 @@ func (e creation) plan(ctx context.Context, o Options, f project.Folder, b backe
 	}
 	// Room for the VM, before anything is built or made; each build checks
 	// its own.
-	if err := (backend.Space{Free: e.FreeSpace}).Check(b, vm, func(f backend.Floors) uint64 { return f.VM }); err != nil {
+	if err := (backend.Space{Free: e.FreeSpace}).Check(b, vm.String(), func(f backend.Floors) uint64 { return f.VM }); err != nil {
 		return newVM{}, err
 	}
 	n.history = e.offerHistory(vm, f.Dir, n.tools)
@@ -514,7 +515,7 @@ func newPorts(given string, def settings.Defaults, dc *devcontainer.Plan) (list 
 // A backend b that may not confine a VM to its proxy (egress-proxy)
 // offers open alone: any other tier is refused in one line
 // (net_tier_backend), unasked, never dropped.
-func (e creation) chooseNet(o Options, b backend.Backend, vm, saved string) (netpolicy.Tier, error) {
+func (e creation) chooseNet(o Options, b backend.Backend, vm vmname.VM, saved string) (netpolicy.Tier, error) {
 	tier := o.Network
 	if tier == "" {
 		tier = netpolicy.Tier(saved)
@@ -605,7 +606,7 @@ func (e creation) customize(s summary, host Host, tierOpen bool, n *newVM) (Part
 // reaches, for one to be chosen, starting from the one the summary
 // showed: shown, learning with learn. It returns the tier chosen and
 // whether the VM learns; where the picker can't show, what it was shown.
-func (e creation) chooseTier(vm string, shown netpolicy.Tier, learn bool) (netpolicy.Tier, bool) {
+func (e creation) chooseTier(vm vmname.VM, shown netpolicy.Tier, learn bool) (netpolicy.Tier, bool) {
 	if e.PickOne == nil {
 		return shown, learn
 	}

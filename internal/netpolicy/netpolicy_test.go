@@ -35,6 +35,7 @@ import (
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 func must(t *testing.T, err error) {
@@ -59,7 +60,7 @@ func sandbox(t *testing.T, img string, tools ...string) (paths.Dirs, *state.VM) 
 
 // newVM writes the state of a VM named name, made from img with these
 // shared tools, as up does.
-func newVM(t *testing.T, d paths.Dirs, name, img string, names ...string) *state.VM {
+func newVM(t *testing.T, d paths.Dirs, name vmname.VM, img string, names ...string) *state.VM {
 	t.Helper()
 	st, err := state.New(d, name)
 	if err != nil {
@@ -185,7 +186,7 @@ func TestPolicies(t *testing.T) {
 // hosts, and with only the denies of the user's files, layers' included.
 func TestTierPolicies(t *testing.T) {
 	d := paths.Dirs{Data: "/d", Config: "/c", Lima: "/l"}
-	vm, img, tools := "devvm-vm1-0123456789abc1", image.Name("base+pg+docker"), []string{"node", "claude", "codex"}
+	vm, img, tools := vmname.VM("devvm-vm1-0123456789abc1"), image.Name("base+pg+docker"), []string{"node", "claude", "codex"}
 	secrets := []string{"/d/vms/0123456789abc1/run/secrets.policy"}
 	denies := []string{"/c/layers/pg.policy", "/c/policy", "/d/vms/0123456789abc1/policy"}
 	for _, c := range []struct {
@@ -525,7 +526,7 @@ func TestPrepareWaitsForTheProxy(t *testing.T) {
 	p, f := testProxy(t, d)
 	f.quiet = true
 	_, err := p.Prepare(t.Context(), lifelined(), st, false)
-	if want := "proxy_start_failed log=" + d.VM(st.Name()).ProxyLog() + " vm=" + st.Name(); msg.NamesOf(err) != want {
+	if want := "proxy_start_failed log=" + d.VM(st.Name()).ProxyLog() + " vm=" + st.Name().String(); msg.NamesOf(err) != want {
 		t.Errorf("Prepare = %v, want %s", msg.NamesOf(err), want)
 	}
 }
@@ -610,7 +611,7 @@ func TestPrepareRestartsTheProxy(t *testing.T) {
 	// program.
 	p.Stop(st.Name())
 	p.Listening = func(_ context.Context, port int) bool { return strconv.Itoa(port) == pp }
-	if _, err := p.Prepare(t.Context(), lifelined(), st, true); msg.NamesOf(err) != "proxy_port_taken port="+pp+" vm="+st.Name() {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, true); msg.NamesOf(err) != "proxy_port_taken port="+pp+" vm="+st.Name().String() {
 		t.Errorf("port taken: %v", msg.NamesOf(err))
 	}
 	// Stopped, it moves.
@@ -674,7 +675,7 @@ func TestPrepareUpstream(t *testing.T) {
 	if up := upstream(); up != nil {
 		t.Errorf("without a company proxy: %+v", up)
 	}
-	gone := "upstream_proxy_gone file=" + d.ConfigFile() + " vm_name=" + st.Name()
+	gone := "upstream_proxy_gone file=" + d.ConfigFile() + " vm_name=" + st.Name().String()
 	if !slices.Equal(warned, []string{gone}) {
 		t.Errorf("warned %q, want %s", warned, gone)
 	}
@@ -762,7 +763,7 @@ func TestPrepareStopsTheOldProxy(t *testing.T) {
 		t.Errorf("the old proxy %d: alive %v; now %d", old, daemon.Alive(old), pid)
 	}
 	p.Signal = func(int, syscall.Signal) error { return nil } // signals that never arrive
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); msg.NamesOf(err) != "proxy_stop_failed vm="+st.Name() {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false); msg.NamesOf(err) != "proxy_stop_failed vm="+st.Name().String() {
 		t.Errorf("a proxy that won't stop: %v", msg.NamesOf(err))
 	}
 }
@@ -981,7 +982,7 @@ func TestOtherBinaries(t *testing.T) {
 	if len(warned) != 0 {
 		t.Errorf("a host's rule: %q", warned)
 	}
-	want := "proxy_other_binary vm=" + st.Name()
+	want := "proxy_other_binary vm=" + st.Name().String()
 	p.OtherBinaries(narrowed, st.Name())
 	p.OtherBinaries(narrowed, "")
 	if !slices.Equal(warned, []string{want, want}) {
@@ -1036,7 +1037,7 @@ func TestRefreshSecretsOtherBinary(t *testing.T) {
 	}
 	write(narrowed)
 	p.SecretsWritten(st.Name())
-	if want := []string{"secrets_other_binary vm=" + st.Name()}; !slices.Equal(warned, want) {
+	if want := []string{"secrets_other_binary vm=" + st.Name().String()}; !slices.Equal(warned, want) {
 		t.Errorf("a file of version 2, another binary's proxy: %q, want %q", warned, want)
 	}
 	// A config that can't be read: devvm can't tell, so it warns.
@@ -1046,7 +1047,7 @@ func TestRefreshSecretsOtherBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.OtherBinaries([]string{"!api.example.com POST"}, st.Name())
-	if want := []string{"proxy_other_binary vm=" + st.Name()}; !slices.Equal(warned, want) {
+	if want := []string{"proxy_other_binary vm=" + st.Name().String()}; !slices.Equal(warned, want) {
 		t.Errorf("a config that can't be read: %q, want %q", warned, want)
 	}
 }
@@ -1081,7 +1082,7 @@ func TestPID(t *testing.T) {
 	if _, ok := p.PID(st.Name()); ok {
 		t.Error("another VM's proxy counts")
 	}
-	f.args[pid] = []string{"/bin/sh", "_proxy", "-vm", st.Name()}
+	f.args[pid] = []string{"/bin/sh", "_proxy", "-vm", st.Name().String()}
 	if _, ok := p.PID(st.Name()); ok {
 		t.Error("a proxy without the VM's config counts")
 	}
@@ -1231,7 +1232,7 @@ type ctxStopper struct {
 	err error
 }
 
-func (c *ctxStopper) Stop(ctx context.Context, vm string) error {
+func (c *ctxStopper) Stop(ctx context.Context, vm vmname.VM) error {
 	c.err = ctx.Err()
 	return c.Fake.Stop(ctx, vm)
 }
@@ -1260,7 +1261,7 @@ func TestSelfCheck(t *testing.T) {
 			f := backendtest.New("fake", nil)
 			f.Instances[vmV] = backend.Instance{Name: vmV, Status: backend.StatusRunning}
 			f.Unconfined = tc.unconfined
-			f.ExecFunc = func(_ string, argv []string, _ backend.ExecOpts) error {
+			f.ExecFunc = func(_ vmname.VM, argv []string, _ backend.ExecOpts) error {
 				if tc.direct && slices.Equal(argv, directArgv) {
 					return nil
 				}
@@ -1299,7 +1300,7 @@ func TestSelfCheckOpen(t *testing.T) {
 		f := backendtest.New("fake", nil)
 		f.Instances[vmV] = backend.Instance{Name: vmV, Status: backend.StatusRunning}
 		var ran [][]string
-		f.ExecFunc = func(_ string, argv []string, _ backend.ExecOpts) error {
+		f.ExecFunc = func(_ vmname.VM, argv []string, _ backend.ExecOpts) error {
 			ran = append(ran, argv)
 			if answers {
 				return nil

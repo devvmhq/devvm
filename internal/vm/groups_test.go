@@ -15,6 +15,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 func TestCheckGroupName(t *testing.T) {
@@ -52,7 +53,7 @@ func TestReadGroupLinks(t *testing.T) {
 
 // member makes a VM's state with its published ports and the name it
 // joined as.
-func member(t *testing.T, d paths.Dirs, name, publish, as string) *state.VM {
+func member(t *testing.T, d paths.Dirs, name vmname.VM, publish, as string) *state.VM {
 	t.Helper()
 	return vmState(t, d, name, func(st *state.VM) error {
 		return edit(st, linksSection, func(l *linksInVM) error {
@@ -108,8 +109,8 @@ func TestGroupLinks(t *testing.T) {
 	for _, l := range links {
 		got = append(got, formatLink(l))
 	}
-	if strings.Join(got, " ") != "pg,5432,"+db.Name()+","+dbID+",127.77.0.2 pg,8000,"+db.Name()+","+dbID+",127.77.0.2,group "+
-		"pg,8001,"+db.Name()+","+dbID+",127.77.0.2,group pg,8002,"+db.Name()+","+dbID+",127.77.0.2,group "+
+	if strings.Join(got, " ") != "pg,5432,"+db.Name().String()+","+dbID+",127.77.0.2 pg,8000,"+db.Name().String()+","+dbID+",127.77.0.2,group "+
+		"pg,8001,"+db.Name().String()+","+dbID+",127.77.0.2,group pg,8002,"+db.Name().String()+","+dbID+",127.77.0.2,group "+
 		"web2,9000,devvm-x-0123456789abc8,i9,127.77.0.3" {
 		t.Errorf("with the user's links: %v", got)
 	}
@@ -139,7 +140,10 @@ func TestCheckJoinName(t *testing.T) {
 	db := member(t, d, "devvm-db-0123456789abc2", "", "")
 	api := member(t, d, "devvm-api-0123456789abc3", "", "web2")
 	members := []*state.VM{api, db}
-	for _, c := range []struct{ vm, as, want string }{
+	for _, c := range []struct {
+		vm       vmname.VM
+		as, want string
+	}{
 		{"devvm-app-0123456789abc1", "", ""},
 		{"devvm-app-0123456789abc1", "pg", ""},
 		// A second VM in a folder called api: api's name is web2.
@@ -147,13 +151,13 @@ func TestCheckJoinName(t *testing.T) {
 		{"devvm-app-0123456789abc1", "localhost", "group_name_host vm=devvm-app-0123456789abc1"},
 		// The joiner's own hostname is a member's folder part, or the name
 		// it joined with: no name it joins as helps.
-		{"devvm-db-fedcba98765432", "", "group_name_hostname group=web member=" + db.Name() + " name=db vm=devvm-db-fedcba98765432"},
-		{"devvm-db-fedcba98765432", "db2", "group_name_hostname group=web member=" + db.Name() + " name=db vm=devvm-db-fedcba98765432"},
-		{"devvm-web2-0123456789abc5", "other", "group_name_hostname group=web member=" + api.Name() + " name=web2 vm=devvm-web2-0123456789abc5"},
+		{"devvm-db-fedcba98765432", "", "group_name_hostname group=web member=" + db.Name().String() + " name=db vm=devvm-db-fedcba98765432"},
+		{"devvm-db-fedcba98765432", "db2", "group_name_hostname group=web member=" + db.Name().String() + " name=db vm=devvm-db-fedcba98765432"},
+		{"devvm-web2-0123456789abc5", "other", "group_name_hostname group=web member=" + api.Name().String() + " name=web2 vm=devvm-web2-0123456789abc5"},
 		// Its name is a member's, or a member's own hostname.
-		{"devvm-app-0123456789abc1", "db", "group_name_taken group=web member=" + db.Name() + " name=db"},
-		{"devvm-app-0123456789abc1", "web2", "group_name_taken group=web member=" + api.Name() + " name=web2"},
-		{"devvm-app-0123456789abc1", "api", "group_name_taken group=web member=" + api.Name() + " name=api"},
+		{"devvm-app-0123456789abc1", "db", "group_name_taken group=web member=" + db.Name().String() + " name=db"},
+		{"devvm-app-0123456789abc1", "web2", "group_name_taken group=web member=" + api.Name().String() + " name=web2"},
+		{"devvm-app-0123456789abc1", "api", "group_name_taken group=web member=" + api.Name().String() + " name=api"},
 	} {
 		if got := msg.NamesOf(checkJoinName("web", c.vm, c.as, members)); got != c.want {
 			t.Errorf("checkJoinName(%s, %q) = %q; want %q", c.vm, c.as, got, c.want)
@@ -208,7 +212,7 @@ func TestGroupJoinLearning(t *testing.T) {
 	f.LifelineFile = filepath.Join(e.Dirs.Lima, "vm", "ha.pid")
 	f.ExecFunc = noDirect
 	st := existingVM(t, e, Options{Network: "internet", Learn: true})
-	if err := (Groups{e}).Join(t.Context(), "web", ""); msg.NamesOf(err) != "group_join_learning group=web vm="+st.Name() {
+	if err := (Groups{e}).Join(t.Context(), "web", ""); msg.NamesOf(err) != "group_join_learning group=web vm="+st.Name().String() {
 		t.Errorf("Join while learning = %v", msg.NamesOf(err))
 	}
 	if err := (Net{e}).Lock(t.Context(), LockOptions{None: true}); err != nil {
@@ -316,7 +320,7 @@ func TestGroupMembers(t *testing.T) {
 	}
 	var got []string
 	for _, m := range ms {
-		got = append(got, m.Name()+"="+memberName(m))
+		got = append(got, m.Name().String()+"="+memberName(m))
 	}
 	if strings.Join(got, " ") != "devvm-app-0123456789abc1=pg devvm-db-0123456789abc2=db" {
 		t.Errorf("members = %v", got)

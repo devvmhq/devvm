@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/project"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
@@ -36,20 +37,20 @@ const linksReportWait = 10 * time.Second
 
 // proc is vm's link session as a background process: its pid file in the
 // run folder, and devvm _links VM its arguments.
-func (e linkRuns) proc(vm string) daemon.Proc {
+func (e linkRuns) proc(vm vmname.VM) daemon.Proc {
 	return daemon.Proc{
 		PIDFile: e.Dirs.VM(vm).LinksPID(), Args: e.Proxy.Args, Signal: e.Proxy.Signal,
-		Is: func(args []string) bool { return len(args) == 3 && args[1] == "_links" && args[2] == vm },
+		Is: func(args []string) bool { return len(args) == 3 && args[1] == "_links" && args[2] == vm.String() },
 	}
 }
 
 // pid returns the pid of vm's running link session: the process its pid
 // file names, if that still runs as vm's devvm _links.
-func (e linkRuns) pid(vm string) (int, bool) { return e.proc(vm).PID() }
+func (e linkRuns) pid(vm vmname.VM) (int, bool) { return e.proc(vm).PID() }
 
 // stop stops vm's link session, if it runs: SIGTERM, which ends its
 // connections and removes its sockets, then after two seconds SIGKILL.
-func (e linkRuns) stop(ctx context.Context, vm string) {
+func (e linkRuns) stop(ctx context.Context, vm vmname.VM) {
 	if !e.proc(vm).Running() {
 		return
 	}
@@ -63,7 +64,7 @@ func (e linkRuns) stop(ctx context.Context, vm string) {
 // too, are devvm gc --orphans's. Its list for the VM's proxy stays: with
 // no socket to reach, the proxy refuses those links rather than ask its
 // rules, and a new session writes it again.
-func (e linkRuns) removeSockets(ctx context.Context, vm string) {
+func (e linkRuns) removeSockets(ctx context.Context, vm vmname.VM) {
 	st, err := state.ReadVM(e.Dirs, vm)
 	if err != nil {
 		return
@@ -81,7 +82,7 @@ func (e linkRuns) removeSockets(ctx context.Context, vm string) {
 
 // logSize is how long vm's link session's log is now: what's written
 // after it is new.
-func (e linkRuns) logSize(vm string) int64 {
+func (e linkRuns) logSize(vm vmname.VM) int64 {
 	fi, err := os.Stat(e.Dirs.VM(vm).LinksLog())
 	if err != nil {
 		return 0
@@ -92,7 +93,7 @@ func (e linkRuns) logSize(vm string) int64 {
 // ensure makes sure vm's link session runs, starting it when it doesn't.
 // It reports whether it started one, and where in its log the new
 // session's lines start.
-func (e linkRuns) ensure(vm string) (bool, int64, error) {
+func (e linkRuns) ensure(vm vmname.VM) (bool, int64, error) {
 	if _, ok := e.pid(vm); ok {
 		return false, 0, nil
 	}
@@ -102,7 +103,7 @@ func (e linkRuns) ensure(vm string) (bool, int64, error) {
 
 // start starts vm's link session, detached, its output in its log, and
 // returns how long that log was before.
-func (e linkRuns) start(vm string) (int64, error) {
+func (e linkRuns) start(vm vmname.VM) (int64, error) {
 	files := e.Dirs.VM(vm)
 	logPath := files.LinksLog()
 	for _, dir := range []string{files.Logs(), files.Run(), e.Dirs.Run()} {
@@ -123,7 +124,7 @@ func (e linkRuns) start(vm string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if _, err := e.proc(vm).Start(e.Proxy.Start, daemon.Cmd{Path: e.Proxy.Self, Args: []string{"_links", vm}, Out: out}); err != nil {
+	if _, err := e.proc(vm).Start(e.Proxy.Start, daemon.Cmd{Path: e.Proxy.Self, Args: []string{"_links", vm.String()}, Out: out}); err != nil {
 		return 0, err
 	}
 	return fi.Size(), nil
@@ -132,7 +133,7 @@ func (e linkRuns) start(vm string) (int64, error) {
 // report waits, up to linksReportWait, for vm's link session to say what
 // came of links, in its log after from, and warns of each the VM refused:
 // a program there holds the link's address and port.
-func (e linkRuns) report(ctx context.Context, vm string, links []Link, from int64) {
+func (e linkRuns) report(ctx context.Context, vm vmname.VM, links []Link, from int64) {
 	want := make([]vmssh.Link, len(links))
 	for i, l := range links {
 		want[i] = vmssh.Link{Name: l.Name, Target: l.Target, Addr: l.Addr, Port: l.Port}
@@ -195,7 +196,7 @@ func (e linkRuns) atLaunch(ctx context.Context, b backend.Backend, st *state.VM)
 func (e linkRuns) warnTargets(ctx context.Context, st *state.VM, links []Link) error {
 	seen := map[string]bool{}
 	for _, l := range links {
-		key := l.Target + "\x00" + l.TargetID
+		key := l.Target.String() + "\x00" + l.TargetID
 		if seen[key] {
 			continue
 		}
@@ -215,15 +216,15 @@ func (e linkRuns) warnTargets(ctx context.Context, st *state.VM, links []Link) e
 			return err
 		}
 		if err := e.Registry.Require(c.Backend, l.Target, linkFeatures()...); err != nil {
-			e.Warn(msg.LinkTargetUnusable(l.Target, st.Name()).Because(err))
+			e.Warn(msg.LinkTargetUnusable(l.Target.String(), st.Name()).Because(err))
 			continue
 		}
 		in, err := c.Backend.Inspect(ctx, l.Target)
 		switch {
 		case err != nil || in.Status != backend.StatusRunning:
-			e.Warn(msg.LinkTargetStopped(l.Target, st.Name()))
+			e.Warn(msg.LinkTargetStopped(l.Target.String(), st.Name()))
 		case policyUnenforced(ctx, c.Backend, st, tst):
-			e.Warn(msg.LinkTargetUnenforced(l.Target, st.Name()))
+			e.Warn(msg.LinkTargetUnenforced(l.Target.String(), st.Name()))
 		}
 	}
 	return nil

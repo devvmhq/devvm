@@ -55,6 +55,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/devvmhq/devvm/internal/daemon"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // newFlags defines devvm _proxy's one flag, -config, on a flag set of its own, writing into path. It
@@ -70,7 +71,7 @@ func newFlags(path *string) *flag.FlagSet {
 // server is one proxy: what its config gave it, and what it keeps between connections, each part
 // under a lock of its own. newServer makes it from a Config.
 type server struct {
-	vm       string      // Config.VM, for the log
+	vm       vmname.VM   // Config.VM, for the log
 	password string      // the VM's password (Config.Password); empty: no check
 	log      *log.Logger // its own log lines (what it loaded, what failed), not events
 	events   *events
@@ -197,17 +198,17 @@ func (s *server) authorized(r *http.Request) bool {
 // Event is one line of the event log, as JSON: a decision about a
 // connection or a request. devvm network log reads them.
 type Event struct {
-	Time    string   `json:"time"`
-	VM      string   `json:"vm"`
-	Event   string   `json:"event"` // tunnel, intercept, forward, login, blocked
-	Host    string   `json:"host"`
-	Port    int      `json:"port"`
-	Method  string   `json:"method,omitempty"`
-	Path    string   `json:"path,omitempty"`
-	Rule    string   `json:"rule,omitempty"`
-	Reason  string   `json:"reason,omitempty"`
-	Agent   string   `json:"agent,omitempty"`
-	Secrets []string `json:"secrets,omitempty"` // names of secrets put in, never values
+	Time    string    `json:"time"`
+	VM      vmname.VM `json:"vm"`
+	Event   string    `json:"event"` // tunnel, intercept, forward, login, blocked
+	Host    string    `json:"host"`
+	Port    int       `json:"port"`
+	Method  string    `json:"method,omitempty"`
+	Path    string    `json:"path,omitempty"`
+	Rule    string    `json:"rule,omitempty"`
+	Reason  string    `json:"reason,omitempty"`
+	Agent   string    `json:"agent,omitempty"`
+	Secrets []string  `json:"secrets,omitempty"` // names of secrets put in, never values
 	// Login is the agent whose login a token endpoint's reply held (a login event): saved on the
 	// host, the VM given placeholders. Never a value.
 	Login   string `json:"login,omitempty"`
@@ -218,7 +219,7 @@ type Event struct {
 	// The company proxy it went through (Config.Upstream), as host:port: never its credentials.
 	Upstream string `json:"upstream,omitempty"`
 	// The VM a link's connection went to (devvm _links's events, Host the link's name): never the proxy's.
-	Target string `json:"target,omitempty"`
+	Target vmname.VM `json:"target,omitempty"`
 	// Via is how the connection reached the proxy when it isn't a client's own proxy request: ViaDNS
 	// for a tool that skipped the proxy settings, which the VM's names sent to the proxy
 	// (transparent.go).
@@ -234,7 +235,7 @@ type numbered struct {
 // events is a proxy's event log (Config.Log, else IO.Stdout) and the blocks it keeps for
 // /blocked, all under its lock.
 type events struct {
-	vm     string // Config.VM: every event's
+	vm     vmname.VM // Config.VM: every event's
 	mu     sync.Mutex
 	out    io.Writer
 	recent []numbered // the last blocks, for /blocked

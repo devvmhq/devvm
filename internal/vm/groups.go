@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/project"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // groupOf is the group a VM is in, as its links section records it; ""
@@ -87,7 +88,7 @@ func ownLinks(links []Link) []Link {
 
 // linkedName returns the name links has for target (its VM name and ID),
 // or "".
-func linkedName(links []Link, target, id string) string {
+func linkedName(links []Link, target vmname.VM, id string) string {
 	for _, l := range links {
 		if l.Target == target && l.TargetID == id {
 			return l.Name
@@ -98,7 +99,10 @@ func linkedName(links []Link, target, id string) string {
 
 // groupClash is a member that a client gets none of the group's links
 // to, because one of the links the user made in the client has its name.
-type groupClash struct{ Name, Target string }
+type groupClash struct {
+	Name   string
+	Target vmname.VM
+}
 
 // groupLinks returns client's links as its group makes them, from own,
 // the links the user made there, kept as they are, prev, all its links
@@ -161,9 +165,9 @@ func (e Groups) withGroup(st *state.VM, own, prev []Link) ([]Link, []groupClash,
 
 // warnClashes warns of each member a VM gets none of the group's links to
 // (groupLinks), with what to do.
-func (e Groups) warnClashes(vm string, clashes []groupClash) {
+func (e Groups) warnClashes(vm vmname.VM, clashes []groupClash) {
 	for _, c := range clashes {
-		e.Warn(msg.GroupLinkNameClash(c.Name, c.Target, vm))
+		e.Warn(msg.GroupLinkNameClash(c.Name, c.Target.String(), vm))
 	}
 }
 
@@ -223,7 +227,7 @@ func (e Groups) syncOthers(ctx context.Context, t *target) error {
 
 // sync gives each member of group but skip its links as the group makes
 // them now (syncVM). "" has none.
-func (e Groups) sync(ctx context.Context, group, skip string) error {
+func (e Groups) sync(ctx context.Context, group string, skip vmname.VM) error {
 	members, err := groupMembers(e.Dirs, group)
 	if err != nil {
 		return err
@@ -273,7 +277,7 @@ func (e Groups) change(ctx context.Context, st *state.VM, group string, before, 
 		return err
 	}
 	added := e.sayChangedIn(group, vm, before, after, nil)
-	var targets []string
+	var targets []vmname.VM
 	for _, l := range added {
 		if !slices.Contains(targets, l.Target) {
 			targets = append(targets, l.Target)
@@ -309,7 +313,7 @@ func (e Groups) sayChanged(st *state.VM, before, after, also []Link) {
 }
 
 // sayChangedIn is sayChanged for vm in group, and returns what it gained.
-func (e Groups) sayChangedIn(group, vm string, before, after, also []Link) []Link {
+func (e Groups) sayChangedIn(group string, vm vmname.VM, before, after, also []Link) []Link {
 	added, removed := groupChanged(before, after)
 	for _, l := range also {
 		if !slices.Contains(added, l) {
@@ -376,7 +380,7 @@ func shownLinks(links []Link) string {
 // GroupMember is one of a group's VMs as devvm group lists it.
 type GroupMember struct {
 	Name      string // the name the others reach it by
-	VM        string
+	VM        vmname.VM
 	Folder    string
 	Published string // its published ports, or none
 }
@@ -384,8 +388,9 @@ type GroupMember struct {
 // GroupShown is the folder's VM's group as devvm group shows it: its
 // name, "" for none, and its members.
 type GroupShown struct {
-	VM, Group string
-	Members   []GroupMember
+	VM      vmname.VM
+	Group   string
+	Members []GroupMember
 }
 
 // Show returns the folder's VM's group, with each member's name, folder
@@ -552,7 +557,7 @@ func (e Groups) checkJoin(t *target, group, as string) ([]*state.VM, error) {
 // name is vm's own hostname, its folder part, which would resolve to vm
 // itself there, and no member has its name, as its name or its own
 // hostname.
-func checkJoinName(group, vm, as string, members []*state.VM) error {
+func checkJoinName(group string, vm vmname.VM, as string, members []*state.VM) error {
 	host := project.Folder{Name: vm}.Slug()
 	name := cmp.Or(as, host)
 	if name == "localhost" {
@@ -560,12 +565,12 @@ func checkJoinName(group, vm, as string, members []*state.VM) error {
 	}
 	for _, m := range members {
 		if memberName(m) == host {
-			return msg.GroupNameHostname(group, m.Name(), host, vm)
+			return msg.GroupNameHostname(group, m.Name().String(), host, vm)
 		}
 	}
 	for _, m := range members {
 		if name == memberName(m) || name == (project.Folder{Name: m.Name()}).Slug() {
-			return msg.GroupNameTaken(group, m.Name(), name)
+			return msg.GroupNameTaken(group, m.Name().String(), name)
 		}
 	}
 	return nil
@@ -615,7 +620,7 @@ func (e Groups) Leave(ctx context.Context) error {
 // forget removes vm's state, its own links with it, and every other VM's
 // links to it (unlinkTarget), and takes it out of its group, holding the
 // groups lock throughout: devvm rm.
-func (e Groups) forget(ctx context.Context, vm string) error {
+func (e Groups) forget(ctx context.Context, vm vmname.VM) error {
 	unlock, err := lockGroups(ctx, e.Dirs, e.Info)
 	if err != nil {
 		return err
@@ -641,7 +646,7 @@ func (e Groups) forget(ctx context.Context, vm string) error {
 // left says vm left group, which its state no longer records, and gives
 // the other members their links without it; the last member's leaving
 // removes the group.
-func (e Groups) left(ctx context.Context, vm, group string) error {
+func (e Groups) left(ctx context.Context, vm vmname.VM, group string) error {
 	e.Info(msg.GroupLeft(group, vm))
 	members, err := groupMembers(e.Dirs, group)
 	if err != nil {

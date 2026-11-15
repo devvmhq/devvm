@@ -207,7 +207,7 @@ func remakeEnv(t *testing.T) (*Env, *backendtest.Fake, *state.VM, *[]byte) {
 	e, f, _ := upEnv(t, allNative())
 	home := homeFiles(t, ".bash_history", "ls\n", ".config/devvm/env", "GH_TOKEN=x\n")
 	var restored []byte
-	f.ExecFunc = func(vm string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(vm vmname.VM, argv []string, o backend.ExecOpts) error {
 		switch {
 		case len(argv) == 3 && argv[2] == homeOut:
 			_, err := o.Stdout.Write(home)
@@ -231,7 +231,7 @@ func remakeEnv(t *testing.T) (*Env, *backendtest.Fake, *state.VM, *[]byte) {
 func TestAddLayers(t *testing.T) {
 	e, f, st, restored := remakeEnv(t)
 	vm := st.Name()
-	aside, _ := vmname.Aside(vm)
+	aside, _ := vm.Aside()
 	for k, v := range map[string]string{
 		keyPublish: "8080", keyGroup: "team", keyGroupAs: "api", keyDesktopPass: "Abcdefgh", keyDesktopPort: "47001",
 	} {
@@ -292,7 +292,7 @@ func TestAddLayers(t *testing.T) {
 			}
 		}
 	}
-	want := []string{"BuildImage", "Exec out", "Stop", "Rename " + vm + " " + aside, "CreateVM", "Start", "Exec in", "Delete " + aside, "Shell"}
+	want := []string{"BuildImage", "Exec out", "Stop", "Rename " + vm.String() + " " + aside.String(), "CreateVM", "Start", "Exec in", "Delete " + aside.String(), "Shell"}
 	if !slices.Equal(steps, want) {
 		t.Errorf("steps %q, want %q", steps, want)
 	}
@@ -310,8 +310,11 @@ func TestAddLayers(t *testing.T) {
 func strs(args []any) []string {
 	var out []string
 	for _, a := range args {
-		if s, ok := a.(string); ok {
+		switch s := a.(type) {
+		case string:
 			out = append(out, s)
+		case vmname.VM:
+			out = append(out, s.String())
 		}
 	}
 	return out
@@ -338,7 +341,7 @@ func TestAddLayersAsks(t *testing.T) {
 	if err := lc.AddLayers(t.Context(), "devvm layer add nix", []string{"nix"}, RemakeOptions{}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if !slices.Equal(*asked, []string{"remake_confirm image=nix vm=" + vm}) || !slices.Contains(said, "kept vm="+vm) {
+	if !slices.Equal(*asked, []string{"remake_confirm image=nix vm=" + vm.String()}) || !slices.Contains(said, "kept vm="+vm.String()) {
 		t.Errorf("asked %q, said %q", *asked, said)
 	}
 	if slices.ContainsFunc(f.Methods()[n:], func(m string) bool { return m == "BuildImage" || m == "Stop" || m == "Rename" }) {
@@ -348,7 +351,7 @@ func TestAddLayersAsks(t *testing.T) {
 	if err := lc.AddLayers(t.Context(), "devvm layer add nix", []string{"nix"}, RemakeOptions{CleanHome: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if !slices.Equal(*asked, []string{"remake_confirm_clean_home image=nix vm=" + vm}) {
+	if !slices.Equal(*asked, []string{"remake_confirm_clean_home image=nix vm=" + vm.String()}) {
 		t.Errorf("--clean-home asked %q", *asked)
 	}
 	answers(t, e, true)
@@ -369,7 +372,7 @@ func TestAddLayersAsks(t *testing.T) {
 	if err := lc.AddLayers(t.Context(), "devvm layer add nix", []string{"nix"}, RemakeOptions{}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if !slices.Equal(said, []string{"has_layers layers=nix vm=" + vm}) || slices.Contains(f.Methods()[n:], "Stop") {
+	if !slices.Equal(said, []string{"has_layers layers=nix vm=" + vm.String()}) || slices.Contains(f.Methods()[n:], "Stop") {
 		t.Errorf("has it: said %q, then %q", said, f.Methods()[n:])
 	}
 }
@@ -391,14 +394,14 @@ func TestAddLayersRefuses(t *testing.T) {
 	if err := set(t, st, keyClone, "clone"); err != nil {
 		t.Fatal(err)
 	}
-	if got := add(); got != "remake_clone vm="+vm {
+	if got := add(); got != "remake_clone vm="+vm.String() {
 		t.Errorf("a clone: %s", got)
 	}
 	if err := set(t, st, keyClone, ""); err != nil {
 		t.Fatal(err)
 	}
 	change(t, st, func(st *state.VM) error { st.Created = time.Time{}; return nil })
-	if got := add(); got != "vm_unfinished vm="+vm {
+	if got := add(); got != "vm_unfinished vm="+vm.String() {
 		t.Errorf("unfinished: %s", got)
 	}
 	change(t, st, func(st *state.VM) error { st.Created = time.Now(); return nil })
@@ -421,13 +424,13 @@ func TestRemakeHistoryTooLarge(t *testing.T) {
 	e, f, _ := upEnv(t, allNative())
 	e.HistoryMax = 1 << 20
 	vm := existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "open"}).Name()
-	f.ExecFunc = func(_ string, argv []string, o backend.ExecOpts) error { return streamForever(argv, o) }
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error { return streamForever(argv, o) }
 	var warned []string
 	fake(e).OnWarn = func(m msg.M) { warned = append(warned, m.Names()) }
 	if err := (Lifecycle{e}).AddLayers(t.Context(), "devvm layer add docker", []string{"docker"}, RemakeOptions{Force: true, CleanHome: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if !slices.Contains(warned, "history_too_large vm="+vm) || !slices.Contains(f.Methods(), "Rename") {
+	if !slices.Contains(warned, "history_too_large vm="+vm.String()) || !slices.Contains(f.Methods(), "Rename") {
 		t.Errorf("warned %q, ran %q", warned, f.Methods())
 	}
 	if es, _ := os.ReadDir(e.Dirs.Exports()); len(es) != 0 {
@@ -499,7 +502,7 @@ func TestRemoveLayers(t *testing.T) {
 	if err := rm("dokcer"); msg.NamesOf(err) != "unknown_layer_like layer=dokcer like=docker" {
 		t.Errorf("a typo: %s", msg.NamesOf(err))
 	}
-	if err := rm("desktop"); err != nil || !slices.Equal(said, []string{"lacks_layers layers=desktop vm=" + vm}) {
+	if err := rm("desktop"); err != nil || !slices.Equal(said, []string{"lacks_layers layers=desktop vm=" + vm.String()}) {
 		t.Errorf("one it lacks: said %q, %v", said, msg.NamesOf(err))
 	}
 	if slices.ContainsFunc(f.Methods()[n:], func(m string) bool { return m == "BuildImage" || m == "Stop" }) {
@@ -511,7 +514,7 @@ func TestRemoveLayers(t *testing.T) {
 		t.Fatal(msg.NamesOf(err))
 	}
 	after := readState(t, e.Dirs, vm)
-	if after.Image != "docker+nix" || remakePending(after) || !slices.Equal(said[:1], []string{"lacks_layers layers=desktop vm=" + vm}) {
+	if after.Image != "docker+nix" || remakePending(after) || !slices.Equal(said[:1], []string{"lacks_layers layers=desktop vm=" + vm.String()}) {
 		t.Errorf("image %s, pending %v, said %q", after.Image, remakePending(after), said)
 	}
 	for _, k := range []string{keyID, keyPorts, keyNet, keyCPUs, keyMemory, keyAgent, keyToolNames} {
@@ -545,7 +548,7 @@ func TestRemoveLayers(t *testing.T) {
 func TestRemakeUndo(t *testing.T) {
 	e, f, st, _ := remakeEnv(t)
 	vm := st.Name()
-	aside, _ := vmname.Aside(vm)
+	aside, _ := vm.Aside()
 	var cleanups []func(context.Context)
 	fake(e).OnCleanup = func(c func(context.Context)) func() {
 		i := len(cleanups)
@@ -592,7 +595,7 @@ func TestRemakeUndo(t *testing.T) {
 func TestRemakePending(t *testing.T) {
 	e, f, st, restored := remakeEnv(t)
 	vm := st.Name()
-	aside, _ := vmname.Aside(vm)
+	aside, _ := vm.Aside()
 	pend := func(made bool) {
 		t.Helper()
 		if err := update(t.Context(), st, remakeSection, func(r *remakeInVM) error {
@@ -610,7 +613,7 @@ func TestRemakePending(t *testing.T) {
 	if err := f.Rename(t.Context(), vm, aside); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (Settings{e}).Ports(t.Context()); msg.NamesOf(err) != "remake_pending dir="+e.Dir+" vm="+vm {
+	if _, err := (Settings{e}).Ports(t.Context()); msg.NamesOf(err) != "remake_pending dir="+e.Dir+" vm="+vm.String() {
 		t.Errorf("devvm ports: %v", msg.NamesOf(err))
 	}
 	if r, err := (Leftovers{e}).Find(t.Context()); err != nil || len(r.Orphans) > 0 {
@@ -681,7 +684,7 @@ func TestRemakeHeld(t *testing.T) {
 		t.Fatalf("lock: %v, %v", ok, err)
 	}
 	defer unlock()
-	want := "remake_running vm=" + vm
+	want := "remake_running vm=" + vm.String()
 	n := len(f.Calls())
 	err = (Lifecycle{e}).AddLayers(t.Context(), "devvm layer add docker", []string{"docker"}, RemakeOptions{Force: true})
 	if msg.NamesOf(err) != want {
@@ -712,7 +715,7 @@ func TestRemakeHeld(t *testing.T) {
 func TestRemakeDone(t *testing.T) {
 	e, f, st, _ := remakeEnv(t)
 	vm := st.Name()
-	aside, _ := vmname.Aside(vm)
+	aside, _ := vm.Aside()
 	var cleanups []func(context.Context)
 	fake(e).OnCleanup = func(c func(context.Context)) func() {
 		i := len(cleanups)
@@ -794,7 +797,7 @@ func TestUpdate(t *testing.T) {
 	if err := lc.Update(t.Context(), "devvm update", RemakeOptions{}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if !slices.Equal(said, []string{"vm_current image=base vm=" + vm}) ||
+	if !slices.Equal(said, []string{"vm_current image=base vm=" + vm.String()}) ||
 		slices.ContainsFunc(f.Methods()[n:], func(m string) bool { return m == "BuildImage" || m == "Stop" }) {
 		t.Errorf("current: said %q, then %q", said, f.Methods()[n:])
 	}
@@ -808,14 +811,14 @@ func TestUpdate(t *testing.T) {
 	if err := lc.Update(t.Context(), "devvm update", RemakeOptions{}); msg.NamesOf(err) != "no_input answer=--force" {
 		t.Errorf("no terminal: %v", msg.NamesOf(err))
 	}
-	if !slices.Equal(said, []string{"vm_changed changed=base vm=" + vm}) {
+	if !slices.Equal(said, []string{"vm_changed changed=base vm=" + vm.String()}) {
 		t.Errorf("said %q", said)
 	}
 	asked := answers(t, e, false)
 	if err := lc.Update(t.Context(), "devvm update", RemakeOptions{}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if !slices.Equal(*asked, []string{"remake_confirm image=base vm=" + vm}) || slices.Contains(f.Methods()[n:], "Stop") {
+	if !slices.Equal(*asked, []string{"remake_confirm image=base vm=" + vm.String()}) || slices.Contains(f.Methods()[n:], "Stop") {
 		t.Errorf("declined: asked %q, then %q", *asked, f.Methods()[n:])
 	}
 
@@ -847,7 +850,7 @@ func TestUpdate(t *testing.T) {
 
 	// Current again.
 	said = nil
-	if err := lc.Update(t.Context(), "devvm update", RemakeOptions{Force: true}); err != nil || !slices.Equal(said, []string{"vm_current image=base vm=" + vm}) {
+	if err := lc.Update(t.Context(), "devvm update", RemakeOptions{Force: true}); err != nil || !slices.Equal(said, []string{"vm_current image=base vm=" + vm.String()}) {
 		t.Errorf("after: said %q, %v", said, msg.NamesOf(err))
 	}
 }
@@ -932,10 +935,10 @@ func TestUpdateTools(t *testing.T) {
 	if err := lc.Update(t.Context(), "devvm update", RemakeOptions{}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if want := []string{"remake_confirm image=base vm=" + vm}; !slices.Equal(*asked, want) {
+	if want := []string{"remake_confirm image=base vm=" + vm.String()}; !slices.Equal(*asked, want) {
 		t.Errorf("declined: asked %q, want %q", *asked, want)
 	}
-	if want := []string{"vm_changed changed=base vm=" + vm, "kept vm=" + vm}; !slices.Equal(said, want) {
+	if want := []string{"vm_changed changed=base vm=" + vm.String(), "kept vm=" + vm.String()}; !slices.Equal(said, want) {
 		t.Errorf("declined: said %q, want %q", said, want)
 	}
 	if got := get(readState(t, e.Dirs, vm), KeyTools); got != had || !slices.Equal(steps(n), []string{"Shell"}) {
@@ -959,7 +962,7 @@ func TestUpdateTools(t *testing.T) {
 
 	// Neither: current, and nothing runs.
 	said, n = nil, len(f.Calls())
-	if err := lc.Update(t.Context(), "devvm update", RemakeOptions{}); err != nil || !slices.Equal(said, []string{"vm_current image=base vm=" + vm}) || len(steps(n)) > 0 {
+	if err := lc.Update(t.Context(), "devvm update", RemakeOptions{}); err != nil || !slices.Equal(said, []string{"vm_current image=base vm=" + vm.String()}) || len(steps(n)) > 0 {
 		t.Errorf("neither: said %q, then %q, %v", said, steps(n), msg.NamesOf(err))
 	}
 }
@@ -979,14 +982,14 @@ func TestUpdateRefuses(t *testing.T) {
 	if err := set(t, st, keyClone, "clone"); err != nil {
 		t.Fatal(err)
 	}
-	if got := up(); got != "remake_clone vm="+vm {
+	if got := up(); got != "remake_clone vm="+vm.String() {
 		t.Errorf("a clone: %s", got)
 	}
 	if err := set(t, st, keyClone, ""); err != nil {
 		t.Fatal(err)
 	}
 	change(t, st, func(st *state.VM) error { st.Created = time.Time{}; return nil })
-	if got := up(); got != "vm_unfinished vm="+vm {
+	if got := up(); got != "vm_unfinished vm="+vm.String() {
 		t.Errorf("unfinished: %s", got)
 	}
 	if slices.Contains(f.Methods(), "Rename") {

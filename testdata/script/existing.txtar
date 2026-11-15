@@ -44,7 +44,7 @@ stub_calls
 exec limactl stop $WEB
 stub_reset
 exec devvm
-stdout '^==> starting vm=devvm-web-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-web-[0-9a-f]{14}$'
 ! stderr 'next_start'
 stub_calls
 stdout '^limactl edit --tty=false devvm-web-[0-9a-f]{14} --cpus 6$'
@@ -63,7 +63,7 @@ stub_calls
 # restart: stopped, then opened.
 stub_reset
 exec devvm restart
-stdout '^==> starting vm=devvm-web-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-web-[0-9a-f]{14}$'
 stub_calls
 stdout '^limactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl start --tty=false devvm-web-[0-9a-f]{14}\n'
 stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'

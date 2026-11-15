@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // DesktopOptions is how devvm desktop opens the VM's desktop.
@@ -97,7 +98,7 @@ func (e Desktop) Open(ctx context.Context, o DesktopOptions) error {
 
 // serve serves the relay on l until ctx ends or the VM stops, which it
 // says.
-func (e Desktop) serve(ctx context.Context, r *desktop.Relay, l net.Listener, b backend.Backend, vm string) error {
+func (e Desktop) serve(ctx context.Context, r *desktop.Relay, l net.Listener, b backend.Backend, vm vmname.VM) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stopped := make(chan struct{})
@@ -175,7 +176,7 @@ func (e Desktop) listener(ctx context.Context, st *state.VM) (net.Listener, erro
 // devvm's ssh config has it (its host key pinned), for as long as ctx
 // lasts: a channel to the socket (ssh -W), with no session, agent or
 // forwarding.
-func (e Desktop) dial(vm string) func(ctx context.Context) (io.ReadWriteCloser, error) {
+func (e Desktop) dial(vm vmname.VM) func(ctx context.Context) (io.ReadWriteCloser, error) {
 	return func(ctx context.Context) (io.ReadWriteCloser, error) {
 		cmd := exec.CommandContext(ctx, "ssh", desktopSSHArgs(e.Dirs.SSHConfig(), vm)...) //nolint:gosec // devvm's own arguments
 		cmd.Stderr = e.LogWriter()
@@ -197,14 +198,14 @@ func (e Desktop) dial(vm string) func(ctx context.Context) (io.ReadWriteCloser, 
 // desktopSSHArgs are ssh's arguments for a channel to the VM's desktop
 // socket: devvm's ssh config's entry for the VM, with nothing of the
 // user's agent, no session and nothing forwarded either way.
-func desktopSSHArgs(config, vm string) []string {
+func desktopSSHArgs(config string, vm vmname.VM) []string {
 	return []string{
 		"-F", config, "-T",
 		"-o", "BatchMode=yes", "-o", "ControlMaster=no", "-o", "ControlPath=none",
 		"-o", "IdentityAgent=none", "-o", "ForwardAgent=no", "-o", "ForwardX11=no",
 		"-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no",
 		"-o", "ConnectTimeout=10", "-o", "LogLevel=ERROR",
-		"-W", desktop.Socket, vm,
+		"-W", desktop.Socket, vm.String(),
 	}
 }
 

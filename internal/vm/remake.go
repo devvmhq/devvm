@@ -20,7 +20,6 @@ import (
 	"github.com/devvmhq/devvm/internal/sshagent"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
-	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // RemakeOptions are the flags of a command that makes the folder's VM
@@ -440,7 +439,7 @@ func (e remaking) check(t *target, p remakeInVM) error {
 	if err := e.Registry.Require(b, vm, requirements(need)...); err != nil {
 		return err
 	}
-	return (backend.Space{Free: e.FreeSpace}).Check(b, vm, func(f backend.Floors) uint64 { return f.VM })
+	return (backend.Space{Free: e.FreeSpace}).Check(b, vm.String(), func(f backend.Floors) uint64 { return f.VM })
 }
 
 // spec is the new machine of t's VM as its state asks for it
@@ -593,7 +592,7 @@ func (e remaking) setAside(ctx context.Context, t *target) error {
 	e.Proxy.Stop(vm)
 	e.Forwarders.Stop(vm)
 	e.linkRuns.stop(ctx, vm)
-	aside, _ := vmname.Aside(vm)
+	aside, _ := vm.Aside()
 	return t.b.Rename(ctx, vm, aside)
 }
 
@@ -719,7 +718,7 @@ func setReread(st *state.VM, r rereadInVM) error {
 // mode left on the host (leftBehind), then ends the remake (clear).
 func (e remaking) dropOld(ctx context.Context, t *target, p remakeInVM) error {
 	vm := t.f.Name
-	aside, _ := vmname.Aside(vm)
+	aside, _ := vm.Aside()
 	if err := t.b.Delete(ctx, aside); err != nil && !errors.Is(err, backend.ErrNotFound) {
 		return err
 	}
@@ -759,7 +758,7 @@ func (e remaking) undo(t *target, committed *atomic.Bool) func(context.Context) 
 // asks for, as for any VM.
 func (e remaking) putBack(ctx context.Context, t *target) error {
 	vm, b := t.f.Name, t.b
-	aside, _ := vmname.Aside(vm)
+	aside, _ := vm.Aside()
 	if _, err := b.Inspect(ctx, aside); err != nil {
 		return err
 	}
@@ -821,7 +820,7 @@ func (e remaking) finishPending(ctx context.Context, t *target) error {
 	if p.Done {
 		return e.dropOld(ctx, t, p)
 	}
-	aside, _ := vmname.Aside(vm)
+	aside, _ := vm.Aside()
 	_, err := b.Inspect(ctx, aside)
 	again := err == nil || t.exists && !p.Made
 	switch {

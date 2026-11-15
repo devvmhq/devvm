@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A VM's host keys are pinned once for each of its starts, in one record
@@ -90,7 +91,7 @@ func ParseHostKeys(out []byte) []HostKey {
 // of its answer, within hostKeyTimeout. Keys read while the VM started
 // again aren't recorded. ErrNoHostKeys says none can be pinned. Two
 // devvms pinning one VM at once write the same record, each whole.
-func PinHostKeys(ctx context.Context, d paths.Dirs, b backend.Backend, vm string) (string, error) {
+func PinHostKeys(ctx context.Context, d paths.Dirs, b backend.Backend, vm vmname.VM) (string, error) {
 	path := d.VM(vm).KnownHosts()
 	start, err := currentStart(ctx, b, vm)
 	if err != nil {
@@ -123,7 +124,7 @@ func PinHostKeys(ctx context.Context, d paths.Dirs, b backend.Backend, vm string
 	var rec strings.Builder
 	rec.WriteString(startLine + start + "\n")
 	for _, k := range keys {
-		rec.WriteString(vm + " " + k.Type + " " + k.Key + "\n")
+		rec.WriteString(vm.String() + " " + k.Type + " " + k.Key + "\n")
 	}
 	if err := state.WriteFile(path, []byte(rec.String())); err != nil {
 		return "", err
@@ -133,7 +134,7 @@ func PinHostKeys(ctx context.Context, d paths.Dirs, b backend.Backend, vm string
 
 // KnownHostsFor returns the VM's record of its host keys when it's the
 // one for its current start, without reading them from the VM.
-func KnownHostsFor(ctx context.Context, d paths.Dirs, b backend.Backend, vm string) (string, error) {
+func KnownHostsFor(ctx context.Context, d paths.Dirs, b backend.Backend, vm vmname.VM) (string, error) {
 	path := d.VM(vm).KnownHosts()
 	start, err := currentStart(ctx, b, vm)
 	if err != nil {
@@ -149,7 +150,7 @@ func KnownHostsFor(ctx context.Context, d paths.Dirs, b backend.Backend, vm stri
 
 // ForgetHostKeys removes the VM's record, before a start: a VM whose
 // backend config changed can get new host keys when it boots.
-func ForgetHostKeys(d paths.Dirs, vm string) error {
+func ForgetHostKeys(d paths.Dirs, vm vmname.VM) error {
 	if err := os.Remove(d.VM(vm).KnownHosts()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -157,7 +158,7 @@ func ForgetHostKeys(d paths.Dirs, vm string) error {
 }
 
 // currentStart is the running VM's start (backend.Run.ID), one line.
-func currentStart(ctx context.Context, b backend.Backend, vm string) (string, error) {
+func currentStart(ctx context.Context, b backend.Backend, vm vmname.VM) (string, error) {
 	run, err := b.Running(ctx, vm)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w: %w", vm, ErrNoHostKeys, err)

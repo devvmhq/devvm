@@ -15,6 +15,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Restart stops the folder's VM, then opens it as Up does: what changes
@@ -36,7 +37,7 @@ func (e Launch) Restart(ctx context.Context, o Options) error {
 // when the change applies. ask is how it asks, Confirm ([Y/n]) or Ask
 // ([y/N]); count is how many changes the restart applies, and context,
 // said first, what they are.
-func (e *Env) restartNow(vm string, ask func(msg.Question) (bool, error), count int, context ...msg.M) bool {
+func (e *Env) restartNow(vm vmname.VM, ask func(msg.Question) (bool, error), count int, context ...msg.M) bool {
 	yes, err := ask(msg.RestartNow(count, vm).AnsweredBy("devvm restart").About(context...))
 	return err == nil && yes
 }
@@ -45,7 +46,7 @@ func (e *Env) restartNow(vm string, ask func(msg.Question) (bool, error), count 
 // restart does once the user agrees (restartNow), so that a setting just
 // changed applies now; otherwise say(later) tells the user when it
 // applies.
-func (e *Env) restartOr(ctx context.Context, vm string, say func(msg.M), later msg.M) error {
+func (e *Env) restartOr(ctx context.Context, vm vmname.VM, say func(msg.M), later msg.M) error {
 	if !e.restartNow(vm, e.Confirm, 1) {
 		say(later)
 		return nil

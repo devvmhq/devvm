@@ -19,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Runner runs the commands the backend makes. Tests swap in a fake.
@@ -123,8 +124,8 @@ func setEnv(env []string, kvs ...string) []string {
 }
 
 // edit changes a stopped VM's Lima config, with limactl edit's options.
-func (l *Lima) edit(ctx context.Context, vm string, opts ...string) error {
-	args := append([]string{"edit", "--tty=false", vm}, opts...)
+func (l *Lima) edit(ctx context.Context, vm vmname.VM, opts ...string) error {
+	args := append([]string{"edit", "--tty=false", vm.String()}, opts...)
 	if err := l.Runner.Run(ctx, msg.Configuring(shown(ctx, vm)), l.limactl(ctx, args...)); err != nil {
 		return backend.Logged(msg.LimaEditFailed(vm))
 	}
@@ -133,13 +134,13 @@ func (l *Lima) edit(ctx context.Context, vm string, opts ...string) error {
 
 // instance is a VM as limactl list --json has it: the fields devvm reads.
 type instance struct {
-	Name          string `json:"name"`
-	Status        string `json:"status"`
-	CPUs          int    `json:"cpus"`
-	Memory        int64  `json:"memory"` // bytes
-	Disk          int64  `json:"disk"`   // bytes
-	SSHLocalPort  int    `json:"sshLocalPort"`
-	SSHConfigFile string `json:"sshConfigFile"`
+	Name          vmname.VM `json:"name"` // as vmname.ParseListed reads it
+	Status        string    `json:"status"`
+	CPUs          int       `json:"cpus"`
+	Memory        int64     `json:"memory"` // bytes
+	Disk          int64     `json:"disk"`   // bytes
+	SSHLocalPort  int       `json:"sshLocalPort"`
+	SSHConfigFile string    `json:"sshConfigFile"`
 	// VMType is its driver: vz (Virtualization.framework) or qemu. A
 	// clone has its image's.
 	VMType string `json:"vmType"`
@@ -518,7 +519,7 @@ func (l *Lima) list(ctx context.Context) ([]instance, error) {
 }
 
 // inspect returns one instance, or an error matching backend.ErrNotFound.
-func (l *Lima) inspect(ctx context.Context, name string) (instance, error) {
+func (l *Lima) inspect(ctx context.Context, name vmname.VM) (instance, error) {
 	ins, err := l.list(ctx)
 	if err != nil {
 		return instance{}, err

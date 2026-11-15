@@ -19,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/shell"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // devcontainerUnreadable is the sum of a file that can't be read now.
@@ -320,9 +321,9 @@ func (e devcontainers) run(ctx context.Context, b backend.Backend, st *state.VM,
 
 // runAll runs commands in the VM in order, in at's folder with its agent,
 // their output in the run log, until one fails.
-func (e devcontainers) runAll(ctx context.Context, b backend.Backend, vm string, at backend.ExecOpts, cmds []devcontainer.Command) error {
+func (e devcontainers) runAll(ctx context.Context, b backend.Backend, vm vmname.VM, at backend.ExecOpts, cmds []devcontainer.Command) error {
 	for _, c := range cmds {
-		e.Info(msg.RunningScript(c.Name, vm))
+		e.Info(msg.RunningScript(c.Name, vm.String()))
 		e.LogNote()
 		out := e.vmLog()
 		argv := append([]string{"bash", "-lc", commandScript, "devvm"}, c.Argv...)

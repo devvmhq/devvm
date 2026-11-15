@@ -9,6 +9,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // finderNeeds are what the commands on the folder's VM need of it, by
@@ -112,7 +113,7 @@ func TestFinder(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, f, _ := upEnv(t, allNative())
-			web, vm := e.Dir, ""
+			web, vm := e.Dir, vmname.VM("")
 			if tc.setup != nil {
 				st := existingVM(t, e, Options{Network: "open"})
 				vm = st.Name()
@@ -126,7 +127,7 @@ func TestFinder(t *testing.T) {
 				t.Fatal(err)
 			}
 			e.Dir = filepath.Join(web, tc.in)
-			r := strings.NewReplacer("$web", web, "$src", src, "$vm", vm)
+			r := strings.NewReplacer("$web", web, "$src", src, "$vm", vm.String())
 			for n, nd := range finderNeeds() {
 				got, err := (finder{e}).target(t.Context(), nd)
 				if want := r.Replace(tc.want[n]); foundAs(got, err) != want {

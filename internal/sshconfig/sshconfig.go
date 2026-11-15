@@ -48,10 +48,10 @@ func New(d paths.Dirs, reg *backend.Registry) *Config {
 // It's chosen once, as the VM is made (state.VM.Alias), so a VM's alias
 // never changes when others come and go, inside the claim of the VM's
 // state.VM.Create, so two VMs made at once never choose one alias.
-func ChooseAlias(d paths.Dirs, vm string) (string, error) {
-	short, ok := vmname.Short(vm)
+func ChooseAlias(d paths.Dirs, vm vmname.VM) (string, error) {
+	short, ok := vm.Short()
 	if !ok {
-		return vm, nil
+		return vm.String(), nil
 	}
 	names, err := state.VMNames(d)
 	if err != nil {
@@ -66,7 +66,7 @@ func ChooseAlias(d paths.Dirs, vm string) (string, error) {
 			return "", err
 		}
 		if st.Alias == short && vmname.IsAlias(st.Alias, n) {
-			return vm, nil
+			return vm.String(), nil
 		}
 	}
 	return short, nil
@@ -76,11 +76,11 @@ func ChooseAlias(d paths.Dirs, vm string) (string, error) {
 // records, else its own name. An alias ChooseAlias never gives vm (a
 // hand-edited vm.json's: another folder's, a pattern, more lines for the
 // ssh config) is never taken (vmname.IsAlias).
-func (c *Config) Host(vm string) string {
+func (c *Config) Host(vm vmname.VM) string {
 	if st, err := state.ReadVM(c.Dirs, vm); err == nil && vmname.IsAlias(st.Alias, vm) {
 		return st.Alias
 	}
-	return vm
+	return vm.String()
 }
 
 // Running is a running project VM, as its backend's list has it.
@@ -101,13 +101,13 @@ type Running struct {
 // entry has (two VMs made at once) is left out: ssh would take the first.
 func (c *Config) Write(ctx context.Context, up []Running) error {
 	up = slices.Clone(up)
-	slices.SortFunc(up, func(a, b Running) int { return strings.Compare(a.Instance.Name, b.Instance.Name) })
+	slices.SortFunc(up, func(a, b Running) int { return strings.Compare(a.Instance.Name.String(), b.Instance.Name.String()) })
 	var buf strings.Builder
 	buf.WriteString(header)
 	taken := map[string]bool{}
 	for _, r := range up {
 		b, in := r.Backend, r.Instance
-		if !vmname.IsVM(in.Name) || in.Status != backend.StatusRunning {
+		if !in.Name.IsProject() || in.Status != backend.StatusRunning {
 			continue
 		}
 		reach, err := vmssh.Checked(ctx, c.Dirs, c.Review, b, in.Name, vmssh.PinKeys)
@@ -119,7 +119,7 @@ func (c *Config) Write(ctx context.Context, up []Running) error {
 		}
 		alias := c.Host(in.Name)
 		if taken[alias] {
-			alias = in.Name
+			alias = in.Name.String()
 		}
 		taken[alias] = true
 		if err := c.entry(&buf, alias, in, reach.SSH, reach.Options, reach.Start); err != nil {
@@ -140,8 +140,8 @@ func (c *Config) Write(ctx context.Context, up []Running) error {
 // with the target's other login options (opts).
 func (c *Config) entry(buf *strings.Builder, alias string, in backend.Instance, login vmssh.SSH, opts []backend.SSHOption, start string) error {
 	hosts := alias
-	if alias != in.Name {
-		hosts += " " + in.Name
+	if alias != in.Name.String() {
+		hosts += " " + in.Name.String()
 	}
 	st, err := state.ReadVM(c.Dirs, in.Name)
 	if err != nil {
@@ -161,7 +161,7 @@ func (c *Config) entry(buf *strings.Builder, alias string, in backend.Instance, 
 	}
 	lines := []string{
 		"", "Host " + hosts,
-		"  HostKeyAlias " + in.Name,
+		"  HostKeyAlias " + in.Name.String(),
 		`  UserKnownHostsFile "` + login.KnownHosts + `"`,
 		"  StrictHostKeyChecking yes",
 		"  NoHostAuthenticationForLocalhost no",

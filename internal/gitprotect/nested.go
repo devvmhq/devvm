@@ -11,6 +11,7 @@ import (
 	"github.com/devvmhq/devvm/internal/hostsafety"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A folder can hold git repos of its own below its own repo, or without
@@ -104,7 +105,7 @@ func (t tree) bare(snaps []snapshot, n *hostsafety.Repos) []string {
 // counted where it doesn't look for them and the folders on other file
 // systems, all of them when the protection was just set up (w), and at a
 // check when the count changed from was's.
-func (p *Protector) warnFound(vm string, was InVM, w why, bare []string) {
+func (p *Protector) warnFound(vm vmname.VM, was InVM, w why, bare []string) {
 	n := p.Nested
 	if len(bare) > 0 {
 		l, _ := listed(bare)
@@ -121,7 +122,7 @@ func (p *Protector) warnFound(vm string, was InVM, w why, bare []string) {
 // warnPast names the nested repos past the walk's bound, more of them,
 // the first of them past: at every check, as the VM could keep their
 // count and change which they are.
-func (p *Protector) warnPast(vm string, more int, past []string) {
+func (p *Protector) warnPast(vm vmname.VM, more int, past []string) {
 	if more > 0 {
 		l, _ := listed(past)
 		p.Warn(msg.GitNestedPastBound(more, l, vm))
@@ -130,7 +131,7 @@ func (p *Protector) warnPast(vm string, more int, past []string) {
 
 // unprotected is the warning that names the nested repos l, and n more,
 // that the VM vm's protection doesn't cover.
-func unprotected(vm string) func(l string, n int) msg.M {
+func unprotected(vm vmname.VM) func(l string, n int) msg.M {
 	return func(l string, n int) msg.M {
 		if n == 0 {
 			return msg.GitNestedUnprotected(l, vm)

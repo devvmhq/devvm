@@ -21,7 +21,7 @@ import (
 // (Leftovers.Forget). release deletes the lock file, then lets
 // go of it, so no file of the VM's stays outside its folder; it may be
 // called more than once.
-func holdCreate(e *Env, vm string) (release func(), err error) {
+func holdCreate(e *Env, vm vmname.VM) (release func(), err error) {
 	path, err := createLock(e, vm)
 	if err != nil {
 		return nil, err
@@ -44,8 +44,8 @@ func holdCreate(e *Env, vm string) (release func(), err error) {
 
 // createLock is the creation lock of vm's project folder, by the hash
 // vm's name ends with.
-func createLock(e *Env, vm string) (string, error) {
-	h, ok := vmname.HashOf(vm)
+func createLock(e *Env, vm vmname.VM) (string, error) {
+	h, ok := vm.Hash()
 	if !ok {
 		return "", fmt.Errorf("invalid VM name %q", vm)
 	}
@@ -55,7 +55,7 @@ func createLock(e *Env, vm string) (string, error) {
 // dropCreateLock deletes the creation lock of vm's project folder that a
 // devvm killed while it held it left, for the VM's teardown; one a devvm
 // holds stays, and its holder deletes it.
-func dropCreateLock(e *Env, vm string) {
+func dropCreateLock(e *Env, vm vmname.VM) {
 	path, err := createLock(e, vm)
 	if err != nil {
 		return

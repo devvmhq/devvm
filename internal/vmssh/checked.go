@@ -6,6 +6,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // HostKeys is how Checked gets a VM's host keys for its current start.
@@ -24,7 +25,7 @@ const (
 // or what it says isn't a user and a key on a host loopback port
 // (FromTarget). Its text is its cause's.
 type UnusableError struct {
-	VM  string
+	VM  vmname.VM
 	Err error
 }
 
@@ -46,7 +47,7 @@ type Reach struct {
 // pinned as keys says. A failure before the host keys is an
 // *UnusableError; the host keys' own wrap ErrNoHostKeys, unless reading
 // or writing the record failed.
-func Checked(ctx context.Context, d paths.Dirs, r backend.Review, b backend.Backend, vm string, keys HostKeys) (Reach, error) {
+func Checked(ctx context.Context, d paths.Dirs, r backend.Review, b backend.Backend, vm vmname.VM, keys HostKeys) (Reach, error) {
 	if !r.Allowed(b, backend.FeatureSSH) {
 		return Reach{}, &UnusableError{vm, fmt.Errorf("%s: the %s backend's ssh isn't usable", vm, b.Name())}
 	}

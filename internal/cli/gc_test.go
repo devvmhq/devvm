@@ -7,6 +7,7 @@ import (
 	"github.com/devvmhq/devvm/internal/build"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // What gc deleted is said in the order it did: an image its backend
@@ -18,7 +19,7 @@ func TestShowGCDone(t *testing.T) {
 		return vm.ListedImage{Listed: build.Listed{Image: build.Image{Key: key, Name: name}}}
 	}
 	showGCDone(u, vm.GCDone{
-		Forgot: []string{"devvm-a-0123456789abcd"}, LinkSockets: 2,
+		Forgot: []vmname.VM{"devvm-a-0123456789abcd"}, LinkSockets: 2,
 		Images: []vm.DeletedImage{
 			{ListedImage: img("base", "0123456789ab")},
 			{ListedImage: img("", "ba9876543210")},

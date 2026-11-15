@@ -40,7 +40,7 @@ exec devvm stop
 # what it lacks, until devvm git-protect off.
 env DEVVM_PINS='refused by this kernel'
 ! exec devvm
-stderr '^devvm: backend_lacks backend=lima feature=read-only-paths vm=devvm-web-[0-9a-f]{14}$'
+stderr '^devvm: backend_lacks backend=lima feature=read-only-paths what=devvm-web-[0-9a-f]{14}$'
 ! exec devvm git-protect on
 stderr '^devvm: git_protect_on_needs_locks$'
 exec devvm git-protect off

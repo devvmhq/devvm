@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/sshagent"
 	"github.com/devvmhq/devvm/internal/tools"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // shape is a JSON value's fields, one "path: type" line each, sorted: an
@@ -230,7 +231,7 @@ func TestJSONShapes(t *testing.T) {
 		{"clone", map[string]string{"clone": "on"}, []string{"clone: string"}},
 		{
 			"secret",
-			secretOutput{Secrets: []secretJSON{{Name: "stripe", Saved: true, UsedBy: []string{"devvm-a"}, Custom: true, Hosts: []string{"api.stripe.com"}, Header: "Authorization", Env: "STRIPE_API_KEY", Prefix: "sk_", Scheme: "ApiKey", Path: "/v1/", BasicUser: true}}},
+			secretOutput{Secrets: []secretJSON{{Name: "stripe", Saved: true, UsedBy: []vmname.VM{"devvm-a"}, Custom: true, Hosts: []string{"api.stripe.com"}, Header: "Authorization", Env: "STRIPE_API_KEY", Prefix: "sk_", Scheme: "ApiKey", Path: "/v1/", BasicUser: true}}},
 			[]string{"secrets[].name: string", "secrets[].saved: bool", "secrets[].used_by[]: string", "secrets[].custom: bool", "secrets[].hosts[]: string", "secrets[].header: string", "secrets[].env: string", "secrets[].prefix: string", "secrets[].scheme: string", "secrets[].path: string", "secrets[].basic_user: bool"},
 		},
 		{

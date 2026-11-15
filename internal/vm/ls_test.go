@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A folder is there when anything is at its path, or the state records
@@ -92,7 +93,7 @@ func TestList(t *testing.T) {
 	// web's folder is there; the others' are gone.
 	webDir := t.TempDir()
 	for _, v := range []struct {
-		name string
+		name vmname.VM
 		kv   map[string]string
 	}{
 		{web, map[string]string{keyImage: "docker", keyToolNames: "node claude", keyDir: webDir, KeyNet: "allowlist", keyGitProtect: "on"}},

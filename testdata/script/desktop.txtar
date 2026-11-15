@@ -43,7 +43,7 @@ stub_reset
 exec sh $WORK/waitfor 'p=$(sed -n "s/^ *\"desktop\": \([0-9][0-9]*\).*/\1/p" "$DESK_dir/vm.json") && [ -n "$p" ] && nc -z 127.0.0.1 "$p"'
 kill -INT d
 wait d
-stdout '^==> starting vm=devvm-desk-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-desk-[0-9a-f]{14}$'
 stdout '^desktop_ready address=127\.0\.0\.1:[0-9]+ password=[a-z2-9]{8} vm=devvm-desk-[0-9a-f]{14}$'
 stub_calls
 stdout '^limactl start --tty=false devvm-desk-[0-9a-f]{14}$'

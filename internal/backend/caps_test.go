@@ -48,10 +48,10 @@ func TestRequire(t *testing.T) {
 		{"nothing", nil, ""},
 		{"native", []backend.Feature{backend.FeatureClone}, ""},
 		{"reviewed emulation", []backend.Feature{backend.FeatureSSH}, ""},
-		{"unreviewed emulation", []backend.Feature{backend.FeatureEgressProxy}, "backend_unreviewed backend=fake feature=egress-proxy vm=devvm-x"},
-		{"none", []backend.Feature{backend.FeatureDisk}, "backend_lacks backend=fake feature=disk vm=devvm-x"},
-		{"not listed", []backend.Feature{backend.FeaturePorts}, "backend_lacks backend=fake feature=ports vm=devvm-x"},
-		{"the first refused", []backend.Feature{backend.FeatureClone, backend.FeaturePorts, backend.FeatureEgressProxy}, "backend_lacks backend=fake feature=ports vm=devvm-x"},
+		{"unreviewed emulation", []backend.Feature{backend.FeatureEgressProxy}, "backend_unreviewed backend=fake feature=egress-proxy what=devvm-x"},
+		{"none", []backend.Feature{backend.FeatureDisk}, "backend_lacks backend=fake feature=disk what=devvm-x"},
+		{"not listed", []backend.Feature{backend.FeaturePorts}, "backend_lacks backend=fake feature=ports what=devvm-x"},
+		{"the first refused", []backend.Feature{backend.FeatureClone, backend.FeaturePorts, backend.FeatureEgressProxy}, "backend_lacks backend=fake feature=ports what=devvm-x"},
 	} {
 		if got := msg.NamesOf(backend.Review{}.Require(b, "devvm-x", tc.features...)); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
@@ -165,7 +165,7 @@ func TestUnreviewedEgressRefused(t *testing.T) {
 	t.Parallel()
 	b := backendtest.New("fake", backend.Caps{backend.FeatureEgressProxy: backend.Emulated(false)})
 	c := backend.Confinement{Net: backend.NetProxy}
-	want := "backend_unreviewed backend=fake feature=egress-proxy vm=devvm-x"
+	want := "backend_unreviewed backend=fake feature=egress-proxy what=devvm-x"
 	if got := msg.NamesOf(backend.Review{}.Require(b, "devvm-x", c.Features()...)); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -184,10 +184,10 @@ func TestUnreviewedLetThrough(t *testing.T) {
 		Unreviewed: backend.ParseUnreviewed("lima:egress-proxy, fake:ssh"),
 		Reporter:   &msg.Fake{OnWarn: warned.Add},
 	}
-	if got := msg.NamesOf(r.Require(b, "devvm-x", backend.FeatureEgressProxy)); got != "backend_unreviewed backend=fake feature=egress-proxy vm=devvm-x" {
+	if got := msg.NamesOf(r.Require(b, "devvm-x", backend.FeatureEgressProxy)); got != "backend_unreviewed backend=fake feature=egress-proxy what=devvm-x" {
 		t.Errorf("another backend's: %s", got)
 	}
-	if got := msg.NamesOf(r.Require(b, "devvm-x", backend.FeatureSSH)); got != "backend_lacks backend=fake feature=ssh vm=devvm-x" {
+	if got := msg.NamesOf(r.Require(b, "devvm-x", backend.FeatureSSH)); got != "backend_lacks backend=fake feature=ssh what=devvm-x" {
 		t.Errorf("a feature it lacks: %s", got)
 	}
 	if r.Allowed(b, backend.FeatureEgressProxy) || r.Allowed(b, backend.FeatureSSH) {
@@ -195,7 +195,7 @@ func TestUnreviewedLetThrough(t *testing.T) {
 	}
 	r.Unreviewed = backend.ParseUnreviewed("fake:egress-proxy")
 	if err := r.Require(b, "devvm-x", backend.FeatureEgressProxy); err != nil ||
-		!slices.Equal(warned.Names(), []string{"backend_unreviewed_used backend=fake feature=egress-proxy vm=devvm-x"}) {
+		!slices.Equal(warned.Names(), []string{"backend_unreviewed_used backend=fake feature=egress-proxy what=devvm-x"}) {
 		t.Errorf("named: %v, warned %q", err, warned.Names())
 	}
 	// Allowed says the same, without a warning.

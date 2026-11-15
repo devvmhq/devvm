@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // TestE2ESelfCheck runs the self-check on a real VM with network policy,
@@ -20,9 +21,13 @@ import (
 // DEVVM_E2E_VM and the result it expects in DEVVM_E2E_WANT (the message's
 // names; empty for enforced). A failed check must leave the VM stopped.
 func TestE2ESelfCheck(t *testing.T) {
-	vm := os.Getenv("DEVVM_E2E_VM")
-	if vm == "" {
+	name := os.Getenv("DEVVM_E2E_VM")
+	if name == "" {
 		t.Skip("tests/e2e runs it, on a VM of its own")
+	}
+	vm, err := vmname.Parse(name)
+	if err != nil {
+		t.Fatal(err)
 	}
 	d, err := paths.FromEnv()
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/platform"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // downloadCache is Lima's own download cache, in the user's cache folder,
@@ -24,7 +25,7 @@ func (l *housekeeping) downloadCache() (string, error) {
 // shares its image's blocks on macOS, which du counts for both), and
 // Lima's download cache, by entry.
 func (l *housekeeping) Usage(ctx context.Context) (backend.Usage, error) {
-	u := backend.Usage{VMs: map[string]int64{}}
+	u := backend.Usage{VMs: map[vmname.VM]int64{}}
 	vms, err := l.List(ctx)
 	if err != nil {
 		return u, err

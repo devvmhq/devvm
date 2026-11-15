@@ -46,12 +46,13 @@ other = "ready"
 	for _, want := range []string{
 		`func NoVM(dir string) M {`,
 		`return M{id: "no_vm", vals: []val{{"dir", dir}}}`,
-		`func VMCount(count int, vmName string) M {`,
-		`return M{id: "vm_count", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm_name", vmName}}}`,
+		`func VMCount(count int, vmName vmname.VM) M {`,
+		`return M{id: "vm_count", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm_name", string(vmName)}}}`,
 		`func SSHKeyID(keyID string, url string, vms string) M {`,
 		`func Ready() M {`,
 		`return M{id: "ready"}`,
-		`import "strconv"`,
+		`"strconv"`,
+		`"github.com/devvmhq/devvm/internal/vmname"`,
 		`"no_vm":      {fields: []string{"dir"}},`,
 		`"vm_count":   {plural: true, fields: []string{"count", "vm_name"}},`,
 		`"ready":      {},`,
@@ -65,8 +66,8 @@ other = "ready"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(code), "strconv") {
-		t.Errorf("strconv imported without plurals:\n%s", code)
+	if strings.Contains(string(code), "strconv") || strings.Contains(string(code), "vmname") {
+		t.Errorf("strconv or vmname imported without plurals or VMs:\n%s", code)
 	}
 }
 

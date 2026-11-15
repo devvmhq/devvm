@@ -20,6 +20,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/settings"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 const (
@@ -100,7 +101,7 @@ func checkLines(t *testing.T, got, want []string) {
 // its run left is deleted.
 func TestBuildImageBase(t *testing.T) {
 	l, f := buildLima(t, "darwin", "")
-	inst := "devvm-img-" + baseKey
+	const inst = vmname.ImagePrefix + baseKey
 	var profile []byte
 	do := f.do
 	f.do = func(c call) {
@@ -148,7 +149,7 @@ func TestBuildImageBase(t *testing.T) {
 // read-only once built.
 func TestBuildImageLayer(t *testing.T) {
 	l, f := buildLima(t, "linux", "Running")
-	inst := "devvm-img-" + layerKey
+	const inst = vmname.ImagePrefix + layerKey
 	writeTestFile(t, l.disk(inst), "qcow2")
 	built, err := l.BuildImage(t.Context(), backend.ImageSpec{
 		Image: "foo", Key: layerKey, Parent: baseKey, Net: backend.NetInternet,
@@ -244,7 +245,7 @@ func TestBuildImageHostProxy(t *testing.T) {
 			// limactl runs without it too: Lima logs what it reads.
 			t.Setenv("HTTPS_PROXY", env["HTTPS_PROXY"])
 			spawned, stopped := fakeProxy(t, l)
-			inst := "devvm-img-" + layerKey
+			const inst = vmname.ImagePrefix + layerKey
 			writeTestFile(t, l.disk(inst), "qcow2")
 			var profile []byte
 			do := f.do
@@ -395,7 +396,7 @@ func TestBuildImageHostProxyRefused(t *testing.T) {
 // to look inside; the VM is stopped and kept, and nothing else runs.
 func TestBuildImageScriptFails(t *testing.T) {
 	l, f := buildLima(t, "darwin", "")
-	inst := "devvm-img-" + baseKey
+	const inst = vmname.ImagePrefix + baseKey
 	f.fail = []string{"limactl shell " + inst + " bash -s"}
 	_, err := l.BuildImage(t.Context(), baseSpec(t, l))
 	e, ok := errors.AsType[*backend.LoggedError](err)

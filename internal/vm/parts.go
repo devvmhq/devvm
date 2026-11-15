@@ -11,6 +11,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/settings"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // PickRow is one row of the tools picker: a toolchain, an agent or a
@@ -94,7 +95,7 @@ func (e creation) defaults(dir string, dc *devcontainer.Plan, def settings.Defau
 // addSetupLayers puts devvm setup's layers (def's) under d's, those of
 // the user's whose script is gone (not one of b's) left out with a
 // warning naming each: a VM is made without it rather than not at all.
-func (e creation) addSetupLayers(d *partsDefault, vm string, def settings.Defaults, b *build.Env) {
+func (e creation) addSetupLayers(d *partsDefault, vm vmname.VM, def settings.Defaults, b *build.Env) {
 	layers := b.Layers()
 	for _, l := range def.Layers.Names {
 		if !slices.Contains(layers, l) {
@@ -109,7 +110,7 @@ func (e creation) addSetupLayers(d *partsDefault, vm string, def settings.Defaul
 // requireSetupLayers refuses a layer of devvm setup's the VM gets that
 // b's backend can't run (docker-layer, nix-layer), naming the layer and
 // both ways out, before the VM's other needs are checked.
-func (e creation) requireSetupLayers(vm string, layers []string, d partsDefault, b *build.Env) error {
+func (e creation) requireSetupLayers(vm vmname.VM, layers []string, d partsDefault, b *build.Env) error {
 	for _, l := range layers {
 		if !slices.Contains(d.setupLayers, l) {
 			continue
@@ -143,7 +144,7 @@ func partFlags(o Options, p *Parts) []partFlag {
 // the exact list for its part, and the defaults for those left out (def's
 // agents and layers), checked (checkParts). It returns the defaults too,
 // which its summary and the picker say why of.
-func (e creation) partsFor(o Options, vm, dir string, dc *devcontainer.Plan, b *build.Env, def settings.Defaults) (partsDefault, Parts, error) {
+func (e creation) partsFor(o Options, vm vmname.VM, dir string, dc *devcontainer.Plan, b *build.Env, def settings.Defaults) (partsDefault, Parts, error) {
 	d := e.defaults(dir, dc, def)
 	if o.Layers == nil {
 		e.addSetupLayers(&d, vm, def, b)
@@ -160,7 +161,7 @@ func (e creation) partsFor(o Options, vm, dir string, dc *devcontainer.Plan, b *
 
 // checkParts returns p with its layers in its image's order, once they're
 // checked against b's and its backend's (requireSetupLayers).
-func (e creation) checkParts(vm string, p Parts, d partsDefault, b *build.Env) (Parts, error) {
+func (e creation) checkParts(vm vmname.VM, p Parts, d partsDefault, b *build.Env) (Parts, error) {
 	img := p.image()
 	p.Layers = img.Layers()
 	if err := (build.Names{Env: b}).Check(img); err != nil {
@@ -181,7 +182,7 @@ func allGiven(o Options) bool {
 // pickNew shows the picker for a new VM, what it gets (p) checked: each
 // part's defaults saying why, and a part a flag gave greyed out as it
 // was given. It returns the parts chosen.
-func (e creation) pickNew(vm string, o Options, d partsDefault, p Parts, b *build.Env) Parts {
+func (e creation) pickNew(vm vmname.VM, o Options, d partsDefault, p Parts, b *build.Env) Parts {
 	why := func(name string) msg.M {
 		if f, ok := d.why[name]; ok {
 			return msg.PickCalledFor(f)

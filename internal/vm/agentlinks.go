@@ -14,6 +14,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/settings"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // devvm agent import copies a link out of an agent's folder only when
@@ -325,7 +326,10 @@ type follower struct {
 }
 
 // projectVM is a VM's name and its project folder's physical path.
-type projectVM struct{ name, dir string }
+type projectVM struct {
+	name vmname.VM
+	dir  string
+}
 
 // projectVMs are the VMs devvm has, each with its project folder, read
 // once.
@@ -347,7 +351,7 @@ func (f *follower) projectVMs() []projectVM {
 // is in (l.hops) while l's target isn't: that VM chose where l leads, so
 // l could lead to any file of this machine's, and it's left out, whatever
 // allows it.
-func (f *follower) through(l *linkOut) string {
+func (f *follower) through(l *linkOut) vmname.VM {
 	for _, v := range f.projectVMs() {
 		if isIn(l.target, v.dir) {
 			continue
@@ -366,7 +370,7 @@ func (f *follower) through(l *linkOut) string {
 func (f *follower) projects(path, target string, dir bool) []msg.M {
 	var ms []msg.M
 	for _, v := range f.projectVMs() {
-		key := path + "\x00" + v.name
+		key := path + "\x00" + v.name.String()
 		in := isIn(target, v.dir) || dir && isIn(v.dir, target)
 		if f.warned[key] || !in {
 			continue

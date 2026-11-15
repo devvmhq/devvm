@@ -11,6 +11,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/project"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Leftovers are what devvm keeps for VMs their backend no longer has, a
@@ -29,9 +30,10 @@ const leftoverAsk = 30 * time.Second
 // Orphan is a VM whose state devvm keeps but whose backend, asked, no
 // longer has it.
 type Orphan struct {
-	Name, Backend string
-	Dir           string    // its project folder
-	Changed       time.Time // when its state last changed
+	Name    vmname.VM
+	Backend string
+	Dir     string    // its project folder
+	Changed time.Time // when its state last changed
 }
 
 // LeftoverReport is what Find found.
@@ -44,7 +46,7 @@ type LeftoverReport struct {
 	// Elsewhere are the VMs made where their backend doesn't look in this
 	// run (another Lima home or HOME), and Recent those
 	// whose state changed in the last hour: never orphans.
-	Elsewhere, Recent []string
+	Elsewhere, Recent []vmname.VM
 	// Links are clients' links to VMs that have no state, and Sockets the
 	// link sessions' sockets nothing listens on (LeftoverSockets).
 	Links   []DeadLink
@@ -129,7 +131,7 @@ func (e Leftovers) ForgetLinks(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var targets []string
+	var targets []vmname.VM
 	for _, l := range dead {
 		if !slices.Contains(targets, l.Target) {
 			targets = append(targets, l.Target)
@@ -171,7 +173,7 @@ func checks(ctx context.Context, b backend.Backend) bool {
 }
 
 // gone asks b for vm itself: true only when b says it has no such VM.
-func gone(ctx context.Context, b backend.Backend, vm string) (bool, error) {
+func gone(ctx context.Context, b backend.Backend, vm vmname.VM) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, leftoverAsk)
 	defer cancel()
 	_, err := b.Inspect(ctx, vm)

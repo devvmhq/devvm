@@ -9,6 +9,7 @@ import (
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // oneSecret takes one argument: a secret devvm keeps, or a name one of
@@ -195,14 +196,14 @@ type secretOutput struct {
 }
 
 type secretJSON struct {
-	Name   string   `json:"name"`
-	Saved  bool     `json:"saved"`
-	UsedBy []string `json:"used_by"`
-	Custom bool     `json:"custom"`
-	Hosts  []string `json:"hosts"`
-	Header string   `json:"header,omitempty"`
-	Env    string   `json:"env,omitempty"`
-	Prefix string   `json:"prefix,omitempty"`
+	Name   string      `json:"name"`
+	Saved  bool        `json:"saved"`
+	UsedBy []vmname.VM `json:"used_by"`
+	Custom bool        `json:"custom"`
+	Hosts  []string    `json:"hosts"`
+	Header string      `json:"header,omitempty"`
+	Env    string      `json:"env,omitempty"`
+	Prefix string      `json:"prefix,omitempty"`
 	// A secret of yours' own scheme, path, methods and way into Basic
 	// credentials.
 	Scheme    string `json:"scheme,omitempty"`
@@ -227,7 +228,7 @@ func listSecrets(cmd *cobra.Command, a *app, asJSON bool) error {
 		out := secretOutput{Secrets: make([]secretJSON, 0, len(ss))}
 		for _, s := range ss {
 			out.Secrets = append(out.Secrets, secretJSON{
-				Name: s.Name, Saved: s.Saved, UsedBy: append([]string{}, s.UsedBy...),
+				Name: s.Name, Saved: s.Saved, UsedBy: append([]vmname.VM{}, s.UsedBy...),
 				Custom: s.Custom, Hosts: append([]string{}, s.Hosts...), Header: s.Header, Env: s.Env, Prefix: s.Prefix,
 				Scheme: s.Scheme, Path: s.Path, Methods: s.Methods, BasicUser: s.BasicUser,
 			})
@@ -242,7 +243,7 @@ func listSecrets(cmd *cobra.Command, a *app, asJSON bool) error {
 			saved = "yes"
 		}
 		tab.Row(cell(s.Name), cell(saved), cell(s.Env), cell(s.Header), cell(strings.Join(s.Hosts, ", ")), cell(s.Path), cell(s.Methods),
-			cell(strings.Join(s.UsedBy, ", ")))
+			cell(vmname.Join(s.UsedBy, ", ")))
 	}
 	return tab.Flush()
 }

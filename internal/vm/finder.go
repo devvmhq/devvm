@@ -170,7 +170,7 @@ func (n need) check(t *target) error {
 // network choice. The finder's refusal for a command that needs the VM
 // made, and every start's (starter.bringUp); a VM found otherwise (a
 // link's target, a remake, a state read again) is refused with it too.
-func refuseUnfinished(vm string, st *state.VM) error {
+func refuseUnfinished(vm vmname.VM, st *state.VM) error {
 	if !st.Finished() {
 		return msg.VMUnfinished(vm)
 	}
@@ -355,7 +355,7 @@ func (e finder) newName(dir string) (project.Folder, *state.VM, error) {
 		} else if err != nil {
 			return project.Folder{}, nil, err
 		}
-		h, _ := vmname.HashOf(f.Name)
+		h, _ := f.Name.Hash()
 		if held, err := state.ReadHash(e.Dirs, h); err != nil || held.Exists() {
 			continue // another folder's VM, or a state that can't be read
 		}
@@ -437,8 +437,8 @@ func (e finder) parents(dir string, each func(project.Folder, *state.VM) (bool, 
 // folder and that was made for it, running or not, as it can write there
 // whenever it runs. A --clone VM mounts nothing, so it's passed over, and
 // so is a state that can't be read. "" for none.
-func (e finder) mountedBy(dir string) string {
-	vm := ""
+func (e finder) mountedBy(dir string) vmname.VM {
+	var vm vmname.VM
 	_ = e.parents(dir, func(pf project.Folder, pst *state.VM) (bool, error) {
 		if pst.Exists() && !isClone(pst) && sameFolder(pf, pst) {
 			vm = pf.Name
@@ -456,14 +456,14 @@ func (e finder) mountedBy(dir string) string {
 // what's in it, under host git, so a workspace clone leaves such a repo
 // alone. self is the VM the workspace clone is for, which may still mount
 // the folder while devvm clone on makes it again.
-func (e finder) mountsRepo(dir, self string) string {
+func (e finder) mountsRepo(dir string, self vmname.VM) vmname.VM {
 	mounts := func(f project.Folder, st *state.VM) bool {
 		return st.Exists() && !isClone(st) && sameFolder(f, st) && f.Name != self
 	}
 	if f, st, err := e.state(dir, new(recorded)); err == nil && mounts(f, st) {
 		return f.Name
 	}
-	vm := ""
+	var vm vmname.VM
 	_ = e.parents(dir, func(pf project.Folder, pst *state.VM) (bool, error) {
 		if mounts(pf, pst) {
 			vm = pf.Name
@@ -510,7 +510,7 @@ func (e finder) named(ctx context.Context, name string) (*target, error) {
 // folderVM is the name of the VM the folder dir has of its own (state),
 // "" for none: devvm rm VM checks it's the VM it names before it acts
 // on the folder's.
-func (e finder) folderVM(dir string) (string, error) {
+func (e finder) folderVM(dir string) (vmname.VM, error) {
 	_, st, err := e.state(dir, new(recorded))
 	if err != nil {
 		return "", err

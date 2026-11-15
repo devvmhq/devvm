@@ -15,6 +15,7 @@ import (
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Every VM's proxy captures logins at OpenAI's and Claude's token endpoints, on every tier,
@@ -71,7 +72,7 @@ func TestCapturer(t *testing.T) {
 	}
 	// No VM by that name, or one with no placeholders yet: nothing is captured.
 	other := newVM(t, d, vmV, "base", "codex")
-	for _, vm := range []string{"devvm-gone-0123456789abc5", other.Name()} {
+	for _, vm := range []vmname.VM{"devvm-gone-0123456789abc5", other.Name()} {
 		x.VM = vm
 		if _, _, err := c.Request(t.Context(), x); err == nil {
 			t.Errorf("%s: Request went on", vm)
@@ -83,7 +84,7 @@ func TestCapturer(t *testing.T) {
 	// Claude Code's login, from a VM whose image hasn't Claude Code: nothing is captured, so it
 	// can't replace the login every VM with Claude Code uses.
 	x.VM, x.Agents, x.ContentType, x.Body = st.Name(), []string{"claude"}, "application/json", []byte(`{"grant_type":"authorization_code","code":"c"}`)
-	refused := "login_capture_refused agent=claude vm=" + st.Name()
+	refused := "login_capture_refused agent=claude vm=" + st.Name().String()
 	if _, _, err := c.Request(t.Context(), x); msg.NamesOf(err) != refused {
 		t.Errorf("Claude Code's login from a VM without it: %v", msg.NamesOf(err))
 	}
@@ -180,7 +181,7 @@ func TestCaptureOwnAgents(t *testing.T) {
 		_, _, reqErr := c.Request(t.Context(), x)
 		_, agent, err := c.Response(t.Context(), x, reply)
 		if tc.agent == "" {
-			want := "login_capture_refused agent=" + tc.refused + " vm=" + tc.vm.Name()
+			want := "login_capture_refused agent=" + tc.refused + " vm=" + tc.vm.Name().String()
 			if msg.NamesOf(reqErr) != want || msg.NamesOf(err) != want {
 				t.Errorf("%s, %s: Request %v, Response %v; want %s", tc.vm.Name(), tc.ua, msg.NamesOf(reqErr), msg.NamesOf(err), want)
 			}

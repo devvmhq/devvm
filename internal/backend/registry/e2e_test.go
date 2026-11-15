@@ -12,6 +12,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // TestE2EExecQuoting checks, on a real running VM, that what its
@@ -21,7 +22,7 @@ import (
 // backend. tests/e2e runs it on a project VM it made, named by
 // DEVVM_E2E_VM, in its sandbox; otherwise it's skipped.
 func TestE2EExecQuoting(t *testing.T) {
-	name := os.Getenv("DEVVM_E2E_VM")
+	name := vmname.VM(os.Getenv("DEVVM_E2E_VM"))
 	if name == "" {
 		t.Skip("tests/e2e runs it, on a VM of its own")
 	}

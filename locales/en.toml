@@ -120,16 +120,16 @@ other = "the end of {{.file}}:"
 other = "Writing the run log in {{.dir}} failed: {{.reason}}."
 
 [backend_lacks]
-description = "feature is a feature's name as the backends page lists it (egress-proxy); backend is a backend's name (lima)"
-other = "{{.vm}} needs {{.feature}}, and the {{.backend}} backend doesn't have it. Run devvm doctor to see the features it has."
+description = "what is a VM's name, an image's (base+docker) or the shared tools being built; feature is a feature's name as the backends page lists it (egress-proxy); backend is a backend's name (lima)"
+other = "{{.what}} needs {{.feature}}, and the {{.backend}} backend doesn't have it. Run devvm doctor to see the features it has."
 
 [backend_unreviewed]
-description = "feature is a feature's name as the backends page lists it (egress-proxy); backend is a backend's name (lima)"
-other = "{{.vm}} needs {{.feature}}, and the {{.backend}} backend only emulates it without a review. Run devvm doctor to see the features it has."
+description = "what is a VM's name, an image's (base+docker) or the shared tools being built; feature is a feature's name as the backends page lists it (egress-proxy); backend is a backend's name (lima)"
+other = "{{.what}} needs {{.feature}}, and the {{.backend}} backend only emulates it without a review. Run devvm doctor to see the features it has."
 
 [backend_unreviewed_used]
-description = "feature is a feature's name as the backends page lists it (egress-proxy); backend is a backend's name (lima)"
-other = "{{.vm}} uses the {{.backend}} backend's unreviewed {{.feature}}, because DEVVM_UNREVIEWED asks for it. Use this only for testing."
+description = "what is a VM's name, an image's (base+docker) or the shared tools being built; feature is a feature's name as the backends page lists it (egress-proxy); backend is a backend's name (lima)"
+other = "{{.what}} uses the {{.backend}} backend's unreviewed {{.feature}}, because DEVVM_UNREVIEWED asks for it. Use this only for testing."
 
 [backend_unknown_vm]
 other = "{{.vm}} runs on the {{.backend}} backend, which this devvm doesn't have. Use the devvm that made it."
@@ -299,19 +299,22 @@ description = "have and want are sizes in GiB"
 other = "{{.vm}}'s disk is {{.have}} GiB, and a disk can't shrink to {{.want}} GiB."
 
 [starting]
-other = "starting {{.vm}}"
+description = "what is a VM's name, or a build VM as its steps name it (tools_build_vm)"
+other = "starting {{.what}}"
 
 [stopping]
 other = "stopping {{.vm}}"
 
 [deleting]
-other = "deleting {{.vm}}"
+description = "what is a VM's name, or a build VM as its steps name it (tools_build_vm)"
+other = "deleting {{.what}}"
 
 [creating]
 other = "creating {{.vm}}"
 
 [configuring]
-other = "configuring {{.vm}}"
+description = "what is a VM's name, or a build VM as its steps name it (tools_build_vm)"
+other = "configuring {{.what}}"
 
 [start_failed]
 other = "{{.vm}} didn't start."
@@ -639,7 +642,8 @@ other = "Converting {{.from}} wrote an unexpected {{.file}}, so devvm didn't use
 other = "cloning {{.parent}}'s image"
 
 [running_script]
-other = "running {{.script}} in {{.vm}}"
+description = "what is a VM's name, or a build VM as its steps name it (tools_build_vm)"
+other = "running {{.script}} in {{.what}}"
 
 [script_failed]
 other = "{{.script}} failed in {{.vm}}, and devvm keeps it stopped until the next build or devvm gc deletes it. To look inside, run devvm limactl shell --start {{.vm}}."
@@ -976,8 +980,8 @@ description = "reason is an error from the system, in English"
 other = "Deleting this folder's VM failed: {{.reason}}."
 
 [rm_vm_failed]
-description = "reason is an error from the system, in English; vm is the VM devvm rm VM names"
-other = "Deleting {{.vm}} failed: {{.reason}}."
+description = "reason is an error from the system, in English; name is the VM devvm rm VM names, as given: its name or alias"
+other = "Deleting {{.name}} failed: {{.reason}}."
 
 [adopt_failed]
 description = "reason is an error from the system, in English"

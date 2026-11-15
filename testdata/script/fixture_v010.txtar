@@ -109,7 +109,7 @@ cd $HOME/src/app
 [linux] stdout '\A{\n  "version": 1,\n  "mode": "mmap",\n  "chosen": false\n}\n\z'
 [linux] stderr '^devvm: mount_cache_unchosen mode=mmap vm=devvm-app-[0-9a-f]{14}$'
 [darwin] ! exec devvm mount-cache
-[darwin] stderr '^devvm: backend_lacks backend=lima feature=mount-cache vm=devvm-app-[0-9a-f]{14}$'
+[darwin] stderr '^devvm: backend_lacks backend=lima feature=mount-cache what=devvm-app-[0-9a-f]{14}$'
 
 # None of that wrote a file: the layout version is 0.1.0's, and every
 # state is as 0.1.0 left it.
@@ -128,7 +128,7 @@ cp $APP_dir/vm.json $WORK/app-before.json
 cp $APP_dir/run/secrets.json $WORK/app-secrets.json
 stub_reset
 exec devvm
-stdout '^==> starting vm=devvm-app-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
 stderr '^devvm: vm_outdated changed=base$'
 stderr '^devvm: newer_tools tools='
 stderr '^devvm: login_fields_withheld agent=Codex file=auth\.json keys=extra_field$'
@@ -173,7 +173,7 @@ grep '\A1\n\z' $DATA/version
 cd $HOME/src/scratch
 stub_reset
 exec devvm
-stdout '^==> starting vm=devvm-scratch-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-scratch-[0-9a-f]{14}$'
 stderr '^devvm: vm_outdated changed=base$'
 ! stderr 'unreadable|corrupt|layout_|moved|replaced|refused|failed'
 ! stderr 'git_nested|no_github_token'
@@ -184,7 +184,7 @@ stub_calls
 cd $HOME/src/web
 stub_reset
 exec devvm
-stdout '^==> starting vm=devvm-web-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-web-[0-9a-f]{14}$'
 stderr '^devvm: vm_outdated changed=base$'
 ! stderr 'unreadable|corrupt|layout_|moved|replaced|refused|failed'
 ! stderr 'git_nested|no_github_token'

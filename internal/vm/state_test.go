@@ -15,12 +15,13 @@ import (
 	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // vmState writes the state of a VM named name as up does: made from base
 // on the fake backend, for the folder /p, finished, with each change of
 // set's applied before it's written.
-func vmState(t *testing.T, d paths.Dirs, name string, set ...func(*state.VM) error) *state.VM {
+func vmState(t *testing.T, d paths.Dirs, name vmname.VM, set ...func(*state.VM) error) *state.VM {
 	t.Helper()
 	st, err := state.New(d, name)
 	if err != nil {
@@ -86,7 +87,7 @@ func withForward(p string) func(*state.VM) error {
 }
 
 // reread reads a VM's state again, as another devvm would.
-func readState(t *testing.T, d paths.Dirs, name string) *state.VM {
+func readState(t *testing.T, d paths.Dirs, name vmname.VM) *state.VM {
 	t.Helper()
 	st, err := state.ReadVM(d, name)
 	if err != nil {
@@ -128,7 +129,7 @@ func TestCheckState(t *testing.T) {
 // neither's change: each reads the state again under the VM's lock.
 func TestChangesTogether(t *testing.T) {
 	d := paths.Dirs{Data: t.TempDir()}
-	vm := "devvm-p-00000000000000"
+	const vm vmname.VM = "devvm-p-00000000000000"
 	vmState(t, d, vm)
 	var wg sync.WaitGroup
 	errs := make(chan error, 3)

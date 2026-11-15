@@ -31,7 +31,7 @@ stdout '^limactl stop devvm-net-[0-9a-f]{14}$'
 vm_state $NET_dir/vm.json
 stdout '^net.made.check=unenforced$'
 exec devvm
-stdout '^==> starting vm=devvm-net-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-net-[0-9a-f]{14}$'
 vm_state $NET_dir/vm.json
 stdout '^net.made.check=ok$'
 
@@ -131,7 +131,7 @@ vm_name AGENT agent
 exec limactl stop $AGENT
 exec sh -c ': > "$STUB_DIR/shell-fails"'
 ! exec devvm rm --force
-stdout '^==> starting vm=devvm-agent-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-agent-[0-9a-f]{14}$'
 stderr '^devvm: export_failed_kept command=devvm rm vm=devvm-agent-[0-9a-f]{14}$'
 exists $AGENT_dir/vm.json
 exec sh -c 'ls "$DATA/exports" | wc -l'

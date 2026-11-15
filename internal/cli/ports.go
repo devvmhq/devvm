@@ -6,6 +6,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // portsOutput is devvm ports --json: which ports the VM forwards, and
@@ -18,8 +19,8 @@ type portsOutput struct {
 // portsHeldBy is some of a VM's listed ports, which another VM forwards
 // now.
 type portsHeldBy struct {
-	VM    string `json:"vm"`
-	Ports string `json:"ports"`
+	VM    vmname.VM `json:"vm"`
+	Ports string    `json:"ports"`
 }
 
 func portsJSON(s vm.PortsShown) portsOutput {

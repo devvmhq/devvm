@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A submodule whose copy fails once the VM may have it (here, the VM
@@ -24,7 +25,7 @@ func TestUpCloneSubmoduleFailedKeepsRecord(t *testing.T) {
 	e, f, vmfs := cloneEnv(t)
 	submoduleRepos(t, t.TempDir(), e.Dir)
 	exec := f.ExecFunc
-	f.ExecFunc = func(vm string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(vm vmname.VM, argv []string, o backend.ExecOpts) error {
 		if len(argv) > 4 && argv[0] == "sh" && argv[2] == seedApply && strings.HasSuffix(argv[4], string(filepath.Separator)+"lib") {
 			return errors.New("refused")
 		}

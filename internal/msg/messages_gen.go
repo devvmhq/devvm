@@ -2,7 +2,11 @@
 
 package msg
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/devvmhq/devvm/internal/vmname"
+)
 
 // AddItNow is [add_it_now]: "Add it now?"
 func AddItNow() M {
@@ -10,8 +14,8 @@ func AddItNow() M {
 }
 
 // AdoptClone is [adopt_clone]: "{{.vm}} keeps its own clone of its repo at {{.dir}}, so devvm can't move it to another folder."
-func AdoptClone(dir string, vm string) M {
-	return M{id: "adopt_clone", vals: []val{{"dir", dir}, {"vm", vm}}}
+func AdoptClone(dir string, vm vmname.VM) M {
+	return M{id: "adopt_clone", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // AdoptFailed is [adopt_failed]: "Adopting this folder's VM failed: {{.reason}}."
@@ -20,28 +24,28 @@ func AdoptFailed(reason string) M {
 }
 
 // AdoptFolderThere is [adopt_folder_there]: "{{.vm}} belongs to {{.dir}}, which is still there, so devvm won't move it here."
-func AdoptFolderThere(dir string, vm string) M {
-	return M{id: "adopt_folder_there", vals: []val{{"dir", dir}, {"vm", vm}}}
+func AdoptFolderThere(dir string, vm vmname.VM) M {
+	return M{id: "adopt_folder_there", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // AdoptHasVM is [adopt_has_vm]: "This folder has a VM of its own, {{.vm}}, so devvm won't move another one here. To delete it first, run devvm rm."
-func AdoptHasVM(vm string) M {
-	return M{id: "adopt_has_vm", vals: []val{{"vm", vm}}}
+func AdoptHasVM(vm vmname.VM) M {
+	return M{id: "adopt_has_vm", vals: []val{{"vm", string(vm)}}}
 }
 
 // AdoptMoveRefused is [adopt_move_refused]: "To move {{.vm}} to this folder, run devvm adopt {{.vm}} in a terminal without --no-input to confirm, or devvm adopt {{.vm}} --force."
-func AdoptMoveRefused(vm string) M {
-	return M{id: "adopt_move_refused", vals: []val{{"vm", vm}}}
+func AdoptMoveRefused(vm vmname.VM) M {
+	return M{id: "adopt_move_refused", vals: []val{{"vm", string(vm)}}}
 }
 
 // AdoptMoveVM is [adopt_move_vm]: "{{.vm}} was made for {{.was}}.\nMove the VM to this folder, with its files, secrets and allowlist? If it's running, it stops first."
-func AdoptMoveVM(vm string, was string) M {
-	return M{id: "adopt_move_vm", vals: []val{{"vm", vm}, {"was", was}}}
+func AdoptMoveVM(vm vmname.VM, was string) M {
+	return M{id: "adopt_move_vm", vals: []val{{"vm", string(vm)}, {"was", was}}}
 }
 
 // AdoptVM is [adopt_vm]: "This folder's VM, {{.vm}}, was made for an earlier folder at {{.was}}, which was deleted or replaced.\nUse that VM here, with its files, secrets and allowlist?"
-func AdoptVM(vm string, was string) M {
-	return M{id: "adopt_vm", vals: []val{{"vm", vm}, {"was", was}}}
+func AdoptVM(vm vmname.VM, was string) M {
+	return M{id: "adopt_vm", vals: []val{{"vm", string(vm)}, {"was", was}}}
 }
 
 // AgentConfirmNeedsAskpass is [agent_confirm_needs_askpass]: "The --confirm flag needs an ssh-askpass program to ask with, and macOS doesn't include one. Put one on your PATH, or set SSH_ASKPASS to it."
@@ -50,8 +54,8 @@ func AgentConfirmNeedsAskpass() M {
 }
 
 // AgentDevvmRisk is [agent_devvm_risk]: "While you're connected, anything in {{.vm}} can use the keys in devvm's SSH agent. Run devvm ssh-agent to list them."
-func AgentDevvmRisk(vm string) M {
-	return M{id: "agent_devvm_risk", vals: []val{{"vm", vm}}}
+func AgentDevvmRisk(vm vmname.VM) M {
+	return M{id: "agent_devvm_risk", vals: []val{{"vm", string(vm)}}}
 }
 
 // AgentDirComma is [agent_dir_comma]: "The agent folder {{.path}} isn't mounted, because devvm doesn't mount a path with a comma."
@@ -60,13 +64,13 @@ func AgentDirComma(path string) M {
 }
 
 // AgentDirsAdded is [agent_dirs_added]: "devvm's agent store has new folders for {{.vm}}: {{.dirs}}."
-func AgentDirsAdded(dirs string, vm string) M {
-	return M{id: "agent_dirs_added", vals: []val{{"dirs", dirs}, {"vm", vm}}}
+func AgentDirsAdded(dirs string, vm vmname.VM) M {
+	return M{id: "agent_dirs_added", vals: []val{{"dirs", dirs}, {"vm", string(vm)}}}
 }
 
 // AgentDirsRemoved is [agent_dirs_removed]: "These agent folders for {{.vm}} are gone from devvm's agent store: {{.dirs}}."
-func AgentDirsRemoved(dirs string, vm string) M {
-	return M{id: "agent_dirs_removed", vals: []val{{"dirs", dirs}, {"vm", vm}}}
+func AgentDirsRemoved(dirs string, vm vmname.VM) M {
+	return M{id: "agent_dirs_removed", vals: []val{{"dirs", dirs}, {"vm", string(vm)}}}
 }
 
 // AgentHolds is [agent_holds]: "devvm's SSH agent holds: {{.keys}}"
@@ -110,8 +114,8 @@ func AgentImportLinkNotFollowed(path string, target string) M {
 }
 
 // AgentImportLinkProject is [agent_import_link_project]: "The link {{.path}} leads into {{.vm}}'s project folder, so {{.vm}} can change what every VM's agent reads. Follow links into it only when you trust {{.vm}}."
-func AgentImportLinkProject(path string, vm string) M {
-	return M{id: "agent_import_link_project", vals: []val{{"path", path}, {"vm", vm}}}
+func AgentImportLinkProject(path string, vm vmname.VM) M {
+	return M{id: "agent_import_link_project", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // AgentImportLinkRefused is [agent_import_link_refused]: "devvm left out the link {{.path}}, because it leads to {{.target}}, and devvm never copies your home folder, secrets, agents' logins and history, or its own files."
@@ -125,8 +129,8 @@ func AgentImportLinkTooBig(path string) M {
 }
 
 // AgentImportLinkViaVM is [agent_import_link_via_vm]: "devvm left out the link {{.path}}, because it leads through a link in {{.vm}}'s project folder to a place outside it, which {{.vm}} could have chosen."
-func AgentImportLinkViaVM(path string, vm string) M {
-	return M{id: "agent_import_link_via_vm", vals: []val{{"path", path}, {"vm", vm}}}
+func AgentImportLinkViaVM(path string, vm vmname.VM) M {
+	return M{id: "agent_import_link_via_vm", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // AgentImportNone is [agent_import_none]: "There's nothing of {{.agent}} to import, because this machine has neither its settings nor its login."
@@ -165,8 +169,8 @@ func AgentKeyChanged(key string) M {
 }
 
 // AgentKeyCopyFailed is [agent_key_copy_failed]: "Giving {{.vm}} its copy of {{.agent}}'s login failed, though devvm saved the API key. Run devvm in the VM's folder to give it the copy."
-func AgentKeyCopyFailed(agent string, vm string) M {
-	return M{id: "agent_key_copy_failed", vals: []val{{"agent", agent}, {"vm", vm}}}
+func AgentKeyCopyFailed(agent string, vm vmname.VM) M {
+	return M{id: "agent_key_copy_failed", vals: []val{{"agent", agent}, {"vm", string(vm)}}}
 }
 
 // AgentKeyEmpty is [agent_key_empty]: "There's no API key to save, because the answer was empty."
@@ -180,8 +184,8 @@ func AgentKeyHowto(agent string, provider string) M {
 }
 
 // AgentKeyMounted is [agent_key_mounted]: "{{.key}} is in a folder that {{.vm}} mounts, so that VM can read it. Keep keys for devvm's SSH agent outside project folders."
-func AgentKeyMounted(key string, vm string) M {
-	return M{id: "agent_key_mounted", vals: []val{{"key", key}, {"vm", vm}}}
+func AgentKeyMounted(key string, vm vmname.VM) M {
+	return M{id: "agent_key_mounted", vals: []val{{"key", key}, {"vm", string(vm)}}}
 }
 
 // AgentKeyNoFingerprint is [agent_key_no_fingerprint]: "{{.key}} is an encrypted PEM key, so devvm can't read its fingerprint without its passphrase. Convert it with ssh-keygen -p -f {{.key}}."
@@ -210,8 +214,8 @@ func AgentKeyRemoved(key string) M {
 }
 
 // AgentKeySaved is [agent_key_saved]: "devvm saved {{.agent}}'s {{.provider}} API key in its agent store, and {{.vm}} uses it now. Every VM with {{.agent}} gets it from its next launch."
-func AgentKeySaved(agent string, provider string, vm string) M {
-	return M{id: "agent_key_saved", vals: []val{{"agent", agent}, {"provider", provider}, {"vm", vm}}}
+func AgentKeySaved(agent string, provider string, vm vmname.VM) M {
+	return M{id: "agent_key_saved", vals: []val{{"agent", agent}, {"provider", provider}, {"vm", string(vm)}}}
 }
 
 // AgentKeyUnpinned is [agent_key_unpinned]: "{{.key}} has no fingerprint that devvm recorded, so devvm didn't load the key. Run devvm ssh-agent add {{.key}} to add it again."
@@ -230,8 +234,8 @@ func AgentLoadFailed(key string) M {
 }
 
 // AgentLoginExited is [agent_login_exited]: "{{.agent}}'s login in {{.vm}} failed, and its output above says why."
-func AgentLoginExited(agent string, vm string) M {
-	return M{id: "agent_login_exited", vals: []val{{"agent", agent}, {"vm", vm}}}
+func AgentLoginExited(agent string, vm vmname.VM) M {
+	return M{id: "agent_login_exited", vals: []val{{"agent", agent}, {"vm", string(vm)}}}
 }
 
 // AgentLoginFailed is [agent_login_failed]: "Logging the agent in failed: {{.reason}}."
@@ -250,8 +254,8 @@ func AgentLoginFlagOrToken(agent string, flag string) M {
 }
 
 // AgentLoginForward is [agent_login_forward]: "Open the address {{.agent}} shows in a browser on this machine: devvm forwards localhost:{{.port}} to {{.vm}} until the login ends."
-func AgentLoginForward(agent string, port string, vm string) M {
-	return M{id: "agent_login_forward", vals: []val{{"agent", agent}, {"port", port}, {"vm", vm}}}
+func AgentLoginForward(agent string, port string, vm vmname.VM) M {
+	return M{id: "agent_login_forward", vals: []val{{"agent", agent}, {"port", port}, {"vm", string(vm)}}}
 }
 
 // AgentLoginImported is [agent_login_imported]: "devvm imported {{.agent}}'s login into {{.file}}."
@@ -265,13 +269,13 @@ func AgentLoginKeyOnly(agent string) M {
 }
 
 // AgentLoginNoAgent is [agent_login_no_agent]: "{{.vm}} has no {{.agent}} to log in with. Run devvm tools add {{.agent}}, then devvm agent login {{.agent}}."
-func AgentLoginNoAgent(agent string, vm string) M {
-	return M{id: "agent_login_no_agent", vals: []val{{"agent", agent}, {"vm", vm}}}
+func AgentLoginNoAgent(agent string, vm vmname.VM) M {
+	return M{id: "agent_login_no_agent", vals: []val{{"agent", agent}, {"vm", string(vm)}}}
 }
 
 // AgentLoginNotSaved is [agent_login_not_saved]: "{{.agent}}'s login in {{.vm}} ended, but no new login reached devvm's agent store. devvm network log shows each login the VM's proxy saved."
-func AgentLoginNotSaved(agent string, vm string) M {
-	return M{id: "agent_login_not_saved", vals: []val{{"agent", agent}, {"vm", vm}}}
+func AgentLoginNotSaved(agent string, vm vmname.VM) M {
+	return M{id: "agent_login_not_saved", vals: []val{{"agent", agent}, {"vm", string(vm)}}}
 }
 
 // AgentLoginPaste is [agent_login_paste]: "Open the address {{.display}} shows in a browser on any machine and approve the login, then paste the code the browser shows here."
@@ -300,13 +304,13 @@ func AgentLoginReadFailed(file string, reason string) M {
 }
 
 // AgentLoginSaved is [agent_login_saved]: "devvm saved {{.agent}}'s ChatGPT login in its agent store, and {{.vm}} uses it now. Every VM with {{.agent}} gets it from its next launch."
-func AgentLoginSaved(agent string, vm string) M {
-	return M{id: "agent_login_saved", vals: []val{{"agent", agent}, {"vm", vm}}}
+func AgentLoginSaved(agent string, vm vmname.VM) M {
+	return M{id: "agent_login_saved", vals: []val{{"agent", agent}, {"vm", string(vm)}}}
 }
 
 // AgentLoginSavedFor is [agent_login_saved_for]: "devvm saved {{.agent}}'s ChatGPT login for {{.email}} in its agent store, and {{.vm}} uses it now. Every VM with {{.agent}} gets it from its next launch."
-func AgentLoginSavedFor(agent string, email string, vm string) M {
-	return M{id: "agent_login_saved_for", vals: []val{{"agent", agent}, {"email", email}, {"vm", vm}}}
+func AgentLoginSavedFor(agent string, email string, vm vmname.VM) M {
+	return M{id: "agent_login_saved_for", vals: []val{{"agent", agent}, {"email", email}, {"vm", string(vm)}}}
 }
 
 // AgentLoginStdinAlone is [agent_login_stdin_alone]: "--stdin goes with --api-key. Run devvm agent login {{.agent}} --api-key --stdin."
@@ -320,13 +324,13 @@ func AgentNoKeys() M {
 }
 
 // AgentOnRisk is [agent_on_risk]: "While you're connected, anything in {{.vm}} can use the keys in your SSH agent."
-func AgentOnRisk(vm string) M {
-	return M{id: "agent_on_risk", vals: []val{{"vm", vm}}}
+func AgentOnRisk(vm vmname.VM) M {
+	return M{id: "agent_on_risk", vals: []val{{"vm", string(vm)}}}
 }
 
 // AgentOwnLoginSaved is [agent_own_login_saved]: "devvm saved {{.display}}'s login in its agent store, and {{.vm}} uses it now. Every VM with {{.display}} gets it from its next launch."
-func AgentOwnLoginSaved(display string, vm string) M {
-	return M{id: "agent_own_login_saved", vals: []val{{"display", display}, {"vm", vm}}}
+func AgentOwnLoginSaved(display string, vm vmname.VM) M {
+	return M{id: "agent_own_login_saved", vals: []val{{"display", display}, {"vm", string(vm)}}}
 }
 
 // AgentProviderRefreshFailed is [agent_provider_refresh_failed]: "Refreshing {{.display}}'s {{.provider}} login in devvm's agent store failed: {{.reason}}. Run devvm agent login {{.agent}} in a VM's folder to log in again."
@@ -340,8 +344,8 @@ func AgentRefreshFailed(agent string, display string, reason string) M {
 }
 
 // AgentSaveAsk is [agent_save_ask]: "Save these settings from {{.vm}} into devvm's agent store, for every VM with these agents?"
-func AgentSaveAsk(vm string) M {
-	return M{id: "agent_save_ask", vals: []val{{"vm", vm}}}
+func AgentSaveAsk(vm vmname.VM) M {
+	return M{id: "agent_save_ask", vals: []val{{"vm", string(vm)}}}
 }
 
 // AgentSaveFailed is [agent_save_failed]: "Saving the agents' settings failed: {{.reason}}."
@@ -350,38 +354,38 @@ func AgentSaveFailed(reason string) M {
 }
 
 // AgentSaveKindLeftOut is [agent_save_kind_left_out]: "devvm left out {{.path}} in {{.vm}}, because it saves only files, folders and links to files."
-func AgentSaveKindLeftOut(path string, vm string) M {
-	return M{id: "agent_save_kind_left_out", vals: []val{{"path", path}, {"vm", vm}}}
+func AgentSaveKindLeftOut(path string, vm vmname.VM) M {
+	return M{id: "agent_save_kind_left_out", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // AgentSaveLinkLeftOut is [agent_save_link_left_out]: "devvm left out the link {{.path}} in {{.vm}}, because it saves only links to files inside the same settings folder."
-func AgentSaveLinkLeftOut(path string, vm string) M {
-	return M{id: "agent_save_link_left_out", vals: []val{{"path", path}, {"vm", vm}}}
+func AgentSaveLinkLeftOut(path string, vm vmname.VM) M {
+	return M{id: "agent_save_link_left_out", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // AgentSaveNoAgent is [agent_save_no_agent]: "{{.vm}} has no agent, so there are no settings to save."
-func AgentSaveNoAgent(vm string) M {
-	return M{id: "agent_save_no_agent", vals: []val{{"vm", vm}}}
+func AgentSaveNoAgent(vm vmname.VM) M {
+	return M{id: "agent_save_no_agent", vals: []val{{"vm", string(vm)}}}
 }
 
 // AgentSaveNone is [agent_save_none]: "{{.vm}} doesn't have {{.agent}}, so devvm saves nothing of it."
-func AgentSaveNone(agent string, vm string) M {
-	return M{id: "agent_save_none", vals: []val{{"agent", agent}, {"vm", vm}}}
+func AgentSaveNone(agent string, vm vmname.VM) M {
+	return M{id: "agent_save_none", vals: []val{{"agent", agent}, {"vm", string(vm)}}}
 }
 
 // AgentSaveNotRead is [agent_save_not_read]: "Reading the agents' settings from {{.vm}} failed."
-func AgentSaveNotRead(vm string) M {
-	return M{id: "agent_save_not_read", vals: []val{{"vm", vm}}}
+func AgentSaveNotRead(vm vmname.VM) M {
+	return M{id: "agent_save_not_read", vals: []val{{"vm", string(vm)}}}
 }
 
 // AgentSaveNothing is [agent_save_nothing]: "The settings of {{.vm}}'s agents are the same as devvm's agent store has."
-func AgentSaveNothing(vm string) M {
-	return M{id: "agent_save_nothing", vals: []val{{"vm", vm}}}
+func AgentSaveNothing(vm vmname.VM) M {
+	return M{id: "agent_save_nothing", vals: []val{{"vm", string(vm)}}}
 }
 
 // AgentSavePlaceholder is [agent_save_placeholder]: "devvm left out {{.path}} in {{.vm}}, because it holds a placeholder for a secret that devvm can't put back. Change the file in devvm's agent store instead."
-func AgentSavePlaceholder(path string, vm string) M {
-	return M{id: "agent_save_placeholder", vals: []val{{"path", path}, {"vm", vm}}}
+func AgentSavePlaceholder(path string, vm vmname.VM) M {
+	return M{id: "agent_save_placeholder", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // AgentSaveRefused is [agent_save_refused]: "devvm agent save shows what changed and asks before it saves. Run it in a terminal without --no-input."
@@ -395,23 +399,23 @@ func AgentSaveRuns() M {
 }
 
 // AgentSaveTooMuch is [agent_save_too_much]: "{{.vm}} sent more than devvm saves at once, so devvm saved nothing. Take out what the agents' settings folders don't need, such as a plugin's build files."
-func AgentSaveTooMuch(vm string) M {
-	return M{id: "agent_save_too_much", vals: []val{{"vm", vm}}}
+func AgentSaveTooMuch(vm vmname.VM) M {
+	return M{id: "agent_save_too_much", vals: []val{{"vm", string(vm)}}}
 }
 
 // AgentSaveUnparsed is [agent_save_unparsed]: "devvm left out {{.path}} in {{.vm}}, because it isn't a settings file devvm can read."
-func AgentSaveUnparsed(path string, vm string) M {
-	return M{id: "agent_save_unparsed", vals: []val{{"path", path}, {"vm", vm}}}
+func AgentSaveUnparsed(path string, vm vmname.VM) M {
+	return M{id: "agent_save_unparsed", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // AgentSaveUnsafe is [agent_save_unsafe]: "{{.vm}} sent {{.path}}, which isn't among the agents' settings, so devvm saved nothing."
-func AgentSaveUnsafe(path string, vm string) M {
-	return M{id: "agent_save_unsafe", vals: []val{{"path", path}, {"vm", vm}}}
+func AgentSaveUnsafe(path string, vm vmname.VM) M {
+	return M{id: "agent_save_unsafe", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // AgentSaveWithheld is [agent_save_withheld]: "devvm left out {{.path}} in {{.vm}}, because no VM gets that file from devvm's agent store. Change the store's file instead."
-func AgentSaveWithheld(path string, vm string) M {
-	return M{id: "agent_save_withheld", vals: []val{{"path", path}, {"vm", vm}}}
+func AgentSaveWithheld(path string, vm vmname.VM) M {
+	return M{id: "agent_save_withheld", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // AgentSettingsImported is [agent_settings_imported]: "devvm imported {{.agent}}'s settings into {{.dir}}."
@@ -420,8 +424,8 @@ func AgentSettingsImported(agent string, dir string) M {
 }
 
 // AgentSettingsSaved is [agent_settings_saved]: "devvm saved {{.agent}}'s settings from {{.vm}} into {{.dir}}."
-func AgentSettingsSaved(agent string, dir string, vm string) M {
-	return M{id: "agent_settings_saved", vals: []val{{"agent", agent}, {"dir", dir}, {"vm", vm}}}
+func AgentSettingsSaved(agent string, dir string, vm vmname.VM) M {
+	return M{id: "agent_settings_saved", vals: []val{{"agent", agent}, {"dir", dir}, {"vm", string(vm)}}}
 }
 
 // AgentStartFailed is [agent_start_failed]: "The SSH agent devvm runs didn't start at {{.sock}}."
@@ -440,8 +444,8 @@ func AgentsHelp() M {
 }
 
 // AlreadyStopped is [already_stopped]: "{{.vm}} is already stopped"
-func AlreadyStopped(vm string) M {
-	return M{id: "already_stopped", vals: []val{{"vm", vm}}}
+func AlreadyStopped(vm vmname.VM) M {
+	return M{id: "already_stopped", vals: []val{{"vm", string(vm)}}}
 }
 
 // ArgBlank is [arg_blank]: "One of the arguments of {{.command}} is empty, and no command takes one. Give it a value, or leave it out."
@@ -469,24 +473,24 @@ func ArgsTooMany(args string, command string, given string) M {
 	return M{id: "args_too_many", vals: []val{{"args", args}, {"command", command}, {"given", given}}}
 }
 
-// BackendLacks is [backend_lacks]: "{{.vm}} needs {{.feature}}, and the {{.backend}} backend doesn't have it. Run devvm doctor to see the features it has."
-func BackendLacks(backend string, feature string, vm string) M {
-	return M{id: "backend_lacks", vals: []val{{"backend", backend}, {"feature", feature}, {"vm", vm}}}
+// BackendLacks is [backend_lacks]: "{{.what}} needs {{.feature}}, and the {{.backend}} backend doesn't have it. Run devvm doctor to see the features it has."
+func BackendLacks(backend string, feature string, what string) M {
+	return M{id: "backend_lacks", vals: []val{{"backend", backend}, {"feature", feature}, {"what", what}}}
 }
 
 // BackendUnknownVM is [backend_unknown_vm]: "{{.vm}} runs on the {{.backend}} backend, which this devvm doesn't have. Use the devvm that made it."
-func BackendUnknownVM(backend string, vm string) M {
-	return M{id: "backend_unknown_vm", vals: []val{{"backend", backend}, {"vm", vm}}}
+func BackendUnknownVM(backend string, vm vmname.VM) M {
+	return M{id: "backend_unknown_vm", vals: []val{{"backend", backend}, {"vm", string(vm)}}}
 }
 
-// BackendUnreviewed is [backend_unreviewed]: "{{.vm}} needs {{.feature}}, and the {{.backend}} backend only emulates it without a review. Run devvm doctor to see the features it has."
-func BackendUnreviewed(backend string, feature string, vm string) M {
-	return M{id: "backend_unreviewed", vals: []val{{"backend", backend}, {"feature", feature}, {"vm", vm}}}
+// BackendUnreviewed is [backend_unreviewed]: "{{.what}} needs {{.feature}}, and the {{.backend}} backend only emulates it without a review. Run devvm doctor to see the features it has."
+func BackendUnreviewed(backend string, feature string, what string) M {
+	return M{id: "backend_unreviewed", vals: []val{{"backend", backend}, {"feature", feature}, {"what", what}}}
 }
 
-// BackendUnreviewedUsed is [backend_unreviewed_used]: "{{.vm}} uses the {{.backend}} backend's unreviewed {{.feature}}, because DEVVM_UNREVIEWED asks for it. Use this only for testing."
-func BackendUnreviewedUsed(backend string, feature string, vm string) M {
-	return M{id: "backend_unreviewed_used", vals: []val{{"backend", backend}, {"feature", feature}, {"vm", vm}}}
+// BackendUnreviewedUsed is [backend_unreviewed_used]: "{{.what}} uses the {{.backend}} backend's unreviewed {{.feature}}, because DEVVM_UNREVIEWED asks for it. Use this only for testing."
+func BackendUnreviewedUsed(backend string, feature string, what string) M {
+	return M{id: "backend_unreviewed_used", vals: []val{{"backend", backend}, {"feature", feature}, {"what", what}}}
 }
 
 // BadDuration is [bad_duration]: "{{.value}} isn't a duration devvm takes. Give a whole number and m, h, d or w, such as 30m, 12h, 30d or 2w."
@@ -585,8 +589,8 @@ func BuildFailed(image string, reason string) M {
 }
 
 // BuildSourcesUnreachable is [build_sources_unreachable]: "{{.script}} in {{.vm}} reached no package source, neither the mirror you set nor Ubuntu's archive. Check that you're online, then run the command again."
-func BuildSourcesUnreachable(script string, vm string) M {
-	return M{id: "build_sources_unreachable", vals: []val{{"script", script}, {"vm", vm}}}
+func BuildSourcesUnreachable(script string, vm vmname.VM) M {
+	return M{id: "build_sources_unreachable", vals: []val{{"script", script}, {"vm", string(vm)}}}
 }
 
 // BuildingImage is [building_image]: "building image {{.image}} ({{.key}})"
@@ -660,8 +664,8 @@ func ClaudeNoLogin() M {
 }
 
 // ClaudeSetupTokenSaved is [claude_setup_token_saved]: "devvm saved the Claude Code token from claude setup-token with its secrets, and {{.vm}} uses it now. Every VM with Claude Code gets it from its next launch."
-func ClaudeSetupTokenSaved(vm string) M {
-	return M{id: "claude_setup_token_saved", vals: []val{{"vm", vm}}}
+func ClaudeSetupTokenSaved(vm vmname.VM) M {
+	return M{id: "claude_setup_token_saved", vals: []val{{"vm", string(vm)}}}
 }
 
 // ClaudeTokenHowto is [claude_token_howto]: "Paste the Claude Code token that claude setup-token printed, which starts with sk-ant-oat01-, not the code the browser shows.\ndevvm agent login claude --setup-token runs it in a VM and saves the token without this step."
@@ -675,8 +679,8 @@ func ClaudeTokenInvalid() M {
 }
 
 // CloneAddAlready is [clone_add_already]: "{{.vm}} has its own clone of {{.path}} already."
-func CloneAddAlready(path string, vm string) M {
-	return M{id: "clone_add_already", vals: []val{{"path", path}, {"vm", vm}}}
+func CloneAddAlready(path string, vm vmname.VM) M {
+	return M{id: "clone_add_already", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // CloneAddFailed is [clone_add_failed]: "Copying the repo into this folder's VM failed: {{.reason}}."
@@ -690,8 +694,8 @@ func CloneAddMissing(dir string) M {
 }
 
 // CloneAddMounted is [clone_add_mounted]: "{{.vm}} mounts this folder, so it has no clone to add a repo to, and the repos in the folder are in the VM already."
-func CloneAddMounted(vm string) M {
-	return M{id: "clone_add_mounted", vals: []val{{"vm", vm}}}
+func CloneAddMounted(vm vmname.VM) M {
+	return M{id: "clone_add_mounted", vals: []val{{"vm", string(vm)}}}
 }
 
 // CloneAddName is [clone_add_name]: "devvm clone add takes a repo whose folder's name has only characters a terminal can show, and no line break. Rename the folder, then run it again."
@@ -715,23 +719,23 @@ func CloneAlternates(path string) M {
 }
 
 // CloneCheckFailed is [clone_check_failed]: "Reading the clone in {{.vm}} failed, so devvm kept the VM as it is. To go ahead without the check, losing the clone's unfetched commits and uncommitted changes, run {{.command}} --no-clone-check."
-func CloneCheckFailed(command string, vm string) M {
-	return M{id: "clone_check_failed", vals: []val{{"command", command}, {"vm", vm}}}
+func CloneCheckFailed(command string, vm vmname.VM) M {
+	return M{id: "clone_check_failed", vals: []val{{"command", command}, {"vm", string(vm)}}}
 }
 
 // CloneCheckNotStarted is [clone_check_not_started]: "{{.vm}} didn't start for the clone check, so devvm kept the VM as it is. To go ahead without the check, losing the clone's unfetched commits and uncommitted changes, run {{.command}} --no-clone-check."
-func CloneCheckNotStarted(command string, vm string) M {
-	return M{id: "clone_check_not_started", vals: []val{{"command", command}, {"vm", vm}}}
+func CloneCheckNotStarted(command string, vm vmname.VM) M {
+	return M{id: "clone_check_not_started", vals: []val{{"command", command}, {"vm", string(vm)}}}
 }
 
 // CloneCheckRepoChanged is [clone_check_repo_changed]: "{{.path}} isn't the repo on this machine that {{.vm}} has a clone of any more, so devvm kept the VM as it is. Put it back, or run {{.command}} --no-clone-check to go ahead without the check."
-func CloneCheckRepoChanged(command string, path string, vm string) M {
-	return M{id: "clone_check_repo_changed", vals: []val{{"command", command}, {"path", path}, {"vm", vm}}}
+func CloneCheckRepoChanged(command string, path string, vm vmname.VM) M {
+	return M{id: "clone_check_repo_changed", vals: []val{{"command", command}, {"path", path}, {"vm", string(vm)}}}
 }
 
 // CloneCheckSkipped is [clone_check_skipped]: "Without the clone check, {{.command}} loses the commits on {{.vm}}'s clone that this repo hasn't fetched, and the clone's uncommitted changes."
-func CloneCheckSkipped(command string, vm string) M {
-	return M{id: "clone_check_skipped", vals: []val{{"command", command}, {"vm", vm}}}
+func CloneCheckSkipped(command string, vm vmname.VM) M {
+	return M{id: "clone_check_skipped", vals: []val{{"command", command}, {"vm", string(vm)}}}
 }
 
 // CloneDirty is [clone_dirty]: "The VM's clone has uncommitted changes, which will be lost:"
@@ -740,13 +744,13 @@ func CloneDirty() M {
 }
 
 // CloneFetchFailed is [clone_fetch_failed]: "Fetching the branches of {{.path}} in {{.vm}} failed. Run devvm clone fetch again to retry."
-func CloneFetchFailed(path string, vm string) M {
-	return M{id: "clone_fetch_failed", vals: []val{{"path", path}, {"vm", vm}}}
+func CloneFetchFailed(path string, vm vmname.VM) M {
+	return M{id: "clone_fetch_failed", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // CloneFetchMounted is [clone_fetch_mounted]: "{{.vm}} mounts this folder, so it has no clone to fetch from, and its work is in the folder already."
-func CloneFetchMounted(vm string) M {
-	return M{id: "clone_fetch_mounted", vals: []val{{"vm", vm}}}
+func CloneFetchMounted(vm vmname.VM) M {
+	return M{id: "clone_fetch_mounted", vals: []val{{"vm", string(vm)}}}
 }
 
 // CloneFetchPartial is [clone_fetch_partial]: "{{.path}} is a partial clone, so the VM's clone may lack an object its work needs, and git there won't fetch one just to send it. In the VM's clone, run a command that reads the work's objects, such as git show of its commits, then fetch again."
@@ -775,8 +779,8 @@ func CloneFilteredKept(count int, dir string, files string) M {
 }
 
 // CloneFolderMounted is [clone_folder_mounted]: "{{.vm}} mounts {{.dir}}, so code in it could swap the repo under the git commands --clone runs here. Delete that VM, or run devvm --clone in a folder no other VM mounts."
-func CloneFolderMounted(dir string, vm string) M {
-	return M{id: "clone_folder_mounted", vals: []val{{"dir", dir}, {"vm", vm}}}
+func CloneFolderMounted(dir string, vm vmname.VM) M {
+	return M{id: "clone_folder_mounted", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // CloneGitElsewhere is [clone_git_elsewhere]: "--clone takes only a repo of the folder's own or a git worktree of one, and {{.path}} points into another repo. Run devvm --clone in that repo's own folder."
@@ -860,8 +864,8 @@ func CloneNeedsGit() M {
 }
 
 // CloneNeedsNewVM is [clone_needs_new_vm]: "{{.vm}} mounts this folder, so --clone doesn't change it. To give it its own clone of the repo, run devvm clone on."
-func CloneNeedsNewVM(vm string) M {
-	return M{id: "clone_needs_new_vm", vals: []val{{"vm", vm}}}
+func CloneNeedsNewVM(vm vmname.VM) M {
+	return M{id: "clone_needs_new_vm", vals: []val{{"vm", string(vm)}}}
 }
 
 // CloneNoCommits is [clone_no_commits]: "--clone needs a commit, and this repo has none yet. Make a first commit, then run devvm --clone again."
@@ -940,13 +944,13 @@ func CloneRepoDirty(repo string) M {
 }
 
 // CloneRepoFormat is [clone_repo_format]: "An older devvm made an empty repo at {{.paths}} in {{.vm}} that can't take this repo's SHA-256 objects.\nDelete that empty repo's .git and make it again?"
-func CloneRepoFormat(paths string, vm string) M {
-	return M{id: "clone_repo_format", vals: []val{{"paths", paths}, {"vm", vm}}}
+func CloneRepoFormat(paths string, vm vmname.VM) M {
+	return M{id: "clone_repo_format", vals: []val{{"paths", paths}, {"vm", string(vm)}}}
 }
 
 // CloneRepoFormatKept is [clone_repo_format_kept]: "The empty repo at {{.paths}} in {{.vm}} stays as it is, so it has none of your branches. Run devvm in a terminal to make it again, or run devvm rm, then devvm --clone."
-func CloneRepoFormatKept(paths string, vm string) M {
-	return M{id: "clone_repo_format_kept", vals: []val{{"paths", paths}, {"vm", vm}}}
+func CloneRepoFormatKept(paths string, vm vmname.VM) M {
+	return M{id: "clone_repo_format_kept", vals: []val{{"paths", paths}, {"vm", string(vm)}}}
 }
 
 // CloneRepoGone is [clone_repo_gone]: "The VM's clone of {{.repo}} isn't at its path, so devvm can't check it, and whatever the VM moved it to will be lost."
@@ -955,18 +959,18 @@ func CloneRepoGone(repo string) M {
 }
 
 // CloneRepoMounted is [clone_repo_mounted]: "{{.vm}} mounts {{.path}}, so code in it could swap that repo under devvm's git, and devvm leaves it alone. Delete that VM, or move the repo out of its folder, then run the command again."
-func CloneRepoMounted(path string, vm string) M {
-	return M{id: "clone_repo_mounted", vals: []val{{"path", path}, {"vm", vm}}}
+func CloneRepoMounted(path string, vm vmname.VM) M {
+	return M{id: "clone_repo_mounted", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // CloneRepoUnchecked is [clone_repo_unchecked]: "{{.vm}} mounts {{.path}}, so devvm leaves this machine's repo alone and can't fetch the VM's work in it, which will be lost."
-func CloneRepoUnchecked(path string, vm string) M {
-	return M{id: "clone_repo_unchecked", vals: []val{{"path", path}, {"vm", vm}}}
+func CloneRepoUnchecked(path string, vm vmname.VM) M {
+	return M{id: "clone_repo_unchecked", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // CloneSeedFailed is [clone_seed_failed]: "Copying the repo's branches into {{.vm}} failed. Run devvm again to retry."
-func CloneSeedFailed(vm string) M {
-	return M{id: "clone_seed_failed", vals: []val{{"vm", vm}}}
+func CloneSeedFailed(vm vmname.VM) M {
+	return M{id: "clone_seed_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // CloneShowFailed is [clone_show_failed]: "Showing whether this folder's VM has its own clone of the repo failed: {{.reason}}."
@@ -1020,13 +1024,13 @@ func CloneSubmodulesKept(path string) M {
 }
 
 // CloneSwitchOff is [clone_switch_off]: "devvm makes {{.vm}} again with this folder mounted instead of its own clone, and removes the clone's git remote before the new VM starts."
-func CloneSwitchOff(vm string) M {
-	return M{id: "clone_switch_off", vals: []val{{"vm", vm}}}
+func CloneSwitchOff(vm vmname.VM) M {
+	return M{id: "clone_switch_off", vals: []val{{"vm", string(vm)}}}
 }
 
 // CloneSwitchOn is [clone_switch_on]: "devvm makes {{.vm}} again with its own clone of the repo instead of this folder mounted, and copies the repo's branches into it as it starts."
-func CloneSwitchOn(vm string) M {
-	return M{id: "clone_switch_on", vals: []val{{"vm", vm}}}
+func CloneSwitchOn(vm vmname.VM) M {
+	return M{id: "clone_switch_on", vals: []val{{"vm", string(vm)}}}
 }
 
 // CloneTodoMissing is [clone_todo_missing]: "The VM's clone of {{.dir}} lacks {{.count}} commits, such as {{.commits}}, which its rebase or cherry-pick still has to pick, so those steps will fail there. Push or fetch them into the VM's clone first, or skip them."
@@ -1055,8 +1059,8 @@ func CloneUrlsUnread(count int, dir string, remotes string) M {
 }
 
 // CloneVMGitOld is [clone_vm_git_old]: "This repo names its objects with SHA-256, which needs git 2.29 or newer in the VM, and {{.vm}} has {{.version}}. Run devvm rm, then make the VM again from an image with a newer git."
-func CloneVMGitOld(version string, vm string) M {
-	return M{id: "clone_vm_git_old", vals: []val{{"version", version}, {"vm", vm}}}
+func CloneVMGitOld(version string, vm vmname.VM) M {
+	return M{id: "clone_vm_git_old", vals: []val{{"version", version}, {"vm", string(vm)}}}
 }
 
 // CloneWorktreeDetached is [clone_worktree_detached]: "The worktree {{.path}} in the VM's clone has commits on its detached HEAD that no branch has, which will be lost. To keep them, run git switch -c NAME in that worktree, then fetch the branch."
@@ -1105,18 +1109,18 @@ func CodexNoKey() M {
 }
 
 // ConfigNotCopied is [config_not_copied]: "{{.vm}} doesn't get a copy of {{.file}}, because devvm couldn't read it to take its secrets out."
-func ConfigNotCopied(file string, vm string) M {
-	return M{id: "config_not_copied", vals: []val{{"file", file}, {"vm", vm}}}
+func ConfigNotCopied(file string, vm vmname.VM) M {
+	return M{id: "config_not_copied", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // ConfigRedacted is [config_redacted]: "devvm redacted {{.keys}} in {{.vm}}'s copy of {{.file}}, because devvm keeps secrets on this machine, whatever the VM's network tier."
-func ConfigRedacted(file string, keys string, vm string) M {
-	return M{id: "config_redacted", vals: []val{{"file", file}, {"keys", keys}, {"vm", vm}}}
+func ConfigRedacted(file string, keys string, vm vmname.VM) M {
+	return M{id: "config_redacted", vals: []val{{"file", file}, {"keys", keys}, {"vm", string(vm)}}}
 }
 
-// Configuring is [configuring]: "configuring {{.vm}}"
-func Configuring(vm string) M {
-	return M{id: "configuring", vals: []val{{"vm", vm}}}
+// Configuring is [configuring]: "configuring {{.what}}"
+func Configuring(what string) M {
+	return M{id: "configuring", vals: []val{{"what", what}}}
 }
 
 // Continue is [continue]: "Continue?"
@@ -1140,8 +1144,8 @@ func Converting(from string) M {
 }
 
 // ConvertingInVM is [converting_in_vm]: "converting {{.from}} into a disk, in a throwaway VM ({{.vm}})"
-func ConvertingInVM(from string, vm string) M {
-	return M{id: "converting_in_vm", vals: []val{{"from", from}, {"vm", vm}}}
+func ConvertingInVM(from string, vm vmname.VM) M {
+	return M{id: "converting_in_vm", vals: []val{{"from", from}, {"vm", string(vm)}}}
 }
 
 // CopyingBranches is [copying_branches]: "copying the repo's branches into the VM"
@@ -1165,23 +1169,23 @@ func CpusNotNumber(flag string, value string) M {
 }
 
 // CreateRunning is [create_running]: "Another devvm is making {{.vm}}. Run the command again once it has finished."
-func CreateRunning(vm string) M {
-	return M{id: "create_running", vals: []val{{"vm", vm}}}
+func CreateRunning(vm vmname.VM) M {
+	return M{id: "create_running", vals: []val{{"vm", string(vm)}}}
 }
 
 // Creating is [creating]: "creating {{.vm}}"
-func Creating(vm string) M {
-	return M{id: "creating", vals: []val{{"vm", vm}}}
+func Creating(vm vmname.VM) M {
+	return M{id: "creating", vals: []val{{"vm", string(vm)}}}
 }
 
 // CreatingFrom is [creating_from]: "creating {{.vm}} from {{.image}}"
-func CreatingFrom(image string, vm string) M {
-	return M{id: "creating_from", vals: []val{{"image", image}, {"vm", vm}}}
+func CreatingFrom(image string, vm vmname.VM) M {
+	return M{id: "creating_from", vals: []val{{"image", image}, {"vm", string(vm)}}}
 }
 
 // CreatingFromUbuntu is [creating_from_ubuntu]: "creating {{.vm}} from Ubuntu's cloud image"
-func CreatingFromUbuntu(vm string) M {
-	return M{id: "creating_from_ubuntu", vals: []val{{"vm", vm}}}
+func CreatingFromUbuntu(vm vmname.VM) M {
+	return M{id: "creating_from_ubuntu", vals: []val{{"vm", string(vm)}}}
 }
 
 // CursorAgentInVM is [cursor_agent_in_vm]: "Cursor's Agent will run in the VM with your Cursor sign-in. Adding \"cursorAgentHost.remoteInferenceRoute\": \"always\" to {{.file}} sends Agent's requests through the Cursor app here, but the VM's Cursor server still signs in to Cursor either way, so open only VMs you trust."
@@ -1195,8 +1199,8 @@ func CursorFailed(reason string) M {
 }
 
 // CustomLayerRemove is [custom_layer_remove]: "{{.layer}} is one of {{.vm}}'s layers, not a shared tool. To take it out, run devvm layer rm {{.layer}}."
-func CustomLayerRemove(layer string, vm string) M {
-	return M{id: "custom_layer_remove", vals: []val{{"layer", layer}, {"vm", vm}}}
+func CustomLayerRemove(layer string, vm vmname.VM) M {
+	return M{id: "custom_layer_remove", vals: []val{{"layer", layer}, {"vm", string(vm)}}}
 }
 
 // CustomSecretHowto is [custom_secret_howto]: "Paste the value of {{.secret}}, which VMs that use it send to {{.hosts}}.\nThe VMs that use it can reach those hosts on port 443."
@@ -1210,8 +1214,8 @@ func CustomSecretRefused(path string, secret string) M {
 }
 
 // CustomSecretUsed is [custom_secret_used]: "{{.vm}} uses the {{.secret}} secret from its next launch, and its allowlist has {{.hosts}} on port 443."
-func CustomSecretUsed(hosts string, secret string, vm string) M {
-	return M{id: "custom_secret_used", vals: []val{{"hosts", hosts}, {"secret", secret}, {"vm", vm}}}
+func CustomSecretUsed(hosts string, secret string, vm vmname.VM) M {
+	return M{id: "custom_secret_used", vals: []val{{"hosts", hosts}, {"secret", secret}, {"vm", string(vm)}}}
 }
 
 // CustomSecretsUnreadable is [custom_secrets_unreadable]: "Reading your secrets' list in {{.path}} failed: {{.reason}}."
@@ -1230,13 +1234,13 @@ func DefaultAgentsNone() M {
 }
 
 // DefaultLayerGone is [default_layer_gone]: "{{.vm}} doesn't get the default layer {{.layer}}, because {{.dir}} has no script for it. To change new VMs' layers, run devvm setup --layers."
-func DefaultLayerGone(dir string, layer string, vm string) M {
-	return M{id: "default_layer_gone", vals: []val{{"dir", dir}, {"layer", layer}, {"vm", vm}}}
+func DefaultLayerGone(dir string, layer string, vm vmname.VM) M {
+	return M{id: "default_layer_gone", vals: []val{{"dir", dir}, {"layer", layer}, {"vm", string(vm)}}}
 }
 
 // DefaultLayerLacks is [default_layer_lacks]: "{{.vm}} can't get the default layer {{.layer}}, because the {{.backend}} backend doesn't have {{.feature}}. Give it other layers with --layers, or change new VMs' layers with devvm setup --layers."
-func DefaultLayerLacks(backend string, feature string, layer string, vm string) M {
-	return M{id: "default_layer_lacks", vals: []val{{"backend", backend}, {"feature", feature}, {"layer", layer}, {"vm", vm}}}
+func DefaultLayerLacks(backend string, feature string, layer string, vm vmname.VM) M {
+	return M{id: "default_layer_lacks", vals: []val{{"backend", backend}, {"feature", feature}, {"layer", layer}, {"vm", string(vm)}}}
 }
 
 // DefaultLayers is [default_layers]: "New VMs get these layers: {{.layers}}, and VMs you already have keep theirs. To change them, run devvm setup --layers."
@@ -1255,33 +1259,33 @@ func DeleteAnyway() M {
 }
 
 // DeleteFailed is [delete_failed]: "Deleting {{.vm}} failed."
-func DeleteFailed(vm string) M {
-	return M{id: "delete_failed", vals: []val{{"vm", vm}}}
+func DeleteFailed(vm vmname.VM) M {
+	return M{id: "delete_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // DeleteGoneFolderVM is [delete_gone_folder_vm]: "{{.vm}} was made for {{.dir}}, which is gone. It may hold that project's work. Delete it?"
-func DeleteGoneFolderVM(dir string, vm string) M {
-	return M{id: "delete_gone_folder_vm", vals: []val{{"dir", dir}, {"vm", vm}}}
+func DeleteGoneFolderVM(dir string, vm vmname.VM) M {
+	return M{id: "delete_gone_folder_vm", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // DeleteNotConnectedFolderVM is [delete_not_connected_folder_vm]: "{{.vm}} was made for {{.dir}}, which is on a disk that isn't connected. It may hold that project's work. Delete it anyway?"
-func DeleteNotConnectedFolderVM(dir string, vm string) M {
-	return M{id: "delete_not_connected_folder_vm", vals: []val{{"dir", dir}, {"vm", vm}}}
+func DeleteNotConnectedFolderVM(dir string, vm vmname.VM) M {
+	return M{id: "delete_not_connected_folder_vm", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // DeleteOtherFolderVM is [delete_other_folder_vm]: "{{.vm}} was made for an earlier folder at {{.was}}, which was deleted or replaced. It may hold that project's work. Delete it?"
-func DeleteOtherFolderVM(vm string, was string) M {
-	return M{id: "delete_other_folder_vm", vals: []val{{"vm", vm}, {"was", was}}}
+func DeleteOtherFolderVM(vm vmname.VM, was string) M {
+	return M{id: "delete_other_folder_vm", vals: []val{{"vm", string(vm)}, {"was", was}}}
 }
 
 // DeleteParentVM is [delete_parent_vm]: "{{.vm}} was made for {{.dir}}, which this folder is inside, and may hold that project's work. Delete it?"
-func DeleteParentVM(dir string, vm string) M {
-	return M{id: "delete_parent_vm", vals: []val{{"dir", dir}, {"vm", vm}}}
+func DeleteParentVM(dir string, vm vmname.VM) M {
+	return M{id: "delete_parent_vm", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // Deleted is [deleted]: "deleted {{.vm}}"
-func Deleted(vm string) M {
-	return M{id: "deleted", vals: []val{{"vm", vm}}}
+func Deleted(vm vmname.VM) M {
+	return M{id: "deleted", vals: []val{{"vm", string(vm)}}}
 }
 
 // DeletedCache is [deleted_cache]: "deleted {{.count}} entries of {{.backend}}'s cache"
@@ -1339,9 +1343,9 @@ func DeletedUnfinishedBuild(key string) M {
 	return M{id: "deleted_unfinished_build", vals: []val{{"key", key}}}
 }
 
-// Deleting is [deleting]: "deleting {{.vm}}"
-func Deleting(vm string) M {
-	return M{id: "deleting", vals: []val{{"vm", vm}}}
+// Deleting is [deleting]: "deleting {{.what}}"
+func Deleting(what string) M {
+	return M{id: "deleting", vals: []val{{"what", what}}}
 }
 
 // DesktopFailed is [desktop_failed]: "Opening this folder's VM's desktop failed: {{.reason}}."
@@ -1350,8 +1354,8 @@ func DesktopFailed(reason string) M {
 }
 
 // DesktopNoLayer is [desktop_no_layer]: "{{.vm}} has no desktop, because its image has no desktop layer. Run devvm layer add desktop to make it again with one."
-func DesktopNoLayer(vm string) M {
-	return M{id: "desktop_no_layer", vals: []val{{"vm", vm}}}
+func DesktopNoLayer(vm vmname.VM) M {
+	return M{id: "desktop_no_layer", vals: []val{{"vm", string(vm)}}}
 }
 
 // DesktopOpenFailed is [desktop_open_failed]: "Screen Sharing didn't open. Open {{.url}} in a VNC viewer instead."
@@ -1360,18 +1364,18 @@ func DesktopOpenFailed(url string) M {
 }
 
 // DesktopReady is [desktop_ready]: "{{.vm}}'s desktop is at\nvnc://{{.address}}\nPassword: {{.password}}\nIt stays there until you press Ctrl+C."
-func DesktopReady(address string, password string, vm string) M {
-	return M{id: "desktop_ready", vals: []val{{"address", address}, {"password", password}, {"vm", vm}}}
+func DesktopReady(address string, password string, vm vmname.VM) M {
+	return M{id: "desktop_ready", vals: []val{{"address", address}, {"password", password}, {"vm", string(vm)}}}
 }
 
 // DesktopStartFailed is [desktop_start_failed]: "{{.vm}}'s desktop didn't start."
-func DesktopStartFailed(vm string) M {
-	return M{id: "desktop_start_failed", vals: []val{{"vm", vm}}}
+func DesktopStartFailed(vm vmname.VM) M {
+	return M{id: "desktop_start_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // DesktopVMStopped is [desktop_vm_stopped]: "{{.vm}} stopped, and its desktop with it."
-func DesktopVMStopped(vm string) M {
-	return M{id: "desktop_vm_stopped", vals: []val{{"vm", vm}}}
+func DesktopVMStopped(vm vmname.VM) M {
+	return M{id: "desktop_vm_stopped", vals: []val{{"vm", string(vm)}}}
 }
 
 // DevcontainerBadValue is [devcontainer_bad_value]: "{{.file}} has a value for {{.key}} that devcontainer.json doesn't allow. Fix it, or run devvm --no-devcontainer."
@@ -1385,13 +1389,13 @@ func DevcontainerBuild(file string, key string) M {
 }
 
 // DevcontainerChanged is [devcontainer_changed]: "{{.vm}} was made from another version of {{.file}}, and the file changes an existing VM only when devvm makes it again. To make the VM again as the file says now, run devvm update."
-func DevcontainerChanged(file string, vm string) M {
-	return M{id: "devcontainer_changed", vals: []val{{"file", file}, {"vm", vm}}}
+func DevcontainerChanged(file string, vm vmname.VM) M {
+	return M{id: "devcontainer_changed", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // DevcontainerCommandFailed is [devcontainer_command_failed]: "{{.command}} failed in {{.vm}}."
-func DevcontainerCommandFailed(command string, vm string) M {
-	return M{id: "devcontainer_command_failed", vals: []val{{"command", command}, {"vm", vm}}}
+func DevcontainerCommandFailed(command string, vm vmname.VM) M {
+	return M{id: "devcontainer_command_failed", vals: []val{{"command", command}, {"vm", string(vm)}}}
 }
 
 // DevcontainerDockerOutside is [devcontainer_docker_outside]: "The feature {{.feature}} in {{.file}} gives the VM this machine's Docker, which devvm never does. Use docker-in-docker, or run devvm --no-devcontainer."
@@ -1420,8 +1424,8 @@ func DevcontainerFlagWins(file string, flag string, key string) M {
 }
 
 // DevcontainerGone is [devcontainer_gone]: "{{.file}} is gone, so devvm makes {{.vm}} again without it."
-func DevcontainerGone(file string, vm string) M {
-	return M{id: "devcontainer_gone", vals: []val{{"file", file}, {"vm", vm}}}
+func DevcontainerGone(file string, vm vmname.VM) M {
+	return M{id: "devcontainer_gone", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // DevcontainerIgnored is [devcontainer_ignored]: "{{.file}} has properties that devvm ignores: {{.keys}}."
@@ -1450,8 +1454,8 @@ func DevcontainerLocalEnv(file string, variable string) M {
 }
 
 // DevcontainerNew is [devcontainer_new]: "{{.vm}} was made without {{.file}}, and the file changes an existing VM only when devvm makes it again. To make the VM again as the file says, run devvm update."
-func DevcontainerNew(file string, vm string) M {
-	return M{id: "devcontainer_new", vals: []val{{"file", file}, {"vm", vm}}}
+func DevcontainerNew(file string, vm vmname.VM) M {
+	return M{id: "devcontainer_new", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // DevcontainerPortsIgnored is [devcontainer_ports_ignored]: "The forwardPorts {{.ports}} in {{.file}} have no effect, because a VM's ports reach only this machine's localhost."
@@ -1460,8 +1464,8 @@ func DevcontainerPortsIgnored(file string, ports string) M {
 }
 
 // DevcontainerReread is [devcontainer_reread]: "devvm makes {{.vm}} again as {{.file}} says now."
-func DevcontainerReread(file string, vm string) M {
-	return M{id: "devcontainer_reread", vals: []val{{"file", file}, {"vm", vm}}}
+func DevcontainerReread(file string, vm vmname.VM) M {
+	return M{id: "devcontainer_reread", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // DevcontainerUnknown is [devcontainer_unknown]: "{{.file}} has properties devvm doesn't know, so devvm ignores them: {{.keys}}."
@@ -1500,8 +1504,8 @@ func DiskLowWarning(dir string, free string, need string) M {
 }
 
 // DiskShrink is [disk_shrink]: "{{.vm}}'s disk is {{.have}} GiB, and a disk can't shrink to {{.want}} GiB."
-func DiskShrink(have string, vm string, want string) M {
-	return M{id: "disk_shrink", vals: []val{{"have", have}, {"vm", vm}, {"want", want}}}
+func DiskShrink(have string, vm vmname.VM, want string) M {
+	return M{id: "disk_shrink", vals: []val{{"have", have}, {"vm", string(vm)}, {"want", want}}}
 }
 
 // DockerExportFailed is [docker_export_failed]: "Exporting {{.from}} from Docker failed."
@@ -1585,13 +1589,13 @@ func ExportFailed(reason string) M {
 }
 
 // ExportFailedKept is [export_failed_kept]: "Exporting {{.vm}}'s agent history failed, so devvm kept the VM as it was. Run {{.command}} --no-export to go ahead without exporting."
-func ExportFailedKept(command string, vm string) M {
-	return M{id: "export_failed_kept", vals: []val{{"command", command}, {"vm", vm}}}
+func ExportFailedKept(command string, vm vmname.VM) M {
+	return M{id: "export_failed_kept", vals: []val{{"command", command}, {"vm", string(vm)}}}
 }
 
 // Exported is [exported]: "exported {{.vm}}'s agent history to {{.file}}"
-func Exported(file string, vm string) M {
-	return M{id: "exported", vals: []val{{"file", file}, {"vm", vm}}}
+func Exported(file string, vm vmname.VM) M {
+	return M{id: "exported", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // ExportingDocker is [exporting_docker]: "exporting {{.from}} from Docker"
@@ -1615,8 +1619,8 @@ func FetchBeforeDeleteRepos(count int) M {
 }
 
 // FetchFailed is [fetch_failed]: "Fetching the branches in {{.vm}} failed, so devvm kept the VM as it is. Run {{.command}} again to retry."
-func FetchFailed(command string, vm string) M {
-	return M{id: "fetch_failed", vals: []val{{"command", command}, {"vm", vm}}}
+func FetchFailed(command string, vm vmname.VM) M {
+	return M{id: "fetch_failed", vals: []val{{"command", command}, {"vm", string(vm)}}}
 }
 
 // FetchUntil is [fetch_until]: "Until ~/.ssh/config includes devvm's ssh config, fetch the VM's work with GIT_SSH_COMMAND='ssh -F {{.file}}' git fetch {{.remote}}."
@@ -1685,8 +1689,8 @@ func FollowLinksInvalid(dir string, setting string) M {
 }
 
 // ForgotOrphan is [forgot_orphan]: "deleted what devvm kept for {{.vm}}"
-func ForgotOrphan(vm string) M {
-	return M{id: "forgot_orphan", vals: []val{{"vm", vm}}}
+func ForgotOrphan(vm vmname.VM) M {
+	return M{id: "forgot_orphan", vals: []val{{"vm", string(vm)}}}
 }
 
 // ForwarderFailed is [forwarder_failed]: "The port forwarder failed: {{.reason}}."
@@ -1740,8 +1744,8 @@ func GCConfirm() M {
 }
 
 // GCDeadLink is [gc_dead_link]: "  {{.vm}}'s link {{.name}}:{{.port}} to {{.target}}"
-func GCDeadLink(name string, port string, target string, vm string) M {
-	return M{id: "gc_dead_link", vals: []val{{"name", name}, {"port", port}, {"target", target}, {"vm", vm}}}
+func GCDeadLink(name string, port string, target string, vm vmname.VM) M {
+	return M{id: "gc_dead_link", vals: []val{{"name", name}, {"port", port}, {"target", target}, {"vm", string(vm)}}}
 }
 
 // GCDeadLinks is [gc_dead_links]: "{{.count}} links to VMs that are gone:"
@@ -1760,8 +1764,8 @@ func GCHistory(count int, size string) M {
 }
 
 // GCHistoryExport is [gc_history_export]: "  {{.vm}}, {{.date}} ({{.size}})"
-func GCHistoryExport(date string, size string, vm string) M {
-	return M{id: "gc_history_export", vals: []val{{"date", date}, {"size", size}, {"vm", vm}}}
+func GCHistoryExport(date string, size string, vm vmname.VM) M {
+	return M{id: "gc_history_export", vals: []val{{"date", date}, {"size", size}, {"vm", string(vm)}}}
 }
 
 // GCImage is [gc_image]: "  {{.image}} ({{.key}})"
@@ -1810,18 +1814,18 @@ func GCOlderThanNeedsHistory() M {
 }
 
 // GCOrphan is [gc_orphan]: "  {{.vm}} ({{.backend}}), for {{.dir}}"
-func GCOrphan(backend string, dir string, vm string) M {
-	return M{id: "gc_orphan", vals: []val{{"backend", backend}, {"dir", dir}, {"vm", vm}}}
+func GCOrphan(backend string, dir string, vm vmname.VM) M {
+	return M{id: "gc_orphan", vals: []val{{"backend", backend}, {"dir", dir}, {"vm", string(vm)}}}
 }
 
 // GCOrphanElsewhere is [gc_orphan_elsewhere]: "{{.vm}} was made in another Lima home or HOME than this run's, so its state stays."
-func GCOrphanElsewhere(vm string) M {
-	return M{id: "gc_orphan_elsewhere", vals: []val{{"vm", vm}}}
+func GCOrphanElsewhere(vm vmname.VM) M {
+	return M{id: "gc_orphan_elsewhere", vals: []val{{"vm", string(vm)}}}
 }
 
 // GCOrphanRecent is [gc_orphan_recent]: "{{.vm}}'s state changed in the last hour, so it stays in case the VM is still being made."
-func GCOrphanRecent(vm string) M {
-	return M{id: "gc_orphan_recent", vals: []val{{"vm", vm}}}
+func GCOrphanRecent(vm vmname.VM) M {
+	return M{id: "gc_orphan_recent", vals: []val{{"vm", string(vm)}}}
 }
 
 // GCOrphans is [gc_orphans]: "What devvm keeps for {{.count}} VMs their backend no longer has:"
@@ -1865,13 +1869,13 @@ func GitAppeared() M {
 }
 
 // GitChanged is [git_changed]: "WARNING: {{.paths}} changed since devvm last checked, perhaps by {{.vm}}, and git on this machine runs what they hold. devvm can tell you only after the fact, so if you didn't change them, check them before you run git here."
-func GitChanged(paths string, vm string) M {
-	return M{id: "git_changed", vals: []val{{"paths", paths}, {"vm", vm}}}
+func GitChanged(paths string, vm vmname.VM) M {
+	return M{id: "git_changed", vals: []val{{"paths", paths}, {"vm", string(vm)}}}
 }
 
 // GitChangedMore is [git_changed_more]: "WARNING: {{.paths}} and {{.count}} more paths changed since devvm last checked, perhaps by {{.vm}}, and git on this machine runs what they hold. devvm can tell you only after the fact, so if you didn't change them, check them before you run git here."
-func GitChangedMore(count int, paths string, vm string) M {
-	return M{id: "git_changed_more", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"paths", paths}, {"vm", vm}}}
+func GitChangedMore(count int, paths string, vm vmname.VM) M {
+	return M{id: "git_changed_more", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"paths", paths}, {"vm", string(vm)}}}
 }
 
 // GitCommondir is [git_commondir]: "WARNING: If you didn't make {{.git}}/commondir, check it before you run git here. It makes git read config from {{.target}}."
@@ -1915,8 +1919,8 @@ func GitIncludeInside(config string, path string) M {
 }
 
 // GitKeptLocked is [git_kept_locked]: "Some of .git's locks stay on, as {{.vm}}'s .git protection covers the same repos. Run devvm git-protect off in that VM's folder to take them off too."
-func GitKeptLocked(vm string) M {
-	return M{id: "git_kept_locked", vals: []val{{"vm", vm}}}
+func GitKeptLocked(vm vmname.VM) M {
+	return M{id: "git_kept_locked", vals: []val{{"vm", string(vm)}}}
 }
 
 // GitKeptUnread is [git_kept_unread]: "Some of .git's locks stay on, as devvm can't read {{.state}}, the state of a VM that may protect the same repos. Fix or remove that VM's state, then run this again."
@@ -1925,8 +1929,8 @@ func GitKeptUnread(state string) M {
 }
 
 // GitLockLater is [git_lock_later]: "This folder has no .git yet. devvm locks it for {{.vm}} when one appears."
-func GitLockLater(vm string) M {
-	return M{id: "git_lock_later", vals: []val{{"vm", vm}}}
+func GitLockLater(vm vmname.VM) M {
+	return M{id: "git_lock_later", vals: []val{{"vm", string(vm)}}}
 }
 
 // GitLockRaced is [git_lock_raced]: "{{.path}} moved while devvm was locking it, so devvm left it unlocked and undid the lock where it landed. Check .git before you run git here."
@@ -1935,8 +1939,8 @@ func GitLockRaced(path string) M {
 }
 
 // GitLocked is [git_locked]: "devvm locked the hooks and config in .git for {{.vm}}. git on this machine still runs what a submodule or repo the VM adds says until devvm stop or the next launch names it, and only devvm clone on keeps the VM's code away from git here."
-func GitLocked(vm string) M {
-	return M{id: "git_locked", vals: []val{{"vm", vm}}}
+func GitLocked(vm vmname.VM) M {
+	return M{id: "git_locked", vals: []val{{"vm", string(vm)}}}
 }
 
 // GitLocksLeft is [git_locks_left]: "WARNING: devvm locked the .git of the git repos at {{.repos}}, which aren't in this folder any more, so it can't take their locks off. If you moved them, run chflags -R nouchg on their .git/hooks and .git/config."
@@ -1945,23 +1949,23 @@ func GitLocksLeft(repos string) M {
 }
 
 // GitNestedAppeared is [git_nested_appeared]: "WARNING: A git repo appeared at {{.repo}} while {{.vm}} could write this folder, so the VM may have made it. devvm protects it from now on, but check its hooks and config before you run git there."
-func GitNestedAppeared(repo string, vm string) M {
-	return M{id: "git_nested_appeared", vals: []val{{"repo", repo}, {"vm", vm}}}
+func GitNestedAppeared(repo string, vm vmname.VM) M {
+	return M{id: "git_nested_appeared", vals: []val{{"repo", repo}, {"vm", string(vm)}}}
 }
 
 // GitNestedAppearedRuns is [git_nested_appeared_runs]: "WARNING: A git repo appeared at {{.repo}} while {{.vm}} could write this folder, and its {{.runs}} run programs on this machine. devvm protects it as it is from now on, so check them before you run git there."
-func GitNestedAppearedRuns(repo string, runs string, vm string) M {
-	return M{id: "git_nested_appeared_runs", vals: []val{{"repo", repo}, {"runs", runs}, {"vm", vm}}}
+func GitNestedAppearedRuns(repo string, runs string, vm vmname.VM) M {
+	return M{id: "git_nested_appeared_runs", vals: []val{{"repo", repo}, {"runs", runs}, {"vm", string(vm)}}}
 }
 
 // GitNestedBare is [git_nested_bare]: "WARNING: {{.dirs}} in this folder look like git folders, which git run below them can take for its repo, and {{.vm}} can change them. Check them before you run git there, and see devvm doctor for git's safe.bareRepository."
-func GitNestedBare(dirs string, vm string) M {
-	return M{id: "git_nested_bare", vals: []val{{"dirs", dirs}, {"vm", vm}}}
+func GitNestedBare(dirs string, vm vmname.VM) M {
+	return M{id: "git_nested_bare", vals: []val{{"dirs", dirs}, {"vm", string(vm)}}}
 }
 
 // GitNestedDevices is [git_nested_devices]: "WARNING: devvm doesn't look for git repos in {{.count}} folders of this folder that are on another disk, so {{.vm}} can change the hooks and config of any repo there. Check them before you run git there."
-func GitNestedDevices(count int, vm string) M {
-	return M{id: "git_nested_devices", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", vm}}}
+func GitNestedDevices(count int, vm vmname.VM) M {
+	return M{id: "git_nested_devices", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", string(vm)}}}
 }
 
 // GitNestedGitdirOutside is [git_nested_gitdir_outside]: "The git repo at {{.repo}} keeps its git folder outside the project, at {{.git}}, so devvm can't lock it. git on this machine still reads its config there."
@@ -1970,38 +1974,38 @@ func GitNestedGitdirOutside(git string, repo string) M {
 }
 
 // GitNestedGone is [git_nested_gone]: "WARNING: The git repo at {{.repo}} that devvm protected is gone or moved, perhaps by {{.vm}}. If you didn't move it, check where it went before you run git there."
-func GitNestedGone(repo string, vm string) M {
-	return M{id: "git_nested_gone", vals: []val{{"repo", repo}, {"vm", vm}}}
+func GitNestedGone(repo string, vm vmname.VM) M {
+	return M{id: "git_nested_gone", vals: []val{{"repo", repo}, {"vm", string(vm)}}}
 }
 
 // GitNestedPastBound is [git_nested_past_bound]: "WARNING: .git protection covers the first 100 git repos nested in this folder, and not {{.count}} more, such as {{.repos}}, so {{.vm}} can change their hooks and config, which git on this machine runs. Move the repos you don't use out of this folder."
-func GitNestedPastBound(count int, repos string, vm string) M {
-	return M{id: "git_nested_past_bound", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"repos", repos}, {"vm", vm}}}
+func GitNestedPastBound(count int, repos string, vm vmname.VM) M {
+	return M{id: "git_nested_past_bound", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"repos", repos}, {"vm", string(vm)}}}
 }
 
 // GitNestedProtectable is [git_nested_protectable]: "WARNING: {{.vm}}'s .git protection doesn't cover the git repos nested in this folder at {{.repos}}, so the VM can change their hooks and config, which git on this machine runs. Run devvm git-protect on to protect them too, as devvm does for new VMs."
-func GitNestedProtectable(repos string, vm string) M {
-	return M{id: "git_nested_protectable", vals: []val{{"repos", repos}, {"vm", vm}}}
+func GitNestedProtectable(repos string, vm vmname.VM) M {
+	return M{id: "git_nested_protectable", vals: []val{{"repos", repos}, {"vm", string(vm)}}}
 }
 
 // GitNestedProtectableMore is [git_nested_protectable_more]: "WARNING: {{.vm}}'s .git protection doesn't cover the git repos nested in this folder at {{.repos}} and {{.count}} more folders, so the VM can change their hooks and config, which git on this machine runs. Run devvm git-protect on to protect them too, as devvm does for new VMs."
-func GitNestedProtectableMore(count int, repos string, vm string) M {
-	return M{id: "git_nested_protectable_more", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"repos", repos}, {"vm", vm}}}
+func GitNestedProtectableMore(count int, repos string, vm vmname.VM) M {
+	return M{id: "git_nested_protectable_more", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"repos", repos}, {"vm", string(vm)}}}
 }
 
 // GitNestedSkipped is [git_nested_skipped]: "WARNING: devvm doesn't protect {{.count}} git repos in this folder, as they're deeper than four folders or in folders such as node_modules, so {{.vm}} can change their hooks and config. Check them before you run git there."
-func GitNestedSkipped(count int, vm string) M {
-	return M{id: "git_nested_skipped", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", vm}}}
+func GitNestedSkipped(count int, vm vmname.VM) M {
+	return M{id: "git_nested_skipped", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", string(vm)}}}
 }
 
 // GitNestedUnprotected is [git_nested_unprotected]: "WARNING: .git protection doesn't cover the git repos nested in this folder at {{.repos}}, so {{.vm}} can change their hooks and config, which git on this machine runs. Check them before you run git there."
-func GitNestedUnprotected(repos string, vm string) M {
-	return M{id: "git_nested_unprotected", vals: []val{{"repos", repos}, {"vm", vm}}}
+func GitNestedUnprotected(repos string, vm vmname.VM) M {
+	return M{id: "git_nested_unprotected", vals: []val{{"repos", repos}, {"vm", string(vm)}}}
 }
 
 // GitNestedUnprotectedMore is [git_nested_unprotected_more]: "WARNING: .git protection doesn't cover the git repos nested in this folder at {{.repos}} and {{.count}} more folders, so {{.vm}} can change their hooks and config, which git on this machine runs. Check them before you run git there."
-func GitNestedUnprotectedMore(count int, repos string, vm string) M {
-	return M{id: "git_nested_unprotected_more", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"repos", repos}, {"vm", vm}}}
+func GitNestedUnprotectedMore(count int, repos string, vm vmname.VM) M {
+	return M{id: "git_nested_unprotected_more", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"repos", repos}, {"vm", string(vm)}}}
 }
 
 // GitNotLocked is [git_not_locked]: "WARNING: If you didn't make {{.path}}, check it before you run git here. It's a symlink or under one, so devvm can't lock it."
@@ -2010,8 +2014,8 @@ func GitNotLocked(path string) M {
 }
 
 // GitPinAgain is [git_pin_again]: "WARNING: {{.path}} was replaced on this machine while {{.vm}} ran, and {{.vm}} could change the new file until devvm locked it again. Check it before you run git here."
-func GitPinAgain(path string, vm string) M {
-	return M{id: "git_pin_again", vals: []val{{"path", path}, {"vm", vm}}}
+func GitPinAgain(path string, vm vmname.VM) M {
+	return M{id: "git_pin_again", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // GitPinEventsKept is [git_pin_events_kept]: "devvm couldn't delete {{.file}}, so it names what's in it again at the next check."
@@ -2020,43 +2024,43 @@ func GitPinEventsKept(file string) M {
 }
 
 // GitPinLinked is [git_pin_linked]: "{{.path}} has another name in the project folder, which devvm can't lock in the VM's view, so devvm didn't start {{.vm}}. Make it a file of its own (copy it, then move the copy over it), and run devvm again."
-func GitPinLinked(path string, vm string) M {
-	return M{id: "git_pin_linked", vals: []val{{"path", path}, {"vm", vm}}}
+func GitPinLinked(path string, vm vmname.VM) M {
+	return M{id: "git_pin_linked", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // GitPinLinkedRun is [git_pin_linked_run]: "WARNING: {{.path}} got another name while {{.vm}} ran, so devvm couldn't lock it again, and {{.vm}} could change it. Check it before you run git here, and make it a file of its own."
-func GitPinLinkedRun(path string, vm string) M {
-	return M{id: "git_pin_linked_run", vals: []val{{"path", path}, {"vm", vm}}}
+func GitPinLinkedRun(path string, vm vmname.VM) M {
+	return M{id: "git_pin_linked_run", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // GitPinLost is [git_pin_lost]: "WARNING: devvm couldn't lock {{.path}} again after it changed while {{.vm}} ran, so {{.vm}} could change it. Check it before you run git here."
-func GitPinLost(path string, vm string) M {
-	return M{id: "git_pin_lost", vals: []val{{"path", path}, {"vm", vm}}}
+func GitPinLost(path string, vm vmname.VM) M {
+	return M{id: "git_pin_lost", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // GitPinsMissing is [git_pins_missing]: "WARNING: {{.vm}} runs without .git locked on {{.paths}}, so it can change them, and git on this machine runs what they hold. Run devvm restart to lock them again."
-func GitPinsMissing(paths string, vm string) M {
-	return M{id: "git_pins_missing", vals: []val{{"paths", paths}, {"vm", vm}}}
+func GitPinsMissing(paths string, vm vmname.VM) M {
+	return M{id: "git_pins_missing", vals: []val{{"paths", paths}, {"vm", string(vm)}}}
 }
 
 // GitPinsNone is [git_pins_none]: "{{.vm}}'s .git protection is on, but devvm found nothing in .git it could lock, so {{.vm}} runs without it."
-func GitPinsNone(vm string) M {
-	return M{id: "git_pins_none", vals: []val{{"vm", vm}}}
+func GitPinsNone(vm vmname.VM) M {
+	return M{id: "git_pins_none", vals: []val{{"vm", string(vm)}}}
 }
 
 // GitPinsUnrecorded is [git_pins_unrecorded]: "WARNING: devvm couldn't record whether {{.vm}}'s .git locks held while it ran, so {{.vm}} may have changed what they cover. Check .git's hooks and config before you run git here."
-func GitPinsUnrecorded(vm string) M {
-	return M{id: "git_pins_unrecorded", vals: []val{{"vm", vm}}}
+func GitPinsUnrecorded(vm vmname.VM) M {
+	return M{id: "git_pins_unrecorded", vals: []val{{"vm", string(vm)}}}
 }
 
 // GitProtectAvailable is [git_protect_available]: ".git protection is off for {{.vm}}, and this machine can lock .git now. Run devvm git-protect on to lock it, or devvm git-protect off to stop this warning."
-func GitProtectAvailable(vm string) M {
-	return M{id: "git_protect_available", vals: []val{{"vm", vm}}}
+func GitProtectAvailable(vm vmname.VM) M {
+	return M{id: "git_protect_available", vals: []val{{"vm", string(vm)}}}
 }
 
 // GitProtectClone is [git_protect_clone]: "{{.vm}} is a --clone VM, so it mounts no .git to protect."
-func GitProtectClone(vm string) M {
-	return M{id: "git_protect_clone", vals: []val{{"vm", vm}}}
+func GitProtectClone(vm vmname.VM) M {
+	return M{id: "git_protect_clone", vals: []val{{"vm", string(vm)}}}
 }
 
 // GitProtectFailed is [git_protect_failed]: "Showing or changing .git protection failed: {{.reason}}."
@@ -2065,8 +2069,8 @@ func GitProtectFailed(reason string) M {
 }
 
 // GitProtectNextStop is [git_protect_next_stop]: "{{.vm}} is running, so devvm turns its .git protection {{.mode}} when the VM next stops. Run devvm stop or devvm restart to apply it now."
-func GitProtectNextStop(mode string, vm string) M {
-	return M{id: "git_protect_next_stop", vals: []val{{"mode", mode}, {"vm", vm}}}
+func GitProtectNextStop(mode string, vm vmname.VM) M {
+	return M{id: "git_protect_next_stop", vals: []val{{"mode", mode}, {"vm", string(vm)}}}
 }
 
 // GitProtectOnNeedsLocks is [git_protect_on_needs_locks]: "This machine can't lock .git, and devvm doctor says why. To keep a VM out of .git, use devvm --clone."
@@ -2090,13 +2094,13 @@ func GitScanBounded(git string) M {
 }
 
 // GitStrictConverted is [git_strict_converted]: "Strict .git protection can't keep git on this machine out of submodules the VM adds, so {{.vm}}'s protection is on now. To keep the VM's code away from git on this machine, use devvm clone on."
-func GitStrictConverted(vm string) M {
-	return M{id: "git_strict_converted", vals: []val{{"vm", vm}}}
+func GitStrictConverted(vm vmname.VM) M {
+	return M{id: "git_strict_converted", vals: []val{{"vm", string(vm)}}}
 }
 
 // GitStrictKept is [git_strict_kept]: "{{.config}} keeps the diff.ignoreSubmodules = all that strict .git protection set, because {{.vm}}'s .git protection also keeps that file locked. Run devvm stop here and in {{.vm}}'s folder, then chflags nouchg '{{.config}}' on macOS and git config --file '{{.config}}' --unset-all diff.ignoreSubmodules '^all$', and the next launch of either VM locks it again."
-func GitStrictKept(config string, vm string) M {
-	return M{id: "git_strict_kept", vals: []val{{"config", config}, {"vm", vm}}}
+func GitStrictKept(config string, vm vmname.VM) M {
+	return M{id: "git_strict_kept", vals: []val{{"config", config}, {"vm", string(vm)}}}
 }
 
 // GitStrictLeft is [git_strict_left]: "Taking diff.ignoreSubmodules = all, which strict .git protection set, out of {{.config}} failed, so git status and git diff on this machine still skip that repo's submodules."
@@ -2110,18 +2114,18 @@ func GitStrictUnknown(config string) M {
 }
 
 // GitUnlocked is [git_unlocked]: "devvm unlocked .git, so {{.vm}} can change its hooks and config, which run on this machine. To lock it again, run devvm git-protect on."
-func GitUnlocked(vm string) M {
-	return M{id: "git_unlocked", vals: []val{{"vm", vm}}}
+func GitUnlocked(vm vmname.VM) M {
+	return M{id: "git_unlocked", vals: []val{{"vm", string(vm)}}}
 }
 
 // GitUnprotected is [git_unprotected]: "This machine can't lock .git (devvm doctor says why), so {{.vm}} can change the hooks and config in .git, which run on this machine. To keep a VM out of .git, use devvm --clone, or run devvm git-protect off to stop this warning."
-func GitUnprotected(vm string) M {
-	return M{id: "git_unprotected", vals: []val{{"vm", vm}}}
+func GitUnprotected(vm vmname.VM) M {
+	return M{id: "git_unprotected", vals: []val{{"vm", string(vm)}}}
 }
 
 // GitUnprotectedQuiet is [git_unprotected_quiet]: "devvm stops warning about .git at each launch of {{.vm}}, and it still names the hooks and config in .git that change."
-func GitUnprotectedQuiet(vm string) M {
-	return M{id: "git_unprotected_quiet", vals: []val{{"vm", vm}}}
+func GitUnprotectedQuiet(vm vmname.VM) M {
+	return M{id: "git_unprotected_quiet", vals: []val{{"vm", string(vm)}}}
 }
 
 // GitWatchBlind is [git_watch_blind]: "WARNING: Each of {{.paths}} is a symlink, under one, or past what devvm reads, so the VM can change what git on this machine runs from it without devvm naming the change. Check them before you run git here, or use devvm --clone."
@@ -2145,8 +2149,8 @@ func GithubTokenHowto() M {
 }
 
 // GroupAlready is [group_already]: "{{.vm}} is in the group {{.group}} already."
-func GroupAlready(group string, vm string) M {
-	return M{id: "group_already", vals: []val{{"group", group}, {"vm", vm}}}
+func GroupAlready(group string, vm vmname.VM) M {
+	return M{id: "group_already", vals: []val{{"group", group}, {"vm", string(vm)}}}
 }
 
 // GroupFailed is [group_failed]: "Showing or changing the group failed: {{.reason}}."
@@ -2160,48 +2164,48 @@ func GroupGone(group string) M {
 }
 
 // GroupJoinLearning is [group_join_learning]: "{{.vm}} is learning the hosts it needs, and the group {{.group}}'s VMs are all on one tier, so it can't join until it's locked. Run devvm network lock first."
-func GroupJoinLearning(group string, vm string) M {
-	return M{id: "group_join_learning", vals: []val{{"group", group}, {"vm", vm}}}
+func GroupJoinLearning(group string, vm vmname.VM) M {
+	return M{id: "group_join_learning", vals: []val{{"group", group}, {"vm", string(vm)}}}
 }
 
 // GroupJoined is [group_joined]: "{{.vm}} is in the group {{.group}}."
-func GroupJoined(group string, vm string) M {
-	return M{id: "group_joined", vals: []val{{"group", group}, {"vm", vm}}}
+func GroupJoined(group string, vm vmname.VM) M {
+	return M{id: "group_joined", vals: []val{{"group", group}, {"vm", string(vm)}}}
 }
 
 // GroupLeft is [group_left]: "{{.vm}} isn't in the group {{.group}} any more."
-func GroupLeft(group string, vm string) M {
-	return M{id: "group_left", vals: []val{{"group", group}, {"vm", vm}}}
+func GroupLeft(group string, vm vmname.VM) M {
+	return M{id: "group_left", vals: []val{{"group", group}, {"vm", string(vm)}}}
 }
 
 // GroupLinkNameClash is [group_link_name_clash]: "{{.vm}} has a link of its own called {{.name}}, so it gets none of the group's links to {{.target}}. To get them, remove that link with devvm link rm."
-func GroupLinkNameClash(name string, target string, vm string) M {
-	return M{id: "group_link_name_clash", vals: []val{{"name", name}, {"target", target}, {"vm", vm}}}
+func GroupLinkNameClash(name string, target string, vm vmname.VM) M {
+	return M{id: "group_link_name_clash", vals: []val{{"name", name}, {"target", target}, {"vm", string(vm)}}}
 }
 
 // GroupLinksAdded is [group_links_added]: "{{.vm}} reaches {{.links}} through the group {{.group}}."
-func GroupLinksAdded(group string, links string, vm string) M {
-	return M{id: "group_links_added", vals: []val{{"group", group}, {"links", links}, {"vm", vm}}}
+func GroupLinksAdded(group string, links string, vm vmname.VM) M {
+	return M{id: "group_links_added", vals: []val{{"group", group}, {"links", links}, {"vm", string(vm)}}}
 }
 
 // GroupLinksRemoved is [group_links_removed]: "{{.vm}} doesn't reach {{.links}} through the group {{.group}} any more."
-func GroupLinksRemoved(group string, links string, vm string) M {
-	return M{id: "group_links_removed", vals: []val{{"group", group}, {"links", links}, {"vm", vm}}}
+func GroupLinksRemoved(group string, links string, vm vmname.VM) M {
+	return M{id: "group_links_removed", vals: []val{{"group", group}, {"links", links}, {"vm", string(vm)}}}
 }
 
 // GroupMade is [group_made]: "{{.vm}} is the first VM in the new group {{.group}}."
-func GroupMade(group string, vm string) M {
-	return M{id: "group_made", vals: []val{{"group", group}, {"vm", vm}}}
+func GroupMade(group string, vm vmname.VM) M {
+	return M{id: "group_made", vals: []val{{"group", group}, {"vm", string(vm)}}}
 }
 
 // GroupNameHost is [group_name_host]: "The name localhost means each VM itself, so it can't name {{.vm}} in a group. Give the VM another name with --as NAME."
-func GroupNameHost(vm string) M {
-	return M{id: "group_name_host", vals: []val{{"vm", vm}}}
+func GroupNameHost(vm vmname.VM) M {
+	return M{id: "group_name_host", vals: []val{{"vm", string(vm)}}}
 }
 
 // GroupNameHostname is [group_name_hostname]: "{{.name}} names {{.member}} in the group {{.group}} and is {{.vm}}'s own hostname, so {{.vm}} couldn't reach it by that name. Have {{.member}} leave the group and join again with another --as NAME, or use a folder with another name."
-func GroupNameHostname(group string, member string, name string, vm string) M {
-	return M{id: "group_name_hostname", vals: []val{{"group", group}, {"member", member}, {"name", name}, {"vm", vm}}}
+func GroupNameHostname(group string, member string, name string, vm vmname.VM) M {
+	return M{id: "group_name_hostname", vals: []val{{"group", group}, {"member", member}, {"name", name}, {"vm", string(vm)}}}
 }
 
 // GroupNameInvalid is [group_name_invalid]: "{{.name}} isn't a group name. Use lowercase letters, digits and dashes, such as web, starting and ending with a letter or digit and not all digits."
@@ -2215,28 +2219,28 @@ func GroupNameTaken(group string, member string, name string) M {
 }
 
 // GroupNamed is [group_named]: "{{.vm}} is in the group {{.group}} already, as {{.name}}. To give it another name, run devvm group leave, then join again with --as NAME."
-func GroupNamed(group string, name string, vm string) M {
-	return M{id: "group_named", vals: []val{{"group", group}, {"name", name}, {"vm", vm}}}
+func GroupNamed(group string, name string, vm vmname.VM) M {
+	return M{id: "group_named", vals: []val{{"group", group}, {"name", name}, {"vm", string(vm)}}}
 }
 
 // GroupNone is [group_none]: "{{.vm}} isn't in a group. Run devvm group join NAME to join one."
-func GroupNone(vm string) M {
-	return M{id: "group_none", vals: []val{{"vm", vm}}}
+func GroupNone(vm vmname.VM) M {
+	return M{id: "group_none", vals: []val{{"vm", string(vm)}}}
 }
 
 // GroupOther is [group_other]: "{{.vm}} is in the group {{.group}}, and a VM is in one group at a time. Run devvm group leave first."
-func GroupOther(group string, vm string) M {
-	return M{id: "group_other", vals: []val{{"group", group}, {"vm", vm}}}
+func GroupOther(group string, vm vmname.VM) M {
+	return M{id: "group_other", vals: []val{{"group", group}, {"vm", string(vm)}}}
 }
 
 // GroupTierFixed is [group_tier_fixed]: "{{.vm}} is in the group {{.group}}, whose VMs are all on one tier, so its tier can't change. Run devvm group leave first."
-func GroupTierFixed(group string, vm string) M {
-	return M{id: "group_tier_fixed", vals: []val{{"group", group}, {"vm", vm}}}
+func GroupTierFixed(group string, vm vmname.VM) M {
+	return M{id: "group_tier_fixed", vals: []val{{"group", group}, {"vm", string(vm)}}}
 }
 
 // GroupTierMismatch is [group_tier_mismatch]: "The group {{.group}} has a VM on the {{.tier}} tier and {{.vm}} is on {{.vm_tier}}, and a group's VMs are all on one tier. Give {{.vm}} the group's tier first, or join another group."
-func GroupTierMismatch(group string, tier string, vm string, vmTier string) M {
-	return M{id: "group_tier_mismatch", vals: []val{{"group", group}, {"tier", tier}, {"vm", vm}, {"vm_tier", vmTier}}}
+func GroupTierMismatch(group string, tier string, vm vmname.VM, vmTier string) M {
+	return M{id: "group_tier_mismatch", vals: []val{{"group", group}, {"tier", tier}, {"vm", string(vm)}, {"vm_tier", vmTier}}}
 }
 
 // GroupTrust is [group_trust]: "The group {{.group}} joins the trust of all its VMs. Code in any of them can often run code in the others through the ports they publish, and then has whatever that VM has."
@@ -2250,13 +2254,13 @@ func GroupWaiting() M {
 }
 
 // HasLayers is [has_layers]: "{{.vm}} has {{.layers}} already"
-func HasLayers(layers string, vm string) M {
-	return M{id: "has_layers", vals: []val{{"layers", layers}, {"vm", vm}}}
+func HasLayers(layers string, vm vmname.VM) M {
+	return M{id: "has_layers", vals: []val{{"layers", layers}, {"vm", string(vm)}}}
 }
 
 // HasTools is [has_tools]: "{{.vm}} has {{.tools}} already"
-func HasTools(tools string, vm string) M {
-	return M{id: "has_tools", vals: []val{{"tools", tools}, {"vm", vm}}}
+func HasTools(tools string, vm vmname.VM) M {
+	return M{id: "has_tools", vals: []val{{"tools", tools}, {"vm", string(vm)}}}
 }
 
 // HistoryFailed is [history_failed]: "Listing the exports of agents' history failed: {{.reason}}."
@@ -2265,23 +2269,23 @@ func HistoryFailed(reason string) M {
 }
 
 // HistoryImportAsk is [history_import_ask]: "devvm saved this folder's agent history in {{.file}}.\nImport it into {{.vm}}?"
-func HistoryImportAsk(file string, vm string) M {
-	return M{id: "history_import_ask", vals: []val{{"file", file}, {"vm", vm}}}
+func HistoryImportAsk(file string, vm vmname.VM) M {
+	return M{id: "history_import_ask", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // HistoryImportLater is [history_import_later]: "devvm saved this folder's agent history in {{.file}}. Run devvm history import in this folder to put it into {{.vm}}."
-func HistoryImportLater(file string, vm string) M {
-	return M{id: "history_import_later", vals: []val{{"file", file}, {"vm", vm}}}
+func HistoryImportLater(file string, vm vmname.VM) M {
+	return M{id: "history_import_later", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // HistoryImportLessStrict is [history_import_less_strict]: "{{.file}} comes from a VM on the {{.from}} tier, less strict than {{.vm}}'s {{.tier}}, so credentials and data its agents read there may come along."
-func HistoryImportLessStrict(file string, from string, tier string, vm string) M {
-	return M{id: "history_import_less_strict", vals: []val{{"file", file}, {"from", from}, {"tier", tier}, {"vm", vm}}}
+func HistoryImportLessStrict(file string, from string, tier string, vm vmname.VM) M {
+	return M{id: "history_import_less_strict", vals: []val{{"file", file}, {"from", from}, {"tier", tier}, {"vm", string(vm)}}}
 }
 
 // HistoryImportTierUnknown is [history_import_tier_unknown]: "{{.file}} has no record of the network tier it comes from, so credentials and data its agents read on a less strict tier than {{.vm}}'s {{.tier}} may come along."
-func HistoryImportTierUnknown(file string, tier string, vm string) M {
-	return M{id: "history_import_tier_unknown", vals: []val{{"file", file}, {"tier", tier}, {"vm", vm}}}
+func HistoryImportTierUnknown(file string, tier string, vm vmname.VM) M {
+	return M{id: "history_import_tier_unknown", vals: []val{{"file", file}, {"tier", tier}, {"vm", string(vm)}}}
 }
 
 // HistoryImportUnsafe is [history_import_unsafe]: "{{.file}} holds paths outside the agents' history folders, so devvm imported nothing from it."
@@ -2295,18 +2299,18 @@ func HistoryNoExport(dir string) M {
 }
 
 // HistoryNotExported is [history_not_exported]: "Exporting {{.vm}}'s agent history failed."
-func HistoryNotExported(vm string) M {
-	return M{id: "history_not_exported", vals: []val{{"vm", vm}}}
+func HistoryNotExported(vm vmname.VM) M {
+	return M{id: "history_not_exported", vals: []val{{"vm", string(vm)}}}
 }
 
 // HistoryNotImported is [history_not_imported]: "Importing the agent history in {{.file}} into {{.vm}} failed."
-func HistoryNotImported(file string, vm string) M {
-	return M{id: "history_not_imported", vals: []val{{"file", file}, {"vm", vm}}}
+func HistoryNotImported(file string, vm vmname.VM) M {
+	return M{id: "history_not_imported", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // HistoryTooLarge is [history_too_large]: "{{.vm}}'s agent history is over 2 GiB, more than an export holds, so devvm kept no export of it."
-func HistoryTooLarge(vm string) M {
-	return M{id: "history_too_large", vals: []val{{"vm", vm}}}
+func HistoryTooLarge(vm vmname.VM) M {
+	return M{id: "history_too_large", vals: []val{{"vm", string(vm)}}}
 }
 
 // HomeNotAbsolute is [home_not_absolute]: "HOME isn't an absolute path. Set it to your home folder."
@@ -2400,23 +2404,23 @@ func ImportFailed(reason string) M {
 }
 
 // Imported is [imported]: "imported the agent history in {{.file}} into {{.vm}}"
-func Imported(file string, vm string) M {
-	return M{id: "imported", vals: []val{{"file", file}, {"vm", vm}}}
+func Imported(file string, vm vmname.VM) M {
+	return M{id: "imported", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // InterruptedImage is [interrupted_image]: "interrupted: deleting the unfinished image {{.vm}}"
-func InterruptedImage(vm string) M {
-	return M{id: "interrupted_image", vals: []val{{"vm", vm}}}
+func InterruptedImage(vm vmname.VM) M {
+	return M{id: "interrupted_image", vals: []val{{"vm", string(vm)}}}
 }
 
 // InterruptedStart is [interrupted_start]: "interrupted: stopping {{.vm}}, which hadn't finished starting confined to its proxy"
-func InterruptedStart(vm string) M {
-	return M{id: "interrupted_start", vals: []val{{"vm", vm}}}
+func InterruptedStart(vm vmname.VM) M {
+	return M{id: "interrupted_start", vals: []val{{"vm", string(vm)}}}
 }
 
 // InterruptedVM is [interrupted_vm]: "interrupted: deleting {{.vm}}, which wasn't ready yet"
-func InterruptedVM(vm string) M {
-	return M{id: "interrupted_vm", vals: []val{{"vm", vm}}}
+func InterruptedVM(vm vmname.VM) M {
+	return M{id: "interrupted_vm", vals: []val{{"vm", string(vm)}}}
 }
 
 // JSONShowsOnly is [json_shows_only]: "{{.command}} --json only shows, so it takes no value. Run it without --json to change the setting."
@@ -2425,8 +2429,8 @@ func JSONShowsOnly(command string) M {
 }
 
 // Kept is [kept]: "kept {{.vm}}"
-func Kept(vm string) M {
-	return M{id: "kept", vals: []val{{"vm", vm}}}
+func Kept(vm vmname.VM) M {
+	return M{id: "kept", vals: []val{{"vm", string(vm)}}}
 }
 
 // KeyLoaded is [key_loaded]: "The key is loaded. To load it automatically after a reboot, add this to ~/.ssh/config:\n      Host *\n        AddKeysToAgent yes"
@@ -2450,8 +2454,8 @@ func KVMAccess(fix string) M {
 }
 
 // LacksLayers is [lacks_layers]: "{{.vm}} doesn't have {{.layers}}"
-func LacksLayers(layers string, vm string) M {
-	return M{id: "lacks_layers", vals: []val{{"layers", layers}, {"vm", vm}}}
+func LacksLayers(layers string, vm vmname.VM) M {
+	return M{id: "lacks_layers", vals: []val{{"layers", layers}, {"vm", string(vm)}}}
 }
 
 // LayerCreated is [layer_created]: "devvm created {{.script}} and its allowlist {{.policy}}. Edit them, then run devvm build {{.layer}} to build the image, or devvm --layers {{.layer}} to make a VM with it."
@@ -2500,8 +2504,8 @@ func LimaArchUnsupported(arch string) M {
 }
 
 // LimaEditFailed is [lima_edit_failed]: "Changing {{.vm}}'s Lima settings failed."
-func LimaEditFailed(vm string) M {
-	return M{id: "lima_edit_failed", vals: []val{{"vm", vm}}}
+func LimaEditFailed(vm vmname.VM) M {
+	return M{id: "lima_edit_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // LimaGlobalConfig is [lima_global_config]: "Lima would add {{.files}} to every VM devvm starts. Move them out of devvm's Lima home."
@@ -2510,8 +2514,8 @@ func LimaGlobalConfig(files string) M {
 }
 
 // LimaHomeTooLong is [lima_home_too_long]: "The path to devvm's Lima home {{.home}} is too long for {{.vm}}'s name. Set DEVVM_LIMA_HOME to a shorter folder."
-func LimaHomeTooLong(home string, vm string) M {
-	return M{id: "lima_home_too_long", vals: []val{{"home", home}, {"vm", vm}}}
+func LimaHomeTooLong(home string, vm vmname.VM) M {
+	return M{id: "lima_home_too_long", vals: []val{{"home", home}, {"vm", string(vm)}}}
 }
 
 // LimaHostUnsupported is [lima_host_unsupported]: "The lima backend doesn't run on {{.os}}. Use macOS or Linux."
@@ -2530,8 +2534,8 @@ func LimactlFailed(reason string) M {
 }
 
 // LinkAdded is [link_added]: "{{.vm}} reaches {{.target}}'s port {{.port}} as {{.name}}:{{.port}} and {{.name}}.devvm.internal:{{.port}}."
-func LinkAdded(name string, port string, target string, vm string) M {
-	return M{id: "link_added", vals: []val{{"name", name}, {"port", port}, {"target", target}, {"vm", vm}}}
+func LinkAdded(name string, port string, target string, vm vmname.VM) M {
+	return M{id: "link_added", vals: []val{{"name", name}, {"port", port}, {"target", target}, {"vm", string(vm)}}}
 }
 
 // LinkAmbiguousTarget is [link_ambiguous_target]: "More than one VM has a folder called {{.target}}: {{.vms}}. Give the VM's name or its folder's path instead."
@@ -2540,8 +2544,8 @@ func LinkAmbiguousTarget(target string, vms string) M {
 }
 
 // LinkExists is [link_exists]: "{{.vm}} reaches {{.name}}:{{.port}} already."
-func LinkExists(name string, port string, vm string) M {
-	return M{id: "link_exists", vals: []val{{"name", name}, {"port", port}, {"vm", vm}}}
+func LinkExists(name string, port string, vm vmname.VM) M {
+	return M{id: "link_exists", vals: []val{{"name", name}, {"port", port}, {"vm", string(vm)}}}
 }
 
 // LinkFailed is [link_failed]: "Showing or changing the links failed: {{.reason}}."
@@ -2550,13 +2554,13 @@ func LinkFailed(reason string) M {
 }
 
 // LinkFromGroup is [link_from_group]: "{{.name}}:{{.port}} is one of the links that the group {{.group}} gives {{.vm}}, so devvm link rm doesn't remove it. To remove the group's links, run devvm group leave."
-func LinkFromGroup(group string, name string, port string, vm string) M {
-	return M{id: "link_from_group", vals: []val{{"group", group}, {"name", name}, {"port", port}, {"vm", vm}}}
+func LinkFromGroup(group string, name string, port string, vm vmname.VM) M {
+	return M{id: "link_from_group", vals: []val{{"group", group}, {"name", name}, {"port", port}, {"vm", string(vm)}}}
 }
 
 // LinkNameHost is [link_name_host]: "{{.name}} already names {{.vm}} itself inside it. Give the link another name with --as NAME."
-func LinkNameHost(name string, vm string) M {
-	return M{id: "link_name_host", vals: []val{{"name", name}, {"vm", vm}}}
+func LinkNameHost(name string, vm vmname.VM) M {
+	return M{id: "link_name_host", vals: []val{{"name", name}, {"vm", string(vm)}}}
 }
 
 // LinkNameInvalid is [link_name_invalid]: "{{.name}} isn't a link name. Use lowercase letters, digits and dashes, such as db, starting and ending with a letter or digit and not all digits."
@@ -2565,18 +2569,18 @@ func LinkNameInvalid(name string) M {
 }
 
 // LinkNameTaken is [link_name_taken]: "{{.name}} already names {{.vm}}'s link to {{.target}}. Give this link another name with --as NAME."
-func LinkNameTaken(name string, target string, vm string) M {
-	return M{id: "link_name_taken", vals: []val{{"name", name}, {"target", target}, {"vm", vm}}}
+func LinkNameTaken(name string, target string, vm vmname.VM) M {
+	return M{id: "link_name_taken", vals: []val{{"name", name}, {"target", target}, {"vm", string(vm)}}}
 }
 
 // LinkNotFound is [link_not_found]: "{{.vm}} has no link to {{.target}} on port {{.port}}. Run devvm link to list its links."
-func LinkNotFound(port string, target string, vm string) M {
-	return M{id: "link_not_found", vals: []val{{"port", port}, {"target", target}, {"vm", vm}}}
+func LinkNotFound(port string, target string, vm vmname.VM) M {
+	return M{id: "link_not_found", vals: []val{{"port", port}, {"target", target}, {"vm", string(vm)}}}
 }
 
 // LinkNotPublished is [link_not_published]: "{{.vm}} doesn't publish port {{.port}}. Run devvm link publish {{.port}} in its folder first."
-func LinkNotPublished(port string, vm string) M {
-	return M{id: "link_not_published", vals: []val{{"port", port}, {"vm", vm}}}
+func LinkNotPublished(port string, vm vmname.VM) M {
+	return M{id: "link_not_published", vals: []val{{"port", port}, {"vm", string(vm)}}}
 }
 
 // LinkPortInvalid is [link_port_invalid]: "{{.value}} isn't a port. Give one port from 1 to 65535, such as 5432."
@@ -2585,18 +2589,18 @@ func LinkPortInvalid(value string) M {
 }
 
 // LinkPortTaken is [link_port_taken]: "{{.name}}:{{.port}} doesn't work in {{.vm}}, because a program in it already listens on that link's address and port. Stop that program, then run devvm restart."
-func LinkPortTaken(name string, port string, vm string) M {
-	return M{id: "link_port_taken", vals: []val{{"name", name}, {"port", port}, {"vm", vm}}}
+func LinkPortTaken(name string, port string, vm vmname.VM) M {
+	return M{id: "link_port_taken", vals: []val{{"name", name}, {"port", port}, {"vm", string(vm)}}}
 }
 
 // LinkRemoved is [link_removed]: "{{.vm}} doesn't reach {{.name}}:{{.port}} any more."
-func LinkRemoved(name string, port string, vm string) M {
-	return M{id: "link_removed", vals: []val{{"name", name}, {"port", port}, {"vm", vm}}}
+func LinkRemoved(name string, port string, vm vmname.VM) M {
+	return M{id: "link_removed", vals: []val{{"name", name}, {"port", port}, {"vm", string(vm)}}}
 }
 
 // LinkSelf is [link_self]: "{{.vm}} is this folder's VM, and a VM can't link to itself. Programs in it reach its own ports on localhost."
-func LinkSelf(vm string) M {
-	return M{id: "link_self", vals: []val{{"vm", vm}}}
+func LinkSelf(vm vmname.VM) M {
+	return M{id: "link_self", vals: []val{{"vm", string(vm)}}}
 }
 
 // LinkSessionFailed is [link_session_failed]: "Carrying the VM's links failed: {{.reason}}."
@@ -2605,38 +2609,38 @@ func LinkSessionFailed(reason string) M {
 }
 
 // LinkSetupInvalid is [link_setup_invalid]: "Setting up {{.vm}} stopped, because its link {{.name}} at {{.address}} isn't one devvm makes."
-func LinkSetupInvalid(address string, name string, vm string) M {
-	return M{id: "link_setup_invalid", vals: []val{{"address", address}, {"name", name}, {"vm", vm}}}
+func LinkSetupInvalid(address string, name string, vm vmname.VM) M {
+	return M{id: "link_setup_invalid", vals: []val{{"address", address}, {"name", name}, {"vm", string(vm)}}}
 }
 
 // LinkTargetNamed is [link_target_named]: "{{.vm}} reaches {{.target}} as {{.name}} already, and it has one name for each VM it links to. Leave out --as, or run devvm link rm for those links first."
-func LinkTargetNamed(name string, target string, vm string) M {
-	return M{id: "link_target_named", vals: []val{{"name", name}, {"target", target}, {"vm", vm}}}
+func LinkTargetNamed(name string, target string, vm vmname.VM) M {
+	return M{id: "link_target_named", vals: []val{{"name", name}, {"target", target}, {"vm", string(vm)}}}
 }
 
 // LinkTargetStopped is [link_target_stopped]: "{{.vm}}'s links to {{.target}} don't work until {{.target}} runs, because devvm never starts a VM for a link. To start it, run devvm in its folder."
-func LinkTargetStopped(target string, vm string) M {
-	return M{id: "link_target_stopped", vals: []val{{"target", target}, {"vm", vm}}}
+func LinkTargetStopped(target string, vm vmname.VM) M {
+	return M{id: "link_target_stopped", vals: []val{{"target", target}, {"vm", string(vm)}}}
 }
 
 // LinkTargetUnenforced is [link_target_unenforced]: "{{.vm}}'s links to {{.target}} don't work until {{.target}} starts again, because its network tier isn't in force as it runs. To start it again, run devvm restart in its folder."
-func LinkTargetUnenforced(target string, vm string) M {
-	return M{id: "link_target_unenforced", vals: []val{{"target", target}, {"vm", vm}}}
+func LinkTargetUnenforced(target string, vm vmname.VM) M {
+	return M{id: "link_target_unenforced", vals: []val{{"target", target}, {"vm", string(vm)}}}
 }
 
 // LinkTargetUnusable is [link_target_unusable]: "{{.vm}}'s links to {{.target}} don't work, because {{.target}}'s backend can't carry links."
-func LinkTargetUnusable(target string, vm string) M {
-	return M{id: "link_target_unusable", vals: []val{{"target", target}, {"vm", vm}}}
+func LinkTargetUnusable(target string, vm vmname.VM) M {
+	return M{id: "link_target_unusable", vals: []val{{"target", target}, {"vm", string(vm)}}}
 }
 
 // LinkTierMismatch is [link_tier_mismatch]: "{{.vm}} is on the {{.tier}} tier and {{.target}} on {{.target_tier}}, a lower one, so a link would let {{.vm}} reach more through it. Give {{.target}} the {{.tier}} tier or a stricter one first."
-func LinkTierMismatch(target string, targetTier string, tier string, vm string) M {
-	return M{id: "link_tier_mismatch", vals: []val{{"target", target}, {"target_tier", targetTier}, {"tier", tier}, {"vm", vm}}}
+func LinkTierMismatch(target string, targetTier string, tier string, vm vmname.VM) M {
+	return M{id: "link_tier_mismatch", vals: []val{{"target", target}, {"target_tier", targetTier}, {"tier", tier}, {"vm", string(vm)}}}
 }
 
 // LinkTrust is [link_trust]: "A link joins the two VMs' trust. Code in {{.vm}} can often run code in {{.target}} through the service it reaches, and then has whatever {{.target}} has."
-func LinkTrust(target string, vm string) M {
-	return M{id: "link_trust", vals: []val{{"target", target}, {"vm", vm}}}
+func LinkTrust(target string, vm vmname.VM) M {
+	return M{id: "link_trust", vals: []val{{"target", target}, {"vm", string(vm)}}}
 }
 
 // LinkUnknownTarget is [link_unknown_target]: "There's no VM for {{.target}}. Give a folder's name or path, or a VM's name, as devvm ls lists them."
@@ -2645,13 +2649,13 @@ func LinkUnknownTarget(target string) M {
 }
 
 // LinksTargetGone is [links_target_gone]: "{{.vms}} have no links to {{.vm}} any more."
-func LinksTargetGone(count int, vm string, vms string) M {
-	return M{id: "links_target_gone", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", vm}, {"vms", vms}}}
+func LinksTargetGone(count int, vm vmname.VM, vms string) M {
+	return M{id: "links_target_gone", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", string(vm)}, {"vms", vms}}}
 }
 
 // LinksUpdateFailed is [links_update_failed]: "Updating {{.vm}}'s links failed, so it gets them when it next starts."
-func LinksUpdateFailed(vm string) M {
-	return M{id: "links_update_failed", vals: []val{{"vm", vm}}}
+func LinksUpdateFailed(vm vmname.VM) M {
+	return M{id: "links_update_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // LoadKey is [load_key]: "Run {{.cmd}} now to load {{.key}} into your SSH agent?"
@@ -2670,8 +2674,8 @@ func LogDetails(file string) M {
 }
 
 // LogEmpty is [log_empty]: "{{.vm}}'s network log is empty so far."
-func LogEmpty(vm string) M {
-	return M{id: "log_empty", vals: []val{{"vm", vm}}}
+func LogEmpty(vm vmname.VM) M {
+	return M{id: "log_empty", vals: []val{{"vm", string(vm)}}}
 }
 
 // LogEnd is [log_end]: "the end of {{.file}}:"
@@ -2685,13 +2689,13 @@ func LogFailed(reason string) M {
 }
 
 // LoginCaptureRefused is [login_capture_refused]: "{{.vm}} doesn't have {{.agent}}, so devvm didn't save the {{.agent}} login it sent. Log {{.agent}} in from a VM that has it."
-func LoginCaptureRefused(agent string, vm string) M {
-	return M{id: "login_capture_refused", vals: []val{{"agent", agent}, {"vm", vm}}}
+func LoginCaptureRefused(agent string, vm vmname.VM) M {
+	return M{id: "login_capture_refused", vals: []val{{"agent", agent}, {"vm", string(vm)}}}
 }
 
 // LoginCopyFailed is [login_copy_failed]: "Making {{.vm}}'s copy of {{.agent}}'s login failed: {{.reason}}."
-func LoginCopyFailed(agent string, reason string, vm string) M {
-	return M{id: "login_copy_failed", vals: []val{{"agent", agent}, {"reason", reason}, {"vm", vm}}}
+func LoginCopyFailed(agent string, reason string, vm vmname.VM) M {
+	return M{id: "login_copy_failed", vals: []val{{"agent", agent}, {"reason", reason}, {"vm", string(vm)}}}
 }
 
 // LoginFieldsWithheld is [login_fields_withheld]: "The VM gets {{.agent}}'s {{.file}} without {{.keys}}, because devvm doesn't know what they're for."
@@ -2740,8 +2744,8 @@ func MiseDownloadFailed(version string) M {
 }
 
 // MountCacheClone is [mount_cache_clone]: "{{.vm}} is a --clone VM, so it mounts no project folder to cache. It uses {{.mode}} once devvm clone off mounts the folder."
-func MountCacheClone(mode string, vm string) M {
-	return M{id: "mount_cache_clone", vals: []val{{"mode", mode}, {"vm", vm}}}
+func MountCacheClone(mode string, vm vmname.VM) M {
+	return M{id: "mount_cache_clone", vals: []val{{"mode", mode}, {"vm", string(vm)}}}
 }
 
 // MountCacheFailed is [mount_cache_failed]: "Showing or changing the cache mode failed: {{.reason}}."
@@ -2755,33 +2759,33 @@ func MountCacheInvalid(value string) M {
 }
 
 // MountCacheNoChoice is [mount_cache_no_choice]: "{{.vm}} doesn't mount its project folder with 9p, so it has no cache mode to choose."
-func MountCacheNoChoice(vm string) M {
-	return M{id: "mount_cache_no_choice", vals: []val{{"vm", vm}}}
+func MountCacheNoChoice(vm vmname.VM) M {
+	return M{id: "mount_cache_no_choice", vals: []val{{"vm", string(vm)}}}
 }
 
 // MountCachePending is [mount_cache_pending]: "{{.vm}} caches its project folder with {{.mode}} from its next start."
-func MountCachePending(mode string, vm string) M {
-	return M{id: "mount_cache_pending", vals: []val{{"mode", mode}, {"vm", vm}}}
+func MountCachePending(mode string, vm vmname.VM) M {
+	return M{id: "mount_cache_pending", vals: []val{{"mode", mode}, {"vm", string(vm)}}}
 }
 
 // MountCacheRemountFailed is [mount_cache_remount_failed]: "{{.vm}}'s project folder is still mounted with {{.has}} instead of {{.want}}, which can lose writes there. Something the VM starts at boot may be holding the folder."
-func MountCacheRemountFailed(has string, vm string, want string) M {
-	return M{id: "mount_cache_remount_failed", vals: []val{{"has", has}, {"vm", vm}, {"want", want}}}
+func MountCacheRemountFailed(has string, vm vmname.VM, want string) M {
+	return M{id: "mount_cache_remount_failed", vals: []val{{"has", has}, {"vm", string(vm)}, {"want", want}}}
 }
 
 // MountCacheUnchecked is [mount_cache_unchecked]: "Checking that {{.vm}}'s project folder is mounted after its cache mode changed failed, even after a restart, so devvm stopped the VM before anything could write there. Its console log may say why."
-func MountCacheUnchecked(vm string) M {
-	return M{id: "mount_cache_unchecked", vals: []val{{"vm", vm}}}
+func MountCacheUnchecked(vm vmname.VM) M {
+	return M{id: "mount_cache_unchecked", vals: []val{{"vm", string(vm)}}}
 }
 
 // MountCacheUnchosen is [mount_cache_unchosen]: "{{.vm}} caches its project folder with {{.mode}}, which can lose writes and breaks SQLite and Gradle there. Run devvm mount-cache none to stop it."
-func MountCacheUnchosen(mode string, vm string) M {
-	return M{id: "mount_cache_unchosen", vals: []val{{"mode", mode}, {"vm", vm}}}
+func MountCacheUnchosen(mode string, vm vmname.VM) M {
+	return M{id: "mount_cache_unchosen", vals: []val{{"mode", mode}, {"vm", string(vm)}}}
 }
 
 // MountCacheUnmounted is [mount_cache_unmounted]: "{{.vm}}'s project folder wasn't mounted after its cache mode changed, even after a restart, so devvm stopped the VM before anything could write there. Its console log may say why."
-func MountCacheUnmounted(vm string) M {
-	return M{id: "mount_cache_unmounted", vals: []val{{"vm", vm}}}
+func MountCacheUnmounted(vm vmname.VM) M {
+	return M{id: "mount_cache_unmounted", vals: []val{{"vm", string(vm)}}}
 }
 
 // MountComma is [mount_comma]: "Lima can't mount {{.path}} because its path has a comma."
@@ -2790,18 +2794,18 @@ func MountComma(path string) M {
 }
 
 // MountsUpdated is [mounts_updated]: "updated {{.vm}}'s agent folder mounts"
-func MountsUpdated(vm string) M {
-	return M{id: "mounts_updated", vals: []val{{"vm", vm}}}
+func MountsUpdated(vm vmname.VM) M {
+	return M{id: "mounts_updated", vals: []val{{"vm", string(vm)}}}
 }
 
 // MoveFolderChanged is [move_folder_changed]: "The folder at {{.dir}} changed while devvm asked, so devvm didn't move {{.vm}} here. Run the command again."
-func MoveFolderChanged(dir string, vm string) M {
-	return M{id: "move_folder_changed", vals: []val{{"dir", dir}, {"vm", vm}}}
+func MoveFolderChanged(dir string, vm vmname.VM) M {
+	return M{id: "move_folder_changed", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // MoveVM is [move_vm]: "{{.vm}} was made for {{.was}}, and that folder moved here.\nMove the VM here, with its files, secrets and allowlist? If it's running, it stops first."
-func MoveVM(vm string, was string) M {
-	return M{id: "move_vm", vals: []val{{"vm", vm}, {"was", was}}}
+func MoveVM(vm vmname.VM, was string) M {
+	return M{id: "move_vm", vals: []val{{"vm", string(vm)}, {"was", was}}}
 }
 
 // MsgBadCount is [msg_bad_count]: "The count must be a whole number, not {{.value}}."
@@ -2835,8 +2839,8 @@ func MsgUnknown(name string) M {
 }
 
 // NetAllowsUnused is [net_allows_unused]: "{{.vm}} is on the {{.tier}} tier, where only your denies apply, so this allow changes nothing until it's on the allowlist tier."
-func NetAllowsUnused(tier string, vm string) M {
-	return M{id: "net_allows_unused", vals: []val{{"tier", tier}, {"vm", vm}}}
+func NetAllowsUnused(tier string, vm vmname.VM) M {
+	return M{id: "net_allows_unused", vals: []val{{"tier", tier}, {"vm", string(vm)}}}
 }
 
 // NetChoiceLearn is [net_choice_learn]: "reaches any public host while it learns which it needs, until devvm network lock"
@@ -2850,8 +2854,8 @@ func NetDefaultFailed(reason string) M {
 }
 
 // NetDirectRoute is [net_direct_route]: "{{.vm}} reached the internet without going through its proxy, so devvm stopped it. Something outside devvm may have given it another network."
-func NetDirectRoute(vm string) M {
-	return M{id: "net_direct_route", vals: []val{{"vm", vm}}}
+func NetDirectRoute(vm vmname.VM) M {
+	return M{id: "net_direct_route", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetLearnNotGlobal is [net_learn_not_global]: "New VMs can't learn by default, because each VM learns the hosts it needs on its own. Make one learn with devvm --network learn, or with devvm network learn in its folder."
@@ -2860,13 +2864,13 @@ func NetLearnNotGlobal() M {
 }
 
 // NetLearnStarted is [net_learn_started]: "{{.vm}} learns the hosts it reaches from now on, with the internet tier's access. To lock it to the hosts you choose, run devvm network lock."
-func NetLearnStarted(vm string) M {
-	return M{id: "net_learn_started", vals: []val{{"vm", vm}}}
+func NetLearnStarted(vm vmname.VM) M {
+	return M{id: "net_learn_started", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetLearnStopped is [net_learn_stopped]: "{{.vm}} stopped learning the hosts it reaches."
-func NetLearnStopped(vm string) M {
-	return M{id: "net_learn_stopped", vals: []val{{"vm", vm}}}
+func NetLearnStopped(vm vmname.VM) M {
+	return M{id: "net_learn_stopped", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetLearnedHost is [net_learned_host]: "{{.count}} connections, User-Agent: {{.agent}}"
@@ -2885,8 +2889,8 @@ func NetLearnedNoProxyHeading() M {
 }
 
 // NetLearnedPartial is [net_learned_partial]: "{{.vm}}'s network log no longer goes back to {{.since}}, when it started learning, so hosts it reached early on may be missing. To allow one later, run devvm network allow."
-func NetLearnedPartial(since string, vm string) M {
-	return M{id: "net_learned_partial", vals: []val{{"since", since}, {"vm", vm}}}
+func NetLearnedPartial(since string, vm vmname.VM) M {
+	return M{id: "net_learned_partial", vals: []val{{"since", since}, {"vm", string(vm)}}}
 }
 
 // NetLearnedRiskyHeading is [net_learned_risky_heading]: "Risky, each an easy way to send data out:"
@@ -2895,23 +2899,23 @@ func NetLearnedRiskyHeading() M {
 }
 
 // NetLearning is [net_learning]: "{{.vm}} is learning the hosts it reaches, with internet access, and since {{.since}} it has reached {{.count}} hosts beyond its allowlist. To lock it to the hosts you choose, run devvm network lock."
-func NetLearning(count int, since string, vm string) M {
-	return M{id: "net_learning", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"since", since}, {"vm", vm}}}
+func NetLearning(count int, since string, vm vmname.VM) M {
+	return M{id: "net_learning", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"since", since}, {"vm", string(vm)}}}
 }
 
 // NetLearningLock is [net_learning_lock]: "{{.vm}} is learning the hosts it reaches, so devvm network lock puts it on the allowlist tier with the hosts you choose. To add none of them, run devvm network lock --none."
-func NetLearningLock(vm string) M {
-	return M{id: "net_learning_lock", vals: []val{{"vm", vm}}}
+func NetLearningLock(vm vmname.VM) M {
+	return M{id: "net_learning_lock", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetLearningSince is [net_learning_since]: "{{.vm}} has been learning the hosts it reaches, with internet access, since {{.since}}. To lock it to the hosts you choose, run devvm network lock."
-func NetLearningSince(since string, vm string) M {
-	return M{id: "net_learning_since", vals: []val{{"since", since}, {"vm", vm}}}
+func NetLearningSince(since string, vm vmname.VM) M {
+	return M{id: "net_learning_since", vals: []val{{"since", since}, {"vm", string(vm)}}}
 }
 
 // NetLockChanged is [net_lock_changed]: "{{.vm}}'s network tier changed while devvm network lock was asking, so it changed nothing. To lock it, run devvm network lock again."
-func NetLockChanged(vm string) M {
-	return M{id: "net_lock_changed", vals: []val{{"vm", vm}}}
+func NetLockChanged(vm vmname.VM) M {
+	return M{id: "net_lock_changed", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetLockContext is [net_lock_context]: "Since {{.since}} the VM could reach any public host, so this list can hold a host that a compromised dependency reached. Only a host on port 443 of a package registry or vendor devvm knows starts ticked, so read the others before you tick them."
@@ -2925,38 +2929,38 @@ func NetLockContextMany(count int, since string) M {
 }
 
 // NetLockHelp is [net_lock_help]: "Choose the hosts {{.vm}} keeps. Use up and down to move, space to toggle, a to toggle them all and enter to confirm."
-func NetLockHelp(vm string) M {
-	return M{id: "net_lock_help", vals: []val{{"vm", vm}}}
+func NetLockHelp(vm vmname.VM) M {
+	return M{id: "net_lock_help", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetLocked is [net_locked]: "Added {{.count}} hosts to {{.vm}}'s own rules, and gave it the allowlist tier."
-func NetLocked(count int, vm string) M {
-	return M{id: "net_locked", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", vm}}}
+func NetLocked(count int, vm vmname.VM) M {
+	return M{id: "net_locked", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", string(vm)}}}
 }
 
 // NetNotLearning is [net_not_learning]: "{{.vm}} isn't learning the hosts it reaches, so there's nothing to lock. To start, run devvm network learn."
-func NetNotLearning(vm string) M {
-	return M{id: "net_not_learning", vals: []val{{"vm", vm}}}
+func NetNotLearning(vm vmname.VM) M {
+	return M{id: "net_not_learning", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetOpenLog is [net_open_log]: "{{.vm}} is open, so devvm logs only what goes through its proxy, not what it reaches directly."
-func NetOpenLog(vm string) M {
-	return M{id: "net_open_log", vals: []val{{"vm", vm}}}
+func NetOpenLog(vm vmname.VM) M {
+	return M{id: "net_open_log", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetOpenPolicy is [net_open_policy]: "{{.vm}} is open, so no rule applies to it. To have its rules apply, run devvm network allowlist."
-func NetOpenPolicy(vm string) M {
-	return M{id: "net_open_policy", vals: []val{{"vm", vm}}}
+func NetOpenPolicy(vm vmname.VM) M {
+	return M{id: "net_open_policy", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetProxyDownStopped is [net_proxy_down_stopped]: "{{.vm}}'s proxy couldn't start, so devvm stopped the VM, which doesn't run without it. devvm starts both again at the VM's next launch."
-func NetProxyDownStopped(vm string) M {
-	return M{id: "net_proxy_down_stopped", vals: []val{{"vm", vm}}}
+func NetProxyDownStopped(vm vmname.VM) M {
+	return M{id: "net_proxy_down_stopped", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetProxyUnreachable is [net_proxy_unreachable]: "{{.vm}}'s proxy doesn't answer it, so its tools that use the proxy fail. To start both again, run devvm restart."
-func NetProxyUnreachable(vm string) M {
-	return M{id: "net_proxy_unreachable", vals: []val{{"vm", vm}}}
+func NetProxyUnreachable(vm vmname.VM) M {
+	return M{id: "net_proxy_unreachable", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetTierAllowlist is [net_tier_allowlist]: "reaches only the hosts you allow (recommended)"
@@ -2965,13 +2969,13 @@ func NetTierAllowlist() M {
 }
 
 // NetTierBackend is [net_tier_backend]: "The {{.backend}} backend can't confine {{.vm}} to its proxy here, so the VM can only be open. Make it with --network open."
-func NetTierBackend(backend string, vm string) M {
-	return M{id: "net_tier_backend", vals: []val{{"backend", backend}, {"vm", vm}}}
+func NetTierBackend(backend string, vm vmname.VM) M {
+	return M{id: "net_tier_backend", vals: []val{{"backend", backend}, {"vm", string(vm)}}}
 }
 
 // NetTierHelp is [net_tier_help]: "Network tier for {{.vm}} (up/down to choose, enter to confirm):"
-func NetTierHelp(vm string) M {
-	return M{id: "net_tier_help", vals: []val{{"vm", vm}}}
+func NetTierHelp(vm vmname.VM) M {
+	return M{id: "net_tier_help", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetTierInternet is [net_tier_internet]: "reaches any public host"
@@ -2995,23 +2999,23 @@ func NetTransparentFailed(reason string) M {
 }
 
 // NetTransparentSet is [net_transparent_set]: "devvm turns transparent mode {{.mode}} for {{.vm}} at its next launch, and it applies while the VM is on a confined tier."
-func NetTransparentSet(mode string, vm string) M {
-	return M{id: "net_transparent_set", vals: []val{{"mode", mode}, {"vm", vm}}}
+func NetTransparentSet(mode string, vm vmname.VM) M {
+	return M{id: "net_transparent_set", vals: []val{{"mode", mode}, {"vm", string(vm)}}}
 }
 
 // NetUnenforced is [net_unenforced]: "WARNING: {{.vm}} reaches the network directly, so its network tier isn't enforced until devvm starts it again. To enforce it now, run devvm restart."
-func NetUnenforced(vm string) M {
-	return M{id: "net_unenforced", vals: []val{{"vm", vm}}}
+func NetUnenforced(vm vmname.VM) M {
+	return M{id: "net_unenforced", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetUnenforcedRestart is [net_unenforced_restart]: "{{.vm}} wasn't started confined to its proxy, so its network tier isn't enforced. Restart it confined?"
-func NetUnenforcedRestart(vm string) M {
-	return M{id: "net_unenforced_restart", vals: []val{{"vm", vm}}}
+func NetUnenforcedRestart(vm vmname.VM) M {
+	return M{id: "net_unenforced_restart", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetUnenforcedStop is [net_unenforced_stop]: "{{.vm}} wasn't started confined to its proxy, so its network tier wasn't enforced and devvm stopped it. devvm starts it confined at its next launch."
-func NetUnenforcedStop(vm string) M {
-	return M{id: "net_unenforced_stop", vals: []val{{"vm", vm}}}
+func NetUnenforcedStop(vm vmname.VM) M {
+	return M{id: "net_unenforced_stop", vals: []val{{"vm", string(vm)}}}
 }
 
 // NetworkDefault is [network_default]: "new VMs' network tier is {{.mode}}"
@@ -3070,13 +3074,13 @@ func NewVMDiskQuestion() M {
 }
 
 // NewVMFlagsIgnored is [new_vm_flags_ignored]: "Only a new VM takes {{.flags}}, so {{.vm}} keeps its own settings."
-func NewVMFlagsIgnored(flags string, vm string) M {
-	return M{id: "new_vm_flags_ignored", vals: []val{{"flags", flags}, {"vm", vm}}}
+func NewVMFlagsIgnored(flags string, vm vmname.VM) M {
+	return M{id: "new_vm_flags_ignored", vals: []val{{"flags", flags}, {"vm", string(vm)}}}
 }
 
 // NewVMFlagsIgnoredRun is [new_vm_flags_ignored_run]: "Only a new VM takes {{.flags}}, so {{.vm}} keeps its own settings. To change them, run {{.command}}."
-func NewVMFlagsIgnoredRun(command string, flags string, vm string) M {
-	return M{id: "new_vm_flags_ignored_run", vals: []val{{"command", command}, {"flags", flags}, {"vm", vm}}}
+func NewVMFlagsIgnoredRun(command string, flags string, vm vmname.VM) M {
+	return M{id: "new_vm_flags_ignored_run", vals: []val{{"command", command}, {"flags", flags}, {"vm", string(vm)}}}
 }
 
 // NewVMLayerFor is [new_vm_layer_for]: "  layer {{.layer}}, for {{.file}}"
@@ -3120,8 +3124,8 @@ func NewVMPortsAll() M {
 }
 
 // NewVMPortsHelp is [new_vm_ports_help]: "Ports {{.vm}} forwards (up/down to choose, enter to confirm):"
-func NewVMPortsHelp(vm string) M {
-	return M{id: "new_vm_ports_help", vals: []val{{"vm", vm}}}
+func NewVMPortsHelp(vm vmname.VM) M {
+	return M{id: "new_vm_ports_help", vals: []val{{"vm", string(vm)}}}
 }
 
 // NewVMPortsList is [new_vm_ports_list]: "These ports…"
@@ -3150,8 +3154,8 @@ func NewVMSizeQuestion(haveCpus string, haveMemory string) M {
 }
 
 // NewVMSummary is [new_vm_summary]: "This folder's new VM, {{.vm}}, gets:"
-func NewVMSummary(vm string) M {
-	return M{id: "new_vm_summary", vals: []val{{"vm", vm}}}
+func NewVMSummary(vm vmname.VM) M {
+	return M{id: "new_vm_summary", vals: []val{{"vm", string(vm)}}}
 }
 
 // NewVMToolchainFor is [new_vm_toolchain_for]: "  toolchain {{.tool}}, for {{.file}}"
@@ -3175,18 +3179,18 @@ func NewerTools(tools string) M {
 }
 
 // NextStart is [next_start]: "{{.vm}} is running, so it gets the changes when it next starts. To apply them now, run devvm restart."
-func NextStart(count int, vm string) M {
-	return M{id: "next_start", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", vm}}}
+func NextStart(count int, vm vmname.VM) M {
+	return M{id: "next_start", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", string(vm)}}}
 }
 
 // NextStartAgent is [next_start_agent]: "{{.vm}}'s SSH agent forwarding changes only when it starts."
-func NextStartAgent(vm string) M {
-	return M{id: "next_start_agent", vals: []val{{"vm", vm}}}
+func NextStartAgent(vm vmname.VM) M {
+	return M{id: "next_start_agent", vals: []val{{"vm", string(vm)}}}
 }
 
 // NextStartFolder is [next_start_folder]: "{{.vm}} mounts its project folder at {{.dir}} only when it starts."
-func NextStartFolder(dir string, vm string) M {
-	return M{id: "next_start_folder", vals: []val{{"dir", dir}, {"vm", vm}}}
+func NextStartFolder(dir string, vm vmname.VM) M {
+	return M{id: "next_start_folder", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // NextStartMore is [next_start_more]: "{{.count}} more changes wait for that too."
@@ -3195,28 +3199,28 @@ func NextStartMore(count int) M {
 }
 
 // NextStartMountCache is [next_start_mount_cache]: "{{.vm}} gets its new cache mode only when it starts."
-func NextStartMountCache(vm string) M {
-	return M{id: "next_start_mount_cache", vals: []val{{"vm", vm}}}
+func NextStartMountCache(vm vmname.VM) M {
+	return M{id: "next_start_mount_cache", vals: []val{{"vm", string(vm)}}}
 }
 
 // NextStartMounts is [next_start_mounts]: "{{.vm}}'s agent folder mounts change only when it starts."
-func NextStartMounts(vm string) M {
-	return M{id: "next_start_mounts", vals: []val{{"vm", vm}}}
+func NextStartMounts(vm vmname.VM) M {
+	return M{id: "next_start_mounts", vals: []val{{"vm", string(vm)}}}
 }
 
 // NextStartNetOff is [next_start_net_off]: "{{.vm}} leaves its proxy's confinement for the open tier only when it starts."
-func NextStartNetOff(vm string) M {
-	return M{id: "next_start_net_off", vals: []val{{"vm", vm}}}
+func NextStartNetOff(vm vmname.VM) M {
+	return M{id: "next_start_net_off", vals: []val{{"vm", string(vm)}}}
 }
 
 // NextStartSize is [next_start_size]: "{{.vm}} gets its new size only when it starts."
-func NextStartSize(vm string) M {
-	return M{id: "next_start_size", vals: []val{{"vm", vm}}}
+func NextStartSize(vm vmname.VM) M {
+	return M{id: "next_start_size", vals: []val{{"vm", string(vm)}}}
 }
 
 // NoClaudeToken is [no_claude_token]: "{{.vm}} has no Claude Code login. Run devvm agent login claude in its folder."
-func NoClaudeToken(vm string) M {
-	return M{id: "no_claude_token", vals: []val{{"vm", vm}}}
+func NoClaudeToken(vm vmname.VM) M {
+	return M{id: "no_claude_token", vals: []val{{"vm", string(vm)}}}
 }
 
 // NoCodeCommand is [no_code_command]: "VS Code's code command isn't on PATH. Connect to {{.host}} with Remote-SSH instead."
@@ -3255,8 +3259,8 @@ func NoFeature(feature string, features string) M {
 }
 
 // NoGithubToken is [no_github_token]: "{{.vm}} uses github, but no GitHub token is saved. Run devvm secret set github."
-func NoGithubToken(vm string) M {
-	return M{id: "no_github_token", vals: []val{{"vm", vm}}}
+func NoGithubToken(vm vmname.VM) M {
+	return M{id: "no_github_token", vals: []val{{"vm", string(vm)}}}
 }
 
 // NoImageNamed is [no_image_named]: "There's no image {{.image}}. Run devvm images to list them."
@@ -3420,13 +3424,13 @@ func OCIWaiting() M {
 }
 
 // OpencodeImportFailed is [opencode_import_failed]: "opencode in {{.vm}} refused devvm's login for {{.providers}}, though devvm saved the API key. Run devvm in the VM's folder to try again."
-func OpencodeImportFailed(providers string, vm string) M {
-	return M{id: "opencode_import_failed", vals: []val{{"providers", providers}, {"vm", vm}}}
+func OpencodeImportFailed(providers string, vm vmname.VM) M {
+	return M{id: "opencode_import_failed", vals: []val{{"providers", providers}, {"vm", string(vm)}}}
 }
 
 // OpencodeImportTooMuch is [opencode_import_too_much]: "opencode in {{.vm}} printed more than devvm reads while it imported devvm's logins, so devvm stopped it. Run devvm in the VM's folder to try again."
-func OpencodeImportTooMuch(vm string) M {
-	return M{id: "opencode_import_too_much", vals: []val{{"vm", vm}}}
+func OpencodeImportTooMuch(vm vmname.VM) M {
+	return M{id: "opencode_import_too_much", vals: []val{{"vm", string(vm)}}}
 }
 
 // OriginNoBoot is [origin_no_boot]: "base didn't boot from Ubuntu's cloud image {{.origin}}, so devvm tries the release before it."
@@ -3465,8 +3469,8 @@ func PackagesRefused(why string) M {
 }
 
 // PackagesSendFailed is [packages_send_failed]: "Sending base's recorded packages into {{.vm}} failed."
-func PackagesSendFailed(vm string) M {
-	return M{id: "packages_send_failed", vals: []val{{"vm", vm}}}
+func PackagesSendFailed(vm vmname.VM) M {
+	return M{id: "packages_send_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // PackagesStale is [packages_stale]: "Ubuntu's archive gave base's build {{.suite}} as of {{.date}}, older than the cloud image {{.release}}, so devvm keeps none of its packages. Check that nothing between you and Ubuntu's archive serves an old copy, then run the command again."
@@ -3480,8 +3484,8 @@ func PackagesStaleMirror(date string, mirror string, release string, suite strin
 }
 
 // PackagesTakeFailed is [packages_take_failed]: "Taking the packages base downloaded out of {{.vm}} failed."
-func PackagesTakeFailed(vm string) M {
-	return M{id: "packages_take_failed", vals: []val{{"vm", vm}}}
+func PackagesTakeFailed(vm vmname.VM) M {
+	return M{id: "packages_take_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // PartNoneAlone is [part_none_alone]: "{{.flag}} takes none alone, or a list of names without it."
@@ -3505,8 +3509,8 @@ func PasteCopyFailed(path string) M {
 }
 
 // PasteCountFailed is [paste_count_failed]: "Counting the pasted files in {{.dir}} in {{.vm}} failed."
-func PasteCountFailed(dir string, vm string) M {
-	return M{id: "paste_count_failed", vals: []val{{"dir", dir}, {"vm", vm}}}
+func PasteCountFailed(dir string, vm vmname.VM) M {
+	return M{id: "paste_count_failed", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // PasteDirInvalid is [paste_dir_invalid]: "{{.setting}} isn't a folder devvm paste can use. Set it as an absolute path of letters, digits, dots, dashes and _, such as /tmp/devvm-paste."
@@ -3520,8 +3524,8 @@ func PasteFailed(reason string) M {
 }
 
 // PasteFileAsk is [paste_file_ask]: "Anything in {{.vm}} can read what you send.\nSend {{.file}} from this machine?"
-func PasteFileAsk(file string, vm string) M {
-	return M{id: "paste_file_ask", vals: []val{{"file", file}, {"vm", vm}}}
+func PasteFileAsk(file string, vm vmname.VM) M {
+	return M{id: "paste_file_ask", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // PasteFileGone is [paste_file_gone]: "The file on the clipboard is gone, so devvm sent nothing. Copy the file again, then run devvm paste again."
@@ -3545,8 +3549,8 @@ func PasteFileThroughLink(file string) M {
 }
 
 // PasteLaunchAsk is [paste_launch_ask]: "{{.vm}} still has {{.count}} pasted files in {{.dir}} from before it stopped.\nDelete them?"
-func PasteLaunchAsk(count int, dir string, vm string) M {
-	return M{id: "paste_launch_ask", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"dir", dir}, {"vm", vm}}}
+func PasteLaunchAsk(count int, dir string, vm vmname.VM) M {
+	return M{id: "paste_launch_ask", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"dir", dir}, {"vm", string(vm)}}}
 }
 
 // PasteManyFiles is [paste_many_files]: "{{.count}} files are on the clipboard, and devvm paste sends one. Copy one file, then run it again."
@@ -3570,8 +3574,8 @@ func PasteNotFile(file string) M {
 }
 
 // PasteNotSent is [paste_not_sent]: "Writing {{.path}} in {{.vm}} failed."
-func PasteNotSent(path string, vm string) M {
-	return M{id: "paste_not_sent", vals: []val{{"path", path}, {"vm", vm}}}
+func PasteNotSent(path string, vm vmname.VM) M {
+	return M{id: "paste_not_sent", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // PasteNothing is [paste_nothing]: "There's no image, PDF or copied file on the clipboard. Copy one, then run devvm paste again."
@@ -3585,18 +3589,18 @@ func PasteOsascriptFailed(reason string) M {
 }
 
 // PastePut is [paste_put]: "put {{.path}} into {{.vm}}"
-func PastePut(path string, vm string) M {
-	return M{id: "paste_put", vals: []val{{"path", path}, {"vm", vm}}}
+func PastePut(path string, vm vmname.VM) M {
+	return M{id: "paste_put", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // PasteRmAsk is [paste_rm_ask]: "Delete {{.count}} pasted files in {{.dir}} in {{.vm}}?"
-func PasteRmAsk(count int, dir string, vm string) M {
-	return M{id: "paste_rm_ask", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"dir", dir}, {"vm", vm}}}
+func PasteRmAsk(count int, dir string, vm vmname.VM) M {
+	return M{id: "paste_rm_ask", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"dir", dir}, {"vm", string(vm)}}}
 }
 
 // PasteRmDone is [paste_rm_done]: "deleted {{.count}} pasted files from {{.dir}} in {{.vm}}"
-func PasteRmDone(count int, dir string, vm string) M {
-	return M{id: "paste_rm_done", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"dir", dir}, {"vm", vm}}}
+func PasteRmDone(count int, dir string, vm vmname.VM) M {
+	return M{id: "paste_rm_done", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"dir", dir}, {"vm", string(vm)}}}
 }
 
 // PasteRmFailed is [paste_rm_failed]: "Deleting the pasted files in this folder's VM failed: {{.reason}}."
@@ -3605,18 +3609,18 @@ func PasteRmFailed(reason string) M {
 }
 
 // PasteRmNone is [paste_rm_none]: "There are no pasted files in {{.dir}} in {{.vm}}."
-func PasteRmNone(dir string, vm string) M {
-	return M{id: "paste_rm_none", vals: []val{{"dir", dir}, {"vm", vm}}}
+func PasteRmNone(dir string, vm vmname.VM) M {
+	return M{id: "paste_rm_none", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // PasteRmNotDone is [paste_rm_not_done]: "Deleting the pasted files in {{.dir}} in {{.vm}} failed."
-func PasteRmNotDone(dir string, vm string) M {
-	return M{id: "paste_rm_not_done", vals: []val{{"dir", dir}, {"vm", vm}}}
+func PasteRmNotDone(dir string, vm vmname.VM) M {
+	return M{id: "paste_rm_not_done", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // PasteSent is [paste_sent]: "put {{.path}} into {{.vm}} and copied the path, for your terminal's paste shortcut"
-func PasteSent(path string, vm string) M {
-	return M{id: "paste_sent", vals: []val{{"path", path}, {"vm", vm}}}
+func PasteSent(path string, vm vmname.VM) M {
+	return M{id: "paste_sent", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
 // PasteTooLarge is [paste_too_large]: "The image, PDF or file is over {{.max}}, the most devvm paste sends."
@@ -3640,13 +3644,13 @@ func PasteUnsupported() M {
 }
 
 // PiSettingsDropped is [pi_settings_dropped]: "The copy of pi's settings.json in {{.vm}} leaves out {{.keys}}, because devvm sets those in VMs."
-func PiSettingsDropped(keys string, vm string) M {
-	return M{id: "pi_settings_dropped", vals: []val{{"keys", keys}, {"vm", vm}}}
+func PiSettingsDropped(keys string, vm vmname.VM) M {
+	return M{id: "pi_settings_dropped", vals: []val{{"keys", keys}, {"vm", string(vm)}}}
 }
 
 // PiTrustsAll is [pi_trusts_all]: "pi's settings.json sets defaultProjectTrust to always, so pi in {{.vm}} loads a project folder's own .pi extensions and settings without asking. Set it to ask in devvm's agent store to have pi ask again."
-func PiTrustsAll(vm string) M {
-	return M{id: "pi_trusts_all", vals: []val{{"vm", vm}}}
+func PiTrustsAll(vm vmname.VM) M {
+	return M{id: "pi_trusts_all", vals: []val{{"vm", string(vm)}}}
 }
 
 // PickAgents is [pick_agents]: "Coding agents, which you start in the VM's shell"
@@ -3710,8 +3714,8 @@ func PickMore(count int) M {
 }
 
 // PickNewHelp is [pick_new_help]: "Choose what {{.vm}} gets. Use up and down to move, space to toggle and enter to confirm."
-func PickNewHelp(vm string) M {
-	return M{id: "pick_new_help", vals: []val{{"vm", vm}}}
+func PickNewHelp(vm vmname.VM) M {
+	return M{id: "pick_new_help", vals: []val{{"vm", string(vm)}}}
 }
 
 // PickTooSmall is [pick_too_small]: "The terminal has only {{.lines}} lines, too few to show the list. Make it taller, or answer with the command's flags."
@@ -3725,8 +3729,8 @@ func PickToolchains() M {
 }
 
 // PickVMHelp is [pick_vm_help]: "Choose {{.vm}}'s shared tools. Its layers are greyed out, and devvm layer add and devvm layer rm change them. Use up and down to move, space to toggle and enter to confirm."
-func PickVMHelp(vm string) M {
-	return M{id: "pick_vm_help", vals: []val{{"vm", vm}}}
+func PickVMHelp(vm vmname.VM) M {
+	return M{id: "pick_vm_help", vals: []val{{"vm", string(vm)}}}
 }
 
 // PolicyBrokenDeny is [policy_broken_deny]: "Line {{.line}} of {{.file}}, {{.rule}}, reads as a deny but isn't a rule, so every VM whose proxy reads that file denies everything until it's fixed. Fix the line or remove it."
@@ -3780,23 +3784,23 @@ func PortsFailed(reason string) M {
 }
 
 // PortsForwardFailed is [ports_forward_failed]: "Forwarding {{.vm}}'s ports didn't start. Check {{.log}} for the reason."
-func PortsForwardFailed(log string, vm string) M {
-	return M{id: "ports_forward_failed", vals: []val{{"log", log}, {"vm", vm}}}
+func PortsForwardFailed(log string, vm vmname.VM) M {
+	return M{id: "ports_forward_failed", vals: []val{{"log", log}, {"vm", string(vm)}}}
 }
 
 // PortsForwarding is [ports_forwarding]: "From now on, {{.vm}} forwards {{.ports}}. devvm closed the connections that were open to its ports."
-func PortsForwarding(ports string, vm string) M {
-	return M{id: "ports_forwarding", vals: []val{{"ports", ports}, {"vm", vm}}}
+func PortsForwarding(ports string, vm vmname.VM) M {
+	return M{id: "ports_forwarding", vals: []val{{"ports", ports}, {"vm", string(vm)}}}
 }
 
 // PortsHeld is [ports_held]: "{{.vm}} forwards ports {{.ports}} once {{.other}} stops forwarding them."
-func PortsHeld(count int, other string, ports string, vm string) M {
-	return M{id: "ports_held", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"other", other}, {"ports", ports}, {"vm", vm}}}
+func PortsHeld(count int, other string, ports string, vm vmname.VM) M {
+	return M{id: "ports_held", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"other", other}, {"ports", ports}, {"vm", string(vm)}}}
 }
 
 // PortsLimit is [ports_limit]: "{{.vm}} doesn't forward ports {{.ports}} for now because it already forwards {{.limit}} ports, the most it can at once."
-func PortsLimit(count int, limit string, ports string, vm string) M {
-	return M{id: "ports_limit", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"limit", limit}, {"ports", ports}, {"vm", vm}}}
+func PortsLimit(count int, limit string, ports string, vm vmname.VM) M {
+	return M{id: "ports_limit", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"limit", limit}, {"ports", ports}, {"vm", string(vm)}}}
 }
 
 // PortsListNeeded is [ports_list_needed]: "{{.value}} isn't a list of ports. Give ports and ranges, such as 5173,8000-8010."
@@ -3805,13 +3809,13 @@ func PortsListNeeded(value string) M {
 }
 
 // PortsNow is [ports_now]: "{{.vm}} forwards {{.ports}}"
-func PortsNow(ports string, vm string) M {
-	return M{id: "ports_now", vals: []val{{"ports", ports}, {"vm", vm}}}
+func PortsNow(ports string, vm vmname.VM) M {
+	return M{id: "ports_now", vals: []val{{"ports", ports}, {"vm", string(vm)}}}
 }
 
 // PortsRefused is [ports_refused]: "{{.vm}} doesn't forward ports {{.ports}} because this machine doesn't let devvm use them, as with ports below 1024 on Linux."
-func PortsRefused(count int, ports string, vm string) M {
-	return M{id: "ports_refused", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"ports", ports}, {"vm", vm}}}
+func PortsRefused(count int, ports string, vm vmname.VM) M {
+	return M{id: "ports_refused", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"ports", ports}, {"vm", string(vm)}}}
 }
 
 // PortsRmAll is [ports_rm_all]: "Every port is forwarded, so none can be removed. Set the ones to keep instead, as in devvm ports 5173,8000-8010."
@@ -3820,8 +3824,8 @@ func PortsRmAll() M {
 }
 
 // PortsTaken is [ports_taken]: "{{.vm}} doesn't forward ports {{.ports}} for now because they're in use on this machine."
-func PortsTaken(count int, ports string, vm string) M {
-	return M{id: "ports_taken", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"ports", ports}, {"vm", vm}}}
+func PortsTaken(count int, ports string, vm vmname.VM) M {
+	return M{id: "ports_taken", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"ports", ports}, {"vm", string(vm)}}}
 }
 
 // ProgramBroken is [program_broken]: "{{.name}} is installed, but {{.command}} fails. Reinstall {{.name}}."
@@ -3855,28 +3859,28 @@ func ProgramOldFix(fix string, name string, version string) M {
 }
 
 // ProjectFolderChanged is [project_folder_changed]: "{{.dir}} became a link or another folder after devvm found {{.vm}}, so devvm didn't start the VM, which would have mounted it. Find what replaced it and put the project folder back, then run the command again."
-func ProjectFolderChanged(dir string, vm string) M {
-	return M{id: "project_folder_changed", vals: []val{{"dir", dir}, {"vm", vm}}}
+func ProjectFolderChanged(dir string, vm vmname.VM) M {
+	return M{id: "project_folder_changed", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // ProjectFolderChangedStopped is [project_folder_changed_stopped]: "{{.dir}} became a link or another folder while {{.vm}} started, so devvm stopped the VM, which may have mounted it. Find what replaced it and put the project folder back, then run the command again."
-func ProjectFolderChangedStopped(dir string, vm string) M {
-	return M{id: "project_folder_changed_stopped", vals: []val{{"dir", dir}, {"vm", vm}}}
+func ProjectFolderChangedStopped(dir string, vm vmname.VM) M {
+	return M{id: "project_folder_changed_stopped", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // ProjectInVMFolder is [project_in_vm_folder]: "{{.dir}} is inside the folder that {{.vm}} mounts, so code in that VM can change this project's files and replace its folder. To keep the two projects apart, move this one out of that folder."
-func ProjectInVMFolder(dir string, vm string) M {
-	return M{id: "project_in_vm_folder", vals: []val{{"dir", dir}, {"vm", vm}}}
+func ProjectInVMFolder(dir string, vm vmname.VM) M {
+	return M{id: "project_in_vm_folder", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // ProjectUnchecked is [project_unchecked]: "Checking that {{.vm}}'s project folder is mounted in the VM failed, so devvm didn't open a shell in it. Run devvm restart to mount the folder again."
-func ProjectUnchecked(vm string) M {
-	return M{id: "project_unchecked", vals: []val{{"vm", vm}}}
+func ProjectUnchecked(vm vmname.VM) M {
+	return M{id: "project_unchecked", vals: []val{{"vm", string(vm)}}}
 }
 
 // ProjectUnmounted is [project_unmounted]: "{{.vm}}'s project folder isn't mounted in the VM, so what's written there goes to the VM's own disk. Run devvm restart to mount it again."
-func ProjectUnmounted(vm string) M {
-	return M{id: "project_unmounted", vals: []val{{"vm", vm}}}
+func ProjectUnmounted(vm vmname.VM) M {
+	return M{id: "project_unmounted", vals: []val{{"vm", string(vm)}}}
 }
 
 // ProxyCAFailed is [proxy_ca_failed]: "Creating the proxy's CA in {{.dir}} failed."
@@ -3890,8 +3894,8 @@ func ProxyFailed(reason string) M {
 }
 
 // ProxyOtherBinary is [proxy_other_binary]: "{{.vm}}'s proxy is from another devvm binary, which denies the VM everything while it has a deny by method and path, and skips an allow by method and path, until it starts again. Run devvm in the VM's folder to start its proxy again."
-func ProxyOtherBinary(vm string) M {
-	return M{id: "proxy_other_binary", vals: []val{{"vm", vm}}}
+func ProxyOtherBinary(vm vmname.VM) M {
+	return M{id: "proxy_other_binary", vals: []val{{"vm", string(vm)}}}
 }
 
 // ProxyPasswordHowto is [proxy_password_howto]: "Type the company proxy's password for the user that config.toml's proxy names. Only devvm's proxies on this machine send it, and only to the company proxy."
@@ -3910,23 +3914,23 @@ func ProxyPasswordMissing() M {
 }
 
 // ProxyPortTaken is [proxy_port_taken]: "Another program took port {{.port}}, which {{.vm}}'s network goes through. devvm picks another port when it next starts {{.vm}}."
-func ProxyPortTaken(port string, vm string) M {
-	return M{id: "proxy_port_taken", vals: []val{{"port", port}, {"vm", vm}}}
+func ProxyPortTaken(port string, vm vmname.VM) M {
+	return M{id: "proxy_port_taken", vals: []val{{"port", port}, {"vm", string(vm)}}}
 }
 
 // ProxyStartFailed is [proxy_start_failed]: "{{.vm}}'s proxy didn't start. Check {{.log}} for why."
-func ProxyStartFailed(log string, vm string) M {
-	return M{id: "proxy_start_failed", vals: []val{{"log", log}, {"vm", vm}}}
+func ProxyStartFailed(log string, vm vmname.VM) M {
+	return M{id: "proxy_start_failed", vals: []val{{"log", log}, {"vm", string(vm)}}}
 }
 
 // ProxyStopFailed is [proxy_stop_failed]: "{{.vm}}'s proxy didn't stop, so devvm couldn't start it again with new settings. Run devvm stop, then devvm."
-func ProxyStopFailed(vm string) M {
-	return M{id: "proxy_stop_failed", vals: []val{{"vm", vm}}}
+func ProxyStopFailed(vm vmname.VM) M {
+	return M{id: "proxy_stop_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // Published is [published]: "{{.vm}} offers {{.ports}} to links from your other VMs."
-func Published(ports string, vm string) M {
-	return M{id: "published", vals: []val{{"ports", ports}, {"vm", vm}}}
+func Published(ports string, vm vmname.VM) M {
+	return M{id: "published", vals: []val{{"ports", ports}, {"vm", string(vm)}}}
 }
 
 // QEMUPinsFailed is [qemu_pins_failed]: "devvm couldn't pin .git's hooks and config for the VM ({{.reason}}), so devvm didn't start QEMU."
@@ -3960,8 +3964,8 @@ func RebuildReplaces(above string, image string) M {
 }
 
 // Remade is [remade]: "made {{.vm}} again from {{.image}}"
-func Remade(image string, vm string) M {
-	return M{id: "remade", vals: []val{{"image", image}, {"vm", vm}}}
+func Remade(image string, vm vmname.VM) M {
+	return M{id: "remade", vals: []val{{"image", image}, {"vm", string(vm)}}}
 }
 
 // RemakeAnyway is [remake_anyway]: "Make it again anyway?"
@@ -3970,18 +3974,18 @@ func RemakeAnyway() M {
 }
 
 // RemakeClone is [remake_clone]: "{{.vm}} keeps its clone of the repo on its own disk, so devvm can't make it again. Run devvm clone off first, which offers to fetch the clone's work into this repo."
-func RemakeClone(vm string) M {
-	return M{id: "remake_clone", vals: []val{{"vm", vm}}}
+func RemakeClone(vm vmname.VM) M {
+	return M{id: "remake_clone", vals: []val{{"vm", string(vm)}}}
 }
 
 // RemakeConfirm is [remake_confirm]: "devvm makes {{.vm}} again from {{.image}}, keeping its home folder, the project folder and its settings. Everything else on its disk is lost, such as packages you installed, Docker's images and the Nix store. Make it again?"
-func RemakeConfirm(image string, vm string) M {
-	return M{id: "remake_confirm", vals: []val{{"image", image}, {"vm", vm}}}
+func RemakeConfirm(image string, vm vmname.VM) M {
+	return M{id: "remake_confirm", vals: []val{{"image", image}, {"vm", string(vm)}}}
 }
 
 // RemakeConfirmCleanHome is [remake_confirm_clean_home]: "devvm makes {{.vm}} again from {{.image}}, keeping the project folder and its settings. Everything else on its disk is lost, its home folder included. Make it again?"
-func RemakeConfirmCleanHome(image string, vm string) M {
-	return M{id: "remake_confirm_clean_home", vals: []val{{"image", image}, {"vm", vm}}}
+func RemakeConfirmCleanHome(image string, vm vmname.VM) M {
+	return M{id: "remake_confirm_clean_home", vals: []val{{"image", image}, {"vm", string(vm)}}}
 }
 
 // RemakeFailed is [remake_failed]: "Making this folder's VM again failed: {{.reason}}."
@@ -3990,58 +3994,58 @@ func RemakeFailed(reason string) M {
 }
 
 // RemakeHomeFailed is [remake_home_failed]: "Saving {{.vm}}'s home folder failed, so devvm kept the VM as it was. Run {{.command}} --clean-home to go ahead without it."
-func RemakeHomeFailed(command string, vm string) M {
-	return M{id: "remake_home_failed", vals: []val{{"command", command}, {"vm", vm}}}
+func RemakeHomeFailed(command string, vm vmname.VM) M {
+	return M{id: "remake_home_failed", vals: []val{{"command", command}, {"vm", string(vm)}}}
 }
 
 // RemakeHomeLost is [remake_home_lost]: "{{.vm}}'s saved home folder is gone, so its new disk has the image's home folder."
-func RemakeHomeLost(vm string) M {
-	return M{id: "remake_home_lost", vals: []val{{"vm", vm}}}
+func RemakeHomeLost(vm vmname.VM) M {
+	return M{id: "remake_home_lost", vals: []val{{"vm", string(vm)}}}
 }
 
 // RemakeParentVM is [remake_parent_vm]: "{{.vm}} was made for {{.dir}}, which this folder is inside. To make it again, run {{.command}} in {{.dir}}, or here in a terminal without --no-input to confirm."
-func RemakeParentVM(command string, dir string, vm string) M {
-	return M{id: "remake_parent_vm", vals: []val{{"command", command}, {"dir", dir}, {"vm", vm}}}
+func RemakeParentVM(command string, dir string, vm vmname.VM) M {
+	return M{id: "remake_parent_vm", vals: []val{{"command", command}, {"dir", dir}, {"vm", string(vm)}}}
 }
 
 // RemakeParentVMAsk is [remake_parent_vm_ask]: "{{.vm}} was made for {{.dir}}, which this folder is inside, and may hold that project's work. Make it again?"
-func RemakeParentVMAsk(dir string, vm string) M {
-	return M{id: "remake_parent_vm_ask", vals: []val{{"dir", dir}, {"vm", vm}}}
+func RemakeParentVMAsk(dir string, vm vmname.VM) M {
+	return M{id: "remake_parent_vm_ask", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // RemakePending is [remake_pending]: "Making {{.vm}} again didn't finish. Run devvm in {{.dir}} to finish it."
-func RemakePending(dir string, vm string) M {
-	return M{id: "remake_pending", vals: []val{{"dir", dir}, {"vm", vm}}}
+func RemakePending(dir string, vm vmname.VM) M {
+	return M{id: "remake_pending", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // RemakeRestoreFailed is [remake_restore_failed]: "Copying {{.vm}}'s home folder onto its new disk failed."
-func RemakeRestoreFailed(vm string) M {
-	return M{id: "remake_restore_failed", vals: []val{{"vm", vm}}}
+func RemakeRestoreFailed(vm vmname.VM) M {
+	return M{id: "remake_restore_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // RemakeResuming is [remake_resuming]: "finishing making {{.vm}} again from {{.image}}"
-func RemakeResuming(image string, vm string) M {
-	return M{id: "remake_resuming", vals: []val{{"image", image}, {"vm", vm}}}
+func RemakeResuming(image string, vm vmname.VM) M {
+	return M{id: "remake_resuming", vals: []val{{"image", image}, {"vm", string(vm)}}}
 }
 
 // RemakeRunning is [remake_running]: "Another devvm is making {{.vm}} again. Run the command again once it has finished."
-func RemakeRunning(vm string) M {
-	return M{id: "remake_running", vals: []val{{"vm", vm}}}
+func RemakeRunning(vm vmname.VM) M {
+	return M{id: "remake_running", vals: []val{{"vm", string(vm)}}}
 }
 
 // RemakeUndoFailed is [remake_undo_failed]: "Putting {{.vm}} back as it was failed. Run devvm in {{.dir}} to finish making it again."
-func RemakeUndoFailed(dir string, vm string) M {
-	return M{id: "remake_undo_failed", vals: []val{{"dir", dir}, {"vm", vm}}}
+func RemakeUndoFailed(dir string, vm vmname.VM) M {
+	return M{id: "remake_undo_failed", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // RemakeUndone is [remake_undone]: "putting {{.vm}} back as it was"
-func RemakeUndone(vm string) M {
-	return M{id: "remake_undone", vals: []val{{"vm", vm}}}
+func RemakeUndone(vm vmname.VM) M {
+	return M{id: "remake_undone", vals: []val{{"vm", string(vm)}}}
 }
 
 // RemakeUnfinished is [remake_unfinished]: "Creating {{.vm}} didn't finish, so nothing of yours is in it.\nDelete {{.vm}} and make it again?"
-func RemakeUnfinished(vm string) M {
-	return M{id: "remake_unfinished", vals: []val{{"vm", vm}}}
+func RemakeUnfinished(vm vmname.VM) M {
+	return M{id: "remake_unfinished", vals: []val{{"vm", string(vm)}}}
 }
 
 // RemoteAddFailed is [remote_add_failed]: "Adding the git remote {{.remote}} failed. Run devvm again to retry."
@@ -4055,18 +4059,18 @@ func RemoteKept(remote string) M {
 }
 
 // RemotesTaken is [remotes_taken]: "This repo already has other git remotes named devvm, devvm-{{.slug}} and {{.vm}}. Remove one, then run devvm again."
-func RemotesTaken(slug string, vm string) M {
-	return M{id: "remotes_taken", vals: []val{{"slug", slug}, {"vm", vm}}}
+func RemotesTaken(slug string, vm vmname.VM) M {
+	return M{id: "remotes_taken", vals: []val{{"slug", slug}, {"vm", string(vm)}}}
 }
 
 // RemountRestarting is [remount_restarting]: "restarting {{.vm}} to mount its project folder"
-func RemountRestarting(vm string) M {
-	return M{id: "remount_restarting", vals: []val{{"vm", vm}}}
+func RemountRestarting(vm vmname.VM) M {
+	return M{id: "remount_restarting", vals: []val{{"vm", string(vm)}}}
 }
 
 // Remounting is [remounting]: "mounting {{.vm}}'s project folder again"
-func Remounting(vm string) M {
-	return M{id: "remounting", vals: []val{{"vm", vm}}}
+func Remounting(vm vmname.VM) M {
+	return M{id: "remounting", vals: []val{{"vm", string(vm)}}}
 }
 
 // RemovedRemote is [removed_remote]: "removed git remote {{.remote}}"
@@ -4075,13 +4079,13 @@ func RemovedRemote(remote string) M {
 }
 
 // RenameFailed is [rename_failed]: "Renaming {{.vm}} to {{.to}} failed."
-func RenameFailed(to string, vm string) M {
-	return M{id: "rename_failed", vals: []val{{"to", to}, {"vm", vm}}}
+func RenameFailed(to string, vm vmname.VM) M {
+	return M{id: "rename_failed", vals: []val{{"to", to}, {"vm", string(vm)}}}
 }
 
 // Renaming is [renaming]: "renaming {{.vm}} to {{.to}}"
-func Renaming(to string, vm string) M {
-	return M{id: "renaming", vals: []val{{"to", to}, {"vm", vm}}}
+func Renaming(to string, vm vmname.VM) M {
+	return M{id: "renaming", vals: []val{{"to", to}, {"vm", string(vm)}}}
 }
 
 // ReposNotWorkspace is [repos_not_workspace]: "--repos chooses the repos of a folder of repos, and {{.dir}} has none that --clone can copy besides its own. Run devvm --clone without --repos."
@@ -4100,13 +4104,13 @@ func ResolvingTools() M {
 }
 
 // RestartNow is [restart_now]: "Restarting {{.vm}} applies the changes now, and anything running in it stops. Restart it now?"
-func RestartNow(count int, vm string) M {
-	return M{id: "restart_now", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", vm}}}
+func RestartNow(count int, vm vmname.VM) M {
+	return M{id: "restart_now", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", string(vm)}}}
 }
 
 // RestoringHome is [restoring_home]: "copying {{.vm}}'s home folder onto its new disk"
-func RestoringHome(vm string) M {
-	return M{id: "restoring_home", vals: []val{{"vm", vm}}}
+func RestoringHome(vm vmname.VM) M {
+	return M{id: "restoring_home", vals: []val{{"vm", string(vm)}}}
 }
 
 // RetentionBad is [retention_bad]: "That retention setting is refused, and nothing changed: {{.reason}}."
@@ -4150,8 +4154,8 @@ func RetentionUnreadable() M {
 }
 
 // RmConfirm is [rm_confirm]: "Delete {{.vm}}, with everything in it?"
-func RmConfirm(vm string) M {
-	return M{id: "rm_confirm", vals: []val{{"vm", vm}}}
+func RmConfirm(vm vmname.VM) M {
+	return M{id: "rm_confirm", vals: []val{{"vm", string(vm)}}}
 }
 
 // RmFailed is [rm_failed]: "Deleting this folder's VM failed: {{.reason}}."
@@ -4160,18 +4164,18 @@ func RmFailed(reason string) M {
 }
 
 // RmGoneClone is [rm_gone_clone]: "{{.vm}}'s repo {{.dir}} is gone, so devvm can't fetch the clone's work into it. Run devvm rm {{.vm}} --no-clone-check to delete the VM and that work with it."
-func RmGoneClone(dir string, vm string) M {
-	return M{id: "rm_gone_clone", vals: []val{{"dir", dir}, {"vm", vm}}}
+func RmGoneClone(dir string, vm vmname.VM) M {
+	return M{id: "rm_gone_clone", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // RmGoneStopped is [rm_gone_stopped]: "{{.vm}} is stopped, and starting it to export its agents' history would make {{.dir}} again. Run devvm rm {{.vm}} --no-export to delete it without exporting."
-func RmGoneStopped(dir string, vm string) M {
-	return M{id: "rm_gone_stopped", vals: []val{{"dir", dir}, {"vm", vm}}}
+func RmGoneStopped(dir string, vm vmname.VM) M {
+	return M{id: "rm_gone_stopped", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // RmParentVM is [rm_parent_vm]: "{{.vm}} was made for {{.dir}}, which this folder is inside. To delete it, run devvm rm in {{.dir}}, or here in a terminal without --no-input to confirm."
-func RmParentVM(dir string, vm string) M {
-	return M{id: "rm_parent_vm", vals: []val{{"dir", dir}, {"vm", vm}}}
+func RmParentVM(dir string, vm vmname.VM) M {
+	return M{id: "rm_parent_vm", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // RmUnknownVM is [rm_unknown_vm]: "There's no VM named {{.name}}. Give a VM's name, as devvm ls lists them, or its ssh alias."
@@ -4179,9 +4183,9 @@ func RmUnknownVM(name string) M {
 	return M{id: "rm_unknown_vm", vals: []val{{"name", name}}}
 }
 
-// RmVMFailed is [rm_vm_failed]: "Deleting {{.vm}} failed: {{.reason}}."
-func RmVMFailed(reason string, vm string) M {
-	return M{id: "rm_vm_failed", vals: []val{{"reason", reason}, {"vm", vm}}}
+// RmVMFailed is [rm_vm_failed]: "Deleting {{.name}} failed: {{.reason}}."
+func RmVMFailed(name string, reason string) M {
+	return M{id: "rm_vm_failed", vals: []val{{"name", name}, {"reason", reason}}}
 }
 
 // RmVMFolderFlag is [rm_vm_folder_flag]: "devvm rm VM deletes the VM you name, so it takes no {{.flag}}."
@@ -4190,23 +4194,23 @@ func RmVMFolderFlag(flag string) M {
 }
 
 // RmVMFolderThere is [rm_vm_folder_there]: "{{.vm}} was made for {{.dir}}, which is still there. To delete it, run devvm rm in {{.dir}}."
-func RmVMFolderThere(dir string, vm string) M {
-	return M{id: "rm_vm_folder_there", vals: []val{{"dir", dir}, {"vm", vm}}}
+func RmVMFolderThere(dir string, vm vmname.VM) M {
+	return M{id: "rm_vm_folder_there", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // RmVMLost is [rm_vm_lost]: "{{.vm}}'s backend no longer has it. Run devvm gc --orphans to delete what devvm keeps for it."
-func RmVMLost(vm string) M {
-	return M{id: "rm_vm_lost", vals: []val{{"vm", vm}}}
+func RmVMLost(vm vmname.VM) M {
+	return M{id: "rm_vm_lost", vals: []val{{"vm", string(vm)}}}
 }
 
 // RmVMNotConnected is [rm_vm_not_connected]: "{{.vm}} was made for {{.dir}}, which is on a disk that isn't connected. Connect the disk, or to delete the VM anyway, run devvm rm {{.vm}} in a terminal without --no-input."
-func RmVMNotConnected(dir string, vm string) M {
-	return M{id: "rm_vm_not_connected", vals: []val{{"dir", dir}, {"vm", vm}}}
+func RmVMNotConnected(dir string, vm vmname.VM) M {
+	return M{id: "rm_vm_not_connected", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // RuleAdded is [rule_added]: "devvm added {{.rule}} to {{.vm}}'s rules."
-func RuleAdded(rule string, vm string) M {
-	return M{id: "rule_added", vals: []val{{"rule", rule}, {"vm", vm}}}
+func RuleAdded(rule string, vm vmname.VM) M {
+	return M{id: "rule_added", vals: []val{{"rule", rule}, {"vm", string(vm)}}}
 }
 
 // RuleAddedGlobal is [rule_added_global]: "devvm added {{.rule}} to every VM's rules."
@@ -4235,8 +4239,8 @@ func RuleNarrowsNothing(host string, rule string, vms string) M {
 }
 
 // RuleNarrowsUnknown is [rule_narrows_unknown]: "Reading {{.vm}}'s rules failed, so devvm can't tell whether the allow narrows anything there: {{.reason}}."
-func RuleNarrowsUnknown(reason string, vm string) M {
-	return M{id: "rule_narrows_unknown", vals: []val{{"reason", reason}, {"vm", vm}}}
+func RuleNarrowsUnknown(reason string, vm vmname.VM) M {
+	return M{id: "rule_narrows_unknown", vals: []val{{"reason", reason}, {"vm", string(vm)}}}
 }
 
 // RuleNotNarrowable is [rule_not_narrowable]: "{{.rule}} can't take --method or --path, because an address, a CIDR or ** names no host whose HTTPS the proxy could decrypt. Give a host name instead, such as api.github.com or *.example.com."
@@ -4250,8 +4254,8 @@ func RulePresent(file string, rule string) M {
 }
 
 // RuleRemoved is [rule_removed]: "devvm removed {{.rule}} from {{.vm}}'s rules."
-func RuleRemoved(rule string, vm string) M {
-	return M{id: "rule_removed", vals: []val{{"rule", rule}, {"vm", vm}}}
+func RuleRemoved(rule string, vm vmname.VM) M {
+	return M{id: "rule_removed", vals: []val{{"rule", rule}, {"vm", string(vm)}}}
 }
 
 // RuleRemovedGlobal is [rule_removed_global]: "devvm removed {{.rule}} from every VM's rules."
@@ -4264,9 +4268,9 @@ func RunLogFailed(dir string, reason string) M {
 	return M{id: "run_log_failed", vals: []val{{"dir", dir}, {"reason", reason}}}
 }
 
-// RunningScript is [running_script]: "running {{.script}} in {{.vm}}"
-func RunningScript(script string, vm string) M {
-	return M{id: "running_script", vals: []val{{"script", script}, {"vm", vm}}}
+// RunningScript is [running_script]: "running {{.script}} in {{.what}}"
+func RunningScript(script string, what string) M {
+	return M{id: "running_script", vals: []val{{"script", script}, {"what", what}}}
 }
 
 // SavedBranches is [saved_branches]: "devvm kept the VM's branches as the local branches {{.branches}}."
@@ -4275,8 +4279,8 @@ func SavedBranches(branches string) M {
 }
 
 // SavedNamesTaken is [saved_names_taken]: "This repo has no free branch names from saved/{{.remote}}/* to saved/{{.remote}}-99/* to keep the VM's branches under, so devvm kept {{.vm}} as it is. Rename or delete some of those branches, then run {{.command}} again."
-func SavedNamesTaken(command string, remote string, vm string) M {
-	return M{id: "saved_names_taken", vals: []val{{"command", command}, {"remote", remote}, {"vm", vm}}}
+func SavedNamesTaken(command string, remote string, vm vmname.VM) M {
+	return M{id: "saved_names_taken", vals: []val{{"command", command}, {"remote", remote}, {"vm", string(vm)}}}
 }
 
 // SavedNamesTakenFetch is [saved_names_taken_fetch]: "This repo has no free branch names from saved/{{.remote}}/* to saved/{{.remote}}-99/* to keep the commits of the VM's detached HEAD under. Rename or delete some of those branches, then run devvm clone fetch again."
@@ -4285,13 +4289,13 @@ func SavedNamesTakenFetch(remote string) M {
 }
 
 // SavingHome is [saving_home]: "saving {{.vm}}'s home folder"
-func SavingHome(vm string) M {
-	return M{id: "saving_home", vals: []val{{"vm", vm}}}
+func SavingHome(vm vmname.VM) M {
+	return M{id: "saving_home", vals: []val{{"vm", string(vm)}}}
 }
 
 // ScriptFailed is [script_failed]: "{{.script}} failed in {{.vm}}, and devvm keeps it stopped until the next build or devvm gc deletes it. To look inside, run devvm limactl shell --start {{.vm}}."
-func ScriptFailed(script string, vm string) M {
-	return M{id: "script_failed", vals: []val{{"script", script}, {"vm", vm}}}
+func ScriptFailed(script string, vm vmname.VM) M {
+	return M{id: "script_failed", vals: []val{{"script", script}, {"vm", string(vm)}}}
 }
 
 // SecretBindingChanged is [secret_binding_changed]: "The VM's proxy has a binding of {{.secret}} that isn't the secret as it's saved now, so it put nothing in. The VM's next launch writes its bindings again."
@@ -4350,8 +4354,8 @@ func SecretNewLike(given string, like string) M {
 }
 
 // SecretNotSaved is [secret_not_saved]: "{{.vm}} uses the {{.secret}} secret, but no value is saved for it. Run devvm secret set {{.secret}}."
-func SecretNotSaved(secret string, vm string) M {
-	return M{id: "secret_not_saved", vals: []val{{"secret", secret}, {"vm", vm}}}
+func SecretNotSaved(secret string, vm vmname.VM) M {
+	return M{id: "secret_not_saved", vals: []val{{"secret", secret}, {"vm", string(vm)}}}
 }
 
 // SecretRemoved is [secret_removed]: "devvm deleted the {{.secret}} secret."
@@ -4385,8 +4389,8 @@ func SecretSchemeHeader(secret string) M {
 }
 
 // SecretStale is [secret_stale]: "{{.vm}} was bound to an earlier secret named {{.secret}}, so it gets nothing of this one. Run devvm secret use {{.secret}} to bind it again, or devvm secret unuse {{.secret}}."
-func SecretStale(secret string, vm string) M {
-	return M{id: "secret_stale", vals: []val{{"secret", secret}, {"vm", vm}}}
+func SecretStale(secret string, vm vmname.VM) M {
+	return M{id: "secret_stale", vals: []val{{"secret", secret}, {"vm", string(vm)}}}
 }
 
 // SecretTooManyHosts is [secret_too_many_hosts]: "The {{.secret}} secret has more than {{.most}} hosts. Give it fewer, or save another secret for the rest."
@@ -4395,23 +4399,23 @@ func SecretTooManyHosts(most string, secret string) M {
 }
 
 // SecretUnused is [secret_unused]: "{{.vm}} doesn't use the {{.secret}} secret any more."
-func SecretUnused(secret string, vm string) M {
-	return M{id: "secret_unused", vals: []val{{"secret", secret}, {"vm", vm}}}
+func SecretUnused(secret string, vm vmname.VM) M {
+	return M{id: "secret_unused", vals: []val{{"secret", secret}, {"vm", string(vm)}}}
 }
 
 // SecretUsed is [secret_used]: "{{.vm}} uses the {{.secret}} secret from its next launch."
-func SecretUsed(secret string, vm string) M {
-	return M{id: "secret_used", vals: []val{{"secret", secret}, {"vm", vm}}}
+func SecretUsed(secret string, vm vmname.VM) M {
+	return M{id: "secret_used", vals: []val{{"secret", secret}, {"vm", string(vm)}}}
 }
 
 // SecretWithClaude is [secret_with_claude]: "{{.vm}} has Claude Code, so the VM always uses the Claude Code token. To stop it, run devvm tools rm claude."
-func SecretWithClaude(vm string) M {
-	return M{id: "secret_with_claude", vals: []val{{"vm", vm}}}
+func SecretWithClaude(vm vmname.VM) M {
+	return M{id: "secret_with_claude", vals: []val{{"vm", string(vm)}}}
 }
 
 // SecretsOtherBinary is [secrets_other_binary]: "{{.vm}}'s proxy is from another devvm binary, which puts none of the VM's secrets in now that one of them goes in by method or by a path pattern, until it starts again. Run devvm in the VM's folder to start its proxy again."
-func SecretsOtherBinary(vm string) M {
-	return M{id: "secrets_other_binary", vals: []val{{"vm", vm}}}
+func SecretsOtherBinary(vm vmname.VM) M {
+	return M{id: "secrets_other_binary", vals: []val{{"vm", string(vm)}}}
 }
 
 // SetInConfig is [set_in_config]: "{{.file}} sets {{.key}}, and devvm never changes that file. To change it, edit {{.key}} there, or delete it to let devvm's commands set it."
@@ -4430,18 +4434,18 @@ func SetidRootFiles(files string) M {
 }
 
 // SettingAlready is [setting_already]: "{{.vm}} is that way already, so {{.command}} changes nothing."
-func SettingAlready(command string, vm string) M {
-	return M{id: "setting_already", vals: []val{{"command", command}, {"vm", vm}}}
+func SettingAlready(command string, vm vmname.VM) M {
+	return M{id: "setting_already", vals: []val{{"command", command}, {"vm", string(vm)}}}
 }
 
 // SettingApplied is [setting_applied]: "{{.vm}} is running, and it has the change now."
-func SettingApplied(vm string) M {
-	return M{id: "setting_applied", vals: []val{{"vm", vm}}}
+func SettingApplied(vm vmname.VM) M {
+	return M{id: "setting_applied", vals: []val{{"vm", string(vm)}}}
 }
 
 // SettingSet is [setting_set]: "{{.vm}} isn't running, so it gets the change when it next starts."
-func SettingSet(vm string) M {
-	return M{id: "setting_set", vals: []val{{"vm", vm}}}
+func SettingSet(vm vmname.VM) M {
+	return M{id: "setting_set", vals: []val{{"vm", string(vm)}}}
 }
 
 // SetupFailed is [setup_failed]: "Saving the settings failed: {{.reason}}."
@@ -4485,13 +4489,13 @@ func SizeNotGib(flag string, value string) M {
 }
 
 // SizePending is [size_pending]: "{{.vm}} gets {{.size}} when it next starts."
-func SizePending(size string, vm string) M {
-	return M{id: "size_pending", vals: []val{{"size", size}, {"vm", vm}}}
+func SizePending(size string, vm vmname.VM) M {
+	return M{id: "size_pending", vals: []val{{"size", size}, {"vm", string(vm)}}}
 }
 
 // SizePendingRunning is [size_pending_running]: "{{.vm}} gets {{.size}} when it next starts. Run devvm restart to apply it now."
-func SizePendingRunning(size string, vm string) M {
-	return M{id: "size_pending_running", vals: []val{{"size", size}, {"vm", vm}}}
+func SizePendingRunning(size string, vm vmname.VM) M {
+	return M{id: "size_pending_running", vals: []val{{"size", size}, {"vm", string(vm)}}}
 }
 
 // SizeQuestion is [size_question]: "This machine has {{.have_cpus}} CPUs and {{.have_memory}} GiB of memory. Type the CPUs and memory new VMs get, or press Enter to keep the size in brackets."
@@ -4515,18 +4519,18 @@ func SpaceFailed(reason string) M {
 }
 
 // SpaceFolderGone is [space_folder_gone]: "{{.vm}} was made for {{.dir}}, which is gone. Run devvm rm {{.vm}} to delete the VM."
-func SpaceFolderGone(dir string, vm string) M {
-	return M{id: "space_folder_gone", vals: []val{{"dir", dir}, {"vm", vm}}}
+func SpaceFolderGone(dir string, vm vmname.VM) M {
+	return M{id: "space_folder_gone", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // SpaceFolderNotConnected is [space_folder_not_connected]: "{{.vm}} was made for {{.dir}}, which is on a disk that isn't connected. Connect the disk to use the VM."
-func SpaceFolderNotConnected(dir string, vm string) M {
-	return M{id: "space_folder_not_connected", vals: []val{{"dir", dir}, {"vm", vm}}}
+func SpaceFolderNotConnected(dir string, vm vmname.VM) M {
+	return M{id: "space_folder_not_connected", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // SpaceStray is [space_stray]: "The {{.backend}} backend has {{.vm}}, a VM of the devvm with data folder {{.data}}, which this devvm has no state for. devvm never deletes it."
-func SpaceStray(backend string, data string, vm string) M {
-	return M{id: "space_stray", vals: []val{{"backend", backend}, {"data", data}, {"vm", vm}}}
+func SpaceStray(backend string, data string, vm vmname.VM) M {
+	return M{id: "space_stray", vals: []val{{"backend", backend}, {"data", data}, {"vm", string(vm)}}}
 }
 
 // SSHAgentEmpty is [ssh_agent_empty]: "Your SSH agent has no keys, so git over SSH won't work in the VM."
@@ -4565,33 +4569,33 @@ func SSHIncludeYourself() M {
 }
 
 // SSHRemoteHint is [ssh_remote_hint]: "The origin remote uses SSH, but {{.vm}} has no SSH agent, so git over SSH won't work in it. Run devvm ssh-agent on to forward yours."
-func SSHRemoteHint(vm string) M {
-	return M{id: "ssh_remote_hint", vals: []val{{"vm", vm}}}
+func SSHRemoteHint(vm vmname.VM) M {
+	return M{id: "ssh_remote_hint", vals: []val{{"vm", string(vm)}}}
 }
 
 // StartFailed is [start_failed]: "{{.vm}} didn't start."
-func StartFailed(vm string) M {
-	return M{id: "start_failed", vals: []val{{"vm", vm}}}
+func StartFailed(vm vmname.VM) M {
+	return M{id: "start_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // StartNoSSH is [start_no_ssh]: "{{.vm}} didn't start because it doesn't answer over ssh. Check its console logs, {{.console}}."
-func StartNoSSH(console string, vm string) M {
-	return M{id: "start_no_ssh", vals: []val{{"console", console}, {"vm", vm}}}
+func StartNoSSH(console string, vm vmname.VM) M {
+	return M{id: "start_no_ssh", vals: []val{{"console", console}, {"vm", string(vm)}}}
 }
 
 // StartedWithWarnings is [started_with_warnings]: "{{.vm}} started with warnings, and devvm carries on."
-func StartedWithWarnings(vm string) M {
-	return M{id: "started_with_warnings", vals: []val{{"vm", vm}}}
+func StartedWithWarnings(vm vmname.VM) M {
+	return M{id: "started_with_warnings", vals: []val{{"vm", string(vm)}}}
 }
 
-// Starting is [starting]: "starting {{.vm}}"
-func Starting(vm string) M {
-	return M{id: "starting", vals: []val{{"vm", vm}}}
+// Starting is [starting]: "starting {{.what}}"
+func Starting(what string) M {
+	return M{id: "starting", vals: []val{{"what", what}}}
 }
 
 // StopFailed is [stop_failed]: "{{.vm}} didn't stop."
-func StopFailed(vm string) M {
-	return M{id: "stop_failed", vals: []val{{"vm", vm}}}
+func StopFailed(vm vmname.VM) M {
+	return M{id: "stop_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // StopVMFailed is [stop_vm_failed]: "Stopping this folder's VM failed: {{.reason}}."
@@ -4600,28 +4604,28 @@ func StopVMFailed(reason string) M {
 }
 
 // Stopped is [stopped]: "stopped {{.vm}}"
-func Stopped(vm string) M {
-	return M{id: "stopped", vals: []val{{"vm", vm}}}
+func Stopped(vm vmname.VM) M {
+	return M{id: "stopped", vals: []val{{"vm", string(vm)}}}
 }
 
 // Stopping is [stopping]: "stopping {{.vm}}"
-func Stopping(vm string) M {
-	return M{id: "stopping", vals: []val{{"vm", vm}}}
+func Stopping(vm vmname.VM) M {
+	return M{id: "stopping", vals: []val{{"vm", string(vm)}}}
 }
 
 // SyncFailed is [sync_failed]: "Setting up {{.vm}} failed."
-func SyncFailed(vm string) M {
-	return M{id: "sync_failed", vals: []val{{"vm", vm}}}
+func SyncFailed(vm vmname.VM) M {
+	return M{id: "sync_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // TierLinkedClients is [tier_linked_clients]: "{{.vms}} link to {{.vm}} from a stricter tier than {{.tier}}, so it keeps its tier. Remove those links with devvm link rm in their folders first."
-func TierLinkedClients(tier string, vm string, vms string) M {
-	return M{id: "tier_linked_clients", vals: []val{{"tier", tier}, {"vm", vm}, {"vms", vms}}}
+func TierLinkedClients(tier string, vm vmname.VM, vms string) M {
+	return M{id: "tier_linked_clients", vals: []val{{"tier", tier}, {"vm", string(vm)}, {"vms", vms}}}
 }
 
 // TierLinkedTargets is [tier_linked_targets]: "{{.vm}} links to {{.targets}}, on a lower tier than {{.tier}}, so it can't have that tier. Remove those links with devvm link rm first, or give each of them that tier or a stricter one."
-func TierLinkedTargets(targets string, tier string, vm string) M {
-	return M{id: "tier_linked_targets", vals: []val{{"targets", targets}, {"tier", tier}, {"vm", vm}}}
+func TierLinkedTargets(targets string, tier string, vm vmname.VM) M {
+	return M{id: "tier_linked_targets", vals: []val{{"targets", targets}, {"tier", tier}, {"vm", string(vm)}}}
 }
 
 // TokenIsPlaceholder is [token_is_placeholder]: "The secret you gave holds a VM's placeholder, not the real value, so devvm didn't save it. Copy the value from where you made it."
@@ -4745,8 +4749,8 @@ func ToolsNeedResolve() M {
 }
 
 // ToolsNewest is [tools_newest]: "{{.vm}} has the newest shared tools."
-func ToolsNewest(vm string) M {
-	return M{id: "tools_newest", vals: []val{{"vm", vm}}}
+func ToolsNewest(vm vmname.VM) M {
+	return M{id: "tools_newest", vals: []val{{"vm", string(vm)}}}
 }
 
 // ToolsResolveFailed is [tools_resolve_failed]: "Resolving the shared tools' versions failed. Check that you're online."
@@ -4755,13 +4759,13 @@ func ToolsResolveFailed() M {
 }
 
 // ToolsSwitch is [tools_switch]: "{{.vm}} moves to the newest shared tools on this launch."
-func ToolsSwitch(vm string) M {
-	return M{id: "tools_switch", vals: []val{{"vm", vm}}}
+func ToolsSwitch(vm vmname.VM) M {
+	return M{id: "tools_switch", vals: []val{{"vm", string(vm)}}}
 }
 
 // ToolsUnmounted is [tools_unmounted]: "{{.vm}} couldn't mount its shared tools {{.tools}}. Run devvm tools update to build the missing ones."
-func ToolsUnmounted(tools string, vm string) M {
-	return M{id: "tools_unmounted", vals: []val{{"tools", tools}, {"vm", vm}}}
+func ToolsUnmounted(tools string, vm vmname.VM) M {
+	return M{id: "tools_unmounted", vals: []val{{"tools", tools}, {"vm", string(vm)}}}
 }
 
 // ToolsUntrusted is [tools_untrusted]: "Resolving the shared tools' versions failed because this machine doesn't trust a server's certificate. A network that inspects TLS needs its CA in this machine's store, or on Linux in {{.dir}}."
@@ -4805,8 +4809,8 @@ func UnfetchedCommitsIn(refs string, repo string) M {
 }
 
 // UnfinishedImage is [unfinished_image]: "deleting the unfinished image {{.vm}}"
-func UnfinishedImage(vm string) M {
-	return M{id: "unfinished_image", vals: []val{{"vm", vm}}}
+func UnfinishedImage(vm vmname.VM) M {
+	return M{id: "unfinished_image", vals: []val{{"vm", string(vm)}}}
 }
 
 // UnknownFeature is [unknown_feature]: "The feature {{.feature}} has no script, so devvm skips it."
@@ -4840,13 +4844,13 @@ func UnknownTool(tool string, tools string) M {
 }
 
 // Unpublished is [unpublished]: "{{.vm}} doesn't offer {{.ports}} to links any more."
-func Unpublished(ports string, vm string) M {
-	return M{id: "unpublished", vals: []val{{"ports", ports}, {"vm", vm}}}
+func Unpublished(ports string, vm vmname.VM) M {
+	return M{id: "unpublished", vals: []val{{"ports", ports}, {"vm", string(vm)}}}
 }
 
 // UnpublishedLinked is [unpublished_linked]: "{{.vms}} link to those ports of {{.vm}}, so their next connections there are refused. To remove those links, run devvm link rm in their folders."
-func UnpublishedLinked(vm string, vms string) M {
-	return M{id: "unpublished_linked", vals: []val{{"vm", vm}, {"vms", vms}}}
+func UnpublishedLinked(vm vmname.VM, vms string) M {
+	return M{id: "unpublished_linked", vals: []val{{"vm", string(vm)}, {"vms", vms}}}
 }
 
 // UnsafeFolder is [unsafe_folder]: "{{.dir}} is or holds {{.holds}}, so the VM would get read-write access to it. Use a project folder inside {{.dir}}, use --clone, or pass --unsafe-folder if you mean it."
@@ -5040,8 +5044,8 @@ func UpgradeRollbackFailed(link string, old string) M {
 }
 
 // UpstreamProxyGone is [upstream_proxy_gone]: "{{.vm_name}}'s proxy went through a company proxy before, and this shell sets none, so it goes directly now. Set HTTPS_PROXY in this shell, or the [proxy] table in {{.file}}."
-func UpstreamProxyGone(file string, vmName string) M {
-	return M{id: "upstream_proxy_gone", vals: []val{{"file", file}, {"vm_name", vmName}}}
+func UpstreamProxyGone(file string, vmName vmname.VM) M {
+	return M{id: "upstream_proxy_gone", vals: []val{{"file", file}, {"vm_name", string(vmName)}}}
 }
 
 // UpstreamProxyInvalid is [upstream_proxy_invalid]: "{{.setting}} isn't a proxy setting devvm can read. Set it as http://host:port, or unset it."
@@ -5065,33 +5069,33 @@ func UsageHelp(command string) M {
 }
 
 // UsingParentVM is [using_parent_vm]: "using {{.vm}}, made for {{.dir}}"
-func UsingParentVM(dir string, vm string) M {
-	return M{id: "using_parent_vm", vals: []val{{"dir", dir}, {"vm", vm}}}
+func UsingParentVM(dir string, vm vmname.VM) M {
+	return M{id: "using_parent_vm", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // VMAdopted is [vm_adopted]: "{{.vm}} belongs to {{.dir}} now."
-func VMAdopted(dir string, vm string) M {
-	return M{id: "vm_adopted", vals: []val{{"dir", dir}, {"vm", vm}}}
+func VMAdopted(dir string, vm vmname.VM) M {
+	return M{id: "vm_adopted", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
 // VMAlreadyHere is [vm_already_here]: "{{.vm}} already belongs to this folder."
-func VMAlreadyHere(vm string) M {
-	return M{id: "vm_already_here", vals: []val{{"vm", vm}}}
+func VMAlreadyHere(vm vmname.VM) M {
+	return M{id: "vm_already_here", vals: []val{{"vm", string(vm)}}}
 }
 
 // VMChanged is [vm_changed]: "{{.changed}} changed since {{.vm}} was made"
-func VMChanged(changed string, vm string) M {
-	return M{id: "vm_changed", vals: []val{{"changed", changed}, {"vm", vm}}}
+func VMChanged(changed string, vm vmname.VM) M {
+	return M{id: "vm_changed", vals: []val{{"changed", changed}, {"vm", string(vm)}}}
 }
 
 // VMCreateFailed is [vm_create_failed]: "Creating {{.vm}} failed."
-func VMCreateFailed(vm string) M {
-	return M{id: "vm_create_failed", vals: []val{{"vm", vm}}}
+func VMCreateFailed(vm vmname.VM) M {
+	return M{id: "vm_create_failed", vals: []val{{"vm", string(vm)}}}
 }
 
 // VMCurrent is [vm_current]: "{{.vm}} is current, because nothing in {{.image}} changed since devvm made it"
-func VMCurrent(image string, vm string) M {
-	return M{id: "vm_current", vals: []val{{"image", image}, {"vm", vm}}}
+func VMCurrent(image string, vm vmname.VM) M {
+	return M{id: "vm_current", vals: []val{{"image", image}, {"vm", string(vm)}}}
 }
 
 // VMFolderStateless is [vm_folder_stateless]: "A devvm that stopped while making or deleting a VM left {{.path}}, which has no vm.json, so no VM uses it. Delete the folder."
@@ -5100,23 +5104,23 @@ func VMFolderStateless(path string) M {
 }
 
 // VMHasNetworks is [vm_has_networks]: "{{.vm}} has a network that devvm didn't give it. Remove the networks from {{.file}}."
-func VMHasNetworks(file string, vm string) M {
-	return M{id: "vm_has_networks", vals: []val{{"file", file}, {"vm", vm}}}
+func VMHasNetworks(file string, vm vmname.VM) M {
+	return M{id: "vm_has_networks", vals: []val{{"file", file}, {"vm", string(vm)}}}
 }
 
 // VMLacks is [vm_lacks]: "{{.vm}} doesn't have the shared tool {{.tool}}. Its shared tools are {{.has}}."
-func VMLacks(has string, tool string, vm string) M {
-	return M{id: "vm_lacks", vals: []val{{"has", has}, {"tool", tool}, {"vm", vm}}}
+func VMLacks(has string, tool string, vm vmname.VM) M {
+	return M{id: "vm_lacks", vals: []val{{"has", has}, {"tool", tool}, {"vm", string(vm)}}}
 }
 
 // VMMountCache is [vm_mount_cache]: "{{.vm}} caches its project folder with {{.mode}}."
-func VMMountCache(mode string, vm string) M {
-	return M{id: "vm_mount_cache", vals: []val{{"mode", mode}, {"vm", vm}}}
+func VMMountCache(mode string, vm vmname.VM) M {
+	return M{id: "vm_mount_cache", vals: []val{{"mode", mode}, {"vm", string(vm)}}}
 }
 
 // VMMovedHere is [vm_moved_here]: "{{.vm}} was made for {{.was}}, and that folder moved here. To move the VM here, run devvm adopt in a terminal without --no-input to confirm, or devvm adopt --force."
-func VMMovedHere(vm string, was string) M {
-	return M{id: "vm_moved_here", vals: []val{{"vm", vm}, {"was", was}}}
+func VMMovedHere(vm vmname.VM, was string) M {
+	return M{id: "vm_moved_here", vals: []val{{"vm", string(vm)}, {"was", was}}}
 }
 
 // VMNameNoRoom is [vm_name_no_room]: "The {{.backend}} backend's VM names have at most {{.max}} characters, which leaves no room for the folder's name."
@@ -5125,23 +5129,23 @@ func VMNameNoRoom(backend string, max string) M {
 }
 
 // VMNotRunning is [vm_not_running]: "{{.vm}} isn't running. Start it first."
-func VMNotRunning(vm string) M {
-	return M{id: "vm_not_running", vals: []val{{"vm", vm}}}
+func VMNotRunning(vm vmname.VM) M {
+	return M{id: "vm_not_running", vals: []val{{"vm", string(vm)}}}
 }
 
 // VMOtherFolder is [vm_other_folder]: "{{.vm}} was made for an earlier folder at {{.was}}, which was deleted or replaced. Run devvm rm to delete the VM, or devvm adopt to use it here."
-func VMOtherFolder(vm string, was string) M {
-	return M{id: "vm_other_folder", vals: []val{{"vm", vm}, {"was", was}}}
+func VMOtherFolder(vm vmname.VM, was string) M {
+	return M{id: "vm_other_folder", vals: []val{{"vm", string(vm)}, {"was", was}}}
 }
 
 // VMOtherFolderAdopt is [vm_other_folder_adopt]: "{{.vm}} was made for an earlier folder at {{.was}}, which was deleted or replaced. To use it here, run devvm adopt in a terminal without --no-input to confirm, or devvm adopt --force."
-func VMOtherFolderAdopt(vm string, was string) M {
-	return M{id: "vm_other_folder_adopt", vals: []val{{"vm", vm}, {"was", was}}}
+func VMOtherFolderAdopt(vm vmname.VM, was string) M {
+	return M{id: "vm_other_folder_adopt", vals: []val{{"vm", string(vm)}, {"was", was}}}
 }
 
 // VMOtherFolderRm is [vm_other_folder_rm]: "{{.vm}} was made for an earlier folder at {{.was}}, which was deleted or replaced. To confirm that you want to delete it, run devvm rm in a terminal without --no-input."
-func VMOtherFolderRm(vm string, was string) M {
-	return M{id: "vm_other_folder_rm", vals: []val{{"vm", vm}, {"was", was}}}
+func VMOtherFolderRm(vm vmname.VM, was string) M {
+	return M{id: "vm_other_folder_rm", vals: []val{{"vm", string(vm)}, {"was", was}}}
 }
 
 // VMOutdated is [vm_outdated]: "{{.changed}} changed since this VM was made, and the VM keeps the image it has. Run devvm update to make it again from the new image, keeping its home folder and settings."
@@ -5150,8 +5154,8 @@ func VMOutdated(changed string) M {
 }
 
 // VMSize is [vm_size]: "{{.vm}} has {{.size}}"
-func VMSize(size string, vm string) M {
-	return M{id: "vm_size", vals: []val{{"size", size}, {"vm", vm}}}
+func VMSize(size string, vm vmname.VM) M {
+	return M{id: "vm_size", vals: []val{{"size", size}, {"vm", string(vm)}}}
 }
 
 // VMStateUnreadable is [vm_state_unreadable]: "The VM state file {{.path}} can't be read, so devvm ls shows the VM's name and status alone, and commands on the VM fail. Fix the file to use the VM again."
@@ -5160,13 +5164,13 @@ func VMStateUnreadable(path string) M {
 }
 
 // VMToolsNow is [vm_tools_now]: "{{.vm}}'s shared tools are now {{.tools}}"
-func VMToolsNow(tools string, vm string) M {
-	return M{id: "vm_tools_now", vals: []val{{"tools", tools}, {"vm", vm}}}
+func VMToolsNow(tools string, vm vmname.VM) M {
+	return M{id: "vm_tools_now", vals: []val{{"tools", tools}, {"vm", string(vm)}}}
 }
 
 // VMUnfinished is [vm_unfinished]: "Creating {{.vm}} didn't finish, so nothing of yours is in it. Run devvm rm to delete it, then devvm to make it again."
-func VMUnfinished(vm string) M {
-	return M{id: "vm_unfinished", vals: []val{{"vm", vm}}}
+func VMUnfinished(vm vmname.VM) M {
+	return M{id: "vm_unfinished", vals: []val{{"vm", string(vm)}}}
 }
 
 // VMsMovedHere is [vms_moved_here]: "These VMs were each made for this folder at another path, so devvm moves none of them here: {{.vms}}. To move one here, run devvm adopt VM."
@@ -5185,13 +5189,13 @@ func VMsUnreadable(path string) M {
 }
 
 // WidenParentVM is [widen_parent_vm]: "{{.vm}} was made for {{.dir}}, which this folder is inside, and {{.cmd}} gives it more access. Change it?"
-func WidenParentVM(cmd string, dir string, vm string) M {
-	return M{id: "widen_parent_vm", vals: []val{{"cmd", cmd}, {"dir", dir}, {"vm", vm}}}
+func WidenParentVM(cmd string, dir string, vm vmname.VM) M {
+	return M{id: "widen_parent_vm", vals: []val{{"cmd", cmd}, {"dir", dir}, {"vm", string(vm)}}}
 }
 
 // WidenParentVMRefused is [widen_parent_vm_refused]: "{{.vm}} was made for {{.dir}}, which this folder is inside. To give it more access, run {{.cmd}} in {{.dir}}, or here in a terminal without --no-input to confirm."
-func WidenParentVMRefused(cmd string, dir string, vm string) M {
-	return M{id: "widen_parent_vm_refused", vals: []val{{"cmd", cmd}, {"dir", dir}, {"vm", vm}}}
+func WidenParentVMRefused(cmd string, dir string, vm vmname.VM) M {
+	return M{id: "widen_parent_vm_refused", vals: []val{{"cmd", cmd}, {"dir", dir}, {"vm", string(vm)}}}
 }
 
 // WorkspaceDetached is [workspace_detached]: "HEAD is detached in {{.path}}, so its clone in the VM is detached at the same commit."
@@ -5240,8 +5244,8 @@ func WorkspaceReasonGrafts() M {
 }
 
 // WorkspaceReasonMounted is [workspace_reason_mounted]: "{{.vm}} mounts it, and could swap it under devvm's git"
-func WorkspaceReasonMounted(vm string) M {
-	return M{id: "workspace_reason_mounted", vals: []val{{"vm", vm}}}
+func WorkspaceReasonMounted(vm vmname.VM) M {
+	return M{id: "workspace_reason_mounted", vals: []val{{"vm", string(vm)}}}
 }
 
 // WorkspaceReasonName is [workspace_reason_name]: "its folder's name has a character a terminal can't show, such as a line break"
@@ -5379,10 +5383,10 @@ var specs = map[string]spec{
 	"arg_not_choice":                 {fields: []string{"choices", "command", "given"}},
 	"args_none":                      {fields: []string{"command", "given"}},
 	"args_too_many":                  {fields: []string{"args", "command", "given"}},
-	"backend_lacks":                  {fields: []string{"backend", "feature", "vm"}},
+	"backend_lacks":                  {fields: []string{"backend", "feature", "what"}},
 	"backend_unknown_vm":             {fields: []string{"backend", "vm"}},
-	"backend_unreviewed":             {fields: []string{"backend", "feature", "vm"}},
-	"backend_unreviewed_used":        {fields: []string{"backend", "feature", "vm"}},
+	"backend_unreviewed":             {fields: []string{"backend", "feature", "what"}},
+	"backend_unreviewed_used":        {fields: []string{"backend", "feature", "what"}},
 	"bad_duration":                   {fields: []string{"value"}},
 	"bad_from":                       {fields: []string{"from"}},
 	"bad_methods":                    {fields: []string{"given", "methods"}},
@@ -5508,7 +5512,7 @@ var specs = map[string]spec{
 	"codex_no_key":                   {},
 	"config_not_copied":              {fields: []string{"file", "vm"}},
 	"config_redacted":                {fields: []string{"file", "keys", "vm"}},
-	"configuring":                    {fields: []string{"vm"}},
+	"configuring":                    {fields: []string{"what"}},
 	"continue":                       {},
 	"convert_bad_output":             {fields: []string{"file", "from"}},
 	"convert_failed":                 {fields: []string{"from"}},
@@ -5553,7 +5557,7 @@ var specs = map[string]spec{
 	"deleted_tools":                  {plural: true, fields: []string{"count"}},
 	"deleted_tools_no_vm":            {plural: true, fields: []string{"count"}},
 	"deleted_unfinished_build":       {fields: []string{"key"}},
-	"deleting":                       {fields: []string{"vm"}},
+	"deleting":                       {fields: []string{"what"}},
 	"desktop_failed":                 {fields: []string{"reason"}},
 	"desktop_no_layer":               {fields: []string{"vm"}},
 	"desktop_open_failed":            {fields: []string{"url"}},
@@ -6121,7 +6125,7 @@ var specs = map[string]spec{
 	"rm_gone_stopped":                {fields: []string{"dir", "vm"}},
 	"rm_parent_vm":                   {fields: []string{"dir", "vm"}},
 	"rm_unknown_vm":                  {fields: []string{"name"}},
-	"rm_vm_failed":                   {fields: []string{"reason", "vm"}},
+	"rm_vm_failed":                   {fields: []string{"name", "reason"}},
 	"rm_vm_folder_flag":              {fields: []string{"flag"}},
 	"rm_vm_folder_there":             {fields: []string{"dir", "vm"}},
 	"rm_vm_lost":                     {fields: []string{"vm"}},
@@ -6138,7 +6142,7 @@ var specs = map[string]spec{
 	"rule_removed":                   {fields: []string{"rule", "vm"}},
 	"rule_removed_global":            {fields: []string{"rule"}},
 	"run_log_failed":                 {fields: []string{"dir", "reason"}},
-	"running_script":                 {fields: []string{"script", "vm"}},
+	"running_script":                 {fields: []string{"script", "what"}},
 	"saved_branches":                 {fields: []string{"branches"}},
 	"saved_names_taken":              {fields: []string{"command", "remote", "vm"}},
 	"saved_names_taken_fetch":        {fields: []string{"remote"}},
@@ -6202,7 +6206,7 @@ var specs = map[string]spec{
 	"start_failed":                   {fields: []string{"vm"}},
 	"start_no_ssh":                   {fields: []string{"console", "vm"}},
 	"started_with_warnings":          {fields: []string{"vm"}},
-	"starting":                       {fields: []string{"vm"}},
+	"starting":                       {fields: []string{"what"}},
 	"stop_failed":                    {fields: []string{"vm"}},
 	"stop_vm_failed":                 {fields: []string{"reason"}},
 	"stopped":                        {fields: []string{"vm"}},

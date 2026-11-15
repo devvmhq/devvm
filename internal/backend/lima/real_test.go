@@ -103,10 +103,10 @@ func newFixture(t *testing.T, dir string) fixture {
 
 // The instances the scenario makes.
 const (
-	dummyBase  = ImagePrefix + "0123456789ab"
-	dummyFrom  = ImagePrefix + "0123456789ac"
-	dummyLayer = ImagePrefix + "0123456789ad"
-	dummyVM    = "devvm-web-0123456789abcd"
+	dummyBase  vmname.VM = vmname.ImagePrefix + "0123456789ab"
+	dummyFrom  vmname.VM = vmname.ImagePrefix + "0123456789ac"
+	dummyLayer vmname.VM = vmname.ImagePrefix + "0123456789ad"
+	dummyVM    vmname.VM = "devvm-web-0123456789abcd"
 )
 
 // step is one thing devvm does with limactl, as it does it.
@@ -127,7 +127,7 @@ func scenario(fx fixture) []step {
 	size := backend.Size{CPUs: 2, MemoryGiB: 3}
 	sshPort := 50022
 	// A start's edits, w nil for a build's VM.
-	start := func(vm string, w *backend.Want, c backend.Confinement) func(context.Context, *Lima) error {
+	start := func(vm vmname.VM, w *backend.Want, c backend.Confinement) func(context.Context, *Lima) error {
 		return func(ctx context.Context, l *Lima) error {
 			in, err := l.inspect(ctx, vm)
 			if err != nil {
@@ -186,7 +186,7 @@ func scenario(fx fixture) []step {
 			return err
 		}},
 		{"a project VM", func(ctx context.Context, l *Lima) error {
-			return l.CreateVM(ctx, strings.TrimPrefix(dummyLayer, ImagePrefix), backend.VMSpec{
+			return l.CreateVM(ctx, strings.TrimPrefix(string(dummyLayer), vmname.ImagePrefix), backend.VMSpec{
 				Name: dummyVM, Tools: fx.tools, ToolsAt: "/mnt/devvm-tools",
 				Want: made, SSHPort: sshPort, Env: env,
 			})
@@ -197,11 +197,11 @@ func scenario(fx fixture) []step {
 		{"a start without network policy", start(dummyVM, &changed, backend.Confinement{Net: backend.NetDirect, Env: env})},
 		{"a start with no network", start(dummyVM, &changed, backend.Confinement{Net: backend.NetNone})},
 		{"the project VM set aside", func(ctx context.Context, l *Lima) error {
-			aside, _ := vmname.Aside(dummyVM)
+			aside, _ := dummyVM.Aside()
 			return l.Rename(ctx, dummyVM, aside)
 		}},
 		{"the project VM put back", func(ctx context.Context, l *Lima) error {
-			aside, _ := vmname.Aside(dummyVM)
+			aside, _ := dummyVM.Aside()
 			return l.Rename(ctx, aside, dummyVM)
 		}},
 		{"the build VMs deleted", func(ctx context.Context, l *Lima) error {
@@ -212,8 +212,9 @@ func scenario(fx fixture) []step {
 		}},
 		{"the project VM deleted", func(ctx context.Context, l *Lima) error { return l.Delete(ctx, dummyVM) }},
 		{"the images deleted", func(ctx context.Context, l *Lima) error {
-			for _, inst := range []string{dummyLayer, dummyFrom, dummyBase} {
-				if err := l.DeleteImage(ctx, strings.TrimPrefix(inst, ImagePrefix)); err != nil {
+			for _, inst := range []vmname.VM{dummyLayer, dummyFrom, dummyBase} {
+				key, _ := inst.ImageKey()
+				if err := l.DeleteImage(ctx, key); err != nil {
 					return err
 				}
 			}
@@ -247,13 +248,13 @@ func (realRunner) Attach(cmd *exec.Cmd) error { return cmd.Run() }
 
 // validate runs limactl validate on the Lima config of each instance in
 // l's Lima home, and returns those it found.
-func validate(t *testing.T, l *Lima) []string {
+func validate(t *testing.T, l *Lima) []vmname.VM {
 	t.Helper()
 	ins, err := l.list(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	var names []string
+	var names []vmname.VM
 	for _, in := range ins {
 		names = append(names, in.Name)
 		yaml := filepath.Join(l.Dirs.LimaVM(in.Name), "lima.yaml")
@@ -275,7 +276,7 @@ func TestLimaConfigsValid(t *testing.T) {
 			t.Fatalf("%s: %v", s.name, err)
 		}
 		names := validate(t, l)
-		t.Logf("%s: %s valid", s.name, strings.Join(names, ", "))
+		t.Logf("%s: %s valid", s.name, vmname.Join(names, ", "))
 		if strings.HasPrefix(s.name, "a start with network policy") {
 			data, err := os.ReadFile(filepath.Join(l.Dirs.LimaVM(dummyVM), "lima.yaml"))
 			if err != nil {

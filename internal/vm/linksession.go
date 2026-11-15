@@ -14,6 +14,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
@@ -41,7 +42,7 @@ const (
 // as devvm pins it, and each connection checked against the states as
 // they are then (linkConn). It ends once the client stops, or has no
 // links.
-func (e Links) Session(ctx context.Context, vm string, log io.Writer) error {
+func (e Links) Session(ctx context.Context, vm vmname.VM, log io.Writer) error {
 	st, err := state.ReadVM(e.Dirs, vm)
 	if err != nil {
 		return err
@@ -94,7 +95,7 @@ func (e Links) Session(ctx context.Context, vm string, log io.Writer) error {
 // every one its state has, whether it applies now or not, as each
 // connection is checked again, with the names its proxy takes it by. A
 // client that's gone has none.
-func (e Links) sessionLinks(vm string) ([]vmssh.Link, error) {
+func (e Links) sessionLinks(vm vmname.VM) ([]vmssh.Link, error) {
 	st, err := state.ReadVM(e.Dirs, vm)
 	if err != nil || !st.Exists() {
 		return nil, err
@@ -113,7 +114,7 @@ func (e Links) sessionLinks(vm string) ([]vmssh.Link, error) {
 // linkCheck is how client's link session checks each connection: its
 // targets' runs shared among the connections for linkRunFor, on the
 // session's clock (Now).
-func (e Links) linkCheck(client string) func(context.Context, vmssh.Link) (vmssh.LinkTarget, string, string) {
+func (e Links) linkCheck(client vmname.VM) func(context.Context, vmssh.Link) (vmssh.LinkTarget, string, string) {
 	now := e.Now
 	if now == nil {
 		now = time.Now
@@ -224,7 +225,7 @@ func (r *targetRuns) run(ctx context.Context, key string, lk *runLookup, look fu
 
 // targetRun asks a target's backend whether it runs, its start, and how
 // devvm's ssh reaches it.
-func (e Links) targetRun(ctx context.Context, b backend.Backend, target string) targetRun {
+func (e Links) targetRun(ctx context.Context, b backend.Backend, target vmname.VM) targetRun {
 	if in, err := b.Inspect(ctx, target); err != nil || in.Status != backend.StatusRunning {
 		return targetRun{}
 	}
@@ -244,7 +245,7 @@ func (e Links) targetRun(ctx context.Context, b backend.Backend, target string) 
 // (policyEnforced), and is reached as devvm pins it. It returns how to
 // reach the target, or the event and why not. It never starts the
 // target.
-func (e Links) linkConn(ctx context.Context, client string, l vmssh.Link, runs *targetRuns) (vmssh.LinkTarget, string, string) {
+func (e Links) linkConn(ctx context.Context, client vmname.VM, l vmssh.Link, runs *targetRuns) (vmssh.LinkTarget, string, string) {
 	refused := func(why string, err error) (vmssh.LinkTarget, string, string) {
 		if err != nil {
 			why += ": " + err.Error()
@@ -278,7 +279,7 @@ func (e Links) linkConn(ctx context.Context, client string, l vmssh.Link, runs *
 	if err := e.Registry.Require(c.Backend, target, linkFeatures()...); err != nil {
 		return refused(LinkNoSSH, err)
 	}
-	run := runs.get(ctx, target+" "+tst.ID, func(ctx context.Context) targetRun {
+	run := runs.get(ctx, target.String()+" "+tst.ID, func(ctx context.Context) targetRun {
 		return e.targetRun(ctx, c.Backend, target)
 	})
 	if run.start == "" {
@@ -301,7 +302,7 @@ func (e Links) linkConn(ctx context.Context, client string, l vmssh.Link, runs *
 // endedSince reports whether target's backend says it no longer runs on
 // start, the start its run was looked up on: it stopped, or started again.
 // A backend that can't say isn't taken as an end.
-func endedSince(ctx context.Context, b backend.Backend, target, start string) bool {
+func endedSince(ctx context.Context, b backend.Backend, target vmname.VM, start string) bool {
 	run, err := b.Running(ctx, target)
 	return err == nil && run.ID != start
 }
@@ -354,15 +355,16 @@ func (e Links) warnUnenforced(ctx context.Context, client, target *state.VM) {
 		return
 	}
 	if policyUnenforced(ctx, c.Backend, client, target) {
-		e.Warn(msg.LinkTargetUnenforced(target.Name(), client.Name()))
+		e.Warn(msg.LinkTargetUnenforced(target.Name().String(), client.Name()))
 	}
 }
 
 // linkEvents writes a link session's events to its client's event log,
 // one at a time.
 type linkEvents struct {
-	path, vm string
-	mu       *sync.Mutex
+	path string
+	vm   vmname.VM
+	mu   *sync.Mutex
 }
 
 // add writes one event: the link's name as its host, and its target.

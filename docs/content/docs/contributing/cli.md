@@ -70,6 +70,7 @@ other = "{{.count}} current shared tool images no VM has ({{.size}}): {{.tools}}
 
 - **The ID** is the table's name, in snake_case.
 - **`other`** is the text: a Go template whose fields are snake_case (`{{.vm_name}}`). Only plain fields are allowed, no logic.
+- **Fields' types:** the generator makes each field a `string` parameter of the message's function, but `count`, which is an `int`, and `vm` and `vm_name`, which are `vmname.VM`. A field that may hold something other than a VM's name, such as an image's name or a VM's name as the user typed it, is named `what` or `name` instead.
 - **`one`** is the text for a count of 1, when the wording changes with the count. Both texts then take `{{.count}}`.
 - **`description`** is an optional note for translators.
 - **Nothing else:** the generator refuses keys go-i18n doesn't know, nested tables, plural forms English doesn't use (`zero`, `two`, `few`, `many`) and `leftDelim`/`rightDelim`.

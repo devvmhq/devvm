@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/backend/backendtest"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Host keys as ssh's wire format has them: each decodes to its own type.
@@ -60,11 +61,11 @@ func TestParseHostKeys(t *testing.T) {
 
 // hostKeysFake is a fake with ssh whose running VMs show key as their
 // host key.
-func hostKeysFake(t *testing.T, vm string, key *string) (*backendtest.Fake, paths.Dirs) {
+func hostKeysFake(t *testing.T, vm vmname.VM, key *string) (*backendtest.Fake, paths.Dirs) {
 	t.Helper()
 	f := backendtest.New("fake", backend.Caps{backend.FeatureSSH: backend.Native})
 	f.Instances[vm] = backend.Instance{Name: vm, Status: backend.StatusRunning}
-	f.ExecFunc = func(_ string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
 		if !slices.Equal(argv, []string{"sh", "-c", hostKeyScript}) {
 			return errors.New("unexpected command")
 		}
@@ -144,7 +145,7 @@ func TestPinHostKeys(t *testing.T) {
 // restartsOnExec is a fake whose VM starts again while it shows its keys.
 type restartsOnExec struct{ *backendtest.Fake }
 
-func (b restartsOnExec) Exec(ctx context.Context, vm string, argv []string, o backend.ExecOpts) error {
+func (b restartsOnExec) Exec(ctx context.Context, vm vmname.VM, argv []string, o backend.ExecOpts) error {
 	err := b.Fake.Exec(ctx, vm, argv, o)
 	b.Restart(vm)
 	return err
@@ -206,7 +207,7 @@ type bothRead struct {
 	both *sync.WaitGroup
 }
 
-func (b bothRead) Exec(ctx context.Context, vm string, argv []string, o backend.ExecOpts) error {
+func (b bothRead) Exec(ctx context.Context, vm vmname.VM, argv []string, o backend.ExecOpts) error {
 	b.both.Done()
 	b.both.Wait()
 	return b.Fake.Exec(ctx, vm, argv, o)

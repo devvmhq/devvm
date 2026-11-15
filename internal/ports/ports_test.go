@@ -18,6 +18,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 func TestForwarding(t *testing.T) {
@@ -42,7 +43,7 @@ func TestForwarding(t *testing.T) {
 }
 
 // newVM writes the state of a VM named name, as up does.
-func newVM(t *testing.T, d paths.Dirs, name string) *state.VM {
+func newVM(t *testing.T, d paths.Dirs, name vmname.VM) *state.VM {
 	t.Helper()
 	st, err := state.New(d, name)
 	if err != nil {
@@ -131,17 +132,17 @@ func TestUsed(t *testing.T) {
 func TestReserved(t *testing.T) {
 	d := testDirs(t)
 	const (
-		self    = "devvm-a-0123456789abca"
-		lister  = "devvm-b-0123456789abcb" // lists 5173,8000
-		every   = "devvm-c-0123456789abcc" // forwards every port
-		stopped = "devvm-d-0123456789abcd" // lists 9000, stopped
+		self    vmname.VM = "devvm-a-0123456789abca"
+		lister  vmname.VM = "devvm-b-0123456789abcb" // lists 5173,8000
+		every   vmname.VM = "devvm-c-0123456789abcc" // forwards every port
+		stopped vmname.VM = "devvm-d-0123456789abcd" // lists 9000, stopped
 	)
-	for name, fwd := range map[string]string{self: "5173,3000", lister: "5173,8000", every: "", stopped: "9000"} {
+	for name, fwd := range map[vmname.VM]string{self: "5173,3000", lister: "5173,8000", every: "", stopped: "9000"} {
 		st, err := state.New(d, name)
 		if err != nil {
 			t.Fatal(err)
 		}
-		st.Image, st.Dir, st.Backend = "base", "/"+name, "fake"
+		st.Image, st.Dir, st.Backend = "base", "/"+name.String(), "fake"
 		if err := st.Create(t.Context(), nil); err != nil {
 			t.Fatal(err)
 		}
@@ -150,45 +151,45 @@ func TestReserved(t *testing.T) {
 	hosts := []int{40009, 40009, 40000, 40004} // each one's ssh port
 	for _, tc := range []struct {
 		name     string
-		self     string
-		live     map[string][]int // running forwarders, what they forward now
-		reserved []int            // beyond every VM's ssh port
-		holders  map[int]string
+		self     vmname.VM
+		live     map[vmname.VM][]int // running forwarders, what they forward now
+		reserved []int               // beyond every VM's ssh port
+		holders  map[int]vmname.VM
 	}{{
 		// CJ's case: a stopped VM lists 9000 and 5173 is listed by a VM
 		// that's stopped too; neither is reserved.
 		name: "all stopped", self: every,
 	}, {
 		name: "a stopped VM's listed port is free to a VM that forwards every port", self: every,
-		live: map[string][]int{self: nil},
+		live: map[vmname.VM][]int{self: nil},
 		// self lists 5173 and 3000 and runs: they're its, even before
 		// it forwards them.
 		reserved: []int{3000, 5173},
 	}, {
 		name: "two that list a port: neither waits until one forwards it", self: self,
-		live: map[string][]int{lister: nil},
+		live: map[vmname.VM][]int{lister: nil},
 		// 8000 is the lister's alone; 5173 both list.
 		reserved: []int{8000},
 	}, {
 		name: "the first to forward it keeps it", self: self,
-		live:     map[string][]int{lister: {5173}},
+		live:     map[vmname.VM][]int{lister: {5173}},
 		reserved: []int{5173, 8000},
-		holders:  map[int]string{5173: lister},
+		holders:  map[int]vmname.VM{5173: lister},
 	}, {
 		name: "one that forwards every port is waited for, and gives it up", self: self,
-		live:     map[string][]int{every: {3000, 4000}},
+		live:     map[vmname.VM][]int{every: {3000, 4000}},
 		reserved: []int{3000, 4000},
-		holders:  map[int]string{3000: every, 4000: every},
+		holders:  map[int]vmname.VM{3000: every, 4000: every},
 	}, {
 		name: "it gives up a port a running VM lists", self: every,
-		live:     map[string][]int{self: nil, every: {3000}},
+		live:     map[vmname.VM][]int{self: nil, every: {3000}},
 		reserved: []int{3000, 5173},
 	}, {
 		name: "its own forwards are never reserved from it", self: self,
-		live: map[string][]int{self: {5173, 3000}},
+		live: map[vmname.VM][]int{self: {5173, 3000}},
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
-			live := func(vm string) ([]int, bool) {
+			live := func(vm vmname.VM) ([]int, bool) {
 				now, ok := tc.live[vm]
 				return now, ok
 			}
@@ -202,7 +203,7 @@ func TestReserved(t *testing.T) {
 			}
 			holders, err := Holders(d, tc.self, live)
 			if tc.holders == nil {
-				tc.holders = map[int]string{}
+				tc.holders = map[int]vmname.VM{}
 			}
 			if err != nil || !maps.Equal(holders, tc.holders) {
 				t.Errorf("Holders = %v, %v; want %v", holders, err, tc.holders)
@@ -260,7 +261,7 @@ func TestSSH(t *testing.T) {
 // and the others find it taken.
 func TestChooseTogether(t *testing.T) {
 	d := testDirs(t)
-	names := []string{"devvm-a-0123456789abc1", "devvm-b-0123456789abc2", "devvm-c-0123456789abc3"}
+	names := []vmname.VM{"devvm-a-0123456789abc1", "devvm-b-0123456789abc2", "devvm-c-0123456789abc3"}
 	var vms []*state.VM
 	for _, n := range names {
 		vms = append(vms, newVM(t, d, n))
@@ -322,7 +323,7 @@ func TestBuild(t *testing.T) {
 		time.Sleep(10 * time.Millisecond) // a window for another to choose it too
 		return false
 	}}
-	builds := []string{"devvm-img-0123456789ab", "devvm-tools-build"}
+	builds := []vmname.VM{"devvm-img-0123456789ab", "devvm-tools-build"}
 	got := make([]int, len(builds))
 	releases := make([]func(), len(builds))
 	var wg sync.WaitGroup
@@ -384,7 +385,7 @@ func TestBuild(t *testing.T) {
 		t.Errorf("the stale record stays: %v", err)
 	}
 	// A starting build's record stays while it's held, however long.
-	if err := os.Chtimes(filepath.Join(d.BuildPorts(), builds[1]), old, old); err != nil {
+	if err := os.Chtimes(filepath.Join(d.BuildPorts(), builds[1].String()), old, old); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.Choose(t.Context(), st, Proxy, func(int, Ports) bool { return false }); err == nil {

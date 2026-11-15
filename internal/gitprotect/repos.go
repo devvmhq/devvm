@@ -12,6 +12,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A VM's protection covers each repo in its folder: the folder's own, and,
@@ -177,7 +178,7 @@ func unwatched(was, now Made, gone []string) []string {
 
 // keeper is kept (Protector.Kept) for the VM vm, or one that keeps
 // nothing.
-func keeper(kept func(vm string) func(path string) msg.M, vm string) func(path string) msg.M {
+func keeper(kept func(vm vmname.VM) func(path string) msg.M, vm vmname.VM) func(path string) msg.M {
 	if kept != nil {
 		if k := kept(vm); k != nil {
 			return k

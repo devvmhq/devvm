@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/gitprotect"
@@ -13,6 +12,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/project"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // recorded is the VMs' states, read (ReadStates) the first time a lookup
@@ -129,11 +129,11 @@ func (e finder) moveHere(ctx context.Context, dir string, mv moves, rec *recorde
 		return project.Folder{}, none, nil
 	case 1:
 	default:
-		names := make([]string, len(found))
+		names := make([]vmname.VM, len(found))
 		for i, st := range found {
 			names[i] = st.Name()
 		}
-		e.Warn(msg.VMsMovedHere(strings.Join(names, ", ")))
+		e.Warn(msg.VMsMovedHere(vmname.Join(names, ", ")))
 		return project.Folder{}, none, nil
 	}
 	st := found[0]

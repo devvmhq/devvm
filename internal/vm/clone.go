@@ -54,7 +54,7 @@ func isClone(st *state.VM) bool { return sectionOf[cloneInVM](st, cloneSection).
 
 // cloneURL is the remote URL of vm's clone of dir: the VM's full name in
 // devvm's ssh config, which never changes, and the clone's path.
-func cloneURL(vm, dir string) string { return vm + ":" + dir }
+func cloneURL(vm vmname.VM, dir string) string { return vm.String() + ":" + dir }
 
 // hostGit runs git in dir on the host (hostgit) and returns its output,
 // trimmed.
@@ -282,7 +282,7 @@ func (e seeder) seedClone(ctx context.Context, t *target) error {
 // VM's, each repo's chosen on its own.
 func freeRemote(ctx context.Context, f project.Folder, dir string) (string, error) {
 	url := cloneURL(f.Name, dir)
-	for _, r := range []string{"devvm", vmname.Prefix + f.Slug(), f.Name} {
+	for _, r := range []string{"devvm", vmname.Prefix + f.Slug(), f.Name.String()} {
 		if got, ok := remoteURL(ctx, dir, r); !ok || got == url {
 			return r, nil
 		}
@@ -387,7 +387,7 @@ func names(refs []fetchRef) []string {
 // update refs, never a remote's of the same URL, whose own could update
 // other branches, and every object checked as it comes
 // (transfer.fsckObjects). Every fetch from a clone VM is one.
-func fetchArgs(vm, dir string, refspecs ...string) []string {
+func fetchArgs(vm vmname.VM, dir string, refspecs ...string) []string {
 	return append([]string{"-c", "transfer.fsckObjects=true", "fetch", "--no-tags", "--no-recurse-submodules", "--refmap=", cloneURL(vm, dir)}, refspecs...)
 }
 
@@ -486,7 +486,7 @@ func quoted(names []string) string {
 // removeRemotes removes each repo's remote for the deleted VM, whose
 // clone section is c and project folder ws (removeRemote), its recorded
 // submodules' too (allRepos).
-func (e clones) removeRemotes(ctx context.Context, ws, vm string, c cloneInVM) {
+func (e clones) removeRemotes(ctx context.Context, ws string, vm vmname.VM, c cloneInVM) {
 	for _, r := range c.allRepos() {
 		e.removeRemote(ctx, repoDir(ws, r.Path), vm, r.Remote)
 	}
@@ -501,7 +501,7 @@ func repoDir(ws, path string) string { return filepath.Join(ws, path) }
 // is the VM's, with its remote-tracking branches and upstream settings.
 // Fetched branches holding commits no other ref has are kept as local
 // branches first (saveFetched); if that fails, the remote stays.
-func (e clones) removeRemote(ctx context.Context, dir, vm, remote string) {
+func (e clones) removeRemote(ctx context.Context, dir string, vm vmname.VM, remote string) {
 	if remote == "" {
 		return
 	}

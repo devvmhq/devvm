@@ -70,7 +70,7 @@ func (s *S) Defer(fn func(context.Context)) { s.sb.deferred = append(s.sb.deferr
 // VMDir is the folder devvm keeps a VM's files in: a project VM's is
 // vms/HASH, a build VM's run/builds/NAME.
 func (p Paths) VMDir(vm string) string {
-	if h, ok := vmname.HashOf(vm); ok {
+	if h, ok := vmname.VM(vm).Hash(); ok {
 		return filepath.Join(p.Devvm, "vms", h)
 	}
 	return filepath.Join(p.Devvm, "run", "builds", vm)

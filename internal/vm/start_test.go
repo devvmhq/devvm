@@ -15,6 +15,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/sshagent"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // netOf is the tier a test's on/off network choice stands for.
@@ -163,7 +164,7 @@ func TestStartPaths(t *testing.T) {
 			name: "agent turned on, no agent-toggle",
 			caps: func(c backend.Caps) { c[backend.FeatureAgentToggle] = backend.None },
 			prep: func(v startVM) { v.set(keyAgent, sshagent.On) },
-			want: startRun{err: "backend_lacks backend=fake feature=agent-toggle vm=%s", proxy: true},
+			want: startRun{err: "backend_lacks backend=fake feature=agent-toggle what=%s", proxy: true},
 		},
 		{
 			name: "agent forwarding, no agent-forwarding",
@@ -172,7 +173,7 @@ func TestStartPaths(t *testing.T) {
 				v.stop()
 				v.f.Capabilities[backend.FeatureAgentForwarding] = backend.None
 			},
-			want: startRun{err: "backend_lacks backend=fake feature=agent-forwarding vm=%s", proxy: true},
+			want: startRun{err: "backend_lacks backend=fake feature=agent-forwarding what=%s", proxy: true},
 		},
 		{
 			name: "network policy, no egress-proxy", net: true,
@@ -181,12 +182,12 @@ func TestStartPaths(t *testing.T) {
 				v.e.Proxy.Stop(v.st.Name())
 				v.f.Capabilities[backend.FeatureEgressProxy] = backend.None
 			},
-			want: startRun{err: "backend_lacks backend=fake feature=egress-proxy vm=%s"},
+			want: startRun{err: "backend_lacks backend=fake feature=egress-proxy what=%s"},
 		},
 		{
 			name: "ports, no ports-all",
 			prep: func(v startVM) { v.stop(); v.f.Capabilities[backend.FeaturePortsAll] = backend.None },
-			want: startRun{err: "backend_lacks backend=fake feature=ports-all vm=%s", proxy: true},
+			want: startRun{err: "backend_lacks backend=fake feature=ports-all what=%s", proxy: true},
 		},
 	} {
 		for _, p := range startPaths() {
@@ -315,7 +316,7 @@ func TestOpenAsksToRestart(t *testing.T) {
 			}
 			var wantLater []string
 			for _, c := range tc.changes {
-				wantLater = append(wantLater, named[c]+" vm="+vm)
+				wantLater = append(wantLater, named[c]+" vm="+vm.String())
 				switch c {
 				case "size":
 					v.set(keyCPUs, "2")
@@ -351,16 +352,16 @@ func TestOpenAsksToRestart(t *testing.T) {
 				if tc.confirm {
 					how = "confirm "
 				}
-				wantAsked = []string{how + "restart_now count=" + strconv.Itoa(len(tc.changes)) + " vm=" + vm}
+				wantAsked = []string{how + "restart_now count=" + strconv.Itoa(len(tc.changes)) + " vm=" + vm.String()}
 				for _, n := range tc.noted {
 					if !strings.HasPrefix(n, "next_start_more ") {
-						n += " vm=" + vm
+						n += " vm=" + vm.String()
 					}
 					wantNoted = append(wantNoted, n)
 				}
 			}
 			if !restarted && len(wantLater) > 0 {
-				wantWarned = slices.Concat(wantLater, []string{"next_start count=" + strconv.Itoa(len(wantLater)) + " vm=" + vm})
+				wantWarned = slices.Concat(wantLater, []string{"next_start count=" + strconv.Itoa(len(wantLater)) + " vm=" + vm.String()})
 			}
 			if restarted && slices.Equal(tc.changes, all) {
 				w, _ := f.Calls()[before+start].Args[1].(backend.Want)
@@ -411,7 +412,7 @@ func startEnv(t *testing.T, caps backend.Caps) (*Env, *backendtest.Fake) {
 	e, f, _ := upEnv(t, caps)
 	f.LifelineFile = filepath.Join(e.Dirs.Lima, "vm", "ha.pid")
 	hostKeys := f.ExecFunc
-	f.ExecFunc = func(vm string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(vm vmname.VM, argv []string, o backend.ExecOpts) error {
 		if err := noDirect(vm, argv, o); err != nil {
 			return err
 		}
@@ -447,4 +448,4 @@ func stopVM(t *testing.T, f *backendtest.Fake, st *state.VM) {
 }
 
 // withVM fills a want's %s with the VM's name.
-func withVM(s, vm string) string { return strings.ReplaceAll(s, "%s", vm) }
+func withVM(s string, vm vmname.VM) string { return strings.ReplaceAll(s, "%s", vm.String()) }

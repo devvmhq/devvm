@@ -22,6 +22,7 @@ import (
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/shell"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // claude logs Claude Code in in the VM, its login's code pasted on this
@@ -78,7 +79,7 @@ func claudeSyncName(kind string) (string, bool) {
 // with no value saved, that the claude secret has none, and reports
 // whether it was the claude secret: no warning while devvm keeps Claude
 // Code's OAuth login, which the VM gets instead (stageSecrets), never both.
-func claudeTokenUnsaved(store *secrets.Store, name, vm string, warn func(msg.M)) bool {
+func claudeTokenUnsaved(store *secrets.Store, name string, vm vmname.VM, warn func(msg.M)) bool {
 	if name != secrets.ClaudeToken {
 		return false
 	}

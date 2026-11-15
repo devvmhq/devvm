@@ -8,11 +8,12 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/shell"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // sendPackages unpacks what p.Send writes into the build VM's
 // backend.PackagesDir, as root, emptied first: before the recipe's steps.
-func sendPackages(ctx context.Context, l *Lima, vm string, p *backend.Packages) error {
+func sendPackages(ctx context.Context, l *Lima, vm vmname.VM, p *backend.Packages) error {
 	if p == nil || p.Send == nil {
 		return nil
 	}
@@ -38,7 +39,7 @@ func sendPackages(ctx context.Context, l *Lima, vm string, p *backend.Packages) 
 // takePackages hands p.Take a tar stream of the build VM's
 // backend.PackagesDir/out, made as root, then deletes PackagesDir: after
 // the recipe's steps, so the image keeps none of it.
-func takePackages(ctx context.Context, l *Lima, vm string, p *backend.Packages) error {
+func takePackages(ctx context.Context, l *Lima, vm vmname.VM, p *backend.Packages) error {
 	if p == nil {
 		return nil
 	}

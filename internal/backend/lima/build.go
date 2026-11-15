@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/ubuntu"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // BuildImage builds the image's instance, devvm-img-<key>, which is then
@@ -33,14 +34,20 @@ import (
 // stopped, for inspection; the next build deletes it (it has no record).
 // The registry's guard has checked spec (ImageSpec.Validate).
 func (l *images) BuildImage(ctx context.Context, spec backend.ImageSpec) (backend.Built, error) {
-	inst := ImagePrefix + spec.Key
+	inst, err := vmname.Image(spec.Key)
+	if err != nil {
+		return backend.Built{}, err
+	}
 	if _, err := l.inspect(ctx, inst); err == nil {
 		return backend.Built{}, fmt.Errorf("lima: %s exists already", inst)
 	} else if !errors.Is(err, backend.ErrNotFound) {
 		return backend.Built{}, err
 	}
-	parent := ImagePrefix + spec.Parent
+	var parent vmname.VM
 	if spec.Parent != "" {
+		if parent, err = vmname.Image(spec.Parent); err != nil {
+			return backend.Built{}, msg.ImageMissing(spec.Parent)
+		}
 		// Its parent stays as it is: stopped, as clones need.
 		in, err := l.inspect(ctx, parent)
 		if errors.Is(err, backend.ErrNotFound) {
@@ -154,7 +161,7 @@ func (l *images) BuildImage(ctx context.Context, spec backend.ImageSpec) (backen
 	}
 	// Flushed first: a guest that ignores Lima's stop request is stopped
 	// hard.
-	if err := l.Runner.Run(ctx, msg.M{}, l.limactl(ctx, "shell", "--workdir", "/", inst, "sync")); err != nil {
+	if err := l.Runner.Run(ctx, msg.M{}, l.limactl(ctx, "shell", "--workdir", "/", inst.String(), "sync")); err != nil {
 		return failed(backend.Logged(msg.StopFailed(inst)))
 	}
 	if err := l.stop(ctx, inst); err != nil {
@@ -183,7 +190,7 @@ func (l *images) BuildImage(ctx context.Context, spec backend.ImageSpec) (backen
 // user's CAs added and sudo told to keep the build's proxy (hp) as root,
 // spec's recipe as it is, each step after the CAs' and hp's variables,
 // then both taken out again.
-func buildScripts(ctx context.Context, l *Lima, inst string, spec backend.ImageSpec, hp backend.HostProxy) error {
+func buildScripts(ctx context.Context, l *Lima, inst vmname.VM, spec backend.ImageSpec, hp backend.HostProxy) error {
 	sudoOn, sudoOff := sudoScripts(hp)
 	for _, s := range []backend.Script{spec.Trust.Add, sudoOn} {
 		if err := l.runScript(ctx, inst, s, true); err != nil {
@@ -241,8 +248,8 @@ func convertedImages(dir, cmdline, goarch string) []limaImage {
 
 // layerArgs are limactl clone's arguments for a layer's instance (inst):
 // a clone of its parent's, with nothing from the host mounted.
-func layerArgs(parent, inst string) []string {
-	return []string{"clone", "--tty=false", "--mount-none", parent, inst}
+func layerArgs(parent, inst vmname.VM) []string {
+	return []string{"clone", "--tty=false", "--mount-none", parent.String(), inst.String()}
 }
 
 // createFromUbuntu creates a VM from Ubuntu's cloud image, the one pinned
@@ -250,7 +257,7 @@ func layerArgs(parent, inst string) []string {
 // (base.yaml) and nothing from the host mounted, or the mounts a --set in
 // opts gives it (--set applies after --mount-none). It returns the image
 // it used. It gets size's CPUs, memory and disk (buildSize's).
-func (l *images) createFromUbuntu(ctx context.Context, vm string, yaml []byte, size backend.Size, opts ...string) (ubuntu.Image, error) {
+func (l *images) createFromUbuntu(ctx context.Context, vm vmname.VM, yaml []byte, size backend.Size, opts ...string) (ubuntu.Image, error) {
 	img, err := l.pinnedImage()
 	if err != nil {
 		return ubuntu.Image{}, err
@@ -267,8 +274,8 @@ func (l *images) createFromUbuntu(ctx context.Context, vm string, yaml []byte, s
 // and memory, its disk unless that's zero (Lima's own then), and the rest
 // of base.yaml's settings, which create gives it on its standard input
 // (-).
-func createArgs(vm string, images []limaImage, size backend.Size, opts ...string) []string {
-	args := append([]string{"create", "--tty=false", "--mount-none", "--name=" + vm, "--set", ".images = " + yqJSON(images)}, opts...)
+func createArgs(vm vmname.VM, images []limaImage, size backend.Size, opts ...string) []string {
+	args := append([]string{"create", "--tty=false", "--mount-none", "--name=" + vm.String(), "--set", ".images = " + yqJSON(images)}, opts...)
 	args = append(args, "--cpus="+strconv.Itoa(size.CPUs), "--memory="+gibString(size.MemoryGiB))
 	if size.DiskGiB > 0 {
 		args = append(args, "--disk="+gibString(size.DiskGiB))
@@ -279,7 +286,7 @@ func createArgs(vm string, images []limaImage, size backend.Size, opts ...string
 // create runs limactl create with args (createArgs) as step, yaml
 // (base.yaml, as base's origin has it) on its standard input: no copy of
 // it on disk.
-func (l *images) create(ctx context.Context, step msg.M, vm string, yaml []byte, args []string) error {
+func (l *images) create(ctx context.Context, step msg.M, vm vmname.VM, yaml []byte, args []string) error {
 	cmd := l.limactl(ctx, args...)
 	cmd.Stdin = bytes.NewReader(yaml)
 	if err := l.Runner.Run(ctx, step, cmd); err != nil {
@@ -302,13 +309,13 @@ func limaArch(goarch string) string {
 // runScript runs a script in the VM, fed on its standard input to bash as
 // the VM's user, or with root to sh as root: a build's Trust scripts, of
 // which an empty one isn't run.
-func (l *images) runScript(ctx context.Context, vm string, s backend.Script, root bool) error {
-	cmd := l.limactl(ctx, "shell", vm, "bash", "-s")
+func (l *images) runScript(ctx context.Context, vm vmname.VM, s backend.Script, root bool) error {
+	cmd := l.limactl(ctx, "shell", vm.String(), "bash", "-s")
 	if root {
 		if len(s.Data) == 0 {
 			return nil
 		}
-		cmd = l.limactl(ctx, "shell", "--workdir", "/", vm, "sudo", "sh", "-s")
+		cmd = l.limactl(ctx, "shell", "--workdir", "/", vm.String(), "sudo", "sh", "-s")
 	}
 	cmd.Stdin = bytes.NewReader(s.Data)
 	if err := l.Runner.Run(ctx, msg.RunningScript(s.Name, shown(ctx, vm)), cmd); err != nil {
@@ -320,17 +327,17 @@ func (l *images) runScript(ctx context.Context, vm string, s backend.Script, roo
 // runStep runs a recipe's step in the VM: its script after env (the
 // build's own exports, which the image keeps nothing of), fed on its
 // standard input to bash with its arguments, as the VM's user, or as root.
-func (l *images) runStep(ctx context.Context, vm string, s image.Step, env []byte) error {
-	argv := []string{"shell", vm, "bash", "-s"}
+func (l *images) runStep(ctx context.Context, vm vmname.VM, s image.Step, env []byte) error {
+	argv := []string{"shell", vm.String(), "bash", "-s"}
 	if s.Root {
-		argv = []string{"shell", "--workdir", "/", vm, "sudo", "bash", "-s"}
+		argv = []string{"shell", "--workdir", "/", vm.String(), "sudo", "bash", "-s"}
 	}
 	if len(s.Args) > 0 {
 		argv = slices.Concat(argv, []string{"--"}, s.Args)
 	}
 	cmd := l.limactl(ctx, argv...)
 	cmd.Stdin = bytes.NewReader(slices.Concat(env, s.Data))
-	if err := l.Runner.Run(ctx, msg.RunningScript(s.Name, vm), cmd); err != nil {
+	if err := l.Runner.Run(ctx, msg.RunningScript(s.Name, vm.String()), cmd); err != nil {
 		if e, ok := errors.AsType[*exec.ExitError](err); ok && e.ExitCode() == backend.ExitUnreachable {
 			return backend.Logged(msg.BuildSourcesUnreachable(s.Name, vm))
 		}
@@ -341,7 +348,7 @@ func (l *images) runStep(ctx context.Context, vm string, s image.Step, env []byt
 
 // unfinished deletes an image's instance whose build didn't finish: on an
 // interrupt, or when its create or clone failed.
-func (l *images) unfinished(ctx context.Context, inst string) {
+func (l *images) unfinished(ctx context.Context, inst vmname.VM) {
 	if _, err := l.inspect(ctx, inst); err != nil {
 		return // never created, or Lima can't say: nothing devvm can delete
 	}

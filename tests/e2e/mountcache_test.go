@@ -37,7 +37,7 @@ func projectMountCache(s *S, w *webVM) {
 				return errors.New("its file system: " + r.Stdout)
 			}
 			n, err := s.DevvmNames(p, "mount-cache")
-			if err == nil || !grepF(n.Out, "backend_lacks backend=lima feature=mount-cache vm="+vm) {
+			if err == nil || !grepF(n.Out, "backend_lacks backend=lima feature=mount-cache what="+vm) {
 				return errors.New("devvm mount-cache:\n" + n.Out)
 			}
 			if _, ok := w.state(s)["mount.cache"]; ok {

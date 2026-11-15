@@ -61,7 +61,7 @@ func TestSegmentsOfHostileValues(t *testing.T) {
 	if !slices.Equal(vals, []string{"a not a value b"}) || strings.ContainsAny(text, "") {
 		t.Errorf("markers in a value: %+v", segs)
 	}
-	hostile := "vm\033[2J\033]0;title\007"
+	const hostile = "vm\033[2J\033]0;title\007"
 	segs, _ = StopFailed(hostile).Segments()
 	if vals, text := values(segs); !slices.Equal(vals, []string{"vm[2J]0;title"}) || strings.ContainsRune(text, '\033') || text != StopFailed(hostile).Text() {
 		t.Errorf("escape codes in a value: %+v", segs)

@@ -48,7 +48,7 @@ func Main(ctx context.Context, args []string, script []byte, d paths.Dirs, log i
 	// The VM runs as it starts the forwarder: no wait.
 	life, ok := daemon.FollowLifeline(fl.lifeline, 0, f.Tick)
 	if !ok {
-		return errors.New(fl.VM + ": no lifeline at " + fl.lifeline)
+		return errors.New(fl.VM.String() + ": no lifeline at " + fl.lifeline)
 	}
 	f.Alive = func(context.Context) bool { return life.Holds() }
 	f.Every, f.Recheck = f.Tick, recheck

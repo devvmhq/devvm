@@ -51,7 +51,7 @@ type Inventory struct {
 type Known struct {
 	// Name is the VM's name: "" for a state that can't be read and that
 	// no backend's list names.
-	Name string
+	Name vmname.VM
 	// Hash is its folder's (paths.Dirs.VMDir), Path its state file's.
 	Hash, Path string
 	// State is its state: empty (Exists false) for a backend's VM with
@@ -131,7 +131,7 @@ func ReadInventory(ctx context.Context, d paths.Dirs, reg *backend.Registry, ask
 		}
 		inv.Lists[b.Name()] = ins
 		for _, in := range ins {
-			if vmname.IsVM(in.Name) {
+			if in.Name.IsProject() {
 				inv.add(d, b, in)
 			}
 		}
@@ -162,7 +162,7 @@ func listVMs(ctx context.Context, host platform.Host, b backend.Backend) ([]back
 // the row of a state by its hash that can't be read; else a row of its
 // own, with the state its name has (empty for none).
 func (inv *Inventory) add(d paths.Dirs, b backend.Backend, in backend.Instance) {
-	h, _ := vmname.HashOf(in.Name)
+	h, _ := in.Name.Hash()
 	for i := range inv.VMs {
 		k := &inv.VMs[i]
 		if k.Listed || k.Hash != h {
@@ -234,7 +234,7 @@ func (inv *Inventory) States() []*state.VM {
 // can't be read keeps every path in the folder whose hash names its
 // folder (project.Hash), as it may protect them: what it protects, devvm
 // can't tell.
-func (inv *Inventory) GitKeeper(self string) func(path string) msg.M {
+func (inv *Inventory) GitKeeper(self vmname.VM) func(path string) msg.M {
 	states := inv.States()
 	unread := inv.Unreadable()
 	return func(path string) msg.M {

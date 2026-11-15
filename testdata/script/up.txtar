@@ -19,7 +19,7 @@ exec devvm --network open
 stdout '^==> new_vm_summary vm=devvm-web-[0-9a-f]{14}\nnew_vm_toolchains_none\nnew_vm_agents_none\nnew_vm_layers_none\nnew_vm_size cpus=4 disk=100 memory=8\nnew_vm_network tier=open\nnew_vm_ports ports=all\nnew_vm_choose\n'
 stdout '^==> building_image image=base key=[0-9a-f]{12}$'
 stdout '^==> creating_from image=base vm=devvm-web-[0-9a-f]{14}$'
-stdout '^==> starting vm=devvm-web-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-web-[0-9a-f]{14}$'
 # None of devvm's own files written out: they stay in the binary.
 ! exists $XDG_DATA_HOME/devvm/assets
 # .git unprotected off macOS, and devvm says so.

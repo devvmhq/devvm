@@ -21,6 +21,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Log is a VM's event log, as devvm network log shows it. NewLog sets every
@@ -32,7 +33,7 @@ type Log struct {
 }
 
 // NewLog returns vm's event log (paths.VM.EventLog).
-func NewLog(d paths.Dirs, vm string) *Log {
+func NewLog(d paths.Dirs, vm vmname.VM) *Log {
 	return &Log{Path: d.VM(vm).EventLog(), Tick: 250 * time.Millisecond}
 }
 
@@ -306,13 +307,13 @@ func FormatEvent(line string) (string, bool) {
 func linkEvent(e proxy.Event) (what, d string) {
 	switch e.Event {
 	case "link":
-		return "link", "to " + e.Target
+		return "link", "to " + e.Target.String()
 	case "link_target_stopped":
-		return "REFUSED", "to " + e.Target + ": it isn't running"
+		return "REFUSED", "to " + e.Target.String() + ": it isn't running"
 	case "link_limit":
 		return "REFUSED", e.Reason + " connections carried already"
 	}
-	return "REFUSED", "to " + e.Target + ": " + e.Reason
+	return "REFUSED", "to " + e.Target.String() + ": " + e.Reason
 }
 
 // AppendEvent adds an event to a VM's event log (EventLog), the user's
@@ -320,7 +321,7 @@ func linkEvent(e proxy.Event) (what, d string) {
 // proxy's. It's written through the proxy's own writer, which rotates
 // the log by the proxy's rule, so an open VM keeps two
 // at most too, and the proxy goes on writing to the new log.
-func AppendEvent(path, vm string, e Event) error {
+func AppendEvent(path string, vm vmname.VM, e Event) error {
 	e.Time, e.VM = time.Now().UTC().Format(time.RFC3339), vm
 	b, _ := json.Marshal(e)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

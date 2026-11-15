@@ -21,7 +21,7 @@ internal/hostsafety 95.9
 internal/image 99.4
 internal/jsonc 97.1
 internal/msg 72.1
-internal/msg/gen 93.3
+internal/msg/gen 93.9
 internal/netpolicy 91.7
 internal/paths 98.1
 internal/platform 90.4

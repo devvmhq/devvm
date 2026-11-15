@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // why is what protect runs for.
@@ -120,7 +121,7 @@ var reports = []report{
 // now covers, so the locks it may have left are taken off with the rest.
 // A running VM's check scans the folder's own repo alone, and keeps the
 // nested repos' records as they are.
-func (p *Protector) protect(ctx context.Context, vm string, snaps []snapshot, rec InVM, w why, h how, c repoSet) Made {
+func (p *Protector) protect(ctx context.Context, vm vmname.VM, snaps []snapshot, rec InVM, w why, h how, c repoSet) Made {
 	was := rec.Made
 	made := Made{Protected: true, Nested: was.Nested || w != whyCheck, Left: maps.Clone(was.Left)}
 	if h == later {
@@ -165,7 +166,7 @@ func (p *Protector) protect(ctx context.Context, vm string, snaps []snapshot, re
 // warnAppeared names a nested repo that appeared since the last check,
 // scanned as s, at rel, with what in its config and hooks runs programs
 // on this machine (programs), which devvm locks as it is.
-func (p *Protector) warnAppeared(ctx context.Context, s snapshot, rel, vm string) {
+func (p *Protector) warnAppeared(ctx context.Context, s snapshot, rel string, vm vmname.VM) {
 	if runs := programs(ctx, s); len(runs) > 0 {
 		l, _ := listed(runs)
 		p.Warn(msg.GitNestedAppearedRuns(rel, l, vm))

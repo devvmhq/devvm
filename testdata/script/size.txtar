@@ -153,7 +153,7 @@ ttyin -stdin $WORK/yes.txt
 ! exec devvm
 stderr '^restart_now count=1 vm=devvm-web-[0-9a-f]{14} \[y/N\] '
 ! stderr 'next_start '
-stdout '^==> starting vm=devvm-web-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-web-[0-9a-f]{14}$'
 stub_calls
 stdout '^limactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl edit --tty=false devvm-web-[0-9a-f]{14} --cpus 2( |$)'
 rm $STUB_DIR/sync-fails-with

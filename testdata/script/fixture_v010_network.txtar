@@ -39,7 +39,7 @@ stdout '"!api\.github\.com POST,DELETE"'
 cp $APP_dir/run/secrets.json $WORK/secrets-before.json
 grep '^\{"version":1,' $APP_dir/run/secrets.json
 exec devvm
-stdout '^==> starting vm=devvm-app-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
 ! stderr 'unreadable|corrupt|layout_|refused|failed|policy_not_rule|policy_broken_deny'
 cmp $APP_dir/run/secrets.json $WORK/secrets-before.json
 

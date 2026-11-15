@@ -5,6 +5,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/settings"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // portsChoiceList is the ports picker's row that asks for a list.
@@ -14,7 +15,7 @@ const portsChoiceList = "list"
 // or a list, for one to be chosen, starting from shown, the summary's;
 // a list is asked for (askPorts). Where the picker can't show, it's
 // shown. Nothing is saved.
-func (e creation) choosePorts(vm, shown string) string {
+func (e creation) choosePorts(vm vmname.VM, shown string) string {
 	if e.PickOne == nil {
 		return shown
 	}

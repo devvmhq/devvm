@@ -14,6 +14,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/shell"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // remountTimeout bounds the remount and its check: a guest whose mount
@@ -51,7 +52,7 @@ func cacheChanges(in instance, w backend.Want) bool {
 // mode is warned of. An interrupt meanwhile stops the VM too, whatever
 // its tier, and gets no restart: the cleanup that stops it stays until
 // any stop here returns.
-func remountProject(ctx context.Context, l *machines, vm string, w backend.Want, remount bool) error {
+func remountProject(ctx context.Context, l *machines, vm vmname.VM, w backend.Want, remount bool) error {
 	stopIt := func(ctx context.Context) { _ = l.stop(ctx, vm) }
 	done := l.AddCleanup(func(ctx context.Context) {
 		if l.Interrupted() {
@@ -65,7 +66,7 @@ func remountProject(ctx context.Context, l *machines, vm string, w backend.Want,
 	if remount {
 		d := shell.Quote(w.Project)
 		script := "umount " + d + " || exit 3; mount " + d + " || { mount " + d + "; mountpoint -q " + d + " || exit 4; }"
-		_ = l.Runner.Run(ctx, msg.Remounting(vm), bounded(l.limactl(ctx, "shell", "--workdir", "/", vm, "sudo", "sh", "-c", script)))
+		_ = l.Runner.Run(ctx, msg.Remounting(vm), bounded(l.limactl(ctx, "shell", "--workdir", "/", vm.String(), "sudo", "sh", "-c", script)))
 	}
 	has, err := mountedCache(ctx, l, vm, w.Project)
 	// The cleanup stays until any stop here returns. An interrupt's is the
@@ -107,9 +108,9 @@ func remountProject(ctx context.Context, l *machines, vm string, w backend.Want,
 // fails, a folder mounted with the old mode (mounted) is warned of, fail,
 // and the VM goes on as it runs; one that isn't fails the start, as a
 // stop that failed, the VM maybe still running.
-func restartToMount(ctx context.Context, l *machines, vm, why string, fail msg.M, mounted bool) error {
-	_, _ = io.WriteString(l.LogWriter(), "devvm: "+vm+"'s project folder after its remount: "+why+"; restarting the VM\n")
-	if err := l.Runner.Run(ctx, msg.RemountRestarting(vm), l.limactl(ctx, "stop", vm)); err != nil {
+func restartToMount(ctx context.Context, l *machines, vm vmname.VM, why string, fail msg.M, mounted bool) error {
+	_, _ = io.WriteString(l.LogWriter(), "devvm: "+vm.String()+"'s project folder after its remount: "+why+"; restarting the VM\n")
+	if err := l.Runner.Run(ctx, msg.RemountRestarting(vm), l.limactl(ctx, "stop", vm.String())); err != nil {
 		if mounted {
 			l.Warn(fail)
 			return nil
@@ -137,11 +138,11 @@ const lastMount = `awk '$5 == ENVIRON["P"] { l = $0 } END { print l }'`
 // mount point, or an error when the guest doesn't answer or its answer
 // isn't a mountinfo line. Only the last line counts, and only so much of
 // it is read (maxCheckOutput).
-func mountedCache(ctx context.Context, l *machines, vm, dir string) (string, error) {
+func mountedCache(ctx context.Context, l *machines, vm vmname.VM, dir string) (string, error) {
 	d := shell.Quote(dir)
 	check := "if mountpoint -q " + d + "; then P=" + shell.Quote(mountinfoPath(dir)) + " " + lastMount +
 		" /proc/self/mountinfo; else echo " + notMounted + "; fi"
-	cmd := bounded(l.limactl(ctx, "shell", "--workdir", "/", vm, "sh", "-c", check))
+	cmd := bounded(l.limactl(ctx, "shell", "--workdir", "/", vm.String(), "sh", "-c", check))
 	out := &capped{max: maxCheckOutput}
 	cmd.Stdout = out
 	if err := l.Runner.Attach(cmd); err != nil {

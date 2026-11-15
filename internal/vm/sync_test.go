@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A VM's links are checked before its setup gets them: addresses in
@@ -122,7 +123,7 @@ func TestUpLinksInvalid(t *testing.T) {
 	}
 	err := Launch{e}.Up(t.Context(), Options{Network: "allowlist"})
 	spec, _ := call(f, "CreateVM").Args[1].(backend.VMSpec)
-	if msg.NamesOf(err) != "link_setup_invalid address=127.0.0.1 name=db vm="+spec.Name {
+	if msg.NamesOf(err) != "link_setup_invalid address=127.0.0.1 name=db vm="+spec.Name.String() {
 		t.Fatalf("Up = %v", msg.NamesOf(err))
 	}
 	if slices.Contains(f.Methods(), "Start") {
@@ -260,7 +261,7 @@ type slowExec struct {
 	hang   bool
 }
 
-func (s slowExec) Exec(ctx context.Context, _ string, _ []string, o backend.ExecOpts) error {
+func (s slowExec) Exec(ctx context.Context, _ vmname.VM, _ []string, o backend.ExecOpts) error {
 	if _, err := io.WriteString(o.Stdout, s.report); err != nil {
 		return err
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/ui"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Counting a folder: only what's picked, and a folder that isn't there is
@@ -51,8 +52,8 @@ func TestEntriesIn(t *testing.T) {
 // being made.
 func TestLeftoverFolders(t *testing.T) {
 	d := paths.Dirs{Data: t.TempDir()}
-	const orphan, live, unasked, recent = "devvm-a-0123456789abc1", "devvm-b-0123456789abc2", "devvm-c-0123456789abc3", "devvm-e-0123456789abc5"
-	for vm, be := range map[string]string{orphan: "fake", live: "fake", unasked: "other", recent: "fake"} {
+	const orphan, live, unasked, recent vmname.VM = "devvm-a-0123456789abc1", "devvm-b-0123456789abc2", "devvm-c-0123456789abc3", "devvm-e-0123456789abc5"
+	for vm, be := range map[vmname.VM]string{orphan: "fake", live: "fake", unasked: "other", recent: "fake"} {
 		v := d.VM(vm)
 		for _, f := range []string{v.Logs() + "/network.jsonl", v.Proxy(".pid"), v.ForwarderLog(), filepath.Join(v.Run(), ".proxy.json.tmp-1")} {
 			if err := state.WriteFile(f, []byte(strings.Repeat("x", 5000))); err != nil {
@@ -85,7 +86,7 @@ func TestLeftoverFolders(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := time.Now().Add(-2 * time.Hour)
-	for _, n := range []string{orphan, live, unasked} {
+	for _, n := range []vmname.VM{orphan, live, unasked} {
 		if err := os.Chtimes(d.VM(n).State(), old, old); err != nil {
 			t.Fatal(err)
 		}

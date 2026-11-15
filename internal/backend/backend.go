@@ -18,6 +18,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Backend runs VMs and builds their images: its name and Caps, then its
@@ -129,36 +130,37 @@ type Machines interface {
 	// running VM is left as it is, w and c unapplied (callers say what
 	// changes at its next start); its confinement is checked with
 	// Running.
-	Start(ctx context.Context, vm string, w Want, c Confinement) error
+	Start(ctx context.Context, vm vmname.VM, w Want, c Confinement) error
 	// Running says how the VM runs now: its start, whether it's
 	// confined, and its lifeline, which a stopped VM has too.
-	Running(ctx context.Context, vm string) (Run, error)
+	Running(ctx context.Context, vm vmname.VM) (Run, error)
 	// ProxyURL is devvm's proxy as a VM started with c reaches it, its
 	// user and password included; "" unless c names it (GuestProxy).
 	ProxyURL(c Confinement) string
 	// Stop stops a VM. A stopped one is left as it is.
-	Stop(ctx context.Context, vm string) error
+	Stop(ctx context.Context, vm vmname.VM) error
 	// Delete deletes a VM, stopping it first.
-	Delete(ctx context.Context, vm string) error
+	Delete(ctx context.Context, vm vmname.VM) error
 	// Rename gives a stopped VM another name, to, which no VM has and
 	// which fits NameMax: a remake keeps the VM's old machine, its disk
 	// included, under to while it makes the new one by the VM's name,
 	// and gives it back if that fails. What the backend keeps for the VM
 	// besides it (Forgetter's) stays the old name's.
-	Rename(ctx context.Context, vm, to string) error
-	// List lists the backend's VMs, without its images.
+	Rename(ctx context.Context, vm, to vmname.VM) error
+	// List lists the backend's VMs, without its images, each name as
+	// vmname.ParseListed reads it.
 	List(ctx context.Context) ([]Instance, error)
 	// Inspect returns one VM, or an error matching ErrNotFound.
-	Inspect(ctx context.Context, vm string) (Instance, error)
+	Inspect(ctx context.Context, vm vmname.VM) (Instance, error)
 
 	// Exec runs argv in a running VM and waits for it.
-	Exec(ctx context.Context, vm string, argv []string, o ExecOpts) error
+	Exec(ctx context.Context, vm vmname.VM, argv []string, o ExecOpts) error
 	// Shell returns the command that opens an interactive shell in a
 	// running VM, as o says. The caller runs it in place of devvm.
-	Shell(ctx context.Context, vm string, o ShellOpts) (Command, error)
+	Shell(ctx context.Context, vm vmname.VM, o ShellOpts) (Command, error)
 	// SSH says how ssh, editors, links and devvm's port forwarder reach
 	// a running VM.
-	SSH(ctx context.Context, vm string) (SSHTarget, error)
+	SSH(ctx context.Context, vm vmname.VM) (SSHTarget, error)
 }
 
 // Housekeeping is what devvm space and devvm gc ask of a backend beyond
@@ -454,7 +456,7 @@ func gibText(g float64) string { return strconv.FormatFloat(g, 'g', -1, 64) }
 // at the same path in the VM as on the host, except the tools share.
 type VMSpec struct {
 	Want
-	Name string
+	Name vmname.VM
 	// CloneAt is where a --clone VM keeps its own clone of the project (the
 	// folder's path); "" for a VM that mounts the folder. A backend may keep
 	// it on a disk of its own.
@@ -603,7 +605,7 @@ const (
 
 // Instance is a VM as its backend has it.
 type Instance struct {
-	Name    string
+	Name    vmname.VM
 	Status  Status
 	Size    Size   // what it has, all set
 	Project string // its project folder's mount; "" for none

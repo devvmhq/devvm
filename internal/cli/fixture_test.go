@@ -33,10 +33,10 @@ func fixtureDir(repo, version string) string {
 // made: its folder, that folder's and its .git's identities, where its
 // backend kept it, and the host's ports it had.
 type fixtureVM struct {
-	Name      string `json:"name"`
-	Dir       string `json:"dir"`
-	Folder    string `json:"folder"`
-	BackendAt string `json:"backend_at"`
+	Name      vmname.VM `json:"name"`
+	Dir       string    `json:"dir"`
+	Folder    string    `json:"folder"`
+	BackendAt string    `json:"backend_at"`
 	Git       struct {
 		Made struct {
 			GitID string `json:"git_id"`
@@ -117,7 +117,7 @@ func fixtureReplacer(ts *testscript.TestScript, src, root string) fixtureRewrite
 	for _, s := range states {
 		var vm fixtureVM
 		ts.Check(json.Unmarshal([]byte(ts.ReadFile(s)), &vm))
-		hash, ok := vmname.HashOf(vm.Name)
+		hash, ok := vm.Name.Hash()
 		if !ok {
 			ts.Fatalf("%s: %q isn't a project VM's name", s, vm.Name)
 		}

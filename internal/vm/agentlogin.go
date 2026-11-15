@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
@@ -93,7 +94,7 @@ func (e AgentLogin) Run(ctx context.Context, o AgentLoginOptions) error {
 // login, with its account's email, or for an agent whose login isn't
 // ChatGPT's (Cursor's), a login file that changed; or nothing, which
 // fails.
-func (e AgentLogin) saved(store *secrets.Store, agent, vm, before string) error {
+func (e AgentLogin) saved(store *secrets.Store, agent string, vm vmname.VM, before string) error {
 	if d := agents.Of(agent); !d.ChatGPT {
 		if sum := store.LoginSum(agent); sum == "" || sum == before {
 			return msg.AgentLoginNotSaved(agent, vm)

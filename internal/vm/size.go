@@ -10,6 +10,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Size is a VM's size as devvm stores it, its state's size section (what
@@ -97,7 +98,7 @@ func ThisHost(h platform.Host) (Host, error) {
 // the host as base's fitting does. It also refuses a disk smaller than
 // minDisk GiB (the image's, which can't shrink; 0 for no limit). vm names
 // the VM for the disk's refusal.
-func (s Size) Check(h Host, minDisk float64, vm string) error {
+func (s Size) Check(h Host, minDisk float64, vm vmname.VM) error {
 	b := s.Backend()
 	if b.CPUs > h.CPUs {
 		return msg.TooManyCpus(strconv.Itoa(h.CPUs), s.CPUs)

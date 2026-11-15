@@ -28,6 +28,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/stubtest"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Lima's targets: build.sh's own format. gnu's build in devvm's own
@@ -1510,7 +1511,7 @@ func TestCompareVersions(t *testing.T) {
 func TestRemove(t *testing.T) {
 	e := newEnv(t)
 	e.locked(t, fixture(t))
-	vm := "devvm-p-abc123abc123ab"
+	vm := vmname.VM("devvm-p-abc123abc123ab")
 	all := e.files(t, "node", "pnpm", "bun", "python", "uv", "claude")
 	names, files, err := Remove(vm, "base", []string{"node", "python", "claude"}, all, []string{"python", "claude"})
 	if err != nil || !slices.Equal(names, []string{"node"}) || !slices.Equal(files, all[:3]) {
@@ -1520,23 +1521,23 @@ func TestRemove(t *testing.T) {
 	if err != nil || len(names) != 0 || len(files) != 0 {
 		t.Errorf("Remove the last = %q, %q, %v", names, files, err)
 	}
-	if _, _, err := Remove(vm, "foo", []string{"node", "go"}, nil, []string{"python"}); msg.NamesOf(err) != "vm_lacks has=node go tool=python vm="+vm {
+	if _, _, err := Remove(vm, "foo", []string{"node", "go"}, nil, []string{"python"}); msg.NamesOf(err) != "vm_lacks has=node go tool=python vm="+vm.String() {
 		t.Errorf("Remove what it lacks = %v", msg.NamesOf(err))
 	}
-	if _, _, err := Remove(vm, "base", nil, nil, []string{"python"}); msg.NamesOf(err) != "vm_lacks has=none tool=python vm="+vm {
+	if _, _, err := Remove(vm, "base", nil, nil, []string{"python"}); msg.NamesOf(err) != "vm_lacks has=none tool=python vm="+vm.String() {
 		t.Errorf("Remove from none = %v", msg.NamesOf(err))
 	}
-	if _, _, err := Remove(vm, "foo", []string{"node"}, nil, []string{"foo"}); msg.NamesOf(err) != "custom_layer_remove layer=foo vm="+vm {
+	if _, _, err := Remove(vm, "foo", []string{"node"}, nil, []string{"foo"}); msg.NamesOf(err) != "custom_layer_remove layer=foo vm="+vm.String() {
 		t.Errorf("Remove a layer = %v", msg.NamesOf(err))
 	}
 	// base is a base VM's one layer, and no other VM's.
-	if _, _, err := Remove(vm, "base", []string{"node"}, nil, []string{"base"}); msg.NamesOf(err) != "custom_layer_remove layer=base vm="+vm {
+	if _, _, err := Remove(vm, "base", []string{"node"}, nil, []string{"base"}); msg.NamesOf(err) != "custom_layer_remove layer=base vm="+vm.String() {
 		t.Errorf("Remove base from base = %v", msg.NamesOf(err))
 	}
-	if _, _, err := Remove(vm, "foo+bar", []string{"node"}, nil, []string{"base"}); msg.NamesOf(err) != "vm_lacks has=node tool=base vm="+vm {
+	if _, _, err := Remove(vm, "foo+bar", []string{"node"}, nil, []string{"base"}); msg.NamesOf(err) != "vm_lacks has=node tool=base vm="+vm.String() {
 		t.Errorf("Remove base from foo+bar = %v", msg.NamesOf(err))
 	}
-	if _, _, err := Remove(vm, "foo+bar", []string{"node"}, nil, []string{"bar"}); msg.NamesOf(err) != "custom_layer_remove layer=bar vm="+vm {
+	if _, _, err := Remove(vm, "foo+bar", []string{"node"}, nil, []string{"bar"}); msg.NamesOf(err) != "custom_layer_remove layer=bar vm="+vm.String() {
 		t.Errorf("Remove bar from foo+bar = %v", msg.NamesOf(err))
 	}
 }
@@ -1602,7 +1603,7 @@ func TestUpdate(t *testing.T) {
 	build := func(ctx context.Context, files []string) error {
 		return e.Build(ctx, backend.Review{}, f, baseKey, gnuT, files)
 	}
-	vm := "devvm-p-abc123abc123ab"
+	const vm = "devvm-p-abc123abc123ab"
 	before := e.files(t, "go")
 	files, changed, err := e.Update(t.Context(), build, vm, []string{"go"}, before, gnuT)
 	if err != nil {

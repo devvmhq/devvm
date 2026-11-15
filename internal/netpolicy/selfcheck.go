@@ -7,6 +7,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Results of the self-check, in the VM's state.
@@ -91,7 +92,7 @@ func (p *Proxy) SelfCheck(ctx context.Context, b backend.Backend, st *state.VM, 
 // answers it (proxyArgv). An open VM isn't confined, so one whose proxy
 // doesn't answer it reaches what it reaches all the same, but its tools
 // that use the proxy fail: a warning, and the VM is used as it is.
-func (p *Proxy) checkOpen(ctx context.Context, b backend.Backend, vm string) {
+func (p *Proxy) checkOpen(ctx context.Context, b backend.Backend, vm vmname.VM) {
 	if err := b.Exec(ctx, vm, proxyArgv, backend.ExecOpts{}); err != nil && ctx.Err() == nil {
 		p.Warn(msg.NetProxyUnreachable(vm))
 	}
@@ -140,7 +141,7 @@ func Listed(ctx context.Context, b backend.Backend, st *state.VM, running bool) 
 
 // enforced reports whether the VM runs confined and can't connect out
 // directly.
-func enforced(ctx context.Context, b backend.Backend, vm string) (bool, error) {
+func enforced(ctx context.Context, b backend.Backend, vm vmname.VM) (bool, error) {
 	run, err := b.Running(ctx, vm)
 	if err != nil || !run.Confined {
 		return false, err
@@ -150,7 +151,7 @@ func enforced(ctx context.Context, b backend.Backend, vm string) (bool, error) {
 
 // Direct reports whether the VM reaches the internet without its proxy (it
 // shouldn't). A VM that doesn't answer doesn't.
-func Direct(ctx context.Context, b backend.Backend, vm string) bool {
+func Direct(ctx context.Context, b backend.Backend, vm vmname.VM) bool {
 	return b.Exec(ctx, vm, directArgv, backend.ExecOpts{}) == nil
 }
 
@@ -159,7 +160,7 @@ func Direct(ctx context.Context, b backend.Backend, vm string) bool {
 // it and returns err; if the stop fails, the stop's failure, after warning
 // err. The stop isn't cancelled with ctx: an interrupt never leaves the VM
 // running.
-func (p *Proxy) Unproxied(ctx context.Context, b backend.Backend, vm string, err error) error {
+func (p *Proxy) Unproxied(ctx context.Context, b backend.Backend, vm vmname.VM, err error) error {
 	if serr := b.Stop(context.WithoutCancel(ctx), vm); serr != nil {
 		var m msg.M
 		if errors.As(err, &m) {
@@ -173,7 +174,7 @@ func (p *Proxy) Unproxied(ctx context.Context, b backend.Backend, vm string, err
 
 // stop stops the VM, whose network tier doesn't hold, and returns why:
 // m, or the stop's failure after warning m.
-func (p *Proxy) stop(ctx context.Context, b backend.Backend, vm string, m msg.M) error {
+func (p *Proxy) stop(ctx context.Context, b backend.Backend, vm vmname.VM, m msg.M) error {
 	if err := b.Stop(ctx, vm); err != nil {
 		p.Warn(m)
 		return err

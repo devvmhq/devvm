@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // LocationOf is where h's VMs live in this run (Host.Location), as a VM's
@@ -26,13 +28,13 @@ func LocationOf(h Host) (string, bool) {
 type Forgetter interface {
 	// Forget deletes what the backend keeps for vm, which it must not
 	// have: a VM it has is refused, and nothing is deleted.
-	Forget(ctx context.Context, vm string) error
+	Forget(ctx context.Context, vm vmname.VM) error
 }
 
 // Stray is a VM with devvm's label that this devvm has no state for: one
 // made by a devvm with another data folder (a sandbox's, a test's), or
 // one whose state is gone (Housekeeping.Strays).
 type Stray struct {
-	Name string
+	Name vmname.VM
 	Data string // the data folder its label names
 }

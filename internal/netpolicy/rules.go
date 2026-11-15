@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Rule is the rule for devvm network allow (deny false) or deny: rule as
@@ -107,7 +108,7 @@ func (p *Proxy) NarrowNotes(rules []string, st *state.VM, deny bool) {
 
 // namedAllowlist is a VM's allowlist (Proxy.Allowlist), by the VM's name.
 type namedAllowlist struct {
-	vm string
+	vm vmname.VM
 	al proxy.Allowlist
 }
 
@@ -143,7 +144,7 @@ func allowlists(p *Proxy, st *state.VM) []namedAllowlist {
 // It reports whether r narrows HTTPS on any of them, or there's none, so
 // the proxy decrypts the host.
 func narrowsOn(p msg.Reporter, als []namedAllowlist, h, r string) bool {
-	var nothing, httpOnly []string
+	var nothing, httpOnly []vmname.VM
 	https := len(als) == 0
 	for _, a := range als {
 		switch no, plain := a.al.CoversWhole(r); {
@@ -156,10 +157,10 @@ func narrowsOn(p msg.Reporter, als []namedAllowlist, h, r string) bool {
 		}
 	}
 	if len(nothing) > 0 {
-		p.Warn(msg.RuleNarrowsNothing(h, r, strings.Join(nothing, ", ")))
+		p.Warn(msg.RuleNarrowsNothing(h, r, vmname.Join(nothing, ", ")))
 	}
 	if len(httpOnly) > 0 {
-		p.Warn(msg.RuleNarrowsHTTPOnly(h, r, strings.Join(httpOnly, ", ")))
+		p.Warn(msg.RuleNarrowsHTTPOnly(h, r, vmname.Join(httpOnly, ", ")))
 	}
 	return https
 }
@@ -168,11 +169,11 @@ func narrowsOn(p msg.Reporter, als []namedAllowlist, h, r string) bool {
 // VM whose proxy runs from another devvm binary (otherBinary), which may
 // read that rule otherwise until the VM's next launch: vm's, or with none,
 // every VM's.
-func (p *Proxy) OtherBinaries(rules []string, vm string) {
+func (p *Proxy) OtherBinaries(rules []string, vm vmname.VM) {
 	if !slices.ContainsFunc(rules, func(r string) bool { _, ok := NarrowedHost(r); return ok }) {
 		return
 	}
-	vms := []string{vm}
+	vms := []vmname.VM{vm}
 	if vm == "" {
 		vms, _ = state.VMNames(p.Dirs)
 	}

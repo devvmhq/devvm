@@ -29,19 +29,19 @@ var ErrNoRoom = errors.New("no room for the folder's name in the VM's name")
 
 // Folder is a project folder and its VM's name.
 type Folder struct {
-	Dir  string // its physical path, as pwd -P has it
-	Name string // its VM's name: devvm-<folder>-<hash of Dir>
+	Dir  string    // its physical path, as pwd -P has it
+	Name vmname.VM // its VM's name: devvm-<folder>-<hash of Dir>
 }
 
 // Slug is the folder's part of its VM's name, which is also the VM's
-// hostname (vmname.SlugOf).
+// hostname (vmname.VM.Slug).
 func (f Folder) Slug() string {
-	s, _ := vmname.SlugOf(f.Name)
+	s, _ := f.Name.Slug()
 	return s
 }
 
 // Hash is the hash of dir, a physical path, that its VM's name ends with
-// (vmname.HashOf): 56 bits of its SHA-1, in hex. It names the VM's folder
+// (vmname.VM.Hash): 56 bits of its SHA-1, in hex. It names the VM's folder
 // in devvm's data folder, so a folder's VM is found by its path,
 // whatever name its backend gave it, unless the VM's folder moved there
 // or away (Nth): its state, which records its folder, says then.
@@ -68,10 +68,10 @@ func hashNth(dir string, n int) string {
 // ForDir returns the project VMs among vms whose state records dir, a
 // physical path, as their folder: the VM made for it, or one whose folder
 // moved there, whatever its name.
-func ForDir(dir string, vms []Recorded) []string {
-	var out []string
+func ForDir(dir string, vms []Recorded) []vmname.VM {
+	var out []vmname.VM
 	for _, v := range vms {
-		if vmname.IsVM(v.Name) && v.Dir == dir {
+		if v.Name.IsProject() && v.Dir == dir {
 			out = append(out, v.Name)
 		}
 	}
@@ -80,14 +80,17 @@ func ForDir(dir string, vms []Recorded) []string {
 
 // Recorded is a project VM as its state records it: its name, the alias
 // ssh reaches it by, and its project folder.
-type Recorded struct{ Name, Alias, Dir string }
+type Recorded struct {
+	Name       vmname.VM
+	Alias, Dir string
+}
 
-// Named returns the project VM among vms whose name or alias is name, ""
-// when none is. An alias the VM's name can't have (vmname.IsAlias) names
-// nothing.
-func Named(name string, vms []Recorded) string {
+// Named returns the project VM among vms whose name or alias is name, as
+// given, "" when none is. An alias the VM's name can't have
+// (vmname.IsAlias) names nothing.
+func Named(name string, vms []Recorded) vmname.VM {
 	for _, v := range vms {
-		if vmname.IsVM(v.Name) && (name == v.Name || name == v.Alias && vmname.IsAlias(v.Alias, v.Name)) {
+		if v.Name.IsProject() && (name == v.Name.String() || name == v.Alias && vmname.IsAlias(v.Alias, v.Name)) {
 			return v.Name
 		}
 	}
@@ -98,21 +101,21 @@ func Named(name string, vms []Recorded) string {
 // when it isn't a path (IsPath), in vms's order: the VM itself for a VM's
 // name or alias, else those whose folder's name has the same Slug, as New
 // makes it, whatever their backend left of it in their names.
-func Targets(target string, vms []Recorded) []string {
+func Targets(target string, vms []Recorded) []vmname.VM {
 	if vm := Named(target, vms); vm != "" {
-		return []string{vm}
+		return []vmname.VM{vm}
 	}
 	if vmname.IsVM(target) {
 		return nil
 	}
 	want := Slug(target, slugMax)
-	var out []string
+	var out []vmname.VM
 	for _, v := range vms {
 		slug := Folder{Name: v.Name}.Slug()
 		if v.Dir != "" {
 			slug = Slug(filepath.Base(v.Dir), slugMax)
 		}
-		if vmname.IsVM(v.Name) && slug == want {
+		if v.Name.IsProject() && slug == want {
 			out = append(out, v.Name)
 		}
 	}
@@ -144,7 +147,9 @@ func Nth(dir string, nameMax, n int) (Folder, error) {
 	if room < slugMin {
 		return Folder{}, ErrNoRoom
 	}
-	return Folder{Dir: dir, Name: vmname.Prefix + Slug(filepath.Base(dir), room) + "-" + hashNth(dir, n)}, nil
+	// Slug and hashNth make a name vmname always takes.
+	name, err := vmname.Parse(vmname.Prefix + Slug(filepath.Base(dir), room) + "-" + hashNth(dir, n))
+	return Folder{Dir: dir, Name: name}, err
 }
 
 // Slug is a folder's name as it goes into its VM's name: lowercase, each

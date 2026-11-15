@@ -12,12 +12,13 @@ import (
 	"github.com/devvmhq/devvm/internal/backend/backendtest"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // everyFile writes a file at each of a VM's paths in its folder, as its
 // runs would leave them: its proxy's, its sandbox profile, its links',
 // its secrets', its logs and its backend's.
-func everyFile(t *testing.T, e *Env, vm string) {
+func everyFile(t *testing.T, e *Env, vm vmname.VM) {
 	t.Helper()
 	v := e.Dirs.VM(vm)
 	for _, p := range []string{
@@ -53,9 +54,9 @@ func vmsLeft(t *testing.T, e *Env) []string {
 // are named by the VM, by its name or its hash, outside its own folder:
 // what a path built outside internal/paths would leave, which its
 // teardown would miss.
-func outsideFolder(t *testing.T, e *Env, vm string) []string {
+func outsideFolder(t *testing.T, e *Env, vm vmname.VM) []string {
 	t.Helper()
-	h := vm[len(vm)-14:]
+	h, _ := vm.Hash()
 	var out []string
 	err := filepath.WalkDir(e.Dirs.Data, func(p string, _ os.DirEntry, err error) error {
 		if err != nil {
@@ -64,7 +65,7 @@ func outsideFolder(t *testing.T, e *Env, vm string) []string {
 		if p == e.Dirs.VM(vm).Dir {
 			return filepath.SkipDir
 		}
-		if b := filepath.Base(p); strings.Contains(b, vm) || strings.Contains(b, h) {
+		if b := filepath.Base(p); strings.Contains(b, vm.String()) || strings.Contains(b, h) {
 			out = append(out, p)
 		}
 		return nil
@@ -171,7 +172,7 @@ func TestLookupOtherBackend(t *testing.T) {
 	if err := (Launch{e}).Up(t.Context(), Options{Network: "open"}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if names := vmNames(t, e); !slices.Equal(names, []string{st.Name()}) || slices.Contains(f.Methods(), "CreateVM") {
+	if names := vmNames(t, e); !slices.Equal(names, []vmname.VM{st.Name()}) || slices.Contains(f.Methods(), "CreateVM") {
 		t.Errorf("VMs %q, the default backend's calls %q", names, f.Methods())
 	}
 }

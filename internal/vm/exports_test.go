@@ -9,12 +9,15 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/settings"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 func TestParseExportName(t *testing.T) {
 	for _, c := range []struct {
-		name, vm, stamp string
-		ok              bool
+		name  string
+		vm    vmname.VM
+		stamp string
+		ok    bool
 	}{
 		{"devvm-web-0123456789abcd-20260101-120000.tar.gz", "devvm-web-0123456789abcd", "20260101-120000", true},
 		{"devvm-img-keep-0123456789abcd-20260101-120000.tar.gz", "devvm-img-keep-0123456789abcd", "20260101-120000", true},
@@ -170,7 +173,7 @@ func TestExportsToRetire(t *testing.T) {
 	vms := func(es []Export) string {
 		s := ""
 		for _, e := range es {
-			s += e.VM
+			s += e.VM.String()
 		}
 		return s
 	}

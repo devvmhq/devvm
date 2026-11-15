@@ -19,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
@@ -44,7 +45,7 @@ func linkSessionEnv(t *testing.T) (Links, *backendtest.Fake, *state.VM, *state.V
 	if err := writeLinks(t.Context(), client, []Link{l}); err != nil {
 		t.Fatal(err)
 	}
-	for _, vm := range []string{client.Name(), target.Name()} {
+	for _, vm := range []vmname.VM{client.Name(), target.Name()} {
 		f.Instances[vm] = backend.Instance{Name: vm, Status: backend.StatusRunning}
 	}
 	if err := os.MkdirAll(d.Config, 0o700); err != nil {
@@ -271,8 +272,8 @@ func TestLinkRunReused(t *testing.T) {
 	// flight finds the target stopped.
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	runs.by[target.Name()+" "+target.ID] = &runLookup{done: make(chan struct{})}
-	if run := runs.get(ctx, target.Name()+" "+target.ID, nil); run.start != "" {
+	runs.by[target.Name().String()+" "+target.ID] = &runLookup{done: make(chan struct{})}
+	if run := runs.get(ctx, target.Name().String()+" "+target.ID, nil); run.start != "" {
 		t.Errorf("a cancelled wait: %+v", run)
 	}
 }
@@ -323,7 +324,7 @@ func TestWarnUnenforced(t *testing.T) {
 	e, f, client, target, _ := linkSessionEnv(t)
 	var warned msg.Recorder
 	e.Reporter = &msg.Fake{OnWarn: warned.Add}
-	want := "link_target_unenforced target=" + target.Name() + " vm=" + client.Name()
+	want := "link_target_unenforced target=" + target.Name().String() + " vm=" + client.Name().String()
 	setNet(t, client, "on")
 	setNet(t, target, "on")
 	for _, c := range []struct {
@@ -384,7 +385,7 @@ func TestSessionLinks(t *testing.T) {
 	}
 	e, f, client, _, _ := linkSessionEnv(t)
 	f.Instances[client.Name()] = backend.Instance{Name: client.Name(), Status: backend.StatusStopped}
-	if err := e.Session(t.Context(), client.Name(), nil); msg.NamesOf(err) != "vm_not_running vm="+client.Name() {
+	if err := e.Session(t.Context(), client.Name(), nil); msg.NamesOf(err) != "vm_not_running vm="+client.Name().String() {
 		t.Errorf("Session of a stopped client: %v", err)
 	}
 	f.Instances[client.Name()] = backend.Instance{Name: client.Name(), Status: backend.StatusRunning}
@@ -393,7 +394,7 @@ func TestSessionLinks(t *testing.T) {
 		t.Errorf("Session without ssh: %v", err)
 	}
 	f.Capabilities = backend.Caps{backend.FeatureSSH: backend.Native}
-	if err := e.Session(t.Context(), client.Name(), nil); msg.NamesOf(err) != "backend_lacks backend=fake feature=link vm="+client.Name() {
+	if err := e.Session(t.Context(), client.Name(), nil); msg.NamesOf(err) != "backend_lacks backend=fake feature=link what="+client.Name().String() {
 		t.Errorf("Session on a backend without links: %v", err)
 	}
 }

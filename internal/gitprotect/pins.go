@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // On a Linux host, a start pins what a lock covers in the namespace the
@@ -47,7 +48,7 @@ func (p *Protector) Pins(ctx context.Context, vm *state.VM) (fixed, readOnly []s
 
 // pinsOf is what to pin of the repos snaps scanned, as Pins has it, for
 // the VM vm.
-func (t tree) pinsOf(vm string, snaps []snapshot) (fixed, readOnly []string, err error) {
+func (t tree) pinsOf(vm vmname.VM, snaps []snapshot) (fixed, readOnly []string, err error) {
 	for _, s := range snaps {
 		for _, d := range append([]string{s.git}, s.dirs...) {
 			if isDir(d) && t.realInDir(d) {
@@ -121,7 +122,7 @@ func linkedFile(path string) (string, bool) {
 // that doesn't start as a run does) is named too (git_pins_unrecorded),
 // as the guest may have changed what isn't in it. Then it removes the
 // file, unless it couldn't read it.
-func (p *Protector) ReportPinEvents(file string, vm string) {
+func (p *Protector) ReportPinEvents(file string, vm vmname.VM) {
 	f, err := safefile.Open(file, safefile.Opts{})
 	if errors.Is(err, fs.ErrNotExist) {
 		return

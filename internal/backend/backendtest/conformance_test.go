@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/backend"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // fakeSubject is a fake as Conformance checks it: holding an image, with
@@ -22,7 +23,7 @@ func fakeSubject(t *testing.T) (Subject, *Fake) {
 	f.ShellCmd = backend.Command{Path: "/usr/bin/ssh", Args: []string{"ssh", "vm"}}
 	return Subject{
 		Backend: f, Image: "0123456789ab", Dir: dir, Boots: true,
-		Restart: func(_ context.Context, vm string) error { f.Restart(vm); return nil },
+		Restart: func(_ context.Context, vm vmname.VM) error { f.Restart(vm); return nil },
 	}, f
 }
 
@@ -45,19 +46,19 @@ type (
 	wrongProxy      struct{ *Fake } // a proxy without the VM's password
 )
 
-func (m staleRun) Running(ctx context.Context, vm string) (backend.Run, error) {
+func (m staleRun) Running(ctx context.Context, vm vmname.VM) (backend.Run, error) {
 	r, err := m.Fake.Running(ctx, vm)
 	r.ID = "start-1"
 	return r, err
 }
 
-func (m alwaysConfined) Running(ctx context.Context, vm string) (backend.Run, error) {
+func (m alwaysConfined) Running(ctx context.Context, vm vmname.VM) (backend.Run, error) {
 	r, err := m.Fake.Running(ctx, vm)
 	r.Confined = true
 	return r, err
 }
 
-func (m noLifeline) Running(ctx context.Context, vm string) (backend.Run, error) {
+func (m noLifeline) Running(ctx context.Context, vm vmname.VM) (backend.Run, error) {
 	r, err := m.Fake.Running(ctx, vm)
 	r.Lifeline = ""
 	return r, err
@@ -65,15 +66,15 @@ func (m noLifeline) Running(ctx context.Context, vm string) (backend.Run, error)
 
 func (fewCaps) Caps() backend.Caps { return backend.Caps{backend.FeatureClone: backend.Native} }
 
-func (m looseInspect) Inspect(ctx context.Context, vm string) (backend.Instance, error) {
+func (m looseInspect) Inspect(ctx context.Context, vm vmname.VM) (backend.Instance, error) {
 	in, err := m.Fake.Inspect(ctx, vm)
 	if errors.Is(err, backend.ErrNotFound) {
-		err = errors.New("no " + vm)
+		err = errors.New("no " + vm.String())
 	}
 	return in, err
 }
 
-func (m restartsRunning) Start(ctx context.Context, vm string, w backend.Want, c backend.Confinement) error {
+func (m restartsRunning) Start(ctx context.Context, vm vmname.VM, w backend.Want, c backend.Confinement) error {
 	if in, err := m.Inspect(ctx, vm); err == nil && in.Status == backend.StatusRunning {
 		m.Restart(vm)
 		return nil
@@ -83,9 +84,11 @@ func (m restartsRunning) Start(ctx context.Context, vm string, w backend.Want, c
 
 func (keepsImages) DeleteImage(context.Context, string) error { return nil }
 
-func (m reachesStopped) SSH(context.Context, string) (backend.SSHTarget, error) { return m.Target, nil }
+func (m reachesStopped) SSH(context.Context, vmname.VM) (backend.SSHTarget, error) {
+	return m.Target, nil
+}
 
-func (m sizeless) Inspect(ctx context.Context, vm string) (backend.Instance, error) {
+func (m sizeless) Inspect(ctx context.Context, vm vmname.VM) (backend.Instance, error) {
 	in, err := m.Fake.Inspect(ctx, vm)
 	in.Size = backend.Size{}
 	return in, err

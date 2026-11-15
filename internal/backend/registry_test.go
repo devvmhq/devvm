@@ -10,6 +10,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 func testDirs(t *testing.T) paths.Dirs {
@@ -23,7 +24,7 @@ func testDirs(t *testing.T) paths.Dirs {
 }
 
 // newState writes the state of a VM named name, made on backend b.
-func newState(t *testing.T, d paths.Dirs, name, b string) {
+func newState(t *testing.T, d paths.Dirs, name vmname.VM, b string) {
 	t.Helper()
 	st, err := state.New(d, name)
 	if err != nil {

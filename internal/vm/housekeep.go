@@ -15,6 +15,7 @@ import (
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Housekeeping is what devvm keeps besides its VMs, as devvm images,
@@ -351,8 +352,8 @@ func (p GCPlan) Empty() bool {
 // GCDone is what a plan's Apply deleted, in the order it did, for its
 // caller to say.
 type GCDone struct {
-	Forgot      []string // the orphans forgotten, by name
-	LinkSockets int      // the link sockets deleted with the dead links
+	Forgot      []vmname.VM // the orphans forgotten, by name
+	LinkSockets int         // the link sockets deleted with the dead links
 	// Images are the stale images, each deleted or, Refused, kept.
 	Images []DeletedImage
 	Mise   int // old mise versions

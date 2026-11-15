@@ -24,6 +24,7 @@ import (
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // AgentSave is devvm agent save: it reads the folder's VM's agents'
@@ -95,7 +96,7 @@ func (e AgentSave) Run(ctx context.Context, agents []string) error {
 // agentsOf returns the agents of named the VM vm has among its shared
 // tools (names), each once, warning about each it doesn't have; with
 // none named, every agent it has.
-func (e AgentSave) agentsOf(vm string, names, named []string) []string {
+func (e AgentSave) agentsOf(vm vmname.VM, names, named []string) []string {
 	have := image.AgentsOf(names)
 	if len(named) == 0 {
 		if len(have) == 0 {
@@ -488,7 +489,7 @@ func (sv saver) apply(ctx context.Context, p agentPlan) error {
 // showPlans writes what the plans change, as data: a diff of each
 // settings file and the .claude.json subset, the store's first, and for
 // each folder its files added (A), changed (M) and removed (D).
-func showPlans(w io.Writer, vm string, plans []agentPlan) error {
+func showPlans(w io.Writer, vm vmname.VM, plans []agentPlan) error {
 	var lines []string
 	for _, p := range plans {
 		for _, f := range p.files {
@@ -513,8 +514,8 @@ const diffShowMax = 20000
 
 // folderDiff is a folder's part of showPlans: its files added (A),
 // changed (M) and removed (D), then a diff of each one added or changed.
-func folderDiff(store, vm string, d planFolder) []string {
-	lines := []string{shownLine("~/" + d.rel + " in " + vm + ", into " + filepath.Join(store, filepath.FromSlash(d.rel)) + ":")}
+func folderDiff(store string, vm vmname.VM, d planFolder) []string {
+	lines := []string{shownLine("~/" + d.rel + " in " + vm.String() + ", into " + filepath.Join(store, filepath.FromSlash(d.rel)) + ":")}
 	shown := map[string]bool{}
 	for _, c := range []struct {
 		mark  string
@@ -536,8 +537,8 @@ func folderDiff(store, vm string, d planFolder) []string {
 // fileDiff is one file's diff in showPlans: the store's file, then the
 // VM's, a change of whether its owner may run it, and its lines as
 // shownFile shows them, or a line saying why it shows none.
-func fileDiff(store, vm string, f planFile) []string {
-	lines := []string{"--- " + shownLine(store), "+++ " + shownLine(vm+":~/"+f.rel)}
+func fileDiff(store string, vm vmname.VM, f planFile) []string {
+	lines := []string{"--- " + shownLine(store), "+++ " + shownLine(vm.String()+":~/"+f.rel)}
 	if f.exec != f.oldExec {
 		lines = append(lines, "  mode "+modeText(f.oldExec)+" -> "+modeText(f.exec))
 	}

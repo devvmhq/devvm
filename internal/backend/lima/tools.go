@@ -8,10 +8,11 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // ToolsVM is the throwaway VM shared tools are built in.
-const ToolsVM = "devvm-tools-build"
+const ToolsVM vmname.VM = "devvm-tools-build"
 
 // BuildTools clones base's instance into ToolsVM, with spec.Out its only
 // mount, starts it confined as spec.Net asks, runs the script with its
@@ -19,7 +20,10 @@ const ToolsVM = "devvm-tools-build"
 // first, and the VM goes however the run ends (a cleanup on the ui stack).
 // The registry's guard has checked spec (ToolsSpec.Validate).
 func (l *images) BuildTools(ctx context.Context, spec backend.ToolsSpec) error {
-	base := ImagePrefix + spec.Base
+	base, err := vmname.Image(spec.Base)
+	if err != nil {
+		return msg.ImageMissing(spec.Base)
+	}
 	in, err := l.inspect(ctx, base)
 	if errors.Is(err, backend.ErrNotFound) {
 		return msg.ImageMissing(spec.Base)
@@ -64,7 +68,7 @@ func (l *images) BuildTools(ctx context.Context, spec backend.ToolsSpec) error {
 	if err := l.runScript(ctx, ToolsVM, spec.Trust.Add, true); err != nil {
 		return err
 	}
-	cmd := l.limactl(ctx, append([]string{"shell", "--workdir", "/", ToolsVM, "bash", "-s", "--"}, spec.Args...)...)
+	cmd := l.limactl(ctx, append([]string{"shell", "--workdir", "/", ToolsVM.String(), "bash", "-s", "--"}, spec.Args...)...)
 	// The CAs' variables and the build's proxy for its commands, as each
 	// image build's step has them, never written into the VM.
 	cmd.Stdin = bytes.NewReader(slices.Concat(spec.Trust.Env, withProxy(hp, spec.Script).Data))
@@ -81,8 +85,8 @@ func (l *images) BuildTools(ctx context.Context, spec backend.ToolsSpec) error {
 
 // toolsArgs are limactl clone's arguments for ToolsVM: a clone of base's
 // instance with mounts (mountsSet's) and nothing else from the host.
-func toolsArgs(base, mounts string) []string {
-	return []string{"clone", "--tty=false", "--mount-none", "--set", mounts, base, ToolsVM}
+func toolsArgs(base vmname.VM, mounts string) []string {
+	return []string{"clone", "--tty=false", "--mount-none", "--set", mounts, base.String(), ToolsVM.String()}
 }
 
 // ToolFormat is build.sh's own: Lima's guests mount compressed EROFS.
@@ -91,25 +95,28 @@ func (l *images) ToolFormat() string { return "" }
 type shownKey struct{}
 
 // shownName is what a phase's steps call one VM.
-type shownName struct{ vm, as string }
+type shownName struct {
+	vm vmname.VM
+	as string
+}
 
 // withShown has the steps on vm under ctx name it as as: a tool's build
 // VM by its tool.
-func withShown(ctx context.Context, vm, as string) context.Context {
+func withShown(ctx context.Context, vm vmname.VM, as string) context.Context {
 	return context.WithValue(ctx, shownKey{}, shownName{vm, as})
 }
 
 // shown is the name the steps on vm under ctx give it: withShown's, else
 // its own.
-func shown(ctx context.Context, vm string) string {
+func shown(ctx context.Context, vm vmname.VM) string {
 	if s, ok := ctx.Value(shownKey{}).(shownName); ok && s.vm == vm {
 		return s.as
 	}
-	return vm
+	return vm.String()
 }
 
 // deleteIfThere deletes a VM if devvm's Lima home has it.
-func (l *images) deleteIfThere(ctx context.Context, vm string) error {
+func (l *images) deleteIfThere(ctx context.Context, vm vmname.VM) error {
 	if _, err := l.inspect(ctx, vm); errors.Is(err, backend.ErrNotFound) {
 		return nil
 	} else if err != nil {

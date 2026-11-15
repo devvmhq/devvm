@@ -18,6 +18,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A workspace clone: devvm --clone in a folder of repos gives the VM a
@@ -55,7 +56,7 @@ func (r wsRepo) ok() bool { return r.Reason.ID() == "" }
 // branches, not the worktree's own branch, which the user pushes with
 // git push devvm BRANCH. more is how many more the walk found past its
 // bound.
-func (e clones) findRepos(ctx context.Context, dir, self string) (repos []wsRepo, more int) {
+func (e clones) findRepos(ctx context.Context, dir string, self vmname.VM) (repos []wsRepo, more int) {
 	found := e.starter.walk(dir, false).Repos
 	var rels []string
 	if hasGit(dir) {
@@ -122,7 +123,7 @@ func isWorkspace(repos []wsRepo) bool {
 // it, whatever repos are below it; one that isn't, but is in a repo's
 // working tree, is refused (workspace_inside_repo), as the copy of its
 // files would take that repo's.
-func (e clones) planClone(ctx context.Context, dir, repos, self string) (cloneInVM, error) {
+func (e clones) planClone(ctx context.Context, dir, repos string, self vmname.VM) (cloneInVM, error) {
 	if err := needGit(); err != nil {
 		return cloneInVM{}, err
 	}
@@ -157,7 +158,7 @@ func (e clones) planClone(ctx context.Context, dir, repos, self string) (cloneIn
 // own repo, once --clone takes the repo (checkCloneRepo) and no other VM
 // mounts it (mountingVM: clone_folder_mounted), as its seed runs host git
 // there.
-func (e clones) ownClone(ctx context.Context, dir, self string) (cloneInVM, error) {
+func (e clones) ownClone(ctx context.Context, dir string, self vmname.VM) (cloneInVM, error) {
 	if err := checkCloneRepo(ctx, dir); err != nil {
 		return cloneInVM{}, err
 	}
@@ -380,7 +381,7 @@ func (e clones) stillRepo(ctx context.Context, t *target, rel string, sub bool) 
 // a launch's warning, which looks at the parents alone), or,
 // for a linked worktree, the repo its common dir is in, whose objects and
 // refs its git reads and writes (finder.mountsRepo); "" for none.
-func (e clones) mountingVM(dir, self string) string {
+func (e clones) mountingVM(dir string, self vmname.VM) vmname.VM {
 	if vm := e.finder.mountsRepo(dir, self); vm != "" {
 		return vm
 	}

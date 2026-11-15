@@ -8,13 +8,14 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/settings"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // summary is what a new VM gets, as devvm shows it before making it: its
 // parts, each with why it gets it, its size, tier and ports, and the
 // devcontainer.json it's made as.
 type summary struct {
-	vm string
+	vm vmname.VM
 	o  Options
 	d  partsDefault
 	p  Parts

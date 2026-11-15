@@ -33,6 +33,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Section is the name of the .git protection section in a VM's state.
@@ -165,7 +166,7 @@ type Protector struct {
 	// git_kept_unread), or a zero msg.M for none. Unlock, and taking out
 	// what strict set (dropIgnore), leave such a path as it is. nil keeps
 	// none.
-	Kept func(vm string) func(path string) msg.M
+	Kept func(vm vmname.VM) func(path string) msg.M
 	// Serial runs f holding the host's lock of .git protection
 	// (paths.Dirs.GitLock), so one VM's unlock never runs between
 	// another's locks and their record; nil runs f alone.
@@ -368,7 +369,7 @@ func (p *Protector) Unlock(ctx context.Context, vm *state.VM) { p.unlockAll(ctx,
 // strict set (InVM.StrictLeft).
 func (p *Protector) unlockAll(ctx context.Context, vm *state.VM) []string {
 	var g InVM
-	name := ""
+	var name vmname.VM
 	if vm != nil {
 		g, _ = Of(vm)
 		name = vm.Name()
@@ -388,7 +389,7 @@ func (p *Protector) unlockAll(ctx context.Context, vm *state.VM) []string {
 // those it protects and those it stopped protecting but may have left
 // locked (Made.Left), the git dirs it recorded locking too. Those of the
 // latter that aren't in the folder any more are named.
-func (p *Protector) unlock(ctx context.Context, vm string, made Made) {
+func (p *Protector) unlock(ctx context.Context, vm vmname.VM, made Made) {
 	trees := p.recorded(made)
 	repos := append([]Repo{made.Repo}, slices.Collect(maps.Values(made.Repos))...)
 	var lost []string

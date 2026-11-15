@@ -22,6 +22,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Links carries a client VM's links to other VMs' ports (the design
@@ -64,10 +65,11 @@ const (
 // Name and Target are what its events name: the client's name for it and
 // the target VM. Hosts are the names the VM's proxy takes it by (List).
 type Link struct {
-	Name, Target string
-	Addr         netip.Addr
-	Port         int
-	Hosts        []string
+	Name   string
+	Target vmname.VM
+	Addr   netip.Addr
+	Port   int
+	Hosts  []string
 }
 
 // linkKey is what identifies a link in its client: its address and port.
@@ -90,7 +92,7 @@ type LinkTarget struct {
 
 // Links carries a running client VM's links (Run).
 type Links struct {
-	VM string
+	VM vmname.VM
 	// SSH reaches the client; its Control is set by Run.
 	SSH SSH
 	// Alive reports whether the client still runs as it did when the
@@ -132,7 +134,7 @@ type Links struct {
 	mu      sync.Mutex
 	open    map[linkKey]*linkEnd
 	failed  map[linkKey]bool // refused: tried again only once it's removed and added, or in the next connection
-	masters map[string]*targetMaster
+	masters map[vmname.VM]*targetMaster
 	conns   chan struct{}
 	listed  []byte // the list as last written; nil: none written
 }
@@ -217,11 +219,11 @@ func (l *Links) Socket(lk Link) string { return proxy.LinkSocket(l.Dir, l.VM, lk
 
 // Control is the control socket of the session's master (target "") or
 // of its master to a target's start.
-func (l *Links) Control(target, start string) string {
+func (l *Links) Control(target vmname.VM, start string) string {
 	if target == "" {
 		return l.linkName(".ctl", "session")
 	}
-	return l.linkName(".ctl", "target", target, start)
+	return l.linkName(".ctl", "target", target.String(), start)
 }
 
 // defaults sets what Run needs that its caller left unset.
@@ -314,7 +316,7 @@ func (l *Links) session(ctx context.Context) (none bool, err error) {
 		return false, err
 	}
 	l.mu.Lock()
-	l.masters = map[string]*targetMaster{}
+	l.masters = map[vmname.VM]*targetMaster{}
 	clear(l.failed)
 	l.mu.Unlock()
 	defer l.closeAll()
@@ -517,7 +519,7 @@ type LinksReport struct {
 // ReadLinksLog reads what a session for client vm logged (log, from its
 // start) of links: which of them the client refused, and whether every
 // one has a line of its own or the session ended or failed first.
-func ReadLinksLog(log []byte, vm string, links []Link) LinksReport {
+func ReadLinksLog(log []byte, vm vmname.VM, links []Link) LinksReport {
 	var r LinksReport
 	said := map[linkKey]bool{}
 	for line := range strings.SplitSeq(string(log), "\n") {
@@ -526,9 +528,9 @@ func ReadLinksLog(log []byte, vm string, links []Link) LinksReport {
 			continue
 		}
 		switch {
-		case rest == vm+lineNoLinks, rest == vm+lineStopped:
+		case rest == vm.String()+lineNoLinks, rest == vm.String()+lineStopped:
 			r.Settled = true
-		case strings.HasPrefix(rest, vm+": "):
+		case strings.HasPrefix(rest, vm.String()+": "):
 			// The session failed (its ssh didn't connect, say), and tries
 			// again later: nothing to wait for now.
 			r.Settled = true

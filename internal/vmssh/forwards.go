@@ -22,6 +22,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Cmd is devvm's hidden command that runs a VM's port forwarder.
@@ -78,12 +79,12 @@ type spec struct {
 }
 
 // Log is the VM's forwarder's log.
-func (f Forwards) Log(vm string) string { return f.Dirs.VM(vm).ForwarderLog() }
+func (f Forwards) Log(vm vmname.VM) string { return f.Dirs.VM(vm).ForwarderLog() }
 
 // Control is the master's control socket: in the run folder, named by a
 // hash, as a socket's path has fewer than paths.SocketMax characters and
 // ssh adds 17 while it makes it.
-func (f Forwards) Control(vm string) string {
+func (f Forwards) Control(vm vmname.VM) string {
 	sum := sha256.Sum256([]byte(vm))
 	return filepath.Join(cmp.Or(f.Run, f.Dirs.Run()), "port-"+hex.EncodeToString(sum[:])[:16]+".ctl")
 }
@@ -161,7 +162,7 @@ func (f Forwards) start(ctx context.Context, b backend.Backend, st *state.VM) er
 // VM gives it up (ports.Reserved), within Forwarder.Recheck from one that
 // forwards every port, else once it stops forwarding it, which the VM is
 // warned of either way (ports_held).
-func (f Forwards) free(ctx context.Context, vm string, listed []backend.PortRange) []backend.PortRange {
+func (f Forwards) free(ctx context.Context, vm vmname.VM, listed []backend.PortRange) []backend.PortRange {
 	holders, err := ports.Holders(f.Dirs, vm, f.live)
 	if err != nil {
 		holders = nil // none known: each is asked of the host
@@ -175,15 +176,15 @@ func (f Forwards) free(ctx context.Context, vm string, listed []backend.PortRang
 	}
 	held := heldBy(holders, listed)
 	for _, other := range slices.Sorted(maps.Keys(held)) {
-		f.Warn(msg.PortsHeld(backend.CountPorts(held[other]), other, backend.FormatPortRanges(held[other]), vm))
+		f.Warn(msg.PortsHeld(backend.CountPorts(held[other]), other.String(), backend.FormatPortRanges(held[other]), vm))
 	}
 	return free
 }
 
 // heldBy returns the ports of listed that another VM forwards now, as
 // holders has them, by that VM's name.
-func heldBy(holders map[int]string, listed []backend.PortRange) map[string][]backend.PortRange {
-	out := map[string][]backend.PortRange{}
+func heldBy(holders map[int]vmname.VM, listed []backend.PortRange) map[vmname.VM][]backend.PortRange {
+	out := map[vmname.VM][]backend.PortRange{}
 	for _, other := range holders {
 		if _, done := out[other]; done {
 			continue
@@ -198,7 +199,7 @@ func heldBy(holders map[int]string, listed []backend.PortRange) map[string][]bac
 // Held returns the listed ports of the VM, as its state lists them
 // (ports.Forwarding's value: forward), that another VM forwards now, by
 // that VM's name: the ports the VM waits for, as devvm ports shows them.
-func (f Forwards) Held(vm, forward string) (map[string][]backend.PortRange, error) {
+func (f Forwards) Held(vm vmname.VM, forward string) (map[vmname.VM][]backend.PortRange, error) {
 	want, err := ports.Forwarding(forward)
 	if err != nil || want.All {
 		return nil, err
@@ -226,7 +227,7 @@ type Unforwarded struct {
 // forwarder doesn't run, or whose record its forwarder didn't write (an
 // older devvm's forwarder, or a write that failed), or whose record
 // doesn't say why (an older devvm's), has none known.
-func (f Forwards) Unforwarded(vm, forward string) Unforwarded {
+func (f Forwards) Unforwarded(vm vmname.VM, forward string) Unforwarded {
 	want, err := ports.Forwarding(forward)
 	if err != nil || want.All {
 		return Unforwarded{}
@@ -252,7 +253,7 @@ func (f Forwards) Unforwarded(vm, forward string) Unforwarded {
 // Reserved returns the host ports the VM's forwarder never takes
 // (ports.Reserved): the ports devvm chose for VMs, and those other
 // running VMs forward now or list, as their forwarders' records say.
-func (f Forwards) Reserved(vm string) (map[int]bool, error) {
+func (f Forwards) Reserved(vm vmname.VM) (map[int]bool, error) {
 	return ports.Reserved(f.Dirs, vm, f.live)
 }
 
@@ -262,7 +263,7 @@ func (f Forwards) Reserved(vm string) (map[int]bool, error) {
 // lock held, Start), from the old one's stop to the new one's start, so
 // no other VM takes them in between. A record its process didn't write,
 // left by one that ended, names none.
-func (f Forwards) live(vm string) ([]int, bool) {
+func (f Forwards) live(vm vmname.VM) ([]int, bool) {
 	if _, ok := f.proc(vm).PID(); !ok {
 		held, err := platform.LockHeld(f.Dirs.VM(vm).Forwarder(".lock"))
 		return nil, err == nil && held
@@ -287,7 +288,7 @@ const recordLines = 5
 
 // recorded returns the VM's forwarder's record, with ok when its forwarder
 // runs and that process wrote it.
-func (f Forwards) recorded(vm string) (forwarderRecord, bool) {
+func (f Forwards) recorded(vm vmname.VM) (forwarderRecord, bool) {
 	pid, ok := f.proc(vm).PID()
 	if !ok {
 		return forwarderRecord{}, false
@@ -324,7 +325,7 @@ func parsePorts(s string) []int {
 // tried and couldn't take, by why (Unforwarded): its pid, then each list
 // of ports, comma-separated, on a line of its own (recordLines), written
 // whole. An older devvm reads its third line, those in use, alone.
-func (f Forwards) record(vm string, pid int, now []int, failed failedPorts) error {
+func (f Forwards) record(vm vmname.VM, pid int, now []int, failed failedPorts) error {
 	lines := []string{strconv.Itoa(pid)}
 	for _, ps := range [][]int{now, failed.inUse, failed.limit, failed.refused} {
 		es := make([]string, len(ps))
@@ -361,7 +362,7 @@ func splitPorts(rs []backend.PortRange, inUse func(int) bool) (free, taken []bac
 // run starts the VM's forwarder and waits for it to say it forwards, in
 // its status file, while it runs. One that doesn't is left to keep
 // trying.
-func (f Forwards) run(vm string, s spec) error {
+func (f Forwards) run(vm vmname.VM, s spec) error {
 	ctl := f.Control(vm)
 	if len(ctl) > ControlMax {
 		return fmt.Errorf("%s: its path is too long for a socket", ctl)
@@ -395,7 +396,7 @@ func (f Forwards) run(vm string, s spec) error {
 		}
 	}
 	args := []string{
-		Cmd, "-vm", vm, "-lifeline", s.Lifeline, "-port", strconv.Itoa(s.Port),
+		Cmd, "-vm", vm.String(), "-lifeline", s.Lifeline, "-port", strconv.Itoa(s.Port),
 		"-user", s.User, "-key", s.Key, "-known-hosts", s.KnownHosts, "-control", ctl, "-reserve", strings.Join(reserve, ","),
 	}
 	if s.Only != nil {
@@ -415,10 +416,10 @@ func (f Forwards) run(vm string, s spec) error {
 // proc is the VM's forwarder as a background process: its pid file in the
 // VM's run folder, and devvm's hidden command (Cmd) with -vm VM in its
 // arguments.
-func (f Forwards) proc(vm string) daemon.Proc {
+func (f Forwards) proc(vm vmname.VM) daemon.Proc {
 	return daemon.Proc{
 		PIDFile: f.Dirs.VM(vm).Forwarder(".pid"), Args: f.Args,
-		Is: func(args []string) bool { return daemon.HasFlag(args, Cmd, "-vm", vm) },
+		Is: func(args []string) bool { return daemon.HasFlag(args, Cmd, "-vm", vm.String()) },
 	}
 }
 
@@ -428,7 +429,7 @@ func (f Forwards) proc(vm string) daemon.Proc {
 // devvm ports) never leave a forwarder whose pid file names another, which
 // nothing would stop. Another devvm holding it is waited for, until ctx
 // ends.
-func (f Forwards) Lock(ctx context.Context, vm string) (unlock func(), err error) {
+func (f Forwards) Lock(ctx context.Context, vm vmname.VM) (unlock func(), err error) {
 	if err := state.PrivateDir(f.Dirs.VM(vm).Run()); err != nil {
 		return nil, err
 	}
@@ -439,4 +440,4 @@ func (f Forwards) Lock(ctx context.Context, vm string) (unlock func(), err error
 // it to end, then killing it and waiting up to two more: a start that
 // follows finds its ports free. Every way a VM stops through devvm, or
 // goes, stops it too; one that stops otherwise ends it by its lifeline.
-func (f Forwards) Stop(vm string) { f.proc(vm).Stop(2 * time.Second) }
+func (f Forwards) Stop(vm vmname.VM) { f.proc(vm).Stop(2 * time.Second) }

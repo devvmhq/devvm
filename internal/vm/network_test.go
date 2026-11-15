@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // setNetwork is devvm network allowlist or devvm network open.
@@ -60,7 +61,7 @@ func TestNetwork(t *testing.T) {
 	shown(netpolicy.CheckUnenforced)
 	// Its next launch, without a terminal to offer the restart in, stops
 	// it; the one after starts it confined.
-	if err := l.Up(t.Context(), Options{}); msg.NamesOf(err) != "net_unenforced_stop vm="+vm {
+	if err := l.Up(t.Context(), Options{}); msg.NamesOf(err) != "net_unenforced_stop vm="+vm.String() {
 		t.Fatalf("Up = %v", msg.NamesOf(err))
 	}
 	if err := l.Up(t.Context(), Options{}); err != nil {
@@ -115,7 +116,7 @@ func TestSetTierConfined(t *testing.T) {
 	if err := n.SetTier(t.Context(), netpolicy.TierNone, "devvm network none"); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if got, want := said.Names(), []string{"setting_applied vm=" + vm}; !slices.Equal(got, want) {
+	if got, want := said.Names(), []string{"setting_applied vm=" + vm.String()}; !slices.Equal(got, want) {
 		t.Errorf("said %q, want %q", got, want)
 	}
 	again, ok := e.Proxy.PID(vm)
@@ -142,7 +143,7 @@ func TestSetTierConfined(t *testing.T) {
 // reach (example.com twice by curl, pastebin.com by HTTP, github.com,
 // which its allowlist allows, a private address, and a host reached
 // before it learned), and a block.
-func learnedLog(t *testing.T, e *Env, vm string, since time.Time) {
+func learnedLog(t *testing.T, e *Env, vm vmname.VM, since time.Time) {
 	t.Helper()
 	at := func(d time.Duration) string { return since.Add(d).UTC().Format(time.RFC3339) }
 	lines := []string{
@@ -182,7 +183,7 @@ func TestLearn(t *testing.T) {
 	if err := n.Learn(t.Context(), "devvm network learn"); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	want := []string{"net_learn_started vm=" + vm, "setting_applied vm=" + vm, "setting_already command=devvm network learn vm=" + vm}
+	want := []string{"net_learn_started vm=" + vm.String(), "setting_applied vm=" + vm.String(), "setting_already command=devvm network learn vm=" + vm.String()}
 	if got := said.Names(); !slices.Equal(got, want) {
 		t.Errorf("said %q, want %q", got, want)
 	}
@@ -193,20 +194,20 @@ func TestLearn(t *testing.T) {
 	if s, err := n.Network(t.Context()); err != nil || s.Learning.IsZero() {
 		t.Errorf("Network = %+v, %v", s, err)
 	}
-	if err := n.SetTier(t.Context(), netpolicy.TierAllowlist, "devvm network allowlist"); msg.NamesOf(err) != "net_learning_lock vm="+vm {
+	if err := n.SetTier(t.Context(), netpolicy.TierAllowlist, "devvm network allowlist"); msg.NamesOf(err) != "net_learning_lock vm="+vm.String() {
 		t.Errorf("allowlist while learning = %v", msg.NamesOf(err))
 	}
 	said = msg.Recorder{}
 	if err := n.SetTier(t.Context(), netpolicy.TierInternet, "devvm network internet"); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if got := said.Names(); !slices.Equal(got, []string{"net_learn_stopped vm=" + vm}) {
+	if got := said.Names(); !slices.Equal(got, []string{"net_learn_stopped vm=" + vm.String()}) {
 		t.Errorf("said %q", got)
 	}
 	if st, _ := state.ReadVM(e.Dirs, vm); get(st, KeyNet) != "internet" || netpolicy.LearningOf(st).On() {
 		t.Errorf("net=%q, still learning", get(st, KeyNet))
 	}
-	if err := n.Lock(t.Context(), LockOptions{All: true}); msg.NamesOf(err) != "net_not_learning vm="+vm {
+	if err := n.Lock(t.Context(), LockOptions{All: true}); msg.NamesOf(err) != "net_not_learning vm="+vm.String() {
 		t.Errorf("Lock when not learning = %v", msg.NamesOf(err))
 	}
 }
@@ -267,7 +268,7 @@ func TestLock(t *testing.T) {
 	e.PickMany = func(_ msg.M, parts []PickPart) ([]PickPart, error) {
 		return parts, n.SetTier(t.Context(), netpolicy.TierInternet, "devvm network internet")
 	}
-	if err := n.Lock(t.Context(), LockOptions{}); msg.NamesOf(err) != "net_lock_changed vm="+vm {
+	if err := n.Lock(t.Context(), LockOptions{}); msg.NamesOf(err) != "net_lock_changed vm="+vm.String() {
 		t.Errorf("Lock after its tier changed = %v", msg.NamesOf(err))
 	}
 	if _, err := os.Stat(e.Dirs.VM(vm).Policy()); err == nil {
@@ -282,7 +283,7 @@ func TestLock(t *testing.T) {
 	change(t, st, func(st *state.VM) error {
 		return edit(st, linksSection, func(l *linksInVM) error { l.Group = "web"; return nil })
 	})
-	if err := n.Lock(t.Context(), LockOptions{All: true}); msg.NamesOf(err) != "group_tier_fixed group=web vm="+vm {
+	if err := n.Lock(t.Context(), LockOptions{All: true}); msg.NamesOf(err) != "group_tier_fixed group=web vm="+vm.String() {
 		t.Errorf("Lock in a group = %v", msg.NamesOf(err))
 	}
 	change(t, st, func(st *state.VM) error {
@@ -294,7 +295,7 @@ func TestLock(t *testing.T) {
 	if err := n.Lock(t.Context(), LockOptions{All: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if got, want := said.Names(), []string{"net_locked count=2 vm=" + vm, "setting_applied vm=" + vm}; !slices.Equal(got, want) {
+	if got, want := said.Names(), []string{"net_locked count=2 vm=" + vm.String(), "setting_applied vm=" + vm.String()}; !slices.Equal(got, want) {
 		t.Errorf("said %q, want %q", got, want)
 	}
 	if b, _ := os.ReadFile(e.Dirs.VM(vm).Policy()); string(b) != "example.com:443\npastebin.com:80\n" {
@@ -379,7 +380,7 @@ func TestNetworkRequiresEgressProxy(t *testing.T) {
 	e, _, _ := upEnv(t, caps)
 	st := existingVM(t, e, Options{Network: "open"})
 	err := setNetwork(t.Context(), Net{e}, true)
-	if got := msg.NamesOf(err); got != "backend_unreviewed backend=fake feature=egress-proxy vm="+st.Name() {
+	if got := msg.NamesOf(err); got != "backend_unreviewed backend=fake feature=egress-proxy what="+st.Name().String() {
 		t.Errorf("Network on = %v", got)
 	}
 	if st, _ := state.ReadVM(e.Dirs, st.Name()); get(st, KeyNet) != "open" {

@@ -22,6 +22,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Section is the name of the ports section in a VM's state.
@@ -120,16 +121,16 @@ func Used(d paths.Dirs) (map[int]bool, error) {
 // while the VM has a claim on its listed ports: while its forwarder runs,
 // or while devvm starts it again. None runs for a stopped VM, nor for one
 // that crashed, whose forwarder ended with it, so neither holds a port.
-type Live func(vm string) (now []int, ok bool)
+type Live func(vm vmname.VM) (now []int, ok bool)
 
 // Holders returns the VM but self whose forwarder forwards each host port
 // now, by port, as live says.
-func Holders(d paths.Dirs, self string, live Live) (map[int]string, error) {
+func Holders(d paths.Dirs, self vmname.VM, live Live) (map[int]vmname.VM, error) {
 	vms, err := sections(d)
 	if err != nil {
 		return nil, err
 	}
-	out := map[int]string{}
+	out := map[int]vmname.VM{}
 	for _, v := range vms {
 		if v.name == self {
 			continue
@@ -154,7 +155,7 @@ func Holders(d paths.Dirs, self string, live Live) (map[int]string, error) {
 // it from one that forwards every port, and a stopped VM holds none, so
 // its listed ports wait for its next start. A port self waits for is
 // forwarded once it's no longer reserved.
-func Reserved(d paths.Dirs, self string, live Live) (map[int]bool, error) {
+func Reserved(d paths.Dirs, self vmname.VM, live Live) (map[int]bool, error) {
 	vms, err := sections(d)
 	if err != nil {
 		return nil, err
@@ -188,7 +189,7 @@ func Reserved(d paths.Dirs, self string, live Live) (map[int]bool, error) {
 
 // vmPorts is a VM's name and its ports section.
 type vmPorts struct {
-	name string
+	name vmname.VM
 	p    Ports
 }
 
@@ -316,8 +317,8 @@ func (a Allocator) SSH(ctx context.Context, st *state.VM, running bool) (int, er
 // whose lock no one holds is stale (clearStale). It's never was, the port
 // the VM's config has from the image it's a clone of, so its start always
 // sets the new one and a build's numbered steps are the same every time.
-func (a Allocator) Build(ctx context.Context, vm string, was int) (int, func(), error) {
-	rec := filepath.Join(a.Dirs.BuildPorts(), vm)
+func (a Allocator) Build(ctx context.Context, vm vmname.VM, was int) (int, func(), error) {
+	rec := filepath.Join(a.Dirs.BuildPorts(), vm.String())
 	var n int
 	var unlock func()
 	err := state.Claims(ctx, a.Dirs, func() error {

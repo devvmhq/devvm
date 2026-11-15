@@ -86,7 +86,7 @@ func (d Dirs) VersionLock() string { return filepath.Join(d.Data, "version.lock"
 func (d Dirs) VMs() string { return filepath.Join(d.Data, "vms") }
 
 // VMDir is the folder of the project VM whose hash is hash
-// (vmname.HashOf): every file devvm keeps for it, so deleting the VM
+// (vmname.VM.Hash): every file devvm keeps for it, so deleting the VM
 // deletes the folder.
 func (d Dirs) VMDir(hash string) string { return filepath.Join(d.VMs(), hash) }
 
@@ -94,11 +94,11 @@ func (d Dirs) VMDir(hash string) string { return filepath.Join(d.VMs(), hash) }
 // folder (VMDir, by the hash its name ends with), any other's (an image's
 // build VM, the shared tools' build VM) in a folder of its own in the run
 // folder's builds.
-func (d Dirs) VM(vm string) VM {
-	if h, ok := vmname.HashOf(vm); ok {
+func (d Dirs) VM(vm vmname.VM) VM {
+	if h, ok := vm.Hash(); ok {
 		return VM{Dir: d.VMDir(h)}
 	}
-	return VM{Dir: filepath.Join(d.Run(), "builds", vm)}
+	return VM{Dir: filepath.Join(d.Run(), "builds", vm.String())}
 }
 
 // BuildPorts holds the host port chosen for each build VM's ssh while the
@@ -271,7 +271,7 @@ func (d Dirs) MakingLock() string { return filepath.Join(d.Data, "making.lock") 
 func (d Dirs) DefaultLima() string { return filepath.Join(d.Data, "lima") }
 
 // LimaVM is a VM's folder in devvm's Lima home.
-func (d Dirs) LimaVM(vm string) string { return filepath.Join(d.Lima, vm) }
+func (d Dirs) LimaVM(vm vmname.VM) string { return filepath.Join(d.Lima, vm.String()) }
 
 // ConfigFile is config.toml, the defaults you set by hand: devvm reads it
 // and never writes it.

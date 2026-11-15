@@ -34,6 +34,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Capture is one of an agent's OAuth token endpoints (Config.Captures): the agent whose login its
@@ -69,7 +71,7 @@ func (c Capture) guards(p string) bool {
 // with its method, User-Agent, Content-Type and body as the VM sent them, and for a GET its query
 // as it goes on (canonical: its fields sorted, each once, encoded as url.Values does).
 type Exchange struct {
-	VM          string
+	VM          vmname.VM
 	Agents      []string
 	Method      string
 	UserAgent   string

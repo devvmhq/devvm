@@ -1,6 +1,9 @@
 package vmname
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestIsVM(t *testing.T) {
 	for name, want := range map[string]bool{
@@ -38,13 +41,86 @@ func TestIsVM(t *testing.T) {
 		if got := IsVM(name); got != want {
 			t.Errorf("IsVM(%q) = %v, want %v", name, got, want)
 		}
+		v, err := Parse(name)
+		if (err == nil) != want || want && v.String() != name || VM(name).IsProject() != want {
+			t.Errorf("Parse(%q) = %q, %v", name, v, err)
+		}
 	}
 }
 
-func TestHashOf(t *testing.T) {
+// A backend's list gives any name that's one path element.
+func TestParseListed(t *testing.T) {
+	for name, want := range map[string]bool{
+		"devvm-web-0123456789abcd": true,
+		"devvm-img-0123456789ab":   true,
+		"devvm-tools-build":        true,
+		"devvm-0123456789abcd-old": true,
+		"someone-else":             true,
+		"":                         false,
+		".":                        false,
+		"..":                       false,
+		"a/b":                      false,
+		"a\x00b":                   false,
+		"-x":                       false,
+		"--help":                   false,
+		"a-":                       true,
+	} {
+		if v, err := ParseListed(name); (err == nil) != want || want && string(v) != name {
+			t.Errorf("ParseListed(%q) = %q, %v", name, v, err)
+		}
+	}
+}
+
+// A VM in a JSON file is read as ParseListed reads it, map keys too, and
+// written as the name itself.
+func TestJSON(t *testing.T) {
+	var got struct {
+		VM   VM          `json:"vm"`
+		None VM          `json:"none"`
+		By   map[VM]bool `json:"by"`
+	}
+	in := `{"vm":"devvm-web-0123456789abcd","none":"","by":{"devvm-tools-build":true}}`
+	if err := json.Unmarshal([]byte(in), &got); err != nil || got.VM != "devvm-web-0123456789abcd" || got.None != "" || !got.By["devvm-tools-build"] {
+		t.Fatalf("Unmarshal = %+v, %v", got, err)
+	}
+	if out, _ := json.Marshal(got); string(out) != in {
+		t.Errorf("Marshal = %s", out)
+	}
+	for _, bad := range []string{`{"vm":"../x"}`, `{"by":{"a/b":true}}`, `{"vm":".."}`, `{"vm":"--help"}`} {
+		if err := json.Unmarshal([]byte(bad), &got); err == nil {
+			t.Errorf("Unmarshal(%s): no error", bad)
+		}
+	}
+}
+
+// An image's machine is devvm-img-<key>, which a folder named img-…
+// doesn't make.
+func TestImage(t *testing.T) {
+	v, err := Image("0123456789ab")
+	if err != nil || v != "devvm-img-0123456789ab" {
+		t.Fatalf("Image = %q, %v", v, err)
+	}
+	// A key that makes no image's machine, nor a path's one element.
+	for _, key := range []string{"", "../x", "a/b", "a\x00b", "x-0123456789abcd"} {
+		if v, err := Image(key); err == nil {
+			t.Errorf("Image(%q) = %q", key, v)
+		}
+	}
+	if k, ok := v.ImageKey(); !ok || k != "0123456789ab" {
+		t.Errorf("ImageKey = %q, %v", k, ok)
+	}
+	for _, s := range []VM{"devvm-img-x-0123456789abcd", "devvm-img-", "devvm-web-0123456789abcd", "devvm-tools-build"} {
+		if k, ok := s.ImageKey(); ok {
+			t.Errorf("%s: ImageKey = %q", s, k)
+		}
+	}
+}
+
+func TestHash(t *testing.T) {
 	for _, c := range []struct {
-		name, hash string
-		ok         bool
+		name VM
+		hash string
+		ok   bool
 	}{
 		{"devvm-web-0123456789abcd", "0123456789abcd", true},
 		{"devvm-a-b-0123456789abcd", "0123456789abcd", true},
@@ -53,8 +129,8 @@ func TestHashOf(t *testing.T) {
 		{"0123456789abcd", "", false},
 		{"", "", false},
 	} {
-		if h, ok := HashOf(c.name); h != c.hash || ok != c.ok {
-			t.Errorf("HashOf(%q) = %q, %v; want %q, %v", c.name, h, ok, c.hash, c.ok)
+		if h, ok := c.name.Hash(); h != c.hash || ok != c.ok {
+			t.Errorf("Hash(%q) = %q, %v; want %q, %v", c.name, h, ok, c.hash, c.ok)
 		}
 		if c.ok && !IsHash(c.hash) {
 			t.Errorf("IsHash(%q) = false", c.hash)
@@ -67,10 +143,11 @@ func TestHashOf(t *testing.T) {
 	}
 }
 
-func TestSlugOf(t *testing.T) {
+func TestSlug(t *testing.T) {
 	for _, c := range []struct {
-		name, slug string
-		ok         bool
+		name VM
+		slug string
+		ok   bool
 	}{
 		{"devvm-web-0123456789abcd", "web", true},
 		{"devvm-my-app-0123456789abcd", "my-app", true},
@@ -82,24 +159,24 @@ func TestSlugOf(t *testing.T) {
 		{"other", "", false},
 		{"other-x-0123456789abcd", "", false},
 	} {
-		if slug, ok := SlugOf(c.name); slug != c.slug || ok != c.ok {
-			t.Errorf("SlugOf(%q) = %q, %v; want %q, %v", c.name, slug, ok, c.slug, c.ok)
+		if slug, ok := c.name.Slug(); slug != c.slug || ok != c.ok {
+			t.Errorf("Slug(%q) = %q, %v; want %q, %v", c.name, slug, ok, c.slug, c.ok)
 		}
 	}
 }
 
 // A VM's alias is its short name or its name, nothing else.
 func TestIsAlias(t *testing.T) {
-	const vm = "devvm-my-app-0123456789abcd"
-	if s, ok := Short(vm); !ok || s != "devvm-my-app" {
+	const vm VM = "devvm-my-app-0123456789abcd"
+	if s, ok := vm.Short(); !ok || s != "devvm-my-app" {
 		t.Errorf("Short(%s) = %q, %v", vm, s, ok)
 	}
-	if _, ok := Short("devvm-tools-build"); ok {
+	if _, ok := VM("devvm-tools-build").Short(); ok {
 		t.Error("a short name for a build VM")
 	}
 	for alias, want := range map[string]bool{
 		"devvm-my-app":                true,
-		vm:                            true,
+		string(vm):                    true,
 		"devvm-my":                    false,
 		"devvm-my-app-x":              false,
 		"my-app":                      false,
@@ -121,21 +198,21 @@ func TestIsAlias(t *testing.T) {
 // name that's neither a VM's nor an image's, which AsideHash reads, and
 // is longer than the shortest VM name by two.
 func TestAside(t *testing.T) {
-	a, ok := Aside("devvm-my-app-0123456789abcd")
+	a, ok := VM("devvm-my-app-0123456789abcd").Aside()
 	if !ok || a != "devvm-0123456789abcd-old" {
 		t.Fatalf("Aside = %q, %v", a, ok)
 	}
-	if h, ok := AsideHash(a); IsVM(a) || !ok || h != "0123456789abcd" {
-		t.Errorf("%s: IsVM %v, AsideHash %q, %v", a, IsVM(a), h, ok)
+	if h, ok := a.AsideHash(); a.IsProject() || !ok || h != "0123456789abcd" {
+		t.Errorf("%s: IsProject %v, AsideHash %q, %v", a, a.IsProject(), h, ok)
 	}
 	if shortest := "devvm-x-0123456789abcd"; len(a) != len(shortest)+2 || !IsVM(shortest) {
 		t.Errorf("%s is %d long", a, len(a))
 	}
-	if _, ok := Aside("devvm-tools-build"); ok {
+	if _, ok := VM("devvm-tools-build").Aside(); ok {
 		t.Error("an aside name for a build VM")
 	}
-	for _, s := range []string{"devvm-0123456789abc-old", "devvm-0123456789abcd", "x-0123456789abcd-old", "devvm-0123456789abcd-old-x", "devvm-web-0123456789abcd"} {
-		if _, ok := AsideHash(s); ok {
+	for _, s := range []VM{"devvm-0123456789abc-old", "devvm-0123456789abcd", "x-0123456789abcd-old", "devvm-0123456789abcd-old-x", "devvm-web-0123456789abcd"} {
+		if _, ok := s.AsideHash(); ok {
 			t.Errorf("AsideHash(%q) is one", s)
 		}
 	}

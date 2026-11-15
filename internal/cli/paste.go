@@ -5,6 +5,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // newPasteCmd is devvm paste: the clipboard's image, PDF or copied file
@@ -64,14 +65,14 @@ func newPasteCmd(a *app) *cobra.Command {
 // otherwise), its size in bytes, and whether the path reached the
 // clipboard.
 type pasteOutput struct {
-	Sent   bool   `json:"sent"`
-	VM     string `json:"vm"`
-	Path   string `json:"path"`
-	Kind   string `json:"kind"`
-	Type   string `json:"type"`
-	Source string `json:"source"`
-	Bytes  int64  `json:"bytes"`
-	Copied bool   `json:"copied"`
+	Sent   bool      `json:"sent"`
+	VM     vmname.VM `json:"vm"`
+	Path   string    `json:"path"`
+	Kind   string    `json:"kind"`
+	Type   string    `json:"type"`
+	Source string    `json:"source"`
+	Bytes  int64     `json:"bytes"`
+	Copied bool      `json:"copied"`
 }
 
 func pasteJSON(s vm.PasteSent) pasteOutput {

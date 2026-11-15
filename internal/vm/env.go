@@ -25,6 +25,7 @@ import (
 	"github.com/devvmhq/devvm/internal/sshconfig"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
@@ -173,7 +174,7 @@ func NewEnv(d paths.Dirs, assets fs.FS, self, version string, reg *backend.Regis
 	locker := sync.OnceValue(func() gitprotect.Locker { return gitprotect.HostLocker(canPin(reg)) })
 	e.Protector = func(dir string) *gitprotect.Protector {
 		p := gitprotect.New(dir, d.Home, locker(), e.Reporter)
-		p.Kept = func(vm string) func(string) msg.M {
+		p.Kept = func(vm vmname.VM) func(string) msg.M {
 			inv, err := ReadStates(d)
 			if err != nil {
 				// What another VM protects, devvm can't tell: all stays.

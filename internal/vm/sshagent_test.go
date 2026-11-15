@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/sshagent"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // shellOpts is a recorded Shell call's options.
@@ -24,7 +25,7 @@ func shellOpts(c backendtest.Call) backend.ShellOpts {
 // execAgents returns the agent each Exec call from calls on vm carried,
 // but for the reads of its host keys, which carry none (vmssh.PinHostKeys
 // reads every VM's).
-func execAgents(calls []backendtest.Call, vm string) []string {
+func execAgents(calls []backendtest.Call, vm vmname.VM) []string {
 	var out []string
 	for _, c := range calls {
 		if c.Method != "Exec" || c.Args[0] != vm {
@@ -351,7 +352,7 @@ func TestSetSSHAgentRisk(t *testing.T) {
 			t.Fatal(msg.NamesOf(err))
 		}
 	}
-	want := []string{"agent_on_risk vm=" + vm, "agent_devvm_risk vm=" + vm}
+	want := []string{"agent_on_risk vm=" + vm.String(), "agent_devvm_risk vm=" + vm.String()}
 	if !slices.Equal(warned.Names(), want) {
 		t.Errorf("warned %q, want %q", warned.Names(), want)
 	}
@@ -373,7 +374,7 @@ func TestAgentToggleEmulated(t *testing.T) {
 	if spec, _ := call(f, "CreateVM").Args[1].(backend.VMSpec); !spec.AgentToggle || spec.AgentForwarding {
 		t.Errorf("spec = %+v", spec)
 	}
-	if !slices.Contains(warned.Names(), "backend_unreviewed_used backend=fake feature=agent-toggle vm="+vm) || get(st, KeyAgentToggle) != "on" {
+	if !slices.Contains(warned.Names(), "backend_unreviewed_used backend=fake feature=agent-toggle what="+vm.String()) || get(st, KeyAgentToggle) != "on" {
 		t.Errorf("warned %q, state %q", warned.Names(), get(st, KeyAgentToggle))
 	}
 	if c, _ := call(f, "Start").Args[2].(backend.Confinement); !c.NoAgent || c.AgentSocket != "" {
@@ -394,7 +395,7 @@ func TestAgentToggleEmulated(t *testing.T) {
 	if err := f.Stop(t.Context(), vm); err != nil {
 		t.Fatal(err)
 	}
-	if err := (Launch{e}).Up(t.Context(), Options{}); msg.NamesOf(err) != "backend_unreviewed backend=fake feature=agent-toggle vm="+vm {
+	if err := (Launch{e}).Up(t.Context(), Options{}); msg.NamesOf(err) != "backend_unreviewed backend=fake feature=agent-toggle what="+vm.String() {
 		t.Errorf("refused: %s", msg.NamesOf(err))
 	}
 }
@@ -408,7 +409,7 @@ func TestAgentToggleRefused(t *testing.T) {
 	if spec, _ := call(f, "CreateVM").Args[1].(backend.VMSpec); spec.AgentToggle || get(st, KeyAgentToggle) != "" {
 		t.Errorf("spec = %+v, state %q", spec, get(st, KeyAgentToggle))
 	}
-	if err := (Settings{e}).SetSSHAgent(t.Context(), sshagent.On); msg.NamesOf(err) != "backend_unreviewed backend=fake feature=agent-toggle vm="+st.Name() {
+	if err := (Settings{e}).SetSSHAgent(t.Context(), sshagent.On); msg.NamesOf(err) != "backend_unreviewed backend=fake feature=agent-toggle what="+st.Name().String() {
 		t.Errorf("devvm ssh-agent on: %s", msg.NamesOf(err))
 	}
 }

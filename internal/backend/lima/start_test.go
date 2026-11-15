@@ -971,7 +971,7 @@ func TestSBString(t *testing.T) {
 // warning, unless it doesn't answer over ssh; then it's stopped.
 func TestDegradedStart(t *testing.T) {
 	l, warned, stubs := stubLima(t)
-	vm := "devvm-img-0123456789ab"
+	const vm = "devvm-img-0123456789ab"
 	stubs.VM(t, vm, "Stopped")
 	stubs.Touch(t, "start-fails")
 	if err := l.start(t.Context(), vm, nil, backend.Confinement{}); err != nil {

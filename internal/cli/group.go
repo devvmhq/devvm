@@ -6,6 +6,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/ui"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // newGroupCmd is devvm group: the group this folder's VM is in, shown,
@@ -58,10 +59,10 @@ type groupOutput struct {
 }
 
 type groupMemberJSON struct {
-	Name      string `json:"name"`
-	VM        string `json:"vm"`
-	Folder    string `json:"folder"`
-	Published string `json:"published"`
+	Name      string    `json:"name"`
+	VM        vmname.VM `json:"vm"`
+	Folder    string    `json:"folder"`
+	Published string    `json:"published"`
 }
 
 func groupJSON(g vm.GroupShown) groupOutput {
@@ -76,7 +77,7 @@ func groupJSON(g vm.GroupShown) groupOutput {
 func writeGroup(tab *ui.Table, g vm.GroupShown) error {
 	tab.Header("NAME", "VM", "FOLDER", "PUBLISHED")
 	for _, m := range g.Members {
-		tab.Row(cell(m.Name), cell(m.VM), cell(m.Folder), cell(m.Published))
+		tab.Row(cell(m.Name), cell(m.VM.String()), cell(m.Folder), cell(m.Published))
 	}
 	return tab.Flush()
 }

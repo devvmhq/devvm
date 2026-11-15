@@ -28,7 +28,7 @@ vm_state $APP_dir/vm.json
 stdout '^mount\.cache=none$'
 stub_reset
 exec devvm
-stdout '^==> starting vm=devvm-app-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
 ! stderr 'unreadable|corrupt|layout_|replaced|refused|failed|mount_cache_unchosen'
 stub_calls
 stdout '^limactl edit --tty=false devvm-app-[0-9a-f]{14} --set \.mounts = \[\{"location":"\S*/app","writable":true,"9p":\{"cache":"none"\}\},'

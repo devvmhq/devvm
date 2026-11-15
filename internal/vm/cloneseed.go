@@ -1008,7 +1008,7 @@ func (e seeder) sendPack(ctx context.Context, t *target, dir string, data seedDa
 // which have another object format than the host's repo: an earlier
 // devvm made them SHA-1 (initRepos). Only the user can judge whether
 // what's in them, hooks or settings, can go, so no flag answers it.
-func (e seeder) askRemake(vm string, paths []string) error {
+func (e seeder) askRemake(vm vmname.VM, paths []string) error {
 	names := quoted(paths)
 	yes, err := e.Ask(msg.CloneRepoFormat(names, vm).RefusedWith(msg.CloneRepoFormatKept(names, vm)))
 	if err != nil {

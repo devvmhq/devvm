@@ -70,7 +70,7 @@ func TestStartInterrupted(t *testing.T) {
 			}
 			wantSaid := []string(nil)
 			if tc.stopped {
-				wantSaid = []string{"interrupted_start vm=" + vm}
+				wantSaid = []string{"interrupted_start vm=" + vm.String()}
 			}
 			if !slices.Equal(said, wantSaid) {
 				t.Errorf("said %q, want %q", said, wantSaid)

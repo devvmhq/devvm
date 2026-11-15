@@ -34,6 +34,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // The forwarder forwards a VM's ports to the host's loopback, by the same
@@ -76,7 +77,7 @@ const MaxForwards = 256
 // Forwarder forwards a running VM's ports to the host's loopback, as the
 // VM reports them (Watch).
 type Forwarder struct {
-	VM string
+	VM vmname.VM
 	// Alive reports whether the VM still runs as it did when the forwarder
 	// started (the same process, the same start): asked at the start,
 	// every Every, and whenever its connection ends. Once it doesn't, the
@@ -647,8 +648,9 @@ func dialAddr(a netip.Addr) (netip.Addr, bool) {
 // key, its pinned host key, and the master's control socket, on a host
 // loopback port (Port).
 type SSH struct {
-	VM, User, Key, KnownHosts, Control string
-	Port                               int
+	VM                             vmname.VM
+	User, Key, KnownHosts, Control string
+	Port                           int
 }
 
 // Loopback is the one address devvm's own ssh, and the ssh config's
@@ -661,7 +663,7 @@ const Loopback = "127.0.0.1"
 // to that VM's forward alone. The user and key go into ssh config lines
 // too (sshconfig), so neither may break one. KnownHosts and Control are
 // the caller's.
-func FromTarget(vm string, t backend.SSHTarget) (SSH, error) {
+func FromTarget(vm vmname.VM, t backend.SSHTarget) (SSH, error) {
 	switch {
 	case t.User == "" || t.Key == "":
 		return SSH{}, fmt.Errorf("%s: no user or key for its ssh", vm)
@@ -684,7 +686,7 @@ func (o SSH) connArgs() []string {
 		"-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none", "-o", "IdentityFile=" + o.Key,
 		"-o", "PreferredAuthentications=publickey", "-o", "AddKeysToAgent=no",
 		"-o", "UserKnownHostsFile=" + o.KnownHosts, "-o", "GlobalKnownHostsFile=/dev/null",
-		"-o", "HostKeyAlias=" + o.VM, "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
+		"-o", "HostKeyAlias=" + o.VM.String(), "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
 		"-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "Tunnel=no", "-o", "PermitRemoteOpen=none",
 		"-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no", "-o", "ProxyJump=none",
 		"-o", "ConnectTimeout=10", "-o", "LogLevel=ERROR",
@@ -747,12 +749,12 @@ func (o SSH) relay(ctx context.Context, conn net.Conn, host string, port int) {
 // and what it forwards.
 type Flags struct {
 	SSH
-	reserve, only, lifeline string
+	name, reserve, only, lifeline string // name: -vm, which Forwarder parses into SSH.VM
 }
 
 // Register adds the flags to fs.
 func (f *Flags) Register(fs *flag.FlagSet) {
-	fs.StringVar(&f.VM, "vm", "", "the VM")
+	fs.StringVar(&f.name, "vm", "", "the VM")
 	fs.StringVar(&f.lifeline, "lifeline", "", "the VM's process's pid file: exit when it changes or its process is gone")
 	fs.IntVar(&f.Port, "port", 0, "the host loopback port the VM's sshd is forwarded from")
 	fs.StringVar(&f.User, "user", "", "the VM's user")
@@ -767,10 +769,15 @@ func (f *Flags) Register(fs *flag.FlagSet) {
 // script, reserved the host ports VM vm's forwarder never takes
 // (Forwards.Reserved), its lines going to log. Its caller sets Alive,
 // Every and Note.
-func (f *Flags) Forwarder(script []byte, reserved func(vm string) (map[int]bool, error), log io.Writer) (*Forwarder, error) {
-	if f.VM == "" || f.User == "" || f.Key == "" || f.KnownHosts == "" || f.Control == "" || f.Port <= 0 {
+func (f *Flags) Forwarder(script []byte, reserved func(vm vmname.VM) (map[int]bool, error), log io.Writer) (*Forwarder, error) {
+	if f.name == "" || f.User == "" || f.Key == "" || f.KnownHosts == "" || f.Control == "" || f.Port <= 0 {
 		return nil, errors.New("-vm, -port, -user, -key, -known-hosts and -control are needed")
 	}
+	vm, err := vmname.Parse(f.name)
+	if err != nil {
+		return nil, err
+	}
+	f.VM = vm
 	own := map[int]bool{}
 	for p := range strings.SplitSeq(f.reserve, ",") {
 		if n, err := strconv.Atoi(strings.TrimSpace(p)); err == nil {
@@ -779,7 +786,6 @@ func (f *Flags) Forwarder(script []byte, reserved func(vm string) (map[int]bool,
 	}
 	var only []backend.PortRange
 	if f.only != "" {
-		var err error
 		if only, err = backend.ParsePortRanges(f.only); err != nil {
 			return nil, err
 		}

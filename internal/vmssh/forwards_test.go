@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // testForwards is Forwards whose forwarders are processes of the test's
@@ -202,22 +203,22 @@ func TestForwardsHeld(t *testing.T) {
 		every = "devvm-c-0123456789abcc" // forwards every port, runs
 		gone  = "devvm-d-0123456789abcd" // lists 7000, stopped
 	)
-	for name, fwd := range map[string]string{a: "5173,8000-8001,3000,9000", b: "5173,8000", every: "", gone: "7000"} {
+	for name, fwd := range map[vmname.VM]string{a: "5173,8000-8001,3000,9000", b: "5173,8000", every: "", gone: "7000"} {
 		st, err := state.New(f.Dirs, name)
 		if err != nil {
 			t.Fatal(err)
 		}
-		st.Image, st.Dir, st.Backend = "base", "/"+name, "fake"
+		st.Image, st.Dir, st.Backend = "base", "/"+name.String(), "fake"
 		if err := st.Create(t.Context(), func(st *state.VM) error { return ports.SetForward(st, fwd) }); err != nil {
 			t.Fatal(err)
 		}
 	}
-	run := func(vm string, now ...int) {
+	run := func(vm vmname.VM, now ...int) {
 		t.Helper()
 		if err := state.PrivateDir(f.Dirs.VM(vm).Run()); err != nil {
 			t.Fatal(err)
 		}
-		pid, err := f.proc(vm).Start(f.Detach, daemon.Cmd{Path: f.Self, Args: []string{Cmd, "-vm", vm}, Status: f.Dirs.VM(vm).Forwarder(".status")})
+		pid, err := f.proc(vm).Start(f.Detach, daemon.Cmd{Path: f.Self, Args: []string{Cmd, "-vm", vm.String()}, Status: f.Dirs.VM(vm).Forwarder(".status")})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -344,7 +345,7 @@ func TestForwardsHeld(t *testing.T) {
 // failed), or with an older devvm's record, whose third line is every
 // port it couldn't take, whatever the reason: none is wrongly said to be
 // in use. An older devvm's record still says what it forwards.
-func unforwardedUnknown(t *testing.T, f Forwards, vm, list string, pid int) {
+func unforwardedUnknown(t *testing.T, f Forwards, vm vmname.VM, list string, pid int) {
 	t.Helper()
 	rec := f.Dirs.VM(vm).Forwarder(".forwarded")
 	for name, data := range map[string]string{

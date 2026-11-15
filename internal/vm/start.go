@@ -20,6 +20,7 @@ import (
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
 	"github.com/devvmhq/devvm/internal/trust"
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
@@ -118,7 +119,7 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 			return conf, err
 		}
 	} else {
-		s.Info(msg.Starting(vm))
+		s.Info(msg.Starting(vm.String()))
 		if err := start(ctx); err != nil {
 			return conf, err
 		}
@@ -145,7 +146,7 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 // whose keys can't be pinned (vmssh.ErrNoHostKeys) runs on without them,
 // as the ssh config leaves it out: what needs them then fails, naming the
 // VM.
-func (s starter) pinHostKeys(ctx context.Context, b backend.Backend, vm string) error {
+func (s starter) pinHostKeys(ctx context.Context, b backend.Backend, vm vmname.VM) error {
 	if !s.Registry.Allowed(b, backend.FeatureSSH) {
 		return nil
 	}
@@ -432,7 +433,7 @@ func startNeeds(st *state.VM, in backend.Instance) (needs, error) {
 // refuse refuses the first of fs that b doesn't let through now, with
 // Require's refusal. A made VM got each when it was made or changed,
 // which Require warned of then, so one let through warns nothing.
-func (s starter) refuse(b backend.Backend, vm string, fs []backend.Feature) error {
+func (s starter) refuse(b backend.Backend, vm vmname.VM, fs []backend.Feature) error {
 	for _, f := range fs {
 		if !s.Registry.Allowed(b, f) {
 			return s.Registry.Require(b, vm, f)
@@ -719,7 +720,7 @@ func interruptCleanup(e *Env, f func(context.Context)) (remove func()) {
 // for it, so without the record of its confined start (Run.Confined), and
 // it stops the VM and its proxy. The next launch starts both again,
 // confined.
-func undoStart(e *Env, b backend.Backend, vm string) func(context.Context) {
+func undoStart(e *Env, b backend.Backend, vm vmname.VM) func(context.Context) {
 	return func(ctx context.Context) {
 		if !e.Interrupted() {
 			return

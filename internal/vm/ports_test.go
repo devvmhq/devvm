@@ -82,7 +82,7 @@ func TestStartPorts(t *testing.T) {
 			}
 			want := []string(nil)
 			if tc.warned != "" {
-				want = []string{tc.warned + st.Name()}
+				want = []string{tc.warned + st.Name().String()}
 			}
 			if w := warned.Names(); !slices.Equal(w, want) {
 				t.Errorf("warned %q, want %q", w, want)
@@ -137,7 +137,7 @@ func TestSetPortsRunning(t *testing.T) {
 	if i := slices.Index(got, "-reserve"); i < 0 || got[i+1] != "60022,30001" || only(got) != "5173,8081" {
 		t.Errorf("forwarder %q", got)
 	}
-	if !slices.Equal(infos.Names(), []string{"ports_forwarding ports=5173,8080-8081 vm=" + vm}) || !slices.Equal(warned.Names(), []string{"ports_taken count=1 ports=8080 vm=" + vm}) {
+	if !slices.Equal(infos.Names(), []string{"ports_forwarding ports=5173,8080-8081 vm=" + vm.String()}) || !slices.Equal(warned.Names(), []string{"ports_taken count=1 ports=8080 vm=" + vm.String()}) {
 		t.Errorf("said %q, warned %q", infos.Names(), warned.Names())
 	}
 	if ports, err := s.Ports(t.Context()); err != nil || ports.List != "5173,8080-8081" || ports.Held != nil {
@@ -159,7 +159,7 @@ func TestSetPortsRunning(t *testing.T) {
 		t.Fatal(msg.NamesOf(err))
 	}
 	noRestart(n)
-	if len(*starts) != before+1 || !slices.Equal(infos.Names(), []string{"ports_now ports=5173 vm=" + vm}) {
+	if len(*starts) != before+1 || !slices.Equal(infos.Names(), []string{"ports_now ports=5173 vm=" + vm.String()}) {
 		t.Errorf("stopped: started %q, said %q", *starts, infos.Names())
 	}
 	if ports, err := s.Ports(t.Context()); err != nil || ports.List != "5173" {

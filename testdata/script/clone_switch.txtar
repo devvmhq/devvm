@@ -118,7 +118,7 @@ exec devvm clone off --force
 stdout '^==> clone_switch_off vm=devvm-web-[0-9a-f]{14}$'
 stderr 'fetch_before_delete prefix=saved/devvm'
 stdout '==> saved_branches branches="saved/devvm/main"$'
-stdout '==> removed_remote remote=devvm\n(.*\n)*==> starting vm=devvm-web-[0-9a-f]{14}\n'
+stdout '==> removed_remote remote=devvm\n(.*\n)*==> starting what=devvm-web-[0-9a-f]{14}\n'
 stdout '==> remade image=base vm=devvm-web-[0-9a-f]{14}$'
 ! stderr mount_cache_unchosen
 stub_calls

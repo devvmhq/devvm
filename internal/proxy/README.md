@@ -1,6 +1,6 @@
 # internal/proxy
 
-The network policy proxy: one process per VM, on every [network tier](../../docs/content/docs/internals/network.md), on the host, run as `devvm _proxy`. Go, standard library only, with `internal/daemon`, devvm's background-process helper, and `internal/safefile`, devvm's reader of files a VM can write, which are standard library only too (depguard enforces all three).
+The network policy proxy: one process per VM, on every [network tier](../../docs/content/docs/internals/network.md), on the host, run as `devvm _proxy`. Go, standard library only, with `internal/daemon`, devvm's background-process helper, `internal/safefile`, devvm's reader of files a VM can write, and `internal/vmname`, the type of a VM's name, which are standard library only too (depguard enforces all four).
 
 The VM can reach nothing but this proxy. On macOS its Lima hostagent runs under a Seatbelt profile, and on Linux QEMU's network is restricted. Other programs on the host can reach the port too, so the port alone doesn't identify the VM. Every request must carry the VM's password in `Proxy-Authorization`, with the user `devvm`, and the VM's proxy URL has it. The VM's placeholders end in a random value of its own, which isn't the password, so no other VM's or program's placeholder gets a secret. The proxy runs with one config, `Config`, which holds the password, and it refuses to start without one ([how devvm runs it](#how-devvm-runs-it)). For each connection it:
 

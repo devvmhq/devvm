@@ -50,7 +50,7 @@ func TestPins(t *testing.T) {
 		if err := os.Link(f.path(l[0]), f.path(l[1])); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := f.p.Pins(t.Context(), f.vm); msg.NamesOf(err) != "git_pin_linked path="+f.path(l[0])+" vm="+f.vm.Name() {
+		if _, _, err := f.p.Pins(t.Context(), f.vm); msg.NamesOf(err) != "git_pin_linked path="+f.path(l[0])+" vm="+f.vm.Name().String() {
 			t.Errorf("%s linked: %v", l[0], msg.NamesOf(err))
 		}
 		if err := os.Remove(f.path(l[1])); err != nil {
@@ -80,7 +80,7 @@ func TestBindsWatch(t *testing.T) {
 		t.Fatalf("first sums: %+v", w)
 	}
 	f.git(f.dir, "config", "core.fsmonitor", "./evil")
-	if w := f.check(); !slices.Equal(w, []string{"git_changed paths=.git/config vm=" + f.vm.Name()}) {
+	if w := f.check(); !slices.Equal(w, []string{"git_changed paths=.git/config vm=" + f.vm.Name().String()}) {
 		t.Errorf("changed: %q", w)
 	}
 	if w := f.check(); len(w) > 0 {
@@ -187,7 +187,7 @@ func TestWarnLockable(t *testing.T) {
 	mkdirs(t, f.path(".git/hooks"))
 	f.p.Locker = Binds{}
 	f.p.WarnUnprotected(f.vm)
-	if want := []string{"git_protect_available vm=" + f.vm.Name()}; !slices.Equal(f.warns.Names(), want) {
+	if want := []string{"git_protect_available vm=" + f.vm.Name().String()}; !slices.Equal(f.warns.Names(), want) {
 		t.Errorf("off by the host: %q", f.warns.Names())
 	}
 	for _, g := range []InVM{{Mode: Off, Chosen: true}, {Mode: Clone}, {Mode: On}} {

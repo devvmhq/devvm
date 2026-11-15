@@ -47,7 +47,7 @@ func TestStartPins(t *testing.T) {
 	}
 	f.Capabilities[backend.FeatureReadOnlyPaths] = backend.None
 	err := (Launch{e}).Up(t.Context(), Options{})
-	if want := "backend_lacks backend=fake feature=read-only-paths vm=" + st.Name(); msg.NamesOf(err) != want {
+	if want := "backend_lacks backend=fake feature=read-only-paths what=" + st.Name().String(); msg.NamesOf(err) != want {
 		t.Errorf("can't pin: %s, want %s", msg.NamesOf(err), want)
 	}
 	if err := (Settings{e}).SetGitProtect(t.Context(), gitprotect.Off); err != nil {

@@ -18,6 +18,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/shell"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A new VM gets none where its backend has the choice: in its state, made
@@ -202,7 +203,7 @@ func TestSetMountCache(t *testing.T) {
 	in.ProjectCache = backend.CacheMmap
 	f.Instances[vm] = in
 	if got, err := s.MountCache(t.Context()); err != nil || got != (MountCacheShown{Mode: backend.CacheMmap}) ||
-		!slices.Equal(warned.Names(), []string{"mount_cache_unchosen mode=mmap vm=" + vm}) {
+		!slices.Equal(warned.Names(), []string{"mount_cache_unchosen mode=mmap vm=" + vm.String()}) {
 		t.Errorf("unchosen: %+v, %v, warned %q", got, msg.NamesOf(err), warned.Names())
 	}
 	*warned = msg.Recorder{}
@@ -213,7 +214,7 @@ func TestSetMountCache(t *testing.T) {
 	if ms := f.Methods()[before:]; slices.Contains(ms, "Start") || slices.Contains(ms, "Stop") {
 		t.Errorf("a running VM was changed: %q", ms)
 	}
-	if got := warned.Names(); !slices.Equal(got, []string{"next_start count=1 vm=" + vm}) {
+	if got := warned.Names(); !slices.Equal(got, []string{"next_start count=1 vm=" + vm.String()}) {
 		t.Errorf("warned %q", got)
 	}
 	if got, err := s.MountCache(t.Context()); err != nil || got != (MountCacheShown{Mode: backend.CacheMmap, Chosen: true, Pending: backend.CacheNone}) {
@@ -233,7 +234,7 @@ func TestSetMountCache(t *testing.T) {
 	if err := s.SetMountCache(t.Context(), backend.CacheNone); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if got := said.Names(); !slices.Equal(got, []string{"vm_mount_cache mode=none vm=" + vm}) {
+	if got := said.Names(); !slices.Equal(got, []string{"vm_mount_cache mode=none vm=" + vm.String()}) {
 		t.Errorf("said %q", got)
 	}
 	for _, mode := range []string{backend.CacheMmap, "loose"} {
@@ -250,7 +251,7 @@ func TestSetMountCache(t *testing.T) {
 	in.ProjectCache = backend.CacheMmap
 	f.Instances[vm] = in
 	*said = msg.Recorder{}
-	if err := s.SetMountCache(t.Context(), backend.CacheNone); err != nil || !slices.Equal(said.Names(), []string{"mount_cache_pending mode=none vm=" + vm}) {
+	if err := s.SetMountCache(t.Context(), backend.CacheNone); err != nil || !slices.Equal(said.Names(), []string{"mount_cache_pending mode=none vm=" + vm.String()}) {
 		t.Errorf("stopped: %v, said %q", msg.NamesOf(err), said.Names())
 	}
 	// A mount with no cache mode to report (not 9p): refused, as a mode
@@ -258,7 +259,7 @@ func TestSetMountCache(t *testing.T) {
 	in = f.Instances[vm]
 	in.ProjectCache = ""
 	f.Instances[vm] = in
-	if err := s.SetMountCache(t.Context(), backend.CacheNone); msg.NamesOf(err) != "mount_cache_no_choice vm="+vm {
+	if err := s.SetMountCache(t.Context(), backend.CacheNone); msg.NamesOf(err) != "mount_cache_no_choice vm="+vm.String() {
 		t.Errorf("no 9p mount: %s", msg.NamesOf(err))
 	}
 	if _, err := s.MountCache(t.Context()); msg.IDOf(err) != "mount_cache_no_choice" {
@@ -294,7 +295,7 @@ func TestRemountRestart(t *testing.T) {
 		err   string
 	}{
 		{"mounted by the restart", 1, ""},
-		{"not mounted after it", 2, "mount_cache_unmounted vm=" + vm},
+		{"not mounted after it", 2, "mount_cache_unmounted vm=" + vm.String()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := f.Stop(t.Context(), vm); err != nil {
@@ -303,7 +304,7 @@ func TestRemountRestart(t *testing.T) {
 			before, shells := len(f.Calls()), len(*execs)
 			n := 0
 			proxies = 0
-			f.StartErr = func(string, backend.Want) error {
+			f.StartErr = func(vmname.VM, backend.Want) error {
 				if n++; n <= tc.fails {
 					return &backend.RemountError{Msg: msg.MountCacheUnmounted(vm)}
 				}
@@ -373,7 +374,7 @@ func TestRemountRestartConfined(t *testing.T) {
 		}
 		base, before := count(), len(f.Calls())
 		var during []int
-		f.StartErr = func(string, backend.Want) error {
+		f.StartErr = func(vmname.VM, backend.Want) error {
 			during = append(during, count())
 			if len(during) == 1 {
 				return remount
@@ -398,7 +399,7 @@ func TestRemountRestartConfined(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		base, before := count(), len(f.Calls())
-		f.StartErr = func(string, backend.Want) error {
+		f.StartErr = func(vmname.VM, backend.Want) error {
 			fake(e).Interrupt = true
 			cancel()
 			return remount
@@ -441,7 +442,7 @@ func TestRemountRestartConfined(t *testing.T) {
 			return start(c)
 		}
 		defer func() { e.Proxy.Start = start }()
-		f.StartErr = func(string, backend.Want) error { return remount }
+		f.StartErr = func(vmname.VM, backend.Want) error { return remount }
 		defer func() { f.StartErr = nil }()
 		if err := (Launch{e}).Up(t.Context(), Options{}); err == nil {
 			t.Fatal("the launch went on without a proxy")
@@ -509,7 +510,7 @@ func TestCheckMounted(t *testing.T) {
 			in.ProjectCache = tc.cache
 			f.Instances[vm] = in
 			checks := 0
-			f.ExecFunc = func(_ string, argv []string, o backend.ExecOpts) error {
+			f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
 				if len(argv) == 3 && argv[0] == "sh" && strings.HasPrefix(argv[2], "if mountpoint -q "+shell.Quote(e.Dir)+";") {
 					checks++
 					if tc.name == "the check fails" {
@@ -522,7 +523,7 @@ func TestCheckMounted(t *testing.T) {
 			err := (Launch{e}).Up(t.Context(), Options{})
 			want := ""
 			if tc.want != "" {
-				want = tc.want + " vm=" + vm
+				want = tc.want + " vm=" + vm.String()
 			}
 			if got := msg.NamesOf(err); got != want {
 				t.Errorf("launch: %q, want %q", got, want)

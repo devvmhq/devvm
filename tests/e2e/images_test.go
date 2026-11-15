@@ -88,7 +88,7 @@ func imagesBase(s *S) string {
 				return err
 			}
 			for _, f := range append([]string{"base"}, features(s)...) {
-				if !Matches(string(b), `^# \[[0-9]*/[0-9]*\] running_script script=`+regexp.QuoteMeta(f)+`\.sh vm=devvm-img-`+kb+`$`) {
+				if !Matches(string(b), `^# \[[0-9]*/[0-9]*\] running_script script=`+regexp.QuoteMeta(f)+`\.sh what=devvm-img-`+kb+`$`) {
 					return errors.New("base's build didn't run " + f + ".sh")
 				}
 			}

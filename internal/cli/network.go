@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/ui"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // newNetworkCmd is devvm network [open|internet|learn|allowlist|none],
@@ -265,21 +266,21 @@ func newNetworkLogCmd(a *app) *cobra.Command {
 // logEventJSON is an event in devvm network log --json: what the VM's
 // proxy logged of a connection or request, leaving out what it lacks.
 type logEventJSON struct {
-	Time     string   `json:"time"`
-	Event    string   `json:"event"`
-	Host     string   `json:"host"`
-	Port     int      `json:"port"`
-	Method   string   `json:"method,omitempty"`
-	Path     string   `json:"path,omitempty"`
-	Rule     string   `json:"rule,omitempty"`
-	Reason   string   `json:"reason,omitempty"`
-	Agent    string   `json:"agent,omitempty"`
-	Secrets  []string `json:"secrets,omitempty"`
-	Refused  bool     `json:"refused,omitempty"`
-	Upstream string   `json:"upstream,omitempty"`
-	Target   string   `json:"target,omitempty"`
-	Via      string   `json:"via,omitempty"`
-	Quiet    bool     `json:"quiet,omitempty"`
+	Time     string    `json:"time"`
+	Event    string    `json:"event"`
+	Host     string    `json:"host"`
+	Port     int       `json:"port"`
+	Method   string    `json:"method,omitempty"`
+	Path     string    `json:"path,omitempty"`
+	Rule     string    `json:"rule,omitempty"`
+	Reason   string    `json:"reason,omitempty"`
+	Agent    string    `json:"agent,omitempty"`
+	Secrets  []string  `json:"secrets,omitempty"`
+	Refused  bool      `json:"refused,omitempty"`
+	Upstream string    `json:"upstream,omitempty"`
+	Target   vmname.VM `json:"target,omitempty"`
+	Via      string    `json:"via,omitempty"`
+	Quiet    bool      `json:"quiet,omitempty"`
 }
 
 // logOutput is devvm network log --json; blockedOutput, with --blocked.

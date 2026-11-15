@@ -20,6 +20,7 @@ import (
 	"github.com/devvmhq/devvm/internal/sshagent"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // hangs is a backend whose list waits until it's given up on.
@@ -148,7 +149,8 @@ func TestInventoryRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	type row struct {
-		Name, Hash      string
+		Name            vmname.VM
+		Hash            string
 		State, Err      bool
 		Backend, Listed bool
 	}
@@ -169,11 +171,11 @@ func TestInventoryRows(t *testing.T) {
 	if n := len(inv.Lists["fake"]); n != 4 {
 		t.Errorf("fake's whole list: %d", n)
 	}
-	var names []string
+	var names []vmname.VM
 	for _, r := range inv.Recorded() {
 		names = append(names, r.Name)
 	}
-	if !slices.Equal(names, []string{api, web}) {
+	if !slices.Equal(names, []vmname.VM{api, web}) {
 		t.Errorf("Recorded = %v", names)
 	}
 	lostFile := paths.VM{Dir: d.VMDir(lost)}.State()

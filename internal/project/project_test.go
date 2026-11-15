@@ -27,7 +27,7 @@ func TestSlug(t *testing.T) {
 			t.Errorf("Slug(%q) = %q, want %q", tc.base, got, tc.want)
 		}
 		// vmname's grammar takes every name New makes.
-		if f, err := New("/w/"+tc.base, 0); tc.base != "/" && (err != nil || !vmname.IsVM(f.Name)) {
+		if f, err := New("/w/"+tc.base, 0); tc.base != "/" && (err != nil || !f.Name.IsProject()) {
 			t.Errorf("New(%q) = %q, %v: not a VM's name", tc.base, f.Name, err)
 		}
 	}
@@ -36,7 +36,7 @@ func TestSlug(t *testing.T) {
 func TestNew(t *testing.T) {
 	name := regexp.MustCompile(`^devvm-my-app-v2-[0-9a-f]{14}$`)
 	f, err := New("/w/My_App.v2", 0)
-	if err != nil || !name.MatchString(f.Name) || f.Dir != "/w/My_App.v2" {
+	if err != nil || !name.MatchString(f.Name.String()) || f.Dir != "/w/My_App.v2" {
 		t.Errorf("New = %+v, %v", f, err)
 	}
 	if f.Slug() != "my-app-v2" {
@@ -72,26 +72,26 @@ func TestTargets(t *testing.T) {
 	api, _ := New("/a/My_API", 0)
 	vms := []Recorded{
 		{web.Name, "devvm-web", "/a/web"},
-		{web2.Name, web2.Name, "/b/web"},
+		{web2.Name, web2.Name.String(), "/b/web"},
 		{api.Name, "devvm-my-api", "/a/My_API"},
 		{longVM.Name, "devvm-a-very-long-folder-n", long},
-		{cutOther.Name, cutOther.Name, "/v/a-very-long-folder-name-for-a-project"},
+		{cutOther.Name, cutOther.Name.String(), "/v/a-very-long-folder-name-for-a-project"},
 		{"devvm-img-0123456789ab", "", ""},
 		{"devvm-tools-build", "", ""},
 	}
 	for _, tc := range []struct {
 		target string
-		want   []string
+		want   []vmname.VM
 	}{
-		{"web", []string{web.Name, web2.Name}},
-		{web2.Name, []string{web2.Name}},
-		{"devvm-web", []string{web.Name}},
-		{"devvm-my-api", []string{api.Name}},
+		{"web", []vmname.VM{web.Name, web2.Name}},
+		{web2.Name.String(), []vmname.VM{web2.Name}},
+		{"devvm-web", []vmname.VM{web.Name}},
+		{"devvm-my-api", []vmname.VM{api.Name}},
 		{"devvm-web-00000000000000", nil},
-		{"My_API", []string{api.Name}},
-		{"my-api", []string{api.Name}},
-		{"a-very-long-folder-name-for-a-project", []string{longVM.Name, cutOther.Name}},
-		{"a-very-long-folder-n", []string{longVM.Name, cutOther.Name}},
+		{"My_API", []vmname.VM{api.Name}},
+		{"my-api", []vmname.VM{api.Name}},
+		{"a-very-long-folder-name-for-a-project", []vmname.VM{longVM.Name, cutOther.Name}},
+		{"a-very-long-folder-n", []vmname.VM{longVM.Name, cutOther.Name}},
 		{"img", nil},
 		{"tools", nil},
 		{"devvm-tools-build", nil},
@@ -105,8 +105,8 @@ func TestTargets(t *testing.T) {
 		}
 	}
 	// Named matches a VM's name or alias exactly, never a folder's name.
-	for target, want := range map[string]string{
-		web2.Name: web2.Name, "devvm-web": web.Name, "web": "", "devvm-tools-build": "", "nope": "",
+	for target, want := range map[string]vmname.VM{
+		web2.Name.String(): web2.Name, "devvm-web": web.Name, "web": "", "devvm-tools-build": "", "nope": "",
 	} {
 		if got := Named(target, vms); got != want {
 			t.Errorf("Named(%q) = %q, want %q", target, got, want)
@@ -120,7 +120,7 @@ func TestTargets(t *testing.T) {
 		}
 	}
 	// A VM without a recorded folder is matched by its name's folder part.
-	if got := Targets("web", []Recorded{{Name: web.Name}}); !slices.Equal(got, []string{web.Name}) {
+	if got := Targets("web", []Recorded{{Name: web.Name}}); !slices.Equal(got, []vmname.VM{web.Name}) {
 		t.Errorf("Targets(web) without a folder = %q", got)
 	}
 	for _, p := range []string{"./web", "../web", "/a/web", "a/b", ".hidden"} {
@@ -132,15 +132,15 @@ func TestTargets(t *testing.T) {
 	// VM whose folder moved there from /m/old is found at its new path,
 	// and never at the one its name was made for.
 	moved, _ := New("/m/old", 0)
-	all := append(slices.Clone(vms), Recorded{moved.Name, moved.Name, "/m/new"})
-	for dir, want := range map[string][]string{
+	all := append(slices.Clone(vms), Recorded{moved.Name, moved.Name.String(), "/m/new"})
+	for dir, want := range map[string][]vmname.VM{
 		"/a/web": {web.Name}, "/c/web": nil, "/m/new": {moved.Name}, "/m/old": nil, "": nil,
 	} {
 		if got := ForDir(dir, all); !slices.Equal(got, want) {
 			t.Errorf("ForDir(%q) = %q, want %q", dir, got, want)
 		}
 	}
-	if got := ForDir(long, []Recorded{{cut.Name, "", long}, {web.Name, "", "/a/web"}}); !slices.Equal(got, []string{cut.Name}) {
+	if got := ForDir(long, []Recorded{{cut.Name, "", long}, {web.Name, "", "/a/web"}}); !slices.Equal(got, []vmname.VM{cut.Name}) {
 		t.Errorf("ForDir(%s) = %q, want the VM with its name cut, %s", long, got, cut.Name)
 	}
 	// A VM's later names for one folder each end with a hash of their own.
@@ -149,12 +149,12 @@ func TestTargets(t *testing.T) {
 	if err != nil || second.Dir != "/a/web" || second.Name == web.Name || second.Name == third.Name || second.Slug() != "web" {
 		t.Errorf("Nth(/a/web, 1) = %+v, %v; 2: %+v; New: %+v", second, err, third, web)
 	}
-	if h, _ := vmname.HashOf(second.Name); !vmname.IsHash(h) || h == Hash("/a/web") {
+	if h, _ := second.Name.Hash(); !vmname.IsHash(h) || h == Hash("/a/web") {
 		t.Errorf("Nth(/a/web, 1)'s hash = %q", h)
 	}
 	// The hash a folder's VM is found by ends its name, whatever its
 	// backend cut of the folder's name.
-	if h, ok := vmname.HashOf(cut.Name); !ok || h != Hash(long) || !strings.HasSuffix(longVM.Name, "-"+Hash(long)) {
+	if h, ok := cut.Name.Hash(); !ok || h != Hash(long) || !strings.HasSuffix(longVM.Name.String(), "-"+Hash(long)) {
 		t.Errorf("Hash(%s) = %s, names %s and %s", long, Hash(long), cut.Name, longVM.Name)
 	}
 	if Hash("/a/web") == Hash("/b/web") || !vmname.IsHash(Hash("/a/web")) {
@@ -167,7 +167,7 @@ func TestTargets(t *testing.T) {
 func TestNewFitsNameMax(t *testing.T) {
 	dir := "/w/a-very-long-folder-name-for-a-project"
 	f, err := New(dir, 0)
-	if err != nil || !regexp.MustCompile(`^devvm-a-very-long-folder-n-[0-9a-f]{14}$`).MatchString(f.Name) {
+	if err != nil || !regexp.MustCompile(`^devvm-a-very-long-folder-n-[0-9a-f]{14}$`).MatchString(f.Name.String()) {
 		t.Errorf("New = %+v, %v", f, err)
 	}
 	f, err = New(dir, 30)

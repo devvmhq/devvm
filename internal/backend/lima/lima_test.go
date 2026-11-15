@@ -253,8 +253,9 @@ func stubLima(t *testing.T) (*Lima, *msg.Recorder, *stubtest.Stubs) {
 // named img-… isn't one, so gc never takes it for an image.
 func TestImageKey(t *testing.T) {
 	for _, c := range []struct {
-		name, key string
-		ok        bool
+		name vmname.VM
+		key  string
+		ok   bool
 	}{
 		{"devvm-img-0123456789ab", "0123456789ab", true},
 		{"devvm-img-x", "x", true},
@@ -263,8 +264,8 @@ func TestImageKey(t *testing.T) {
 		{"devvm-web-0123456789abcd", "", false},
 		{"other", "", false},
 	} {
-		if key, ok := imageKey(c.name); ok != c.ok || ok && key != c.key {
-			t.Errorf("imageKey(%q) = %q, %v", c.name, key, ok)
+		if key, ok := c.name.ImageKey(); ok != c.ok || ok && key != c.key {
+			t.Errorf("ImageKey(%q) = %q, %v", c.name, key, ok)
 		}
 	}
 }
@@ -344,7 +345,7 @@ func TestNameMax(t *testing.T) {
 	if sock := len(l.Dirs.Lima) + 1 + n + len("/ssh.sock") + 17; sock != paths.SocketMax-1 {
 		t.Errorf("NameMax %d gives a socket path of %d characters for a Lima home of %d", n, sock, len(l.Dirs.Lima))
 	}
-	long := "devvm-" + strings.Repeat("x", n) + "-0123456789abcd"
+	long := vmname.VM("devvm-" + strings.Repeat("x", n) + "-0123456789abcd")
 	err := l.CreateVM(t.Context(), "k", backend.VMSpec{Name: long})
 	if msg.IDOf(err) != "lima_home_too_long" {
 		t.Errorf("a name too long: %v", err)
@@ -607,8 +608,8 @@ func TestDeleteImageInUse(t *testing.T) {
 	l, f, _ := testLima(t, "linux")
 	f.out["limactl list --json"] = listed
 	f.fail = []string{"qemu-img info --output=json"}
-	vm := "devvm-img-x-0123456789abcd"
-	for _, d := range []string{"devvm-img-0123456789ab", vm} {
+	const vm vmname.VM = "devvm-img-x-0123456789abcd"
+	for _, d := range []vmname.VM{"devvm-img-0123456789ab", vm} {
 		if err := os.MkdirAll(l.Dirs.LimaVM(d), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -618,7 +619,7 @@ func TestDeleteImageInUse(t *testing.T) {
 	}
 	f.out["qemu-img info -U --output=json "+l.disk(vm)] = `{"format":"qcow2","backing-filename":"` + l.disk("devvm-img-0123456789ab") + `"}`
 	err := l.DeleteImage(t.Context(), "0123456789ab")
-	if err == nil || msg.NamesOf(err) != "image_in_use key=0123456789ab vms="+vm {
+	if err == nil || msg.NamesOf(err) != "image_in_use key=0123456789ab vms="+vm.String() {
 		t.Errorf("DeleteImage: %v", err)
 	}
 	if got := f.lines(); len(got) > 0 {
@@ -678,9 +679,9 @@ func TestCreateVM(t *testing.T) {
 func TestOverlay(t *testing.T) {
 	for _, host := range []string{"linux", "darwin"} {
 		l, f, _ := testLima(t, host)
-		img, vm := "devvm-img-0123456789ab", "devvm-p-0123456789abcd"
-		f.out["limactl list --json"] = `{"name":"` + img + `","status":"Stopped"}` + "\n" + `{"name":"` + vm + `","status":"Stopped"}`
-		for _, d := range []string{img, vm} {
+		const img, vm vmname.VM = "devvm-img-0123456789ab", "devvm-p-0123456789abcd"
+		f.out["limactl list --json"] = `{"name":"` + img.String() + `","status":"Stopped"}` + "\n" + `{"name":"` + vm.String() + `","status":"Stopped"}`
+		for _, d := range []vmname.VM{img, vm} {
 			if err := os.MkdirAll(l.Dirs.LimaVM(d), 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -1140,7 +1141,7 @@ func TestLimactlEnv(t *testing.T) {
 // limactl stop alone refuses.
 func TestStubStopBroken(t *testing.T) {
 	l, _, stubs := stubLima(t)
-	vm := "devvm-p-0123456789abcd"
+	const vm = "devvm-p-0123456789abcd"
 	stubs.VM(t, vm, "Broken")
 	if err := l.Stop(t.Context(), vm); err != nil {
 		t.Fatal(err)
@@ -1175,7 +1176,7 @@ func stubCalls(t *testing.T, stubs *stubtest.Stubs) []string {
 func TestStubStopStarting(t *testing.T) {
 	l, _, stubs := stubLima(t)
 	l.DriverWait = 10 * time.Second
-	vm := "devvm-p-0123456789abcd"
+	const vm = "devvm-p-0123456789abcd"
 	stubs.VM(t, vm, "Broken")
 	stubs.PIDs(t, vm, 4242, 0)
 	go func() {
@@ -1194,7 +1195,7 @@ func TestStubStopStarting(t *testing.T) {
 // (broken), which a new start can't start, is stopped with --force first.
 func TestStubStartOrphanedDriver(t *testing.T) {
 	l, _, stubs := stubLima(t)
-	vm := "devvm-p-0123456789abcd"
+	const vm = "devvm-p-0123456789abcd"
 	stubs.VM(t, vm, "Broken")
 	stubs.PIDs(t, vm, 0, 4242)
 	if err := l.Start(t.Context(), vm, backend.Want{}, backend.Confinement{}); err != nil {
@@ -1210,7 +1211,7 @@ func TestStubStartOrphanedDriver(t *testing.T) {
 func TestStubLifecycle(t *testing.T) {
 	l, _, stubs := stubLima(t)
 	ctx := t.Context()
-	vm := "devvm-p-0123456789abcd"
+	const vm = "devvm-p-0123456789abcd"
 	stubs.VM(t, vm, "Stopped")
 	if err := l.Start(ctx, vm, backend.Want{}, backend.Confinement{}); err != nil {
 		t.Fatal(err)
@@ -1258,15 +1259,15 @@ func TestStubLifecycle(t *testing.T) {
 func TestStubRename(t *testing.T) {
 	l, _, stubs := stubLima(t)
 	ctx := t.Context()
-	vm := "devvm-p-0123456789abcd"
-	aside, _ := vmname.Aside(vm)
+	const vm = "devvm-p-0123456789abcd"
+	aside, _ := vmname.VM(vm).Aside()
 	stubs.VM(t, vm, "Running")
 	stubs.Size(t, vm, 2, 4294967296, 107374182400)
 	if err := l.Rename(ctx, vm, aside); err == nil || msg.IDOf(err) != "" {
 		t.Errorf("running: %v", err)
 	}
 	stubs.VM(t, vm, "Stopped")
-	if err := l.Rename(ctx, vm, strings.Repeat("x", l.NameMax()+1)); msg.IDOf(err) != "lima_home_too_long" {
+	if err := l.Rename(ctx, vm, vmname.VM(strings.Repeat("x", l.NameMax()+1))); msg.IDOf(err) != "lima_home_too_long" {
 		t.Errorf("too long: %v", err)
 	}
 	stubs.Touch(t, "rename-fails")

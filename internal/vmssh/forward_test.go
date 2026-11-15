@@ -26,6 +26,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // ports.sh's report as the forwarder reads it: each port to the address
@@ -864,14 +865,14 @@ func newFlagSet(fl *Flags) *flag.FlagSet {
 func TestFlags(t *testing.T) {
 	var fl Flags
 	fs := newFlagSet(&fl)
-	if err := fs.Parse([]string{"-vm", "v", "-user", "u", "-key", "/k", "-known-hosts", "/kh", "-control", "/c", "-reserve", "1,2", "-only", "80,8000-8002"}); err != nil {
+	if err := fs.Parse([]string{"-vm", "devvm-v-0123456789abcd", "-user", "u", "-key", "/k", "-known-hosts", "/kh", "-control", "/c", "-reserve", "1,2", "-only", "80,8000-8002"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fl.Forwarder(nil, func(string) (map[int]bool, error) { return nil, nil }, io.Discard); err == nil {
+	if _, err := fl.Forwarder(nil, func(vmname.VM) (map[int]bool, error) { return nil, nil }, io.Discard); err == nil {
 		t.Error("no way to the VM: taken")
 	}
 	fl.Port = 61022
-	f, err := fl.Forwarder(nil, func(vm string) (map[int]bool, error) { return map[int]bool{3: vm == "v"}, nil }, io.Discard)
+	f, err := fl.Forwarder(nil, func(vm vmname.VM) (map[int]bool, error) { return map[int]bool{3: vm == "devvm-v-0123456789abcd"}, nil }, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -883,7 +884,7 @@ func TestFlags(t *testing.T) {
 	}
 	for _, bad := range []string{"x", "0", "9-1", "70000"} {
 		fl.only = bad
-		if _, err := fl.Forwarder(nil, func(string) (map[int]bool, error) { return nil, nil }, io.Discard); err == nil {
+		if _, err := fl.Forwarder(nil, func(vmname.VM) (map[int]bool, error) { return nil, nil }, io.Discard); err == nil {
 			t.Errorf("-only %q: taken", bad)
 		}
 	}

@@ -19,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // --- links between VMs ---
@@ -41,12 +43,12 @@ type links struct {
 	file    string             // Config.Links: the VM's links list, which devvm _links writes; empty: none
 	list    *watched[LinkList] // file's list; a list that can't be read has none, logged once
 	sockets string             // Config.LinkSockets: the folder of the links' sockets; empty: none
-	vm      string             // Config.VM, whose links' sockets they are
+	vm      vmname.VM          // Config.VM, whose links' sockets they are
 	log     *log.Logger
 	events  *events
 }
 
-func newLinks(file, sockets, vm string, l *log.Logger, ev *events) links {
+func newLinks(file, sockets string, vm vmname.VM, l *log.Logger, ev *events) links {
 	return links{
 		file: file, sockets: sockets, vm: vm, log: l, events: ev,
 		list: &watched[LinkList]{
@@ -69,11 +71,11 @@ const LinkListVersion = 1
 // LinkEntry is one link the VM's proxy may reach: its names, its address and port in the VM, its
 // target (for the log) and its socket on the host (LinkSocket).
 type LinkEntry struct {
-	Hosts  []string `json:"hosts"`
-	Addr   string   `json:"addr"`
-	Port   int      `json:"port"`
-	Target string   `json:"target"`
-	Socket string   `json:"socket"`
+	Hosts  []string  `json:"hosts"`
+	Addr   string    `json:"addr"`
+	Port   int       `json:"port"`
+	Target vmname.VM `json:"target"`
+	Socket string    `json:"socket"`
 }
 
 // linkListMax bounds the list the proxy reads.
@@ -81,14 +83,14 @@ const linkListMax = 1 << 20
 
 // LinkSocket is the socket on the host of VM vm's link at addr and port in it, in dir, devvm's run
 // folder: named by a hash of the three, as a socket's path has fewer than 104 characters.
-func LinkSocket(dir, vm string, addr netip.Addr, port int) string {
+func LinkSocket(dir string, vm vmname.VM, addr netip.Addr, port int) string {
 	return filepath.Join(dir, "link-"+LinkHash(vm, "socket", addr.String(), strconv.Itoa(port))+".sock")
 }
 
 // LinkHash names one of a link session's files: the first 16 hex digits of the SHA-256 of the VM's
 // name and parts, each after a NUL.
-func LinkHash(vm string, parts ...string) string {
-	sum := sha256.Sum256([]byte(strings.Join(append([]string{vm}, parts...), "\x00")))
+func LinkHash(vm vmname.VM, parts ...string) string {
+	sum := sha256.Sum256([]byte(strings.Join(append([]string{vm.String()}, parts...), "\x00")))
 	return hex.EncodeToString(sum[:])[:16]
 }
 

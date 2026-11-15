@@ -26,8 +26,8 @@ type Exports struct{ Dirs paths.Dirs }
 // Export is one of the exports in devvm's exports folder.
 type Export struct {
 	Path   string
-	VM     string // the VM it's of
-	Folder string // its project folder, from the file beside it; "" without one
+	VM     vmname.VM // the VM it's of
+	Folder string    // its project folder, from the file beside it; "" without one
 	// Tier is its VM's network tier when it was written, from the file
 	// beside it; "" without one.
 	Tier netpolicy.Tier
@@ -44,8 +44,8 @@ const exportSuffix = ".tar.gz"
 
 // newFile is a new export's file in the exports folder, written at now:
 // <vm>-<date>-<time>.tar.gz.
-func (x Exports) newFile(vm string, now time.Time) string {
-	return filepath.Join(x.Dirs.Exports(), vm+"-"+now.Format(exportStamp)+exportSuffix)
+func (x Exports) newFile(vm vmname.VM, now time.Time) string {
+	return filepath.Join(x.Dirs.Exports(), vm.String()+"-"+now.Format(exportStamp)+exportSuffix)
 }
 
 // parseExportName returns the VM and the date and time of an export's
@@ -53,19 +53,20 @@ func (x Exports) newFile(vm string, now time.Time) string {
 // (vmname.IsVM), its date and time digits. Nothing else in the exports
 // folder is one: an export being written (.devvm-export-…), the file
 // beside one that names its folder or the user's own.
-func parseExportName(name string) (vm, stamp string, ok bool) {
+func parseExportName(name string) (vmname.VM, string, bool) {
 	base, found := strings.CutSuffix(name, exportSuffix)
 	n := len(exportStamp)
 	if !found || len(base) <= n+1 || base[len(base)-n-1] != '-' {
 		return "", "", false
 	}
-	vm, stamp = base[:len(base)-n-1], base[len(base)-n:]
+	stamp := base[len(base)-n:]
 	for i, c := range stamp {
 		if (i == 8) != (c == '-') || i != 8 && (c < '0' || c > '9') {
 			return "", "", false
 		}
 	}
-	if !vmname.IsVM(vm) {
+	vm, err := vmname.Parse(base[:len(base)-n-1])
+	if err != nil {
 		return "", "", false
 	}
 	return vm, stamp, true

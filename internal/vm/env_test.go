@@ -31,6 +31,7 @@ import (
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/stubtest"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
@@ -228,7 +229,7 @@ func testForwarders(t *testing.T, e *Env, f *backendtest.Fake) *[][]string {
 	}
 	e.Forwarders = fw
 	f.Target = backend.SSHTarget{Host: "127.0.0.1", Port: 60022, User: "u", Key: "/k"}
-	f.ExecFunc = func(_ string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
 		if len(argv) == 3 && strings.Contains(argv[2], "ssh_host_") && o.Stdout != nil {
 			_, err := io.WriteString(o.Stdout, testHostKey+"\n")
 			return err
@@ -241,10 +242,10 @@ func testForwarders(t *testing.T, e *Env, f *backendtest.Fake) *[][]string {
 // forwarderRuns reports whether the VM's forwarder, one of
 // testForwarders' sleeps, runs: its pid file names a live sleep started
 // for the VM.
-func forwarderRuns(e *Env, vm string) bool {
+func forwarderRuns(e *Env, vm vmname.VM) bool {
 	return daemon.Proc{
 		PIDFile: e.Dirs.VM(vm).Forwarder(".pid"), Args: e.Forwarders.Args,
-		Is: func(args []string) bool { return daemon.HasFlag(args, vmssh.Cmd, "-vm", vm) },
+		Is: func(args []string) bool { return daemon.HasFlag(args, vmssh.Cmd, "-vm", vm.String()) },
 	}.Running()
 }
 
@@ -253,11 +254,11 @@ const testHostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGRldnZtLXRlc3QtaG9zdC1
 
 // pinHostKeys pins each VM's host keys for its current start, as a launch
 // does, from f's VMs showing testHostKey.
-func pinHostKeys(t *testing.T, d paths.Dirs, f *backendtest.Fake, vms ...string) {
+func pinHostKeys(t *testing.T, d paths.Dirs, f *backendtest.Fake, vms ...vmname.VM) {
 	t.Helper()
 	was := f.ExecFunc
 	defer func() { f.ExecFunc = was }()
-	f.ExecFunc = func(_ string, _ []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, _ []string, o backend.ExecOpts) error {
 		_, err := io.WriteString(o.Stdout, testHostKey+"\n")
 		return err
 	}
@@ -302,7 +303,7 @@ func existingVM(t *testing.T, e *Env, o Options) *state.VM {
 	return st
 }
 
-func vmName(t *testing.T, e *Env) string {
+func vmName(t *testing.T, e *Env) vmname.VM {
 	t.Helper()
 	names, err := state.VMNames(e.Dirs)
 	if err != nil || len(names) == 0 {

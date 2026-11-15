@@ -37,7 +37,7 @@ func (f *fixture) check() []string {
 func TestWarnUnprotected(t *testing.T) {
 	f := linuxFixture(t)
 	mkdirs(t, f.path(".git/hooks"))
-	want := []string{"git_unprotected vm=" + f.vm.Name()}
+	want := []string{"git_unprotected vm=" + f.vm.Name().String()}
 	f.p.WarnUnprotected(f.vm)
 	if !slices.Equal(f.warns.Names(), want) {
 		t.Errorf("off by the host: %q", f.warns.Names())
@@ -105,7 +105,7 @@ func TestWatch(t *testing.T) {
 	if err := f.p.Check(t.Context(), f.vm, true); err != nil || len(f.warns.Names()) > 0 {
 		t.Errorf("running: %v, %q", err, f.warns.Names())
 	}
-	want := []string{"git_changed paths=.git/config, .git/hooks/post-merge, .git/hooks/pre-commit vm=" + f.vm.Name()}
+	want := []string{"git_changed paths=.git/config, .git/hooks/post-merge, .git/hooks/pre-commit vm=" + f.vm.Name().String()}
 	if w := f.check(); !slices.Equal(w, want) {
 		t.Errorf("changed: %q, want %q", w, want)
 	}
@@ -138,7 +138,7 @@ func TestWatchFirstOfExisting(t *testing.T) {
 	}
 	mkdirs(t, g.path(".git/hooks"))
 	write(t, g.path(".git/config"), "[core]\n")
-	if w := g.check(); !slices.Equal(w, []string{"git_appeared", "git_changed paths=.git/config vm=" + g.vm.Name()}) {
+	if w := g.check(); !slices.Equal(w, []string{"git_appeared", "git_changed paths=.git/config vm=" + g.vm.Name().String()}) {
 		t.Errorf("appeared: %q", w)
 	}
 }
@@ -173,14 +173,14 @@ func TestWatchSymlinks(t *testing.T) {
 		t.Errorf("what a link out points to changed: %q", w)
 	}
 	write(t, f.path("tracked.sh"), "two")
-	if w := f.check(); !slices.Equal(w, []string{"git_changed paths=.git/hooks/post-merge vm=" + f.vm.Name(), stand}) {
+	if w := f.check(); !slices.Equal(w, []string{"git_changed paths=.git/hooks/post-merge vm=" + f.vm.Name().String(), stand}) {
 		t.Errorf("what a link in points to changed: %q", w)
 	}
 	if err := os.Remove(f.path(".git/hooks/pre-commit")); err != nil {
 		t.Fatal(err)
 	}
 	symlink(t, f.root+"/elsewhere", f.path(".git/hooks/pre-commit"))
-	if w := f.check(); !slices.Equal(w, []string{"git_changed paths=.git/hooks/pre-commit vm=" + f.vm.Name(), stand}) {
+	if w := f.check(); !slices.Equal(w, []string{"git_changed paths=.git/hooks/pre-commit vm=" + f.vm.Name().String(), stand}) {
 		t.Errorf("the link changed: %q", w)
 	}
 
@@ -213,7 +213,7 @@ func TestWatchSymlinks(t *testing.T) {
 	symlink(t, "inner", g.path(".git"))
 	g.check()
 	write(t, inner+"/hooks/pre-commit", "evil")
-	if w := g.check(); len(w) != 2 || w[0] != "git_changed paths=.git/hooks vm="+g.vm.Name() {
+	if w := g.check(); len(w) != 2 || w[0] != "git_changed paths=.git/hooks vm="+g.vm.Name().String() {
 		t.Errorf("through .git's link in: %q", w)
 	}
 }
@@ -261,7 +261,7 @@ func TestWatchBounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := f.check()
-	if len(w) != 2 || w[0] != "git_changed paths=.git/config, .git/hooks/pre-commit vm="+f.vm.Name() {
+	if len(w) != 2 || w[0] != "git_changed paths=.git/config, .git/hooks/pre-commit vm="+f.vm.Name().String() {
 		t.Errorf("changed, its size and times kept: %q", w)
 	}
 }
@@ -316,7 +316,7 @@ func TestWatchReportsWhatALockCantStop(t *testing.T) {
 	write(t, f.path(".git/commondir"), "../evil\n")
 	w := f.check()
 	if !slices.Contains(w, "git_commondir git="+f.path(".git")+" target=../evil") ||
-		!slices.Contains(w, "git_changed paths=.git/commondir vm="+f.vm.Name()) {
+		!slices.Contains(w, "git_changed paths=.git/commondir vm="+f.vm.Name().String()) {
 		t.Errorf("commondir: %q", w)
 	}
 	if err := os.Remove(f.path(".git/commondir")); err != nil {
@@ -348,7 +348,7 @@ func TestWatchReportsWhatALockCantStop(t *testing.T) {
 	}
 	write(t, f.path(".husky/pre-commit"), "two")
 	write(t, f.path("more.cfg"), "[core]\n\tpager = ./pwn\n")
-	if w := f.check(); !slices.Contains(w, "git_changed paths=.husky/pre-commit, more.cfg vm="+f.vm.Name()) {
+	if w := f.check(); !slices.Contains(w, "git_changed paths=.husky/pre-commit, more.cfg vm="+f.vm.Name().String()) {
 		t.Errorf("what they lead to: %q", w)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Subject is a backend as Conformance checks it, which its factory makes
@@ -36,14 +37,14 @@ type Subject struct {
 	// Restart starts a running VM again outside Start, as a command of
 	// the user's own would, on a start of its own; nil when the test
 	// can't, which skips the check that needs it.
-	Restart func(ctx context.Context, vm string) error
+	Restart func(ctx context.Context, vm vmname.VM) error
 }
 
 // The VMs the checks make, as project VMs are named.
 const (
-	conformVM    = "devvm-conformance-0123456789abcd"
-	conformOther = "devvm-other-0123456789abce"
-	missingImage = "fedcba987654"
+	conformVM    vmname.VM = "devvm-conformance-0123456789abcd"
+	conformOther vmname.VM = "devvm-other-0123456789abce"
+	missingImage           = "fedcba987654"
 )
 
 // check is one part of backend.Backend's contract: run returns what the
@@ -153,7 +154,7 @@ func housekeepingChecks() []check {
 
 // spec is the VM the checks make, named name: the project folder, an
 // agent's folder and forwarding, and a size whose disk is the image's.
-func spec(s Subject, name string) (backend.VMSpec, error) {
+func spec(s Subject, name vmname.VM) (backend.VMSpec, error) {
 	project, agent := filepath.Join(s.Dir, "work", "project"), filepath.Join(s.Dir, ".claude")
 	for _, d := range []string{project, agent} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
@@ -166,7 +167,7 @@ func spec(s Subject, name string) (backend.VMSpec, error) {
 }
 
 // create makes the checks' VM, named name, and returns its spec.
-func create(ctx context.Context, s Subject, name string) (backend.VMSpec, error) {
+func create(ctx context.Context, s Subject, name vmname.VM) (backend.VMSpec, error) {
 	sp, err := spec(s, name)
 	if err != nil {
 		return sp, err
@@ -178,12 +179,12 @@ func create(ctx context.Context, s Subject, name string) (backend.VMSpec, error)
 }
 
 // names returns the names of the backend's VMs.
-func names(ctx context.Context, b backend.Backend) ([]string, error) {
+func names(ctx context.Context, b backend.Backend) ([]vmname.VM, error) {
 	ins, err := b.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("List: %w", err)
 	}
-	var out []string
+	var out []vmname.VM
 	for _, in := range ins {
 		out = append(out, in.Name)
 	}
@@ -358,7 +359,7 @@ func statusProblem(in backend.Instance, want backend.Status) error {
 }
 
 // listProblem says how List doesn't list just the VMs.
-func listProblem(ctx context.Context, s Subject, vms ...string) error {
+func listProblem(ctx context.Context, s Subject, vms ...vmname.VM) error {
 	got, err := names(ctx, s.Backend)
 	if err != nil {
 		return err
@@ -381,7 +382,7 @@ func checkCreateRefused(ctx context.Context, s Subject) error {
 	}
 	if n := s.Backend.NameMax(); n > 0 {
 		long := sp
-		long.Name = strings.Repeat("x", n+1)
+		long.Name, _ = vmname.ParseListed(strings.Repeat("x", n+1))
 		if err := s.Backend.CreateVM(ctx, s.Image, long); err == nil {
 			return fmt.Errorf("CreateVM of a name longer than NameMax (%d)", n)
 		}
@@ -416,7 +417,7 @@ func checkStopped(ctx context.Context, s Subject) error {
 }
 
 // stoppedProblem says how vm isn't stopped, as Inspect and Running say.
-func stoppedProblem(ctx context.Context, b backend.Backend, vm string) error {
+func stoppedProblem(ctx context.Context, b backend.Backend, vm vmname.VM) error {
 	in, err := b.Inspect(ctx, vm)
 	if err != nil {
 		return fmt.Errorf("Inspect: %w", err)
@@ -489,7 +490,7 @@ func checkProxyURL(_ context.Context, s Subject) error {
 // A stopped VM renamed is the same VM under its new name; a name another
 // VM has, or one longer than NameMax, is refused.
 func checkRename(ctx context.Context, s Subject) error {
-	for _, vm := range []string{conformVM, conformOther} {
+	for _, vm := range []vmname.VM{conformVM, conformOther} {
 		if _, err := create(ctx, s, vm); err != nil {
 			return err
 		}
@@ -502,7 +503,8 @@ func checkRename(ctx context.Context, s Subject) error {
 		return errors.New("Rename to a name another VM has")
 	}
 	if n := s.Backend.NameMax(); n > 0 {
-		if err := s.Backend.Rename(ctx, conformVM, strings.Repeat("x", n+1)); err == nil {
+		long, _ := vmname.ParseListed(strings.Repeat("x", n+1))
+		if err := s.Backend.Rename(ctx, conformVM, long); err == nil {
 			return fmt.Errorf("Rename to a name longer than NameMax (%d)", n)
 		}
 	}

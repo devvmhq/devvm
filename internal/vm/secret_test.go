@@ -9,6 +9,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // toSave is the secret devvm secret set NAME saves, without flags.
@@ -34,7 +35,7 @@ func secretList(t *testing.T, n Net) string {
 		if s.Saved {
 			saved = "yes"
 		}
-		b.WriteString(s.Name + " " + saved + " " + strings.Join(s.UsedBy, ",") + "\n")
+		b.WriteString(s.Name + " " + saved + " " + vmname.Join(s.UsedBy, ",") + "\n")
 	}
 	return b.String()
 }
@@ -73,7 +74,7 @@ func TestSecrets(t *testing.T) {
 	if err := n.SecretUse(ctx, "github", true); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if got := secretList(t, n); !strings.Contains(got, "github yes "+vm+"\n") {
+	if got := secretList(t, n); !strings.Contains(got, "github yes "+vm.String()+"\n") {
 		t.Errorf("Secrets = %q", got)
 	}
 	if err := n.SecretSave(ctx, toSave(t, n, "claude"), "not-a-setup-token"); msg.NamesOf(err) != "not_setup_token" {
@@ -95,10 +96,10 @@ func TestSecrets(t *testing.T) {
 	if err := set(t, st, keyToolNames, "claude"); err != nil {
 		t.Fatal(err)
 	}
-	if err := n.SecretUse(ctx, "claude", false); msg.NamesOf(err) != "secret_with_claude vm="+vm {
+	if err := n.SecretUse(ctx, "claude", false); msg.NamesOf(err) != "secret_with_claude vm="+vm.String() {
 		t.Errorf("SecretUse(claude, false) = %v", msg.NamesOf(err))
 	}
-	if got := secretList(t, n); !strings.Contains(got, "claude no "+vm+"\n") {
+	if got := secretList(t, n); !strings.Contains(got, "claude no "+vm.String()+"\n") {
 		t.Errorf("Secrets = %q", got)
 	}
 }
@@ -142,7 +143,7 @@ func TestCustomSecrets(t *testing.T) {
 	if err := n.SecretUse(ctx, "stripe", true); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if want := "custom_secret_used hosts=api.stripe.com secret=stripe vm=" + vm; !strings.Contains(strings.Join(infos, "\n"), want) {
+	if want := "custom_secret_used hosts=api.stripe.com secret=stripe vm=" + vm.String(); !strings.Contains(strings.Join(infos, "\n"), want) {
 		t.Errorf("use said %q, want %q", infos, want)
 	}
 	// Saved again without flags: the same definition, a new value.
@@ -156,7 +157,7 @@ func TestCustomSecrets(t *testing.T) {
 	if v, err := e.Proxy.Secrets.Value(ctx, "stripe"); v != "sk_test_e2efake2" || err != nil {
 		t.Errorf("stripe = %q, %v", v, err)
 	}
-	if got := secretList(t, n); !strings.Contains(got, "stripe yes "+vm+"\n") {
+	if got := secretList(t, n); !strings.Contains(got, "stripe yes "+vm.String()+"\n") {
 		t.Errorf("Secrets = %q", got)
 	}
 	// A new host alone keeps the rest, and names the VMs it now reaches
@@ -170,8 +171,8 @@ func TestCustomSecrets(t *testing.T) {
 		t.Fatal(msg.NamesOf(err))
 	}
 	for _, want := range []string{
-		"secret_hosts_changed count=1 hosts=files.stripe.com secret=stripe vms=" + vm, // api.stripe.com went
-		"secret_hosts_grown count=1 secret=stripe vms=" + vm,                          // files.stripe.com waits for use
+		"secret_hosts_changed count=1 hosts=files.stripe.com secret=stripe vms=" + vm.String(), // api.stripe.com went
+		"secret_hosts_grown count=1 secret=stripe vms=" + vm.String(),                          // files.stripe.com waits for use
 	} {
 		if !strings.Contains(strings.Join(infos, "\n"), want) {
 			t.Errorf("the new host said %q, want %q", infos, want)
@@ -208,7 +209,7 @@ func TestCustomSecrets(t *testing.T) {
 	if err := n.SecretRm(ctx, "stripe", false); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if want := "secret_rm_users count=1 secret=stripe vms=" + vm; !strings.Contains(strings.Join(about, "\n"), want) {
+	if want := "secret_rm_users count=1 secret=stripe vms=" + vm.String(); !strings.Contains(strings.Join(about, "\n"), want) {
 		t.Errorf("the question's context %q, want %q", about, want)
 	}
 	if _, err := os.Stat(e.Dirs.CustomSecrets()); err != nil {

@@ -73,11 +73,11 @@ func devvm() rules {
 		},
 		// readOverrides reads a test build's stand-ins, and a release
 		// none.
-		envOwner:    "internal/cli/overrides.go",
-		envSettings: devvmEnvSettings(),
+		envOwner: "internal/cli/overrides.go", envSettings: devvmEnvSettings(),
 		// paths.Dirs.Home is the home folder, read once: tests set HOME,
 		// and e2e gives a run a HOME of its own.
 		envOwners: map[string]string{"HOME": "internal/paths/dirs.go"},
+		vmNames:   devvmVMNames(),
 		layers: []layer{
 			{
 				name: "only cmd/devvm and internal/cli hold the UI",
@@ -140,8 +140,8 @@ func devvm() rules {
 				to: []string{"..."},
 			},
 			{
-				name: "internal/proxy is standard library only, with internal/daemon and internal/safefile",
-				from: []string{"internal/proxy/..."}, exceptTo: []string{"internal/proxy/...", "internal/daemon", "internal/safefile"},
+				name: "internal/proxy is standard library only, with internal/daemon, internal/safefile and internal/vmname",
+				from: []string{"internal/proxy/..."}, exceptTo: []string{"internal/proxy/...", "internal/daemon", "internal/safefile", "internal/vmname"},
 				to: []string{"..."},
 			},
 			{
@@ -161,8 +161,8 @@ func devvm() rules {
 				to: []string{"..."},
 			},
 			{
-				name: "internal/msg imports only locales",
-				from: []string{"internal/msg"}, exceptTo: []string{"locales"},
+				name: "internal/msg imports only locales and internal/vmname",
+				from: []string{"internal/msg"}, exceptTo: []string{"locales", "internal/vmname"},
 				to: []string{"..."},
 			},
 			{
@@ -186,6 +186,20 @@ func devvm() rules {
 				to: []string{"..."},
 			},
 		},
+	}
+}
+
+// devvmVMNames is where a VM's name is a vmname.VM, parsed where it's
+// read: never a string that a path, an alias or a folder's name could be
+// passed for.
+func devvmVMNames() vmNameRule {
+	return vmNameRule{
+		owner: "internal/vmname",
+		converts: map[string]string{
+			"internal/msg/msg.go": "msg.M.VM reads back the VM a message's function took as a vmname.VM",
+		},
+		free:     []string{"internal/stubtest"}, // the stubs stand in for limactl and ssh, whose arguments are strings
+		notNames: map[string]string{"NewVMs": "backend.Registry's backend for new VMs, by the backend's name"},
 	}
 }
 

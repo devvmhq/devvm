@@ -19,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // testStore is a store in a temporary sandbox, its Keychain a map and its
@@ -148,7 +149,7 @@ func TestSaveDelete(t *testing.T) {
 
 // newVM writes the state of a VM named name with these shared tools, as
 // up does.
-func newVM(t *testing.T, d paths.Dirs, name string, names ...string) *state.VM {
+func newVM(t *testing.T, d paths.Dirs, name vmname.VM, names ...string) *state.VM {
 	t.Helper()
 	st, err := state.New(d, name)
 	if err != nil {

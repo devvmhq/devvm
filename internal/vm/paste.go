@@ -18,6 +18,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/settings"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Paste is devvm paste: an image, a PDF or one copied file, from this machine's
@@ -37,12 +38,13 @@ type Paste struct{ *Env }
 // path reached the clipboard. When you said no to sending a file, it has
 // only the VM, the kind and the source, and no Path: nothing was sent.
 type PasteSent struct {
-	VM, Path string
-	Kind     string
-	Type     string
-	Source   string
-	Bytes    int64
-	Copied   bool
+	VM     vmname.VM
+	Path   string
+	Kind   string
+	Type   string
+	Source string
+	Bytes  int64
+	Copied bool
 }
 
 // The kinds of a PasteSent.

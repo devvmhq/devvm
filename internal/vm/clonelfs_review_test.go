@@ -12,6 +12,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/project"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // The folders of .git/lfs, outermost first, on the way to oid's object.
@@ -292,7 +293,7 @@ func TestRmLFSMerged(t *testing.T) {
 func TestLFSInVMBounded(t *testing.T) {
 	e, f, _ := cloneEnv(t)
 	st := existingVM(t, e, Options{Network: "open", Clone: true})
-	f.ExecFunc = func(_ string, _ []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, _ []string, o backend.ExecOpts) error {
 		line := []byte(strings.Repeat("x", 4096))
 		for {
 			if _, err := o.Stdout.Write(line); err != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Learned is a host and port a learning VM reached that its allowlist
@@ -95,7 +96,9 @@ const learnEvent = "learn"
 
 // MarkLearning writes in the log that its VM, vm, starts learning now,
 // through the proxy's own writer (AppendEvent).
-func (l *Log) MarkLearning(vm string) error { return AppendEvent(l.Path, vm, Event{Event: learnEvent}) }
+func (l *Log) MarkLearning(vm vmname.VM) error {
+	return AppendEvent(l.Path, vm, Event{Event: learnEvent})
+}
 
 // learnedEvent is what Learned reads of an event: only these.
 type learnedEvent struct {

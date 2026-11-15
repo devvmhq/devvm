@@ -226,7 +226,7 @@ func showOrphans(u *ui.UI, r vm.LeftoverReport) {
 	if links := r.Links; len(links) > 0 {
 		u.Say(msg.GCDeadLinks(len(links)))
 		for _, l := range links {
-			u.Say(msg.GCDeadLink(l.Name, strconv.Itoa(l.Port), l.Target, l.Client))
+			u.Say(msg.GCDeadLink(l.Name, strconv.Itoa(l.Port), l.Target.String(), l.Client))
 		}
 	}
 	if n := len(r.Sockets); n > 0 {

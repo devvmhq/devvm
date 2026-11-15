@@ -14,6 +14,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/secrets"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // The providers opencode's import refused are the script's
@@ -46,7 +47,7 @@ func TestImportLoginsTooMuch(t *testing.T) {
 		t.Fatal(msg.NamesOf(err))
 	}
 	forever := true
-	f.ExecFunc = func(_ string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
 		if len(argv) != 4 || argv[3] != opencodeScript {
 			return nil
 		}
@@ -60,12 +61,12 @@ func TestImportLoginsTooMuch(t *testing.T) {
 		return errors.New("exit 1")
 	}
 	login := AgentLogin{e}
-	if err := login.importLogins(t.Context(), tg, agents.Opencode, []byte(`{}`)); msg.NamesOf(err) != "opencode_import_too_much vm="+vm {
+	if err := login.importLogins(t.Context(), tg, agents.Opencode, []byte(`{}`)); msg.NamesOf(err) != "opencode_import_too_much vm="+vm.String() {
 		t.Errorf("forever: %v", msg.NamesOf(err))
 	}
 	forever = false
 	err = login.importLogins(t.Context(), tg, agents.Opencode, []byte(`{}`))
-	if le, ok := errors.AsType[*backend.LoggedError](err); !ok || msg.NamesOf(le.Msg) != "opencode_import_failed providers=openai vm="+vm {
+	if le, ok := errors.AsType[*backend.LoggedError](err); !ok || msg.NamesOf(le.Msg) != "opencode_import_failed providers=openai vm="+vm.String() {
 		t.Errorf("refused: %v", msg.NamesOf(err))
 	}
 	// Another agent's login imports nothing, and runs nothing in the VM.
@@ -86,7 +87,7 @@ func TestAgentLoginSaved(t *testing.T) {
 	store := secrets.NewStore(d, fake)
 	store.ExcludeFromBackup = func(context.Context, string) error { return nil }
 	e := AgentLogin{&Env{Dirs: d, Reporter: fake}}
-	const vm = "devvm-p-00000000000000"
+	const vm vmname.VM = "devvm-p-00000000000000"
 	notSaved := func(err error) bool {
 		m, ok := errors.AsType[msg.M](err)
 		return ok && m.ID() == "agent_login_not_saved"
@@ -130,8 +131,8 @@ func TestAgentLoginSaved(t *testing.T) {
 		t.Errorf("the same Cursor login: %v", err)
 	}
 	want := []string{
-		"agent_login_saved_for agent=codex email=a@b.test vm=" + vm, "agent_login_saved agent=opencode vm=" + vm,
-		"agent_own_login_saved display=Cursor CLI vm=" + vm,
+		"agent_login_saved_for agent=codex email=a@b.test vm=" + vm.String(), "agent_login_saved agent=opencode vm=" + vm.String(),
+		"agent_own_login_saved display=Cursor CLI vm=" + vm.String(),
 	}
 	if names := got.Names(); !slices.Equal(names, want) {
 		t.Errorf("said %q, want %q", names, want)

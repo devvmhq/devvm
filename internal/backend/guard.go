@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/devvmhq/devvm/internal/image"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // guarded is a registered backend, as the registry hands it out: CreateVM,
@@ -73,14 +74,14 @@ func (g *guarded) BuildTools(ctx context.Context, spec ToolsSpec) error {
 }
 
 func (g *guarded) CreateVM(ctx context.Context, img string, spec VMSpec) error {
-	if err := g.r.refusal(g.Backend, spec.Name, nil, spec.Features()); err != nil {
+	if err := g.r.refusal(g.Backend, spec.Name.String(), nil, spec.Features()); err != nil {
 		return err
 	}
 	return g.Backend.CreateVM(ctx, img, spec)
 }
 
-func (g *guarded) Start(ctx context.Context, vm string, w Want, c Confinement) error {
-	if err := g.r.refusal(g.Backend, vm, nil, slices.Concat(w.Features(), c.Features())); err != nil {
+func (g *guarded) Start(ctx context.Context, vm vmname.VM, w Want, c Confinement) error {
+	if err := g.r.refusal(g.Backend, vm.String(), nil, slices.Concat(w.Features(), c.Features())); err != nil {
 		return err
 	}
 	return g.Backend.Start(ctx, vm, w, c)

@@ -9,6 +9,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/backend/backendtest"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 const (
@@ -113,21 +114,21 @@ func TestGuardRefuses(t *testing.T) {
 	}{
 		{
 			"a create without the project mount", func(b backend.Backend) error { return b.CreateVM(ctx, baseKey, vmSpec) },
-			"backend_lacks backend=fake feature=project-mount vm=devvm-x",
+			"backend_lacks backend=fake feature=project-mount what=devvm-x",
 		},
 		{"a start with network policy", func(b backend.Backend) error {
 			return b.Start(ctx, "devvm-x", backend.Want{}, backend.Confinement{Net: backend.NetProxy})
-		}, "backend_unreviewed backend=fake feature=egress-proxy vm=devvm-x"},
+		}, "backend_unreviewed backend=fake feature=egress-proxy what=devvm-x"},
 		{"a start with a size", func(b backend.Backend) error {
 			return b.Start(ctx, "devvm-x", backend.Want{Size: backend.Size{DiskGiB: 80}}, backend.Confinement{})
-		}, "backend_lacks backend=fake feature=disk vm=devvm-x"},
+		}, "backend_lacks backend=fake feature=disk what=devvm-x"},
 		{
 			"a build of the nix layer", func(b backend.Backend) error { _, err := b.BuildImage(ctx, image); return err },
-			"backend_lacks backend=fake feature=nix-layer vm=base+nix",
+			"backend_lacks backend=fake feature=nix-layer what=base+nix",
 		},
 		{
 			"a build on the internet", func(b backend.Backend) error { return b.BuildTools(ctx, toolsSpec()) },
-			"backend_lacks backend=fake feature=build-confinement vm=node",
+			"backend_lacks backend=fake feature=build-confinement what=node",
 		},
 		{"an image build with no key", func(b backend.Backend) error {
 			_, err := b.BuildImage(ctx, backend.ImageSpec{Image: "base", Net: backend.NetInternet})
@@ -188,10 +189,10 @@ func TestGuardLetsThrough(t *testing.T) {
 // forgetful is a backend with the optional Forgetter role.
 type forgetful struct {
 	*backendtest.Fake
-	forgot *[]string
+	forgot *[]vmname.VM
 }
 
-func (f forgetful) Forget(_ context.Context, vm string) error {
+func (f forgetful) Forget(_ context.Context, vm vmname.VM) error {
 	*f.forgot = append(*f.forgot, vm)
 	return nil
 }
@@ -199,7 +200,7 @@ func (f forgetful) Forget(_ context.Context, vm string) error {
 // As finds a registry's backend's optional role behind its guard, which
 // a type assertion doesn't.
 func TestAs(t *testing.T) {
-	var forgot []string
+	var forgot []vmname.VM
 	k := forgetful{backendtest.New("forgetful", nil), &forgot}
 	r, err := backend.NewRegistry(k, backendtest.New("plain", nil))
 	if err != nil {
@@ -209,7 +210,7 @@ func TestAs(t *testing.T) {
 	if _, ok := b.(backend.Forgetter); ok {
 		t.Error("the guard is a Forgetter: As isn't needed")
 	}
-	if f, ok := backend.As[backend.Forgetter](b); !ok || f.Forget(t.Context(), "devvm-x") != nil || !slices.Equal(forgot, []string{"devvm-x"}) {
+	if f, ok := backend.As[backend.Forgetter](b); !ok || f.Forget(t.Context(), "devvm-x") != nil || !slices.Equal(forgot, []vmname.VM{"devvm-x"}) {
 		t.Errorf("As: no Forgetter behind the guard (forgot %q)", forgot)
 	}
 	if _, ok := backend.As[backend.Forgetter](k); !ok {

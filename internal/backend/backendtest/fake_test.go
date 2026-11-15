@@ -9,6 +9,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A check that the project folder is mounted is answered as a guest whose
@@ -19,16 +20,16 @@ func TestFakeMountCheck(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		argv []string
-		exec func(string, []string, backend.ExecOpts) error
+		exec func(vmname.VM, []string, backend.ExecOpts) error
 		want string
 	}{
 		{"no ExecFunc", check, nil, "devvm-mounted\n"},
-		{"ExecFunc says nothing", check, func(string, []string, backend.ExecOpts) error { return nil }, "devvm-mounted\n"},
-		{"ExecFunc answers", check, func(_ string, _ []string, o backend.ExecOpts) error {
+		{"ExecFunc says nothing", check, func(vmname.VM, []string, backend.ExecOpts) error { return nil }, "devvm-mounted\n"},
+		{"ExecFunc answers", check, func(_ vmname.VM, _ []string, o backend.ExecOpts) error {
 			_, err := o.Stdout.Write([]byte("devvm-not-mounted\n"))
 			return err
 		}, "devvm-not-mounted\n"},
-		{"ExecFunc fails", check, func(string, []string, backend.ExecOpts) error { return errors.New("no ssh") }, ""},
+		{"ExecFunc fails", check, func(vmname.VM, []string, backend.ExecOpts) error { return errors.New("no ssh") }, ""},
 		{"another command", []string{"true"}, nil, ""},
 	} {
 		f := New("fake", backend.Caps{})
@@ -83,7 +84,7 @@ func TestFakeRecordsAndAnswers(t *testing.T) {
 	if got := f.Methods(); !slices.Equal(got, want) {
 		t.Errorf("calls: %q, want %q", got, want)
 	}
-	if c := f.Calls()[2]; c.Args[0] != "v" || c.Args[2].(backend.Confinement).Net != backend.NetProxy || c.Args[1].(backend.Want).Size.MemoryGiB != 4 {
+	if c := f.Calls()[2]; c.Args[0] != vmname.VM("v") || c.Args[2].(backend.Confinement).Net != backend.NetProxy || c.Args[1].(backend.Want).Size.MemoryGiB != 4 {
 		t.Errorf("Start's arguments: %v", c.Args)
 	}
 }

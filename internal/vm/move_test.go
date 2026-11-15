@@ -14,6 +14,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/project"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A move records the path the agents' state is under: the first move's
@@ -151,12 +152,12 @@ func TestMoveHere(t *testing.T) {
 	vm := st.Name()
 	was, now := moveFolder(t, e, "site")
 	fd := finder{e}
-	if _, err := fd.target(t.Context(), need{}); msg.NamesOf(err) != "vm_moved_here vm="+vm+" was="+was {
+	if _, err := fd.target(t.Context(), need{}); msg.NamesOf(err) != "vm_moved_here vm="+vm.String()+" was="+was {
 		t.Fatalf("no terminal: %v", msg.NamesOf(err))
 	}
 	asked := answers(t, e, false)
 	tg, err := fd.target(t.Context(), need{})
-	if err != nil || tg.exists || tg.f.Name == vm || !slices.Equal(*asked, []string{"move_vm vm=" + vm + " was=" + was}) {
+	if err != nil || tg.exists || tg.f.Name == vm || !slices.Equal(*asked, []string{"move_vm vm=" + vm.String() + " was=" + was}) {
 		t.Fatalf("a no: %+v, %v, asked %q", tg, msg.NamesOf(err), *asked)
 	}
 	if got, _ := state.ReadVM(e.Dirs, vm); got.Dir != was {
@@ -168,7 +169,7 @@ func TestMoveHere(t *testing.T) {
 	if tg, err = fd.target(t.Context(), need{}); err != nil || tg.f.Name != vm || !tg.moved || tg.f.Dir != now {
 		t.Fatalf("a yes: %+v, %v", tg, msg.NamesOf(err))
 	}
-	if !slices.Contains(infos, "vm_adopted dir="+now+" vm="+vm) {
+	if !slices.Contains(infos, "vm_adopted dir="+now+" vm="+vm.String()) {
 		t.Errorf("said %q", infos)
 	}
 	moved, err := state.ReadVM(e.Dirs, vm)
@@ -185,7 +186,7 @@ func TestMoveHere(t *testing.T) {
 	}
 	// It ran, mounting the old path: the move stopped it, and its next
 	// start mounts the new one.
-	if in := f.Instances[vm]; in.Status != backend.StatusStopped || !slices.Contains(infos, "stopped vm="+vm) {
+	if in := f.Instances[vm]; in.Status != backend.StatusStopped || !slices.Contains(infos, "stopped vm="+vm.String()) {
 		t.Errorf("moved while running: %s, said %q", in.Status, infos)
 	}
 	if err := (Launch{e}).Up(t.Context(), Options{}); err != nil {
@@ -211,7 +212,7 @@ func TestMoveHere(t *testing.T) {
 	if err := (Launch{e}).Up(t.Context(), Options{}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if !slices.Contains(*asked, "restart_now count=1 vm="+vm) || f.Instances[vm].Project != now {
+	if !slices.Contains(*asked, "restart_now count=1 vm="+vm.String()) || f.Instances[vm].Project != now {
 		t.Errorf("asked %q, mounts %q", *asked, f.Instances[vm].Project)
 	}
 	if got, ok := staged(t, f)["moved"]; ok {
@@ -232,7 +233,7 @@ func TestMoveHere(t *testing.T) {
 	if err := (Launch{e}).Up(t.Context(), Options{Network: "open"}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	for dir, want := range map[string]string{was: second.Name, now: vm} {
+	for dir, want := range map[string]vmname.VM{was: second.Name, now: vm} {
 		e.Dir = dir
 		if tg, err := fd.target(t.Context(), need{has: hasMade}); err != nil || tg.f.Name != want {
 			t.Errorf("%s's VM: %+v, %v, want %s", dir, tg, msg.NamesOf(err), want)
@@ -253,7 +254,7 @@ func TestMoveFolderChanged(t *testing.T) {
 		}
 		return os.Mkdir(now, 0o700) == nil
 	}
-	if _, err := (finder{e}).target(t.Context(), need{}); msg.NamesOf(err) != "move_folder_changed dir="+now+" vm="+vm {
+	if _, err := (finder{e}).target(t.Context(), need{}); msg.NamesOf(err) != "move_folder_changed dir="+now+" vm="+vm.String() {
 		t.Errorf("replaced while asked: %v", msg.NamesOf(err))
 	}
 	if st, _ := state.ReadVM(e.Dirs, vm); st.Dir != was {
@@ -344,24 +345,24 @@ func TestAdoptVM(t *testing.T) {
 	}
 	e.Dir = cp
 	lc := Lifecycle{e}
-	if err := lc.Adopt(t.Context(), vm, true); msg.NamesOf(err) != "adopt_folder_there dir="+web+" vm="+vm {
+	if err := lc.Adopt(t.Context(), vm.String(), true); msg.NamesOf(err) != "adopt_folder_there dir="+web+" vm="+vm.String() {
 		t.Errorf("its folder there: %v", msg.NamesOf(err))
 	}
 	if err := os.RemoveAll(web); err != nil {
 		t.Fatal(err)
 	}
-	if err := lc.Adopt(t.Context(), vm, false); msg.NamesOf(err) != "adopt_move_refused vm="+vm {
+	if err := lc.Adopt(t.Context(), vm.String(), false); msg.NamesOf(err) != "adopt_move_refused vm="+vm.String() {
 		t.Errorf("no terminal: %v", msg.NamesOf(err))
 	}
 	asked := answers(t, e, false)
-	if err := lc.Adopt(t.Context(), vm, false); err != nil || !slices.Equal(*asked, []string{"adopt_move_vm vm=" + vm + " was=" + web}) {
+	if err := lc.Adopt(t.Context(), vm.String(), false); err != nil || !slices.Equal(*asked, []string{"adopt_move_vm vm=" + vm.String() + " was=" + web}) {
 		t.Errorf("a no: %v, asked %q", msg.NamesOf(err), *asked)
 	}
 	if got, _ := state.ReadVM(e.Dirs, vm); got.Dir != web {
 		t.Errorf("a no moved it to %s", got.Dir)
 	}
 	answers(t, e, true)
-	if err := lc.Adopt(t.Context(), vm, false); err != nil {
+	if err := lc.Adopt(t.Context(), vm.String(), false); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
 	got, _ := state.ReadVM(e.Dirs, vm)
@@ -370,7 +371,7 @@ func TestAdoptVM(t *testing.T) {
 		t.Errorf("adopted: %s %s, .git %+v", got.Dir, got.Folder, g.Made)
 	}
 	// Here already: nothing to do.
-	if err := lc.Adopt(t.Context(), vm, true); err != nil {
+	if err := lc.Adopt(t.Context(), vm.String(), true); err != nil {
 		t.Errorf("adopt of this folder's VM: %v", msg.NamesOf(err))
 	}
 	// Another VM to a folder with a VM of its own; a --clone VM.
@@ -384,20 +385,20 @@ func TestAdoptVM(t *testing.T) {
 	}
 	ovm, _ := (finder{e}).folderVM(other)
 	e.Dir = cp
-	if err := lc.Adopt(t.Context(), ovm, true); msg.NamesOf(err) != "adopt_folder_there dir="+other+" vm="+ovm {
+	if err := lc.Adopt(t.Context(), ovm.String(), true); msg.NamesOf(err) != "adopt_folder_there dir="+other+" vm="+ovm.String() {
 		t.Errorf("another's: %v", msg.NamesOf(err))
 	}
 	if err := os.RemoveAll(other); err != nil {
 		t.Fatal(err)
 	}
-	if err := lc.Adopt(t.Context(), ovm, true); msg.NamesOf(err) != "adopt_has_vm vm="+vm {
+	if err := lc.Adopt(t.Context(), ovm.String(), true); msg.NamesOf(err) != "adopt_has_vm vm="+vm.String() {
 		t.Errorf("a folder with its own: %v", msg.NamesOf(err))
 	}
 	ost, _ := state.ReadVM(e.Dirs, ovm)
 	if err := set(t, ost, keyClone, "clone"); err != nil {
 		t.Fatal(err)
 	}
-	if err := lc.Adopt(t.Context(), ovm, true); msg.NamesOf(err) != "adopt_clone dir="+other+" vm="+ovm {
+	if err := lc.Adopt(t.Context(), ovm.String(), true); msg.NamesOf(err) != "adopt_clone dir="+other+" vm="+ovm.String() {
 		t.Errorf("a --clone VM: %v", msg.NamesOf(err))
 	}
 	if _, ok := f.Instances[ovm]; !ok {

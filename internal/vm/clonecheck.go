@@ -13,6 +13,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // cloneCheck checks a --clone VM's clone before a command loses it:
@@ -133,7 +134,7 @@ func (e cloneCheck) unfetched(ctx context.Context, t *target, workspace bool, go
 // clone_check_repo_changed), which host git reads and fetches into, and
 // returns the VM other than this one that mounts it, or its common dir
 // (mountingVM), "" for none.
-func (e cloneCheck) stillOurs(ctx context.Context, t *target, r cloneRepo) (mounted string, err error) {
+func (e cloneCheck) stillOurs(ctx context.Context, t *target, r cloneRepo) (mounted vmname.VM, err error) {
 	dir := repoDir(t.f.Dir, r.Path)
 	if err := checkRepoTopOf(ctx, dir, r.submodule); err != nil {
 		return "", msg.CloneCheckRepoChanged(e.command, r.Path, t.f.Name).Because(err)
@@ -145,7 +146,7 @@ func (e cloneCheck) stillOurs(ctx context.Context, t *target, r cloneRepo) (moun
 // (err): what kept it from starting, said, then the way out, the command
 // with --no-clone-check, carrying err. An interrupt, or an error that
 // isn't a message, is err as it is.
-func (e cloneCheck) notStarted(ctx context.Context, vm string, err error) error {
+func (e cloneCheck) notStarted(ctx context.Context, vm vmname.VM, err error) error {
 	m, ok := errors.AsType[msg.M](err)
 	if ctx.Err() != nil || !ok {
 		return err

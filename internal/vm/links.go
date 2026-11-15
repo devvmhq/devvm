@@ -31,7 +31,7 @@ import (
 type Link struct {
 	Name     string     `json:"name"`            // one DNS label (CheckLinkName)
 	Port     int        `json:"port"`            // the target's port, which the client listens on too
-	Target   string     `json:"target"`          // the target VM's name
+	Target   vmname.VM  `json:"target"`          // the target VM's name
 	TargetID string     `json:"target_id"`       // the target's state.VM.ID when the link was made
 	Addr     netip.Addr `json:"addr"`            // in 127.77.0.0/16, one per target in this client
 	Group    bool       `json:"group,omitempty"` // the client's group made it (groupLinks), not devvm link add
@@ -87,7 +87,7 @@ func checkLink(l Link) error {
 		return fmt.Errorf("the name %q", l.Name)
 	case !backend.ValidPort(l.Port):
 		return fmt.Errorf("%s: the port %d", l.Name, l.Port)
-	case !vmname.IsVM(l.Target) || l.TargetID == "":
+	case !l.Target.IsProject() || l.TargetID == "":
 		return fmt.Errorf("%s: the target %q, %q", l.Name, l.Target, l.TargetID)
 	case !proxy.IsLinkAddr(l.Addr) || l.Addr != l.Addr.Unmap():
 		return fmt.Errorf("%s: the address %q", l.Name, l.Addr)
@@ -109,7 +109,7 @@ func writeLinks(ctx context.Context, st *state.VM, links []Link) error {
 // linkAddr returns the client's address for a target (its VM name and
 // ID): the one its links to that target have, else the lowest that none
 // of its links has, from 127.77.0.1.
-func linkAddr(links []Link, target, id string) (netip.Addr, error) {
+func linkAddr(links []Link, target vmname.VM, id string) (netip.Addr, error) {
 	used := map[netip.Addr]bool{}
 	for _, l := range links {
 		if l.Target == target && l.TargetID == id {
@@ -193,7 +193,7 @@ func linkPolicy(client, target *state.VM) bool { return policyRule(policyOf(clie
 // breaks the tier rule (linkPolicy), naming both tiers; a section that
 // can't be read reads as none there, as TierOf has it.
 func tierMismatch(client, target *state.VM) msg.M {
-	return msg.LinkTierMismatch(target.Name(), string(netpolicy.TierOf(target)), string(netpolicy.TierOf(client)), client.Name())
+	return msg.LinkTierMismatch(target.Name().String(), string(netpolicy.TierOf(target)), string(netpolicy.TierOf(client)), client.Name())
 }
 
 // Published reports whether a VM publishes port.
@@ -216,7 +216,9 @@ func linkFeatures() []backend.Feature { return []backend.Feature{backend.Feature
 
 // PortTaken is the error for a link whose address and port a program in
 // the client already listens on, which fails that link alone.
-func (l Link) PortTaken(vm string) msg.M { return msg.LinkPortTaken(l.Name, strconv.Itoa(l.Port), vm) }
+func (l Link) PortTaken(vm vmname.VM) msg.M {
+	return msg.LinkPortTaken(l.Name, strconv.Itoa(l.Port), vm)
+}
 
 // Links shows and changes the folder's VM's links to other VMs, and the
 // ports it publishes for theirs. Nothing here carries a connection: the
@@ -258,7 +260,7 @@ func (e Links) publishChanged(t *target, old string) error {
 	if err != nil || len(clients) == 0 {
 		return err
 	}
-	e.Note(msg.UnpublishedLinked(t.f.Name, strings.Join(clients, ", ")))
+	e.Note(msg.UnpublishedLinked(t.f.Name, vmname.Join(clients, ", ")))
 	return nil
 }
 
@@ -287,13 +289,13 @@ func (e Links) publishUnenforced(ctx context.Context, t *target, old string) err
 // resolve returns the VM a link's TARGET names: a folder's path (relative
 // to the folder devvm runs in), a VM's name or alias, or a folder's name,
 // which must match one VM alone.
-func (e Links) resolve(target string) (string, error) {
+func (e Links) resolve(target string) (vmname.VM, error) {
 	inv, err := ReadStates(e.Dirs)
 	if err != nil {
 		return "", err
 	}
 	all := inv.Recorded()
-	var vms []string
+	var vms []vmname.VM
 	if project.IsPath(target) {
 		dir := target
 		if !filepath.IsAbs(dir) {
@@ -321,18 +323,19 @@ func (e Links) resolve(target string) (string, error) {
 		if st, err := state.ReadVM(e.Dirs, vm); err == nil && st.Dir != "" {
 			dir = st.Dir
 		}
-		shown[i] = vm + " in " + dir
+		shown[i] = vm.String() + " in " + dir
 	}
 	return "", msg.LinkAmbiguousTarget(target, strings.Join(shown, ", "))
 }
 
 // LinkListed is one of the folder's VM's links as devvm link lists it.
 type LinkListed struct {
-	Name, Target string
-	Port         int
-	Folder       string // the target's folder; "" once it's gone
-	Status       string // the target's, as its backend reports it; "" when unknown
-	Reason       string // why it doesn't apply (CheckLink); "" when it does
+	Name   string
+	Target vmname.VM
+	Port   int
+	Folder string // the target's folder; "" once it's gone
+	Status string // the target's, as its backend reports it; "" when unknown
+	Reason string // why it doesn't apply (CheckLink); "" when it does
 }
 
 // List returns the folder's VM's links, with each target's folder and
@@ -346,7 +349,7 @@ func (e Links) List(ctx context.Context) ([]LinkListed, error) {
 	if err != nil {
 		return nil, err
 	}
-	status := map[string]string{}
+	status := map[vmname.VM]string{}
 	out := make([]LinkListed, 0, len(links))
 	for _, l := range links {
 		why, tst, err := CheckLink(e.Dirs, t.st, l)
@@ -443,8 +446,8 @@ func (e Links) Add(ctx context.Context, a LinkAdd) error {
 	// takes from another member.
 	clashes = slices.DeleteFunc(clashes, func(c groupClash) bool { return c.Name != name })
 	return e.changeLinks(ctx, t, all, []Link{l}, func() {
-		e.Info(msg.LinkAdded(name, port, target, client))
-		e.Note(msg.LinkTrust(target, client))
+		e.Info(msg.LinkAdded(name, port, target.String(), client))
+		e.Note(msg.LinkTrust(target.String(), client))
 		e.warnUnenforced(ctx, t.st, tst)
 		e.groups.warnClashes(client, clashes)
 		e.groups.sayChanged(t.st, links, all, nil)
@@ -454,7 +457,7 @@ func (e Links) Add(ctx context.Context, a LinkAdd) error {
 // checkTarget checks a new link's target for client t: made and finished,
 // publishing port, on the client's tier or a stricter one, and on a
 // backend with links, as the client's is. It returns the target's state.
-func (e Links) checkTarget(t *target, target string, port int) (*state.VM, error) {
+func (e Links) checkTarget(t *target, target vmname.VM, port int) (*state.VM, error) {
 	tst, err := state.ReadVM(e.Dirs, target)
 	if err != nil {
 		return nil, err
@@ -485,7 +488,7 @@ func (e Links) checkTarget(t *target, target string, port int) (*state.VM, error
 // its ID): as, else the name its links to that target have, else the
 // target's folder part. A target has one name in a client, and a name
 // one target; localhost and the client's own hostname are refused.
-func linkNameFor(t *target, links []Link, target, id, as string) (string, error) {
+func linkNameFor(t *target, links []Link, target vmname.VM, id, as string) (string, error) {
 	had := ""
 	for _, l := range links {
 		if l.Target == target && l.TargetID == id {
@@ -494,7 +497,7 @@ func linkNameFor(t *target, links []Link, target, id, as string) (string, error)
 	}
 	name := cmp.Or(as, had, (project.Folder{Name: target}).Slug())
 	if had != "" && name != had {
-		return "", msg.LinkTargetNamed(had, target, t.f.Name)
+		return "", msg.LinkTargetNamed(had, target.String(), t.f.Name)
 	}
 	if err := CheckLinkName(name); err != nil {
 		return "", err
@@ -504,7 +507,7 @@ func linkNameFor(t *target, links []Link, target, id, as string) (string, error)
 	}
 	for _, l := range links {
 		if l.Name == name && (l.Target != target || l.TargetID != id) {
-			return "", msg.LinkNameTaken(name, l.Target, t.f.Name)
+			return "", msg.LinkNameTaken(name, l.Target.String(), t.f.Name)
 		}
 	}
 	return name, nil
@@ -523,7 +526,7 @@ func (e Links) Rm(ctx context.Context, target string, port int) error {
 	}
 	i := slices.IndexFunc(links, func(l Link) bool { return l.Port == port && l.Name == target })
 	if i < 0 {
-		i = slices.IndexFunc(links, func(l Link) bool { return l.Port == port && l.Target == target })
+		i = slices.IndexFunc(links, func(l Link) bool { return l.Port == port && l.Target.String() == target })
 	}
 	if i < 0 {
 		if vm, err := e.resolve(target); err == nil {

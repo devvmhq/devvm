@@ -45,7 +45,7 @@ func (e vmFolders) teardown(ctx context.Context, t *target, leaves bool) error {
 		}
 	}
 	// The old machine a remake that didn't finish set aside.
-	if aside, ok := vmname.Aside(vm); ok && remakePending(t.st) {
+	if aside, ok := vm.Aside(); ok && remakePending(t.st) {
 		if err := t.b.Delete(ctx, aside); err != nil && !errors.Is(err, backend.ErrNotFound) {
 			return err
 		}
@@ -61,7 +61,7 @@ func (e vmFolders) teardown(ctx context.Context, t *target, leaves bool) error {
 // folder, which a new VM by that name replaces: its state, its files, and
 // what still runs for it (its proxy, its port forwarder, its link
 // session).
-func (e vmFolders) clear(ctx context.Context, vm string) error {
+func (e vmFolders) clear(ctx context.Context, vm vmname.VM) error {
 	e.Proxy.Stop(vm)
 	e.Forwarders.Stop(vm)
 	e.linkRuns.stop(ctx, vm)

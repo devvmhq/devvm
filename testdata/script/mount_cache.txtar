@@ -40,9 +40,9 @@ stub_calls
 
 # macOS: the VM's mode is refused, to show or to change.
 [darwin] ! exec devvm mount-cache
-[darwin] stderr '^devvm: backend_lacks backend=lima feature=mount-cache vm=devvm-web-[0-9a-f]{14}$'
+[darwin] stderr '^devvm: backend_lacks backend=lima feature=mount-cache what=devvm-web-[0-9a-f]{14}$'
 [darwin] ! exec devvm mount-cache none
-[darwin] stderr '^devvm: backend_lacks backend=lima feature=mount-cache vm=devvm-web-[0-9a-f]{14}$'
+[darwin] stderr '^devvm: backend_lacks backend=lima feature=mount-cache what=devvm-web-[0-9a-f]{14}$'
 [darwin] stop 'the rest is a Linux host''s'
 
 # Running: its mode, chosen, as it has it.

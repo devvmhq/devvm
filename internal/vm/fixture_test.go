@@ -19,7 +19,6 @@ import (
 	"github.com/devvmhq/devvm/internal/sshagent"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
-	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // stateFixture is a release's state, frozen in the repo
@@ -98,7 +97,7 @@ func fixtureVMs(t *testing.T, c fixtureCopy) map[string]*state.VM {
 		if err != nil {
 			t.Fatal(name, err)
 		}
-		slug, _ := vmname.SlugOf(name)
+		slug, _ := name.Slug()
 		vms[slug] = st
 	}
 	return vms
@@ -178,7 +177,7 @@ func TestFixtureVMStates(t *testing.T) {
 			}
 			for _, name := range names {
 				raw := map[string]json.RawMessage{}
-				hash, _ := vmname.HashOf(name)
+				hash, _ := name.Hash()
 				b, err := os.ReadFile(c.dirs.VM(name).State())
 				if err != nil || json.Unmarshal(b, &raw) != nil {
 					t.Fatalf("%s: %v", name, err)
@@ -187,7 +186,7 @@ func TestFixtureVMStates(t *testing.T) {
 				if err != nil || !st.Finished() || st.Name() != name {
 					t.Fatalf("ReadHash(%s) = %v, %v", name, st, err)
 				}
-				if slug, _ := vmname.SlugOf(name); !slices.Contains(c.vms, slug) {
+				if slug, _ := name.Slug(); !slices.Contains(c.vms, slug) {
 					t.Errorf("%s: not one of %q", name, c.vms)
 				}
 				// The folder names the same VM today: its hash is the same.
@@ -209,7 +208,7 @@ func TestFixtureVMStates(t *testing.T) {
 func checkFixtureCore(t *testing.T, f stateFixture, st *state.VM, raw map[string]json.RawMessage) {
 	t.Helper()
 	core := map[string]any{
-		"version": float64(f.stateVersion), "id": st.ID, "name": st.Name(), "alias": st.Alias, "image": st.Image,
+		"version": float64(f.stateVersion), "id": st.ID, "name": st.Name().String(), "alias": st.Alias, "image": st.Image,
 		"chain": st.Chain, "dir": st.Dir, "folder": st.Folder, "backend": st.Backend,
 		"backend_at": st.BackendAt, "made_by": st.MadeBy,
 	}

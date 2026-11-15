@@ -161,7 +161,7 @@ func TestUpdateDevcontainer(t *testing.T) {
 	if err := lc.Update(t.Context(), "devvm update", o); err == nil || err.Error() != "no boot" {
 		t.Fatalf("Update: %v", msg.NamesOf(err))
 	}
-	if !slices.Contains(said, "devcontainer_reread file=.devcontainer.json vm="+vm) {
+	if !slices.Contains(said, "devcontainer_reread file=.devcontainer.json vm="+vm.String()) {
 		t.Errorf("said %q", said)
 	}
 	for _, c := range slices.Backward(cleanups) {

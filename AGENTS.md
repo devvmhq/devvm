@@ -11,7 +11,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 | `cmd/devvm/` | the entry point (`ui.Main`); the only `os.Exit` |
 | `internal/cli/` | the command line: one file per Cobra command, the run's services (`app.go`), argument checks, help, `--json`, the CLI tests, `docgen/`; `doc.go` maps it |
 | `internal/vm/` | what each command does to a folder's VM, below the command line; `doc.go` maps the package and its owners |
-| `internal/shell/`, `internal/vmname/` | quoting for a POSIX shell; a project VM's name grammar |
+| `internal/shell/`, `internal/vmname/` | quoting for a POSIX shell; every VM's name (`vmname.VM`, parsed where it's read) and a project VM's name grammar |
 | `internal/project/`, `internal/gitprotect/`, `internal/hostsafety/`, `internal/hostgit/` | a project folder; `.git` protection; the folder's other host checks; every host git command devvm runs |
 | `internal/sshconfig/`, `internal/sshagent/` | the ssh config for running VMs by name; each VM's SSH agent and devvm's own |
 | `internal/build/`, `internal/image/` | building images and their records; image keys and names, and the shared tools' registry (`SharedTools`) |
@@ -86,7 +86,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 - **Cleanups:** whatever a failure would leave (a build VM, a temp file) registers with the UI's `AddCleanup` and is removed once done; one only for interrupts checks `Interrupted()` and stays once interrupted, as the cleanups run after the command returns. Cleanups get a fresh context.
 - **External commands run with the UI's `LoggedCmd(ctx, step, cmd)`**, a failure after one returned as `backend.Logged(m)` ([CLI conventions](docs/content/docs/contributing/cli.md#cli-conventions)).
 - **OS-specific code goes behind build tags** in `internal/platform` (`*_darwin.go`, `*_linux.go`, `*_other.go`).
-- **Dependencies:** the depguard allowlist (cobra, pflag, cobra/doc, go-i18n, BurntSushi/toml, x/text, x/term, x/sys, x/crypto's `blake2b` only (minisign's prehash); go-internal in tests; cobra/doc's own deps never imported directly). `internal/proxy`, `internal/daemon` and `internal/safefile` are stdlib only. Adding one: ask.
+- **Dependencies:** the depguard allowlist (cobra, pflag, cobra/doc, go-i18n, BurntSushi/toml, x/text, x/term, x/sys, x/crypto's `blake2b` only (minisign's prehash); go-internal in tests; cobra/doc's own deps never imported directly). `internal/proxy`, `internal/daemon`, `internal/safefile` and `internal/vmname` are stdlib only. Adding one: ask.
 - **External tools are commands, never linked** (`limactl`, `docker`, `security`, `git`, `chflags`…); prefer the standard library to shelling out. Strings into a shell are quoted with `shell.Quote`.
 - **Test seams are fields** tests set (`Host`, `Exec`, `Runner`, `OS`, `Reporter`…), never package vars (reassign: no package sets another's); `internal/proxy`'s are its `server`'s, which each test makes.
 - **The structure test** holds types to 24 methods, bans `func init`, limits package vars, checks the layers and keeps each concern in its owner (its failure names the owner: extend that); read [The structure test](docs/content/docs/contributing/structure.md#the-structure-test) before raising a limit or listing an exception, and regenerate [the checks on owners](docs/content/docs/contributing/structure.md#the-checks-on-owners) after changing its tables (`go test ./internal/structure -run TestOwnersDoc -update`).

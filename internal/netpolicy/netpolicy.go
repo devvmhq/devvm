@@ -15,6 +15,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Section is the name of the network policy section in a VM's state.
@@ -165,7 +166,7 @@ const BasePolicy = "layers/base.policy"
 // every rule of the user's files applies. On internet, the one built-in
 // policy is InternetPolicy; on none, the VM's agents' policies alone. On
 // either, only the denies of the user's files apply. Open has none.
-func Policies(d paths.Dirs, vm string, t Tier, img image.Name, tools []string) PolicySet {
+func Policies(d paths.Dirs, vm vmname.VM, t Tier, img image.Name, tools []string) PolicySet {
 	var builtin, files []string
 	for _, p := range img.Layers() {
 		switch {

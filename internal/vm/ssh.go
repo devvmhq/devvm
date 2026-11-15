@@ -11,6 +11,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/safefile"
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
@@ -18,7 +19,7 @@ import (
 // --clone VM's fetch: its backend's ssh (reviewed), with the
 // VM's own key and the host keys devvm pinned for its current start, read
 // as they are (vmssh.Checked, vmssh.ReadKeys).
-func (e *Env) ownSSH(ctx context.Context, b backend.Backend, vm string) (vmssh.SSH, error) {
+func (e *Env) ownSSH(ctx context.Context, b backend.Backend, vm vmname.VM) (vmssh.SSH, error) {
 	r, err := vmssh.Checked(ctx, e.Dirs, e.Registry.Review, b, vm, vmssh.ReadKeys)
 	return r.SSH, err
 }

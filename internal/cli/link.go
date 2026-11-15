@@ -8,6 +8,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/ui"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // newLinkCmd is devvm link: this folder's VM's links to other VMs, listed,
@@ -57,13 +58,13 @@ type linkOutput struct {
 }
 
 type linkEntryJSON struct {
-	Name         string `json:"name"`
-	Port         int    `json:"port"`
-	Target       string `json:"target"`
-	TargetFolder string `json:"target_folder"`
-	TargetStatus string `json:"target_status"`
-	Applies      bool   `json:"applies"`
-	Reason       string `json:"reason"`
+	Name         string    `json:"name"`
+	Port         int       `json:"port"`
+	Target       vmname.VM `json:"target"`
+	TargetFolder string    `json:"target_folder"`
+	TargetStatus string    `json:"target_status"`
+	Applies      bool      `json:"applies"`
+	Reason       string    `json:"reason"`
 }
 
 func linkJSON(ls []vm.LinkListed) linkOutput {
@@ -86,7 +87,7 @@ func writeLinks(tab *ui.Table, ls []vm.LinkListed) error {
 		if l.Reason != "" {
 			applies = l.Reason
 		}
-		tab.Row(cell(l.Name), cell(strconv.Itoa(l.Port)), cell(l.Target), cell(l.Folder), cell(l.Status), cell(applies))
+		tab.Row(cell(l.Name), cell(strconv.Itoa(l.Port)), cell(l.Target.String()), cell(l.Folder), cell(l.Status), cell(applies))
 	}
 	return tab.Flush()
 }

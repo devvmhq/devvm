@@ -9,6 +9,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/stubtest"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // strictAsBefore makes the fixture's VM one that an earlier devvm's
@@ -33,7 +34,9 @@ func (f *fixture) ignoreIn(rel string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func (f *fixture) converted() []string { return []string{"git_strict_converted vm=" + f.vm.Name()} }
+func (f *fixture) converted() []string {
+	return []string{"git_strict_converted vm=" + f.vm.Name().String()}
+}
 
 // A strict VM that's running keeps strict until it stops, read as on; the
 // first check that finds it stopped takes diff.ignoreSubmodules = all out
@@ -153,7 +156,7 @@ func TestUnstrictKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.strictAsBefore("a", "b")
-	f.p.Kept = func(string) func(string) msg.M {
+	f.p.Kept = func(vmname.VM) func(string) msg.M {
 		return func(path string) msg.M {
 			if strings.HasPrefix(path, f.path("b")+"/") {
 				return msg.GitKeptLocked("devvm-b-0123456789abcd")

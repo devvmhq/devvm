@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/settings"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // devcontainerEnv is up on a fake backend with a devcontainer.json in the
@@ -117,7 +118,7 @@ func TestUpDevcontainer(t *testing.T) {
 	if err := (Launch{e}).Up(t.Context(), Options{}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if want := "devcontainer_changed file=.devcontainer.json vm=" + st.Name(); !slices.Equal(warned.Names(), []string{want}) {
+	if want := "devcontainer_changed file=.devcontainer.json vm=" + st.Name().String(); !slices.Equal(warned.Names(), []string{want}) {
 		t.Errorf("warned %q, want %q", warned.Names(), want)
 	}
 	// Started again: postStartCommand runs again.
@@ -137,14 +138,14 @@ func TestUpDevcontainer(t *testing.T) {
 func TestUpDevcontainerCommandFails(t *testing.T) {
 	e, f, warned := devcontainerTestEnv(t, `{"onCreateCommand": "false", "postCreateCommand": "true", "postStartCommand": "echo hi"}`)
 	hostKeys := f.ExecFunc // the forwarder's
-	f.ExecFunc = func(vm string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(vm vmname.VM, argv []string, o backend.ExecOpts) error {
 		if slices.Contains(argv, "false") {
 			return errors.New("exit status 1")
 		}
 		return hostKeys(vm, argv, o)
 	}
 	st := existingVM(t, e, Options{Network: "open"})
-	if want := "devcontainer_command_failed command=onCreateCommand vm=" + st.Name(); !slices.Equal(warned.Names(), []string{want}) {
+	if want := "devcontainer_command_failed command=onCreateCommand vm=" + st.Name().String(); !slices.Equal(warned.Names(), []string{want}) {
 		t.Errorf("warned %q, want %q", warned.Names(), want)
 	}
 	if cmds, _ := commandsRun(f); !slices.Equal(cmds, []string{"sh -c false", "sh -c echo hi"}) {

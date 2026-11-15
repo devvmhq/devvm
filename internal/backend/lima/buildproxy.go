@@ -9,6 +9,7 @@ import (
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/shell"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A build behind a company proxy (the host's HTTPS_PROXY or HTTP_PROXY)
@@ -55,7 +56,7 @@ func buildUpstream(ctx context.Context, cp *settings.CompanyProxy, n backend.Net
 // the proxy and with ok deletes its folder (a failed build keeps its
 // logs). Without a company proxy, nothing is started and the scripts get
 // nothing.
-func buildProxy(ctx context.Context, l *Lima, vm string, n backend.Net) (backend.Confinement, backend.HostProxy, func(ok bool), error) {
+func buildProxy(ctx context.Context, l *Lima, vm vmname.VM, n backend.Net) (backend.Confinement, backend.HostProxy, func(ok bool), error) {
 	c := backend.Confinement{Net: n}
 	none := func(bool) {}
 	host, up, err := buildUpstream(ctx, l.Company, n)

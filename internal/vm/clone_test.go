@@ -19,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/project"
 	"github.com/devvmhq/devvm/internal/stubtest"
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
@@ -57,7 +58,7 @@ func cloneEnv(t *testing.T) (e *Env, f *backendtest.Fake, vmfs string) {
 	gitIn(t, e.Dir, "init", "-q", "-b", "main")
 	gitIn(t, e.Dir, "commit", "-q", "--allow-empty", "-m", "one")
 	f.Target = backend.SSHTarget{Host: "127.0.0.1", Port: 60022, User: "u", Key: "/k"}
-	f.ExecFunc = func(_ string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
 		var cmd *exec.Cmd
 		switch {
 		case len(argv) == 3 && strings.Contains(argv[2], "ssh_host_") && o.Stdout != nil:
@@ -98,7 +99,7 @@ func TestUpClone(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, got, want)
 		}
 	}
-	if got := gitIn(t, e.Dir, "remote", "get-url", "devvm"); got != vm+":"+e.Dir {
+	if got := gitIn(t, e.Dir, "remote", "get-url", "devvm"); got != vm.String()+":"+e.Dir {
 		t.Errorf("remote = %q", got)
 	}
 	clone := vmfs + e.Dir
@@ -308,7 +309,7 @@ func TestCloneRm(t *testing.T) {
 func TestCloneRmStartsAsLaunch(t *testing.T) {
 	e, f, _ := cloneEnv(t)
 	inner, direct := f.ExecFunc, false
-	f.ExecFunc = func(vm string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(vm vmname.VM, argv []string, o backend.ExecOpts) error {
 		if argv[0] == "curl" && !direct {
 			return errors.New("curl: (7) Failed to connect")
 		}
@@ -326,13 +327,13 @@ func TestCloneRmStartsAsLaunch(t *testing.T) {
 	before := len(f.Calls())
 	err := (Lifecycle{e}).Rm(t.Context(), RmOptions{Force: true})
 	// What kept it from starting is said, then the way out, carrying it.
-	if msg.NamesOf(err) != "clone_check_not_started command=devvm rm vm="+vm {
+	if msg.NamesOf(err) != "clone_check_not_started command=devvm rm vm="+vm.String() {
 		t.Errorf("gets out directly: %v", msg.NamesOf(err))
 	}
-	if !slices.Contains(warned.Names(), "net_direct_route vm="+vm) {
+	if !slices.Contains(warned.Names(), "net_direct_route vm="+vm.String()) {
 		t.Errorf("warned %q", warned.Names())
 	}
-	if msg.NamesOf(errors.Unwrap(err)) != "net_direct_route vm="+vm {
+	if msg.NamesOf(errors.Unwrap(err)) != "net_direct_route vm="+vm.String() {
 		t.Errorf("cause %v", errors.Unwrap(err))
 	}
 	// Nothing ran in it but the self-check, and the read of its host keys
@@ -588,7 +589,7 @@ func TestCloneRmTooManyWorktrees(t *testing.T) {
 		list.WriteString(rec("path", 0, fmt.Sprintf("w%d", i)) + rec("wstatus", 0, ""))
 	}
 	inner := f.ExecFunc
-	f.ExecFunc = func(name string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(name vmname.VM, argv []string, o backend.ExecOpts) error {
 		if len(argv) > 2 && argv[2] == cloneState {
 			_, err := o.Stdout.Write([]byte(list.String()))
 			return err
@@ -838,8 +839,8 @@ func TestFreeRemote(t *testing.T) {
 		{want: "devvm"},
 		{add: [2]string{"devvm", "https://example.com/a"}, want: "devvm-web"},
 		{add: [2]string{"devvm-web", url}, want: "devvm-web"},
-		{add: [2]string{"devvm-web", "https://example.com/b"}, want: f.Name},
-		{add: [2]string{f.Name, "https://example.com/c"}, want: "error remotes_taken slug=web vm=" + f.Name},
+		{add: [2]string{"devvm-web", "https://example.com/b"}, want: f.Name.String()},
+		{add: [2]string{f.Name.String(), "https://example.com/c"}, want: "error remotes_taken slug=web vm=" + f.Name.String()},
 	} {
 		if c.add[0] != "" {
 			_, _ = hostGit(t.Context(), dir, "remote", "remove", c.add[0])
@@ -863,7 +864,7 @@ func TestRemoveRemote(t *testing.T) {
 	e := &Env{}
 	got := printed(t, e, false)
 	dir := t.TempDir()
-	vm := "devvm-web-0123456789abcd"
+	vm := vmname.VM("devvm-web-0123456789abcd")
 	gitIn(t, dir, "init", "-q", "-b", "main")
 	gitIn(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
 	gitIn(t, dir, "remote", "add", "devvm", "https://example.com/mine")

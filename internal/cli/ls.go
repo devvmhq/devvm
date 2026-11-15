@@ -12,6 +12,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/ui"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // newLsCmd is devvm ls.
@@ -51,9 +52,9 @@ type lsOutput struct {
 }
 
 type vmJSON struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Image  string `json:"image"`
+	Name   vmname.VM `json:"name"`
+	Status string    `json:"status"`
+	Image  string    `json:"image"`
 	// Tools is its shared tools: node, claude.
 	Tools []string `json:"tools"`
 	From  string   `json:"from,omitempty"`
@@ -136,7 +137,7 @@ func writeList(tab *ui.Table, ls []vm.Listed) error {
 		if shown := netpolicy.Shown(l.Net, !l.Learning.IsZero()); shown != l.Net {
 			net = ui.Cell{Text: shown, Role: ui.Attention}
 		}
-		tab.Row(cell(l.Name), cellAs(l.Status, vmStatuses), cell(image), cell(strings.Join(l.Tools, ",")), cellAs(l.Git, gitModes),
+		tab.Row(cell(l.Name.String()), cellAs(l.Status, vmStatuses), cell(image), cell(strings.Join(l.Tools, ",")), cellAs(l.Git, gitModes),
 			net, cell(links), folder)
 	}
 	return tab.Flush()

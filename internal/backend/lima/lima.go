@@ -40,9 +40,6 @@ import (
 // Name is the backend's name.
 const Name = "lima"
 
-// ImagePrefix starts the name of every image's instance: devvm-img-<key>.
-const ImagePrefix = "devvm-img-"
-
 // sshTimeout is how long a VM that Lima says is running, after a start
 // Lima reports as failed, gets to answer over ssh.
 const sshTimeout = 60 * time.Second
@@ -368,14 +365,6 @@ func (l *host) NameMax() int {
 	return max(0, paths.SocketMax-1-sshSocketExtra-len(l.Dirs.Lima)-len("/")-len("/ssh.sock"))
 }
 
-// imageKey returns the key of an image's instance, and whether it is one.
-// A folder named img-… gives devvm-img-…-<hash>, a project VM's name, so
-// starting with ImagePrefix alone doesn't make an image.
-func imageKey(name string) (string, bool) {
-	key, ok := strings.CutPrefix(name, ImagePrefix)
-	return key, ok && key != "" && !vmname.IsVM(name)
-}
-
 // Images lists the keys of the images in devvm's Lima home.
 func (l *images) Images(ctx context.Context) ([]string, error) {
 	ins, err := l.list(ctx)
@@ -384,7 +373,7 @@ func (l *images) Images(ctx context.Context) ([]string, error) {
 	}
 	var keys []string
 	for _, in := range ins {
-		if k, ok := imageKey(in.Name); ok {
+		if k, ok := in.Name.ImageKey(); ok {
 			keys = append(keys, k)
 		}
 	}
@@ -395,9 +384,9 @@ func (l *images) Images(ctx context.Context) ([]string, error) {
 // and Lima's files. On macOS an image's disk is an APFS clone of its
 // parent's, so the blocks they share count for both.
 func (l *images) ImageSize(_ context.Context, key string) (int64, error) {
-	name := ImagePrefix + key
-	if _, ok := imageKey(name); !ok || strings.ContainsAny(key, "/\x00") {
-		return 0, msg.NotAnImage(name)
+	name, err := vmname.Image(key)
+	if err != nil {
+		return 0, msg.NotAnImage(vmname.ImagePrefix + key)
 	}
 	return platform.DiskUsage(l.Dirs.LimaVM(name))
 }
@@ -405,9 +394,9 @@ func (l *images) ImageSize(_ context.Context, key string) (int64, error) {
 // DeleteImage deletes an image. On Linux hosts, an image whose disk
 // project VMs are overlays of is refused.
 func (l *images) DeleteImage(ctx context.Context, key string) error {
-	name := ImagePrefix + key
-	if _, ok := imageKey(name); !ok || strings.ContainsAny(key, "/\x00") {
-		return msg.NotAnImage(name)
+	name, err := vmname.Image(key)
+	if err != nil {
+		return msg.NotAnImage(vmname.ImagePrefix + key)
 	}
 	if _, err := l.inspect(ctx, name); errors.Is(err, backend.ErrNotFound) {
 		return nil
@@ -420,7 +409,7 @@ func (l *images) DeleteImage(ctx context.Context, key string) error {
 			return err
 		}
 		if len(users) > 0 {
-			return msg.ImageInUse(key, strings.Join(users, " "))
+			return msg.ImageInUse(key, vmname.Join(users, " "))
 		}
 	}
 	return l.delete(ctx, name)
@@ -433,7 +422,10 @@ func (l *machines) CreateVM(ctx context.Context, image string, spec backend.VMSp
 	if len(vm) > l.NameMax() {
 		return msg.LimaHomeTooLong(l.Dirs.Lima, vm)
 	}
-	src := ImagePrefix + image
+	src, err := vmname.Image(image)
+	if err != nil {
+		return msg.ImageMissing(image)
+	}
 	img, err := l.inspect(ctx, src)
 	if errors.Is(err, backend.ErrNotFound) {
 		return msg.ImageMissing(image)
@@ -465,7 +457,7 @@ func (l *machines) CreateVM(ctx context.Context, image string, spec backend.VMSp
 	// off, and a clone keeps its config), so a start without network
 	// policy edits nothing (Start).
 	args := []string{
-		"clone", "--tty=false", src, vm, "--mount-none",
+		"clone", "--tty=false", src.String(), vm.String(), "--mount-none",
 		"--set", mounts,
 		"--set", ".ssh.forwardAgent=" + strconv.FormatBool(spec.AgentForwarding),
 		"--set", ".ssh.localPort=" + strconv.Itoa(spec.SSHPort),
@@ -501,7 +493,7 @@ func (l *machines) CreateVM(ctx context.Context, image string, spec backend.VMSp
 // broken, such as a VM whose start was cut short before its hostagent
 // answers, is stopped with --force, as limactl stop refuses it. One whose
 // hostagent is still starting its driver is waited for first (settled).
-func (l *machines) Stop(ctx context.Context, vm string) error {
+func (l *machines) Stop(ctx context.Context, vm vmname.VM) error {
 	in, err := l.settled(ctx, vm)
 	if err != nil {
 		return err
@@ -529,7 +521,7 @@ const driverPoll = 100 * time.Millisecond
 // starting QEMU, which writes its pid file only once it runs. Stopped
 // with --force then, the hostagent would go and the QEMU it started would
 // run on without it, a VM the next start can't start.
-func (l *machines) settled(ctx context.Context, vm string) (instance, error) {
+func (l *machines) settled(ctx context.Context, vm vmname.VM) (instance, error) {
 	deadline := time.Now().Add(l.DriverWait)
 	for {
 		in, err := l.inspect(ctx, vm)
@@ -545,8 +537,8 @@ func (l *machines) settled(ctx context.Context, vm string) (instance, error) {
 	}
 }
 
-func (l *Lima) stop(ctx context.Context, vm string, opts ...string) error {
-	args := slices.Concat([]string{"stop"}, opts, []string{vm})
+func (l *Lima) stop(ctx context.Context, vm vmname.VM, opts ...string) error {
+	args := slices.Concat([]string{"stop"}, opts, []string{vm.String()})
 	if err := l.Runner.Run(ctx, msg.Stopping(vm), l.limactl(ctx, args...)); err != nil {
 		return backend.Logged(msg.StopFailed(vm))
 	}
@@ -554,7 +546,7 @@ func (l *Lima) stop(ctx context.Context, vm string, opts ...string) error {
 }
 
 // Delete deletes a VM, stopping it first.
-func (l *machines) Delete(ctx context.Context, vm string) error {
+func (l *machines) Delete(ctx context.Context, vm vmname.VM) error {
 	if _, err := l.inspect(ctx, vm); err != nil {
 		return err
 	}
@@ -565,11 +557,11 @@ func (l *machines) Delete(ctx context.Context, vm string) error {
 // VM: an image's, the tools build's) loses its whole folder in devvm's
 // data folder too, its sandbox profile and records; a project VM's is its
 // teardown's.
-func (l *Lima) delete(ctx context.Context, vm string) error {
-	if err := l.Runner.Run(ctx, msg.Deleting(shown(ctx, vm)), l.limactl(ctx, "delete", "-f", vm)); err != nil {
+func (l *Lima) delete(ctx context.Context, vm vmname.VM) error {
+	if err := l.Runner.Run(ctx, msg.Deleting(shown(ctx, vm)), l.limactl(ctx, "delete", "-f", vm.String())); err != nil {
 		return backend.Logged(msg.DeleteFailed(vm))
 	}
-	if vmname.IsVM(vm) {
+	if vm.IsProject() {
 		return nil
 	}
 	return os.RemoveAll(l.Dirs.VM(vm).Dir)
@@ -578,7 +570,7 @@ func (l *Lima) delete(ctx context.Context, vm string) error {
 // Rename renames a stopped VM's instance (limactl rename), its disk and
 // Lima's files with it; devvm's files for it keep the old name. A name too
 // long for the VM's ssh socket is refused first.
-func (l *machines) Rename(ctx context.Context, vm, to string) error {
+func (l *machines) Rename(ctx context.Context, vm, to vmname.VM) error {
 	if len(to) > l.NameMax() {
 		return msg.LimaHomeTooLong(l.Dirs.Lima, to)
 	}
@@ -590,8 +582,8 @@ func (l *machines) Rename(ctx context.Context, vm, to string) error {
 	if backend.Status(in.Status) != backend.StatusStopped {
 		return fmt.Errorf("lima: %s isn't stopped", vm)
 	}
-	if err := l.Runner.Run(ctx, msg.Renaming(to, vm), l.limactl(ctx, "rename", "--tty=false", vm, to)); err != nil {
-		return backend.Logged(msg.RenameFailed(to, vm))
+	if err := l.Runner.Run(ctx, msg.Renaming(to.String(), vm), l.limactl(ctx, "rename", "--tty=false", vm.String(), to.String())); err != nil {
+		return backend.Logged(msg.RenameFailed(to.String(), vm))
 	}
 	return nil
 }
@@ -604,7 +596,7 @@ func (l *machines) List(ctx context.Context) ([]backend.Instance, error) {
 	}
 	var out []backend.Instance
 	for _, in := range ins {
-		if _, ok := imageKey(in.Name); !ok {
+		if _, ok := in.Name.ImageKey(); !ok {
 			out = append(out, in.backend())
 		}
 	}
@@ -612,7 +604,7 @@ func (l *machines) List(ctx context.Context) ([]backend.Instance, error) {
 }
 
 // Inspect returns one VM.
-func (l *machines) Inspect(ctx context.Context, vm string) (backend.Instance, error) {
+func (l *machines) Inspect(ctx context.Context, vm vmname.VM) (backend.Instance, error) {
 	in, err := l.inspect(ctx, vm)
 	if err != nil {
 		return backend.Instance{}, err
@@ -646,12 +638,12 @@ func (in instance) backend() backend.Instance {
 // Exec runs argv in the VM, in o.Dir. limactl shell passes each of its
 // arguments to the guest's shell quoted; the command devvm builds for it
 // (the folder, then argv) is quoted word by word too.
-func (l *machines) Exec(ctx context.Context, vm string, argv []string, o backend.ExecOpts) error {
+func (l *machines) Exec(ctx context.Context, vm vmname.VM, argv []string, o backend.ExecOpts) error {
 	dir := o.Dir
 	if dir == "" {
 		dir = "/"
 	}
-	cmd := l.limactl(ctx, "shell", "--workdir", "/", vm, "sh", "-c", "cd "+shell.Quote(dir)+" && exec "+shell.QuoteJoin(argv))
+	cmd := l.limactl(ctx, "shell", "--workdir", "/", vm.String(), "sh", "-c", "cd "+shell.Quote(dir)+" && exec "+shell.QuoteJoin(argv))
 	withAgent(cmd, o.Agent)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = o.Stdin, o.Stdout, o.Stderr
 	return l.Runner.Attach(cmd)
@@ -659,8 +651,8 @@ func (l *machines) Exec(ctx context.Context, vm string, argv []string, o backend
 
 // Shell returns limactl shell in o.Dir, carrying o.Agent, for the caller
 // to run in its place.
-func (l *machines) Shell(ctx context.Context, vm string, o backend.ShellOpts) (backend.Command, error) {
-	cmd := l.limactl(ctx, "shell", "--workdir", o.Dir, vm)
+func (l *machines) Shell(ctx context.Context, vm vmname.VM, o backend.ShellOpts) (backend.Command, error) {
+	cmd := l.limactl(ctx, "shell", "--workdir", o.Dir, vm.String())
 	withAgent(cmd, o.Agent)
 	if cmd.Err != nil {
 		return backend.Command{}, cmd.Err
@@ -680,7 +672,7 @@ var sshLogin = []string{
 // SSH returns how ssh reaches a running VM: the address, port, user, key
 // (its first IdentityFile, Lima's _config/user) and login options in the
 // ssh config Lima keeps for it.
-func (l *machines) SSH(ctx context.Context, vm string) (backend.SSHTarget, error) {
+func (l *machines) SSH(ctx context.Context, vm vmname.VM) (backend.SSHTarget, error) {
 	in, err := l.inspect(ctx, vm)
 	if err != nil {
 		return backend.SSHTarget{}, err
@@ -816,7 +808,7 @@ func gibString(g float64) string { return strconv.FormatFloat(g, 'g', -1, 64) }
 // share blocks already.)
 func (l *Lima) overlays() bool { return l.OS == "linux" }
 
-func (l *Lima) disk(vm string) string { return filepath.Join(l.Dirs.LimaVM(vm), "disk") }
+func (l *Lima) disk(vm vmname.VM) string { return filepath.Join(l.Dirs.LimaVM(vm), "disk") }
 
 func qemuImg(ctx context.Context, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, "qemu-img", args...) //nolint:gosec // devvm's own arguments
@@ -843,7 +835,7 @@ func (l *Lima) diskInfo(ctx context.Context, path string) (qemuImgInfo, error) {
 // overlay replaces vm's copy of src's disk with a qcow2 overlay of it: the
 // image's blocks are shared and the VM's disk holds only its changes. A
 // disk that isn't qcow2 (Lima's layout changed) is kept as it is.
-func (l *machines) overlay(ctx context.Context, src, vm string) error {
+func (l *machines) overlay(ctx context.Context, src, vm vmname.VM) error {
 	img, disk := l.disk(src), l.disk(vm)
 	if fi, err := os.Stat(img); err != nil || !fi.Mode().IsRegular() {
 		return nil //nolint:nilerr // no qcow2 disk to share: keep the copy
@@ -865,14 +857,14 @@ func (l *machines) overlay(ctx context.Context, src, vm string) error {
 }
 
 // overlayUsers returns the VMs whose disks are overlays of image's.
-func (l *images) overlayUsers(ctx context.Context, image string) ([]string, error) {
+func (l *images) overlayUsers(ctx context.Context, image vmname.VM) ([]vmname.VM, error) {
 	ins, err := l.list(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var users []string
+	var users []vmname.VM
 	for _, in := range ins {
-		if _, ok := imageKey(in.Name); ok {
+		if _, ok := in.Name.ImageKey(); ok {
 			continue
 		}
 		if _, err := os.Stat(l.disk(in.Name)); err != nil {

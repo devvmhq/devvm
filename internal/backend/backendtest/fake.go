@@ -19,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Call is one call to the fake: the method's name and its arguments after
@@ -40,8 +41,8 @@ type Fake struct {
 
 	BackendName  string
 	Capabilities backend.Caps
-	NameLimit    int                         // NameMax's answer: CreateVM and Rename refuse longer names
-	Instances    map[string]backend.Instance // by name
+	NameLimit    int                            // NameMax's answer: CreateVM and Rename refuse longer names
+	Instances    map[vmname.VM]backend.Instance // by name
 	ImageKeys    []string
 	// ImageVMSize is the size a VM CreateVM makes has where its Want
 	// leaves it unset, its image's: New sets 4 CPUs, 8 GiB of memory and
@@ -64,14 +65,14 @@ type Fake struct {
 	// if anything, after recording the call, the VM left stopped: a
 	// backend that stopped it again (a RemountError). It's called with
 	// the fake locked.
-	StartErr func(vm string, w backend.Want) error
+	StartErr func(vm vmname.VM, w backend.Want) error
 	// PackagesOut is the tar stream a build's packages give back, read by
 	// its Take (none: empty); PackagesSent is what the last build's Send
 	// wrote.
 	PackagesOut, PackagesSent []byte
 	// ExecFunc, when set, is what Exec returns after recording the call
 	// (Errs aside).
-	ExecFunc func(vm string, argv []string, o backend.ExecOpts) error
+	ExecFunc func(vm vmname.VM, argv []string, o backend.ExecOpts) error
 	Errs     map[string]error // by method name: returned in place of its answer, changing nothing
 	// ToolsBuild, when set, is what BuildTools does after recording the
 	// call, in place of writing the images.
@@ -82,8 +83,8 @@ type Fake struct {
 
 	mu     sync.Mutex
 	calls  []Call
-	nets   map[string]backend.Net // by name: the network Start last started it with
-	starts map[string]int         // by name: how many starts it had
+	nets   map[vmname.VM]backend.Net // by name: the network Start last started it with
+	starts map[vmname.VM]int         // by name: how many starts it had
 }
 
 // The fake's roles, each with the Fake it's part of.
@@ -105,7 +106,7 @@ func New(name string, caps backend.Caps) *Fake {
 	}
 	maps.Copy(all, caps)
 	f := &Fake{
-		BackendName: name, Capabilities: all, Instances: map[string]backend.Instance{},
+		BackendName: name, Capabilities: all, Instances: map[vmname.VM]backend.Instance{},
 		ImageVMSize: backend.Size{CPUs: 4, MemoryGiB: 8, DiskGiB: 100},
 	}
 	f.host, f.images, f.machines, f.housekeeping = host{f}, images{f}, machines{f}, housekeeping{f}
@@ -136,7 +137,7 @@ func (f *Fake) record(method string, args ...any) error {
 }
 
 // change applies fn to an instance. The caller holds the lock.
-func (f *Fake) change(vm string, fn func(*backend.Instance)) error {
+func (f *Fake) change(vm vmname.VM, fn func(*backend.Instance)) error {
 	in, ok := f.Instances[vm]
 	if !ok {
 		return fmt.Errorf("%s: %w", vm, backend.ErrNotFound)
@@ -333,7 +334,7 @@ func (f *machines) CreateVM(_ context.Context, image string, spec backend.VMSpec
 		return fmt.Errorf("%s: longer than %d", spec.Name, f.NameLimit)
 	}
 	if f.Instances == nil {
-		f.Instances = map[string]backend.Instance{}
+		f.Instances = map[vmname.VM]backend.Instance{}
 	}
 	in := backend.Instance{Name: spec.Name, Status: backend.StatusStopped, Size: f.ImageVMSize}
 	backend.Apply(&in, spec.Want)
@@ -345,7 +346,7 @@ func (f *machines) CreateVM(_ context.Context, image string, spec backend.VMSpec
 // Start records the call and starts a stopped instance, made what w wants
 // first (backend.Validate's refusal returned), on a start of its own,
 // confined as c says. A running one is left as it is.
-func (f *machines) Start(_ context.Context, vm string, w backend.Want, c backend.Confinement) error {
+func (f *machines) Start(_ context.Context, vm vmname.VM, w backend.Want, c backend.Confinement) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.record("Start", vm, w, c); err != nil {
@@ -382,7 +383,7 @@ func (f *machines) Start(_ context.Context, vm string, w backend.Want, c backend
 // start Start made with NetProxy, as a backend says. A VM a test preset
 // running in Instances is confined unless Unconfined; a stopped one, or
 // one the fake doesn't hold, never is, as for every backend.
-func (f *machines) Running(_ context.Context, vm string) (backend.Run, error) {
+func (f *machines) Running(_ context.Context, vm vmname.VM) (backend.Run, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.record("Running", vm); err != nil {
@@ -401,7 +402,7 @@ func (f *machines) Running(_ context.Context, vm string) (backend.Run, error) {
 }
 
 // Stop records the call and marks the instance stopped.
-func (f *machines) Stop(_ context.Context, vm string) error {
+func (f *machines) Stop(_ context.Context, vm vmname.VM) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.record("Stop", vm); err != nil {
@@ -411,7 +412,7 @@ func (f *machines) Stop(_ context.Context, vm string) error {
 }
 
 // Delete records the call and removes the instance.
-func (f *machines) Delete(_ context.Context, vm string) error {
+func (f *machines) Delete(_ context.Context, vm vmname.VM) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.record("Delete", vm); err != nil {
@@ -423,7 +424,7 @@ func (f *machines) Delete(_ context.Context, vm string) error {
 
 // Rename records the call and gives the instance its new name; one that
 // runs, a name an instance has or one longer than NameLimit is refused.
-func (f *machines) Rename(_ context.Context, vm, to string) error {
+func (f *machines) Rename(_ context.Context, vm, to vmname.VM) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.record("Rename", vm, to); err != nil {
@@ -465,7 +466,7 @@ func (f *machines) List(context.Context) ([]backend.Instance, error) {
 }
 
 // Inspect records the call and returns the instance.
-func (f *machines) Inspect(_ context.Context, vm string) (backend.Instance, error) {
+func (f *machines) Inspect(_ context.Context, vm vmname.VM) (backend.Instance, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.record("Inspect", vm); err != nil {
@@ -479,7 +480,7 @@ func (f *machines) Inspect(_ context.Context, vm string) (backend.Instance, erro
 }
 
 // Exec records the call.
-func (f *machines) Exec(_ context.Context, vm string, argv []string, o backend.ExecOpts) error {
+func (f *machines) Exec(_ context.Context, vm vmname.VM, argv []string, o backend.ExecOpts) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.record("Exec", vm, slices.Clone(argv), o); err != nil {
@@ -520,7 +521,7 @@ func (c *counted) Write(p []byte) (int, error) {
 
 // Restart stands for a start of vm outside devvm: it runs, on a start of
 // its own, unconfined.
-func (f *Fake) Restart(vm string) {
+func (f *Fake) Restart(vm vmname.VM) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	_ = f.change(vm, func(in *backend.Instance) { in.Status = backend.StatusRunning })
@@ -530,17 +531,17 @@ func (f *Fake) Restart(vm string) {
 
 // setNet notes the network vm last started with. The caller holds the
 // lock.
-func (f *Fake) setNet(vm string, n backend.Net) {
+func (f *Fake) setNet(vm vmname.VM, n backend.Net) {
 	if f.nets == nil {
-		f.nets = map[string]backend.Net{}
+		f.nets = map[vmname.VM]backend.Net{}
 	}
 	f.nets[vm] = n
 }
 
 // bump gives vm's next start. The caller holds the lock.
-func (f *Fake) bump(vm string) {
+func (f *Fake) bump(vm vmname.VM) {
 	if f.starts == nil {
-		f.starts = map[string]int{}
+		f.starts = map[vmname.VM]int{}
 	}
 	f.starts[vm]++
 }
@@ -555,7 +556,7 @@ func (f *machines) ProxyURL(c backend.Confinement) string {
 }
 
 // Shell records the call and returns ShellCmd.
-func (f *machines) Shell(_ context.Context, vm string, o backend.ShellOpts) (backend.Command, error) {
+func (f *machines) Shell(_ context.Context, vm vmname.VM, o backend.ShellOpts) (backend.Command, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.record("Shell", vm, o); err != nil {
@@ -565,7 +566,7 @@ func (f *machines) Shell(_ context.Context, vm string, o backend.ShellOpts) (bac
 }
 
 // SSH records the call and returns Target for a running instance.
-func (f *machines) SSH(_ context.Context, vm string) (backend.SSHTarget, error) {
+func (f *machines) SSH(_ context.Context, vm vmname.VM) (backend.SSHTarget, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.record("SSH", vm); err != nil {

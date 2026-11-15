@@ -20,10 +20,11 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // OCIVM is the throwaway VM a container image is converted in (--from).
-const OCIVM = "devvm-oci-build"
+const OCIVM vmname.VM = "devvm-oci-build"
 
 // convertedSize is the converted disk's size; Lima grows it to base's
 // (backend.BaseDiskGiB, base's origin's disk).
@@ -133,7 +134,7 @@ func (l *images) convert(ctx context.Context, f *backend.From, o origin, size ba
 	// build.sh's step's arguments, as given, after the folders; the
 	// digest is "-" for Docker's export.
 	script := filepath.Join(oci, "build.sh")
-	args := slices.Concat([]string{"shell", "--workdir", "/", OCIVM, "sudo", "bash", script, oci, vmOut, ref}, o.conversion[0].Args[1:])
+	args := slices.Concat([]string{"shell", "--workdir", "/", OCIVM.String(), "sudo", "bash", script, oci, vmOut, ref}, o.conversion[0].Args[1:])
 	if len(trust.Data) > 0 {
 		args = append(args, filepath.Join(guest, "ca.sh"))
 	}

@@ -72,7 +72,7 @@ stdout '^==> creating_from image=docker\+extra vm=devvm-web-[0-9a-f]{14}$'
 # The commands: once, in order (named ones sorted), then postStartCommand;
 # in the VM, as its user, in the project folder, in a login shell; then
 # the shell.
-stdout '^==> running_script script=onCreateCommand vm=devvm-web-[0-9a-f]{14}\n==> running_script script=postCreateCommand a vm=devvm-web-[0-9a-f]{14}\n==> running_script script=postCreateCommand b vm=devvm-web-[0-9a-f]{14}\n==> running_script script=postStartCommand vm=devvm-web-[0-9a-f]{14}\n'
+stdout '^==> running_script script=onCreateCommand what=devvm-web-[0-9a-f]{14}\n==> running_script script=postCreateCommand a what=devvm-web-[0-9a-f]{14}\n==> running_script script=postCreateCommand b what=devvm-web-[0-9a-f]{14}\n==> running_script script=postStartCommand what=devvm-web-[0-9a-f]{14}\n'
 stub_calls
 stdout '^limactl shell --workdir / devvm-web-[0-9a-f]{14} sh -c cd ''/\S*/web'' && exec ''bash'' ''-lc'' ''exec "\$@"'' ''devvm'' ''sh'' ''-c'' ''echo made > ~/made''\n'
 stdout '^limactl shell --workdir / devvm-web-[0-9a-f]{14} sh -c cd ''/\S*/web'' && exec ''bash'' ''-lc'' ''exec "\$@"'' ''devvm'' ''touch'' ''b''\nlimactl shell --workdir / devvm-web-[0-9a-f]{14} sh -c cd ''/\S*/web'' && exec ''bash'' ''-lc'' ''exec "\$@"'' ''devvm'' ''sh'' ''-c'' ''echo started >> ~/started''\n(limactl list --json\n)*limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
@@ -126,7 +126,7 @@ exec devvm
 exec devvm stop
 stub_reset
 exec devvm
-stdout '^==> running_script script=postStartCommand vm=devvm-web-[0-9a-f]{14}$'
+stdout '^==> running_script script=postStartCommand what=devvm-web-[0-9a-f]{14}$'
 ! stdout 'running_script script=(onCreate|postCreate)'
 stub_calls
 stdout 'echo started >> ~/started'
@@ -142,7 +142,7 @@ exec devvm --network open
 stdout '^new_vm_toolchains_none\nnew_vm_agents_none\nnew_vm_layer_for file=\.devcontainer\.json layer=docker\n'
 stderr '^devvm: devcontainer_command_failed command=postCreateCommand a vm=devvm-fail-[0-9a-f]{14}$'
 ! stdout 'running_script script=postCreateCommand b'
-stdout '^==> running_script script=postStartCommand vm=devvm-fail-[0-9a-f]{14}$'
+stdout '^==> running_script script=postStartCommand what=devvm-fail-[0-9a-f]{14}$'
 stub_calls
 stdout '^limactl shell --workdir /\S*/fail devvm-fail-[0-9a-f]{14}\n\z'
 rm $STUB_DIR/shell-fails-on
@@ -232,7 +232,7 @@ exec devvm update --force
 stdout '^==> devcontainer_reread file=\.devcontainer\.json vm=devvm-upd-[0-9a-f]{14}$'
 stdout '^==> building_image_from from=node@sha256:b{64} image=base key=[0-9a-f]{12}$'
 stdout '^==> creating_from image=base vm=devvm-upd-[0-9a-f]{14}$'
-stdout '^==> running_script script=postCreateCommand vm=devvm-upd-[0-9a-f]{14}$'
+stdout '^==> running_script script=postCreateCommand what=devvm-upd-[0-9a-f]{14}$'
 stdout '^==> remade image=base vm=devvm-upd-[0-9a-f]{14}$'
 stub_calls
 stdout 'limactl rename --tty=false devvm-upd-[0-9a-f]{14} devvm-[0-9a-f]{14}-old\n(.*\n)*.*tar -xzf - --skip-old-files.*\n(.*\n)*limactl delete -f devvm-[0-9a-f]{14}-old\n'

@@ -44,11 +44,11 @@ stdout '^  "made_by": "\S+"$'
 # Each step is numbered in the run log, and the count is what ran.
 catg $DATA/logs/runs/*.log
 stdout '^# \[1/7\] creating_from_ubuntu vm=devvm-img-'
-stdout '^# \[2/7\] configuring vm=devvm-img-'
-stdout '^# \[3/7\] starting vm=devvm-img-'
-stdout '^# \[4/7\] running_script script=apt\.sh vm=devvm-img-'
-stdout '^# \[5/7\] running_script script=base\.sh vm=devvm-img-'
-stdout '^# \[6/7\] running_script script=apt\.sh vm=devvm-img-'
+stdout '^# \[2/7\] configuring what=devvm-img-'
+stdout '^# \[3/7\] starting what=devvm-img-'
+stdout '^# \[4/7\] running_script script=apt\.sh what=devvm-img-'
+stdout '^# \[5/7\] running_script script=base\.sh what=devvm-img-'
+stdout '^# \[6/7\] running_script script=apt\.sh what=devvm-img-'
 stdout '^# \[7/7\] stopping vm=devvm-img-'
 ! stdout '\[8/7\]'
 

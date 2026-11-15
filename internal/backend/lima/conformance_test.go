@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend/backendtest"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/stubtest"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // conformanceSubject is l, holding base's dummy image, as the
@@ -26,7 +27,7 @@ func conformanceSubject(t *testing.T, l *Lima) backendtest.Subject {
 	if _, err := l.createFromUbuntu(t.Context(), dummyBase, yaml, backend.Size{CPUs: 2, MemoryGiB: 3}); err != nil {
 		t.Fatal(err)
 	}
-	return backendtest.Subject{Backend: l, Image: strings.TrimPrefix(dummyBase, ImagePrefix), Dir: filepath.Join(l.Dirs.Home, "conformance")}
+	return backendtest.Subject{Backend: l, Image: strings.TrimPrefix(string(dummyBase), vmname.ImagePrefix), Dir: filepath.Join(l.Dirs.Home, "conformance")}
 }
 
 // Lima keeps backend.Backend's contract, on the limactl stub, whose VMs
@@ -45,9 +46,9 @@ func TestConformance(t *testing.T) {
 			s.Boots = true
 			// A start outside Start: limactl's own, on a hostagent of
 			// its own, which lasts.
-			s.Restart = func(ctx context.Context, vm string) error {
+			s.Restart = func(ctx context.Context, vm vmname.VM) error {
 				stubs.Write(t, "hostagent", strconv.Itoa(os.Getppid()))
-				for _, args := range [][]string{{"stop", vm}, {"start", "--tty=false", vm}} {
+				for _, args := range [][]string{{"stop", vm.String()}, {"start", "--tty=false", vm.String()}} {
 					if err := l.Runner.Run(ctx, msg.M{}, l.limactl(ctx, args...)); err != nil {
 						return err
 					}

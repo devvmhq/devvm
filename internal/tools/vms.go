@@ -9,6 +9,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Section is the name of the shared tools section in a VM's state.
@@ -93,7 +94,7 @@ func (t VMs) Show(files []string, tg Target) ([]VMTool, error) {
 // tool files without them. What the VM installed itself stays. A layer
 // ran its script into the VM's disk, so it can't be removed, and neither
 // can a shared tool the VM lacks.
-func Remove(vm string, img image.Name, names, files, gone []string) ([]string, []string, error) {
+func Remove(vm vmname.VM, img image.Name, names, files, gone []string) ([]string, []string, error) {
 	var drop []string
 	for _, n := range gone {
 		switch {
@@ -164,7 +165,7 @@ func (t VMs) WarnNewer(ctx context.Context, names, have []string, tg Target) err
 // checking), has build build what the share lacks of them (the VM's own,
 // when they're the newest and one is gone from the share), and returns the
 // VM's new tool files. changed is false when they were the newest already.
-func (t VMs) Update(ctx context.Context, build func(context.Context, []string) error, vm string, names, have []string, tg Target) (files []string, changed bool, err error) {
+func (t VMs) Update(ctx context.Context, build func(context.Context, []string) error, vm vmname.VM, names, have []string, tg Target) (files []string, changed bool, err error) {
 	versions := Versions(t)
 	if _, err := os.Stat(t.Dirs.ToolLock()); err == nil {
 		versions.Check(ctx)

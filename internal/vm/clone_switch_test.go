@@ -12,7 +12,6 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/gitprotect"
 	"github.com/devvmhq/devvm/internal/msg"
-	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // chflagsCalls makes e's .git protection record what it locks and
@@ -73,7 +72,7 @@ func TestSetCloneOn(t *testing.T) {
 	gitIn(t, e.Dir, "branch", "other")
 	st := existingVM(t, e, Options{Network: "open"})
 	vm := st.Name()
-	aside, _ := vmname.Aside(vm)
+	aside, _ := vm.Aside()
 	if get(st, keyGitProtect) != gitprotect.On || !flagged(*flags, "uchg", e.Dir) {
 		t.Fatalf("mounted: git %q, flags %q", get(st, keyGitProtect), *flags)
 	}
@@ -103,7 +102,7 @@ func TestSetCloneOn(t *testing.T) {
 	if got := gitIn(t, vmfs+e.Dir, "branch", "--format=%(refname:short)"); got != "main\nother" {
 		t.Errorf("clone's branches %q", got)
 	}
-	if got := gitIn(t, e.Dir, "remote", "get-url", "devvm"); got != vm+":"+e.Dir {
+	if got := gitIn(t, e.Dir, "remote", "get-url", "devvm"); got != vm.String()+":"+e.Dir {
 		t.Errorf("remote = %q", got)
 	}
 
@@ -113,7 +112,7 @@ func TestSetCloneOn(t *testing.T) {
 	if err := lc.SetClone(t.Context(), "devvm clone on", CloneOn, RemakeOptions{Force: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if !slices.Equal(said.Names(), []string{"setting_already command=devvm clone on vm=" + vm}) || slices.Contains(f.Methods()[n:], "CreateVM") {
+	if !slices.Equal(said.Names(), []string{"setting_already command=devvm clone on vm=" + vm.String()}) || slices.Contains(f.Methods()[n:], "CreateVM") {
 		t.Errorf("again: said %q, then %q", said.Names(), f.Methods()[n:])
 	}
 
@@ -125,7 +124,7 @@ func TestSetCloneOn(t *testing.T) {
 	if err := lc.SetClone(t.Context(), "devvm clone off", CloneOff, RemakeOptions{Force: true, CleanHome: true, NoCloneCheck: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if !slices.Contains(warned.Names(), "clone_check_skipped command=devvm clone off vm="+vm) {
+	if !slices.Contains(warned.Names(), "clone_check_skipped command=devvm clone off vm="+vm.String()) {
 		t.Errorf("warned %q", warned.Names())
 	}
 	after = readState(t, e.Dirs, vm)
@@ -303,7 +302,7 @@ func TestSetCloneUndo(t *testing.T) {
 	if !flagged(*flags, "uchg", e.Dir) || lastFlags(*flags, e.Dir) != "nouchg" {
 		t.Errorf("off, undone: flags %q", *flags)
 	}
-	if got := gitIn(t, e.Dir, "remote", "get-url", "devvm"); got != vm+":"+e.Dir {
+	if got := gitIn(t, e.Dir, "remote", "get-url", "devvm"); got != vm.String()+":"+e.Dir {
 		t.Errorf("off, undone: remote = %q", got)
 	}
 }
@@ -319,7 +318,7 @@ func TestSetCloneRefuses(t *testing.T) {
 	if err := lc.SetClone(t.Context(), "devvm clone on", CloneOn, RemakeOptions{Force: true}); msg.NamesOf(err) != "clone_not_top dir="+e.Dir {
 		t.Errorf("not a repo: %v", msg.NamesOf(err))
 	}
-	if err := (Launch{e}).Up(t.Context(), Options{Clone: true}); msg.NamesOf(err) != "clone_needs_new_vm vm="+vm {
+	if err := (Launch{e}).Up(t.Context(), Options{Clone: true}); msg.NamesOf(err) != "clone_needs_new_vm vm="+vm.String() {
 		t.Errorf("--clone: %v", msg.NamesOf(err))
 	}
 	if slices.Contains(f.Methods(), "Rename") {

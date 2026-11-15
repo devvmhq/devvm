@@ -19,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // A new VM: built, created with the folder, its state written, started
@@ -40,7 +41,7 @@ func TestUp(t *testing.T) {
 	}
 	create, start := call(f, "CreateVM"), call(f, "Start")
 	spec, _ := create.Args[1].(backend.VMSpec)
-	if spec.Project != e.Dir || spec.Size.CPUs != 2 || !strings.HasPrefix(spec.Name, "devvm-web-") {
+	if spec.Project != e.Dir || spec.Size.CPUs != 2 || !strings.HasPrefix(spec.Name.String(), "devvm-web-") {
 		t.Errorf("CreateVM spec = %+v", spec)
 	}
 	// Every VM has the share, read-only, even with no tools of its own.
@@ -114,7 +115,7 @@ func TestUp(t *testing.T) {
 }
 
 // noDirect makes the fake VM's direct connections fail, as confined.
-func noDirect(_ string, argv []string, _ backend.ExecOpts) error {
+func noDirect(_ vmname.VM, argv []string, _ backend.ExecOpts) error {
 	if argv[0] == "curl" {
 		return errors.New("curl: (7) Failed to connect")
 	}
@@ -129,7 +130,7 @@ func TestUpNetworkPolicy(t *testing.T) {
 	f.LifelineFile = filepath.Join(e.Dirs.Lima, "vm", "ha.pid")
 	starts := testForwarders(t, e, f)
 	hostKeys := f.ExecFunc
-	f.ExecFunc = func(vm string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(vm vmname.VM, argv []string, o backend.ExecOpts) error {
 		if err := noDirect(vm, argv, o); err != nil {
 			return err
 		}
@@ -176,7 +177,7 @@ func TestUpNetworkPolicyFailsClosed(t *testing.T) {
 	e, f, execs := upEnv(t, allNative())
 	err := Launch{e}.Up(t.Context(), Options{Network: "allowlist"})
 	spec, _ := call(f, "CreateVM").Args[1].(backend.VMSpec)
-	if msg.NamesOf(err) != "net_direct_route vm="+spec.Name {
+	if msg.NamesOf(err) != "net_direct_route vm="+spec.Name.String() {
 		t.Fatalf("Up = %v", msg.NamesOf(err))
 	}
 	want := []string{"Problems", "Inspect", "PinOrigin", "Images", "BuildImage", "CreateVM", "Running", "Start", "SSH", "Running", "Exec", "Running", "Running", "Running", "Running", "Exec", "Running", "Stop"}
@@ -456,7 +457,7 @@ func TestUpParts(t *testing.T) {
 			if get(st, keyImage) != tc.img || get(st, keyToolNames) != tc.tools {
 				t.Errorf("image=%q tool_names=%q, want %q and %q", get(st, keyImage), get(st, keyToolNames), tc.img, tc.tools)
 			}
-			if !slices.Contains(said.Names(), "new_vm_summary vm="+spec.Name) {
+			if !slices.Contains(said.Names(), "new_vm_summary vm="+spec.Name.String()) {
 				t.Errorf("said %q, want new_vm_summary", said.Names())
 			}
 			if got := strings.Join(partLines(says.Names()), ","); got != tc.gets {
@@ -465,7 +466,7 @@ func TestUpParts(t *testing.T) {
 			if names := says.Names(); !slices.Contains(names, "new_vm_choose") {
 				t.Errorf("summary %q doesn't say new_vm_choose", names)
 			}
-			want := strings.NewReplacer("LAYERS", e.Dirs.Layers(), "VM", spec.Name).Replace(tc.warned)
+			want := strings.NewReplacer("LAYERS", e.Dirs.Layers(), "VM", spec.Name.String()).Replace(tc.warned)
 			var layerWarnings []string
 			for _, w := range warned.Names() {
 				if strings.HasPrefix(w, "default_layer") {
@@ -673,7 +674,7 @@ func TestUpCustomize(t *testing.T) {
 				t.Fatal(err)
 			}
 			hostKeys := f.ExecFunc
-			f.ExecFunc = func(vm string, argv []string, o backend.ExecOpts) error {
+			f.ExecFunc = func(vm vmname.VM, argv []string, o backend.ExecOpts) error {
 				if err := noDirect(vm, argv, o); err != nil {
 					return err
 				}
@@ -745,7 +746,7 @@ func TestUpRequires(t *testing.T) {
 	delete(caps, backend.FeatureMountCache)    // and this one
 	e, f, execs := upEnv(t, caps)
 	err := Launch{e}.Up(t.Context(), Options{Network: "open"})
-	if got := msg.NamesOf(err); !strings.HasPrefix(got, "backend_lacks backend=fake feature=project-mount vm=devvm-web-") {
+	if got := msg.NamesOf(err); !strings.HasPrefix(got, "backend_lacks backend=fake feature=project-mount what=devvm-web-") {
 		t.Errorf("Up = %v", got)
 	}
 	if ms := f.Methods(); slices.Contains(ms, "BuildImage") || slices.Contains(ms, "CreateVM") || len(*execs) > 0 {
@@ -826,7 +827,7 @@ func TestUpRequiresDockerLayer(t *testing.T) {
 	delete(caps, backend.FeatureDockerLayer)
 	e, f, _ := upEnv(t, caps)
 	err := Launch{e}.Up(t.Context(), Options{Layers: &[]string{"docker"}, Network: "open", Ports: "none"})
-	if got := msg.NamesOf(err); !strings.HasPrefix(got, "backend_lacks backend=fake feature=docker-layer vm=devvm-web-") {
+	if got := msg.NamesOf(err); !strings.HasPrefix(got, "backend_lacks backend=fake feature=docker-layer what=devvm-web-") {
 		t.Errorf("Up = %v", got)
 	}
 	if ms := f.Methods(); slices.Contains(ms, "BuildImage") {

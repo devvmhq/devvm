@@ -30,6 +30,7 @@ import (
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
 	"github.com/devvmhq/devvm/internal/trust"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // syncCmd unpacks what the host sends into a folder of its own in the VM,
@@ -109,12 +110,12 @@ const unmountedWait = 10 * time.Second
 // unmounted returns the VM's tool files (files, from its state) that its
 // devvm-tools last said it couldn't mount, read after a failed setup, its
 // connection carrying agent, the VM's.
-func (e syncer) unmounted(ctx context.Context, b backend.Backend, vm string, files []string, agent string) []string {
+func (e syncer) unmounted(ctx context.Context, b backend.Backend, vm vmname.VM, files []string, agent string) []string {
 	return readUnmounted(ctx, b, vm, files, agent, unmountedWait)
 }
 
 // readUnmounted is unmounted, giving up after wait: then no tool counts.
-func readUnmounted(ctx context.Context, b backend.Backend, vm string, files []string, agent string, wait time.Duration) []string {
+func readUnmounted(ctx context.Context, b backend.Backend, vm vmname.VM, files []string, agent string, wait time.Duration) []string {
 	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	out := &bounded{max: unmountedMax}
@@ -169,7 +170,7 @@ type GuestLink struct {
 // 127.77.0.0/16 (proxy.IsLinkAddr) or given twice, or a name that isn't one lowercase DNS label, is
 // localhost or the VM's hostname, or is given twice. The setup writes
 // them into /etc/hosts and NO_PROXY as they are.
-func checkLinks(vm, host string, links []GuestLink) error {
+func checkLinks(vm vmname.VM, host string, links []GuestLink) error {
 	var addrs []netip.Addr
 	var names []string
 	for _, l := range links {
@@ -488,7 +489,7 @@ func claudeMoved(from, dir string) []byte {
 // agents' settings files with the values under secret-looking keys taken
 // out (one that can't be read that way isn't sent, nor are opencode's
 // files that aren't settings or Markdown: withheld).
-func (e syncer) stageSecrets(ctx context.Context, s *stage, store *secrets.Store, vm string, tools []string, salt string) error {
+func (e syncer) stageSecrets(ctx context.Context, s *stage, store *secrets.Store, vm vmname.VM, tools []string, salt string) error {
 	ca := e.Dirs.VM(vm).CA()
 	for _, f := range [][2]string{{"ca/devvm-proxy.crt", ca.Cert()}, {"ca/devvm-proxy-next.crt", ca.NextCert()}} {
 		cert, err := os.ReadFile(f[1])
@@ -550,7 +551,7 @@ func (e syncer) stageSecrets(ctx context.Context, s *stage, store *secrets.Store
 // VM's copy holds it (agentlogin.PiSettings): without the keys that undo
 // what devvm sets in the VM, which it names, with a warning when it
 // trusts every project folder. Any other file is data as it is.
-func (e syncer) piSettings(rel string, data []byte, vm string) ([]byte, error) {
+func (e syncer) piSettings(rel string, data []byte, vm vmname.VM) ([]byte, error) {
 	if rel != agents.PiSettings {
 		return data, nil
 	}

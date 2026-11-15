@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Lifecycle stops the folder's VM, gives it to the folder, exports its
@@ -259,7 +260,7 @@ func (e Lifecycle) rmGone(ctx context.Context, t *target, folder FolderState, o 
 		return err
 	}
 	if export {
-		if err := e.exportFirst(ctx, t, "devvm rm "+vm); err != nil {
+		if err := e.exportFirst(ctx, t, "devvm rm "+vm.String()); err != nil {
 			return err
 		}
 	}
@@ -486,7 +487,7 @@ func warnTier(e *Env, t *target, file string) {
 // folder's, when the VM has an agent among its shared tools (names) and
 // the user says yes ([y/N]: the export is an old VM's content). Where it
 // can't ask, it says how to import it later, and returns "".
-func (e creation) offerHistory(vm, dir string, names []string) string {
+func (e creation) offerHistory(vm vmname.VM, dir string, names []string) string {
 	if len(image.AgentsOf(names)) == 0 {
 		return ""
 	}

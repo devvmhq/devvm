@@ -7,7 +7,6 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/paths"
-	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Location is devvm's Lima home, which DEVVM_LIMA_HOME moves.
@@ -26,7 +25,7 @@ func (l *housekeeping) Strays(ctx context.Context) ([]backend.Stray, error) {
 		// A VM's old machine, set aside while a remake makes the new one,
 		// is that VM's.
 		st := l.Dirs.VM(in.Name).State()
-		if h, ok := vmname.AsideHash(in.Name); ok {
+		if h, ok := in.Name.AsideHash(); ok {
 			st = paths.VM{Dir: l.Dirs.VMDir(h)}.State()
 		}
 		if _, err := os.Stat(st); errors.Is(err, os.ErrNotExist) {

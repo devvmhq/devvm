@@ -12,6 +12,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Strict is the mode that devvm git-protect strict recorded in devvm
@@ -112,14 +113,14 @@ func (p converter) unstrict(ctx context.Context, vm *state.VM, made Made) error 
 // strictLeft takes what strict set out of the VM vm's configs, as its
 // section g has them (dropStrict), for devvm git-protect and Unlock, which
 // take .git as it is, and returns the repos it left.
-func (p converter) strictLeft(ctx context.Context, vm string, g InVM, locks bool) []string {
+func (p converter) strictLeft(ctx context.Context, vm vmname.VM, g InVM, locks bool) []string {
 	return p.dropStrict(ctx, vm, g, g.Made, locks, Watched{}).left
 }
 
 // dropStrict takes what strict set out of the configs of the repos made
 // records (dropIgnore): all of them while g, the VM's section, is strict,
 // those a conversion left (InVM.StrictLeft) once it isn't, else none.
-func (p converter) dropStrict(ctx context.Context, vm string, g InVM, made Made, locks bool, watched Watched) dropped {
+func (p converter) dropStrict(ctx context.Context, vm vmname.VM, g InVM, made Made, locks bool, watched Watched) dropped {
 	switch {
 	case g.Mode == Strict:
 		return p.dropIgnore(ctx, vm, p.strictRepos(made, nil), locks, watched)
@@ -145,7 +146,7 @@ func (p converter) dropStrict(ctx context.Context, vm string, g InVM, made Made,
 // the moment, when it's locked (locks, the VM's mode, or the flag), and
 // locked again, even after an interrupt, unless unlocked says the caller
 // unlocked them (Unlock).
-func (p converter) dropIgnore(ctx context.Context, vm string, repos []strictRepo, locks bool, watched Watched) dropped {
+func (p converter) dropIgnore(ctx context.Context, vm vmname.VM, repos []strictRepo, locks bool, watched Watched) dropped {
 	kept := keeper(p.Kept, vm)
 	d := dropped{sums: map[string]string{}}
 	for _, r := range repos {
@@ -222,7 +223,7 @@ func (p converter) sameRepo(r strictRepo, cfg string) bool {
 // (git_kept_locked), else as k says (its state can't be read).
 func (p converter) warnKept(k msg.M, cfg string) {
 	if k.ID() == "git_kept_locked" {
-		p.Warn(msg.GitStrictKept(cfg, k.Value("vm")))
+		p.Warn(msg.GitStrictKept(cfg, k.VM()))
 		return
 	}
 	p.Warn(k)

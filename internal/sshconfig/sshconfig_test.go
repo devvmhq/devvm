@@ -19,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/sshagent"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 const (
@@ -30,7 +31,7 @@ const (
 
 // made makes each VM's state, with the alias ChooseAlias gives it then,
 // as up does (under the claims lock), in order.
-func made(t *testing.T, d paths.Dirs, vms ...string) {
+func made(t *testing.T, d paths.Dirs, vms ...vmname.VM) {
 	t.Helper()
 	for _, vm := range vms {
 		create(t, d, vm)
@@ -39,7 +40,7 @@ func made(t *testing.T, d paths.Dirs, vms ...string) {
 
 // create makes vm's state as up does: its alias chosen under the claims
 // lock.
-func create(t *testing.T, d paths.Dirs, vm string) {
+func create(t *testing.T, d paths.Dirs, vm vmname.VM) {
 	t.Helper()
 	st, err := state.New(d, vm)
 	if err != nil {
@@ -61,7 +62,7 @@ func create(t *testing.T, d paths.Dirs, vm string) {
 func TestChooseAliasTogether(t *testing.T) {
 	c, _ := testConfig(t)
 	d := c.Dirs
-	vms := []string{"devvm-web-aaaaaaaaaaaaa1", "devvm-web-aaaaaaaaaaaaa2", "devvm-web-aaaaaaaaaaaaa3", "devvm-web-aaaaaaaaaaaaa4"}
+	vms := []vmname.VM{"devvm-web-aaaaaaaaaaaaa1", "devvm-web-aaaaaaaaaaaaa2", "devvm-web-aaaaaaaaaaaaa3", "devvm-web-aaaaaaaaaaaaa4"}
 	var wg sync.WaitGroup
 	for _, vm := range vms {
 		wg.Go(func() { create(t, d, vm) })
@@ -76,7 +77,7 @@ func TestChooseAliasTogether(t *testing.T) {
 		switch st.Alias {
 		case "devvm-web":
 			short++
-		case vm:
+		case vm.String():
 		default:
 			t.Errorf("%s: alias %q", vm, st.Alias)
 		}
@@ -92,9 +93,9 @@ func TestChooseAliasTogether(t *testing.T) {
 func TestChooseAlias(t *testing.T) {
 	c, _ := testConfig(t)
 	d := c.Dirs
-	dashed := "devvm-web-app-dddddddddddddd" // a folder whose name has a dash is another folder
+	const dashed = "devvm-web-app-dddddddddddddd" // a folder whose name has a dash is another folder
 	made(t, d, web, api, imgish, dashed)
-	for vm, want := range map[string]string{web: "devvm-web", api: "devvm-api", imgish: "devvm-img-foo", dashed: "devvm-web-app"} {
+	for vm, want := range map[vmname.VM]string{web: "devvm-web", api: "devvm-api", imgish: "devvm-img-foo", dashed: "devvm-web-app"} {
 		if got := c.Host(vm); got != want {
 			t.Errorf("Host(%s) = %s, want %s", vm, got, want)
 		}
@@ -141,7 +142,7 @@ func TestChooseAlias(t *testing.T) {
 }
 
 // setAlias records alias in vm's state, as a hand-edited vm.json might.
-func setAlias(t *testing.T, d paths.Dirs, vm, alias string) {
+func setAlias(t *testing.T, d paths.Dirs, vm vmname.VM, alias string) {
 	t.Helper()
 	st, err := state.ReadVM(d, vm)
 	if err != nil {
@@ -165,9 +166,9 @@ const pinned = `  ForwardX11 no
 `
 
 // keyOf is a made-up ed25519 host key of vm's, in ssh's wire format.
-func keyOf(vm string) string {
+func keyOf(vm vmname.VM) string {
 	b := []byte("\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20")
-	return base64.StdEncoding.EncodeToString(append(b, (vm + strings.Repeat(".", 32))[:32]...))
+	return base64.StdEncoding.EncodeToString(append(b, (vm.String() + strings.Repeat(".", 32))[:32]...))
 }
 
 // testConfig is a config on a fake backend whose VMs answer with a
@@ -179,7 +180,7 @@ func testConfig(t *testing.T) (*Config, *backendtest.Fake) {
 	f.Target = backend.SSHTarget{Host: "127.0.0.1", Port: 60022, User: "u", Key: "/x/key", Options: []backend.SSHOption{
 		{Key: "IdentitiesOnly", Value: "yes"},
 	}}
-	f.ExecFunc = func(vm string, argv []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(vm vmname.VM, argv []string, o backend.ExecOpts) error {
 		if len(argv) != 3 || !strings.Contains(argv[2], "/etc/ssh/ssh_host_") {
 			return errors.New("unexpected command")
 		}
@@ -212,7 +213,7 @@ func read(t *testing.T, path string) string {
 	return string(data)
 }
 
-func setAgent(t *testing.T, c *Config, vm, mode string) {
+func setAgent(t *testing.T, c *Config, vm vmname.VM, mode string) {
 	t.Helper()
 	st, err := state.ReadVM(c.Dirs, vm)
 	if err == nil && !st.Exists() {
@@ -232,7 +233,7 @@ func setAgent(t *testing.T, c *Config, vm, mode string) {
 // forwarded however the editor was started.
 func TestWriteAgent(t *testing.T) {
 	c, f := testConfig(t)
-	f.Instances = map[string]backend.Instance{web: {Name: web, Status: backend.StatusRunning, AgentForwarding: true}}
+	f.Instances = map[vmname.VM]backend.Instance{web: {Name: web, Status: backend.StatusRunning, AgentForwarding: true}}
 	sock := `"` + c.Dirs.AgentSock() + `"`
 	for _, tc := range []struct {
 		mode  string
@@ -263,7 +264,7 @@ func TestWriteAgent(t *testing.T) {
 // one its state says.
 func TestWriteAgentStarted(t *testing.T) {
 	c, f := testConfig(t)
-	f.Instances = map[string]backend.Instance{web: {Name: web, Status: backend.StatusRunning, AgentForwarding: true}}
+	f.Instances = map[vmname.VM]backend.Instance{web: {Name: web, Status: backend.StatusRunning, AgentForwarding: true}}
 	setAgent(t, c, web, sshagent.Off)
 	st, err := state.ReadVM(c.Dirs, web)
 	if err != nil {
@@ -296,7 +297,7 @@ func TestWriteAgentStarted(t *testing.T) {
 
 func TestWrite(t *testing.T) {
 	c, f := testConfig(t)
-	f.Instances = map[string]backend.Instance{
+	f.Instances = map[vmname.VM]backend.Instance{
 		web:                      {Name: web, Status: backend.StatusRunning},
 		api:                      {Name: api, Status: backend.StatusStopped},
 		imgish:                   {Name: imgish, Status: backend.StatusRunning},
@@ -343,10 +344,10 @@ Host devvm-web ` + web + `
 	}
 	// Only the running project VMs' keys, each in its own record for its
 	// start, under its name, nothing but host keys.
-	record := func(vm string) string {
-		return "# devvm: host keys of start start-0\n" + vm + " ssh-ed25519 " + keyOf(vm) + "\n"
+	record := func(vm vmname.VM) string {
+		return "# devvm: host keys of start start-0\n" + vm.String() + " ssh-ed25519 " + keyOf(vm) + "\n"
 	}
-	for vm, kh := range map[string]string{imgish: khImg, web: khWeb} {
+	for vm, kh := range map[vmname.VM]string{imgish: khImg, web: khWeb} {
 		if got := read(t, kh); got != record(vm) {
 			t.Errorf("%s's known hosts = %q, want %q", vm, got, record(vm))
 		}
@@ -432,7 +433,7 @@ Host devvm-web ` + web + `
 func TestWriteFailures(t *testing.T) {
 	t.Parallel()
 	c, f := testConfig(t)
-	f.Instances = map[string]backend.Instance{
+	f.Instances = map[vmname.VM]backend.Instance{
 		web:                 {Name: web, Status: backend.StatusRunning},
 		api:                 {Name: api, Status: backend.StatusStopped},
 		"devvm-tools-build": {Name: "devvm-tools-build", Status: backend.StatusRunning},
@@ -472,7 +473,7 @@ func TestWriteFailures(t *testing.T) {
 func TestWriteUnreadableRecord(t *testing.T) {
 	t.Parallel()
 	c, f := testConfig(t)
-	f.Instances = map[string]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
+	f.Instances = map[vmname.VM]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
 	made(t, c.Dirs, web)
 	if err := os.MkdirAll(c.Dirs.VM(web).KnownHosts(), 0o700); err != nil {
 		t.Fatal(err)
@@ -488,7 +489,7 @@ func TestWriteUnreadableRecord(t *testing.T) {
 func TestUnreadableState(t *testing.T) {
 	t.Parallel()
 	c, f := testConfig(t)
-	f.Instances = map[string]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
+	f.Instances = map[vmname.VM]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
 	made(t, c.Dirs, web, api)
 	if got, err := ChooseAlias(c.Dirs, web); err != nil || got != "devvm-web" {
 		t.Errorf("ChooseAlias(%s) with its own state = %s, %v", web, got, err)
@@ -511,8 +512,8 @@ func TestUnreadableState(t *testing.T) {
 // entry: ssh couldn't check it.
 func TestWriteUnchecked(t *testing.T) {
 	c, f := testConfig(t)
-	f.Instances = map[string]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
-	f.ExecFunc = func(string, []string, backend.ExecOpts) error { return errors.New("no answer") }
+	f.Instances = map[vmname.VM]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
+	f.ExecFunc = func(vmname.VM, []string, backend.ExecOpts) error { return errors.New("no answer") }
 	if err := c.Write(t.Context(), up(f)); err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +523,7 @@ func TestWriteUnchecked(t *testing.T) {
 	if got := read(t, c.Dirs.VM(web).KnownHosts()); got != "" {
 		t.Errorf("known hosts = %q", got)
 	}
-	f.ExecFunc = func(_ string, _ []string, o backend.ExecOpts) error {
+	f.ExecFunc = func(_ vmname.VM, _ []string, o backend.ExecOpts) error {
 		_, err := io.WriteString(o.Stdout, "nothing here\n")
 		return err
 	}
@@ -545,7 +546,7 @@ func TestWriteUnchecked(t *testing.T) {
 func TestWriteUnreviewed(t *testing.T) {
 	t.Parallel()
 	c, f := testConfig(t)
-	f.Instances = map[string]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
+	f.Instances = map[vmname.VM]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
 	made(t, c.Dirs, web)
 	for _, tc := range []struct {
 		caps backend.Caps
@@ -576,7 +577,7 @@ func TestEntriesWithRealSSH(t *testing.T) {
 		t.Skip("no ssh")
 	}
 	c, f := testConfig(t)
-	f.Instances = map[string]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
+	f.Instances = map[vmname.VM]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
 	made(t, c.Dirs, web)
 	if err := c.Write(t.Context(), up(f)); err != nil {
 		t.Fatal(err)
@@ -603,7 +604,7 @@ func TestEntriesWithRealSSH(t *testing.T) {
 func TestWriteNoAddress(t *testing.T) {
 	t.Parallel()
 	c, f := testConfig(t)
-	f.Instances = map[string]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
+	f.Instances = map[vmname.VM]backend.Instance{web: {Name: web, Status: backend.StatusRunning}}
 	made(t, c.Dirs, web)
 	for _, target := range []backend.SSHTarget{
 		{Host: "127.0.0.1", User: "u", Key: "/x/key"},

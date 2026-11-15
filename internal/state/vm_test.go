@@ -17,10 +17,11 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // vmP is a project VM's name, for tests of a VM's state.
-const vmP = "devvm-p-00000000000000"
+const vmP vmname.VM = "devvm-p-00000000000000"
 
 // counter is a section the tests change.
 type counter struct {
@@ -192,7 +193,7 @@ func TestVMUpdate(t *testing.T) {
 
 // add appends who to the VM's section "count" n times, each in an Update
 // of its own, as devvms changing one VM at once do.
-func add(ctx context.Context, d paths.Dirs, name, who string, n int, errs chan<- error) {
+func add(ctx context.Context, d paths.Dirs, name vmname.VM, who string, n int, errs chan<- error) {
 	for i := range n {
 		v, err := ReadVM(d, name)
 		if err == nil {
@@ -218,15 +219,18 @@ func add(ctx context.Context, d paths.Dirs, name, who string, n int, errs chan<-
 // VM's lock at a time.
 func TestVMUpdateTogether(t *testing.T) {
 	d := testDirs(t)
-	const other = "devvm-q-00000000000001"
-	for _, name := range []string{vmP, other} {
+	const other vmname.VM = "devvm-q-00000000000001"
+	for _, name := range []vmname.VM{vmP, other} {
 		v, _ := New(d, name)
 		create(t, d, v, nil)
 	}
 	const n = 25
 	errs := make(chan error, 4)
 	var wg sync.WaitGroup
-	for _, w := range []struct{ who, first, second string }{{"a", vmP, other}, {"b", other, vmP}} {
+	for _, w := range []struct {
+		who           string
+		first, second vmname.VM
+	}{{"a", vmP, other}, {"b", other, vmP}} {
 		wg.Go(func() {
 			for i := range n {
 				add(t.Context(), d, w.first, w.who, 1, errs)
@@ -239,7 +243,7 @@ func TestVMUpdateTogether(t *testing.T) {
 	for err := range errs {
 		t.Fatal(err)
 	}
-	for _, name := range []string{vmP, other} {
+	for _, name := range []vmname.VM{vmP, other} {
 		v, err := ReadVM(d, name)
 		if err != nil {
 			t.Fatal(err)
@@ -303,7 +307,7 @@ func TestRemoveFolder(t *testing.T) {
 // alias.
 func TestVMClaim(t *testing.T) {
 	d := testDirs(t)
-	names := []string{"devvm-a-00000000000001", "devvm-b-00000000000002", "devvm-c-00000000000003", "devvm-d-00000000000004"}
+	names := []vmname.VM{"devvm-a-00000000000001", "devvm-b-00000000000002", "devvm-c-00000000000003", "devvm-d-00000000000004"}
 	var wg sync.WaitGroup
 	errs := make(chan error, len(names))
 	for _, name := range names {
@@ -384,7 +388,7 @@ func TestVMMissing(t *testing.T) {
 	// error.
 	n, _ := New(d, v.Name())
 	create(t, d, n, nil)
-	if names, err := VMNames(d); err != nil || !slices.Equal(names, []string{v.Name()}) {
+	if names, err := VMNames(d); err != nil || !slices.Equal(names, []vmname.VM{v.Name()}) {
 		t.Errorf("VMNames = %q, %v", names, err)
 	}
 	if n.Finished() {
@@ -401,7 +405,7 @@ func TestVMMissing(t *testing.T) {
 }
 
 // vmJSON is a minimal vm.json for name.
-func vmJSON(name string) string {
+func vmJSON(name vmname.VM) string {
 	return fmt.Sprintf(`{"version": 1, "id": "x", "name": %q, "image": "base", "dir": "/p", "backend": "lima"}`, name)
 }
 
@@ -420,7 +424,7 @@ func TestVMNames(t *testing.T) {
 	write(t, filepath.Join(d.VMs(), "00000000000004"), vmJSON("devvm-c-00000000000004"))
 	write(t, filepath.Join(d.VMs(), "folder", "vm.json"), vmJSON("devvm-d-00000000000005"))
 	names, err := VMNames(d)
-	want := []string{"devvm-a-00000000000002", "devvm-b-00000000000001"}
+	want := []vmname.VM{"devvm-a-00000000000002", "devvm-b-00000000000001"}
 	if err != nil || !reflect.DeepEqual(names, want) {
 		t.Errorf("VMNames = %v, %v; want %v", names, err, want)
 	}
@@ -432,7 +436,7 @@ func TestVMNames(t *testing.T) {
 // read.
 func TestReadAll(t *testing.T) {
 	d := testDirs(t)
-	const ok, bad, moved = "devvm-a-00000000000001", "devvm-b-00000000000002", "devvm-c-00000000000003"
+	const ok, bad, moved vmname.VM = "devvm-a-00000000000001", "devvm-b-00000000000002", "devvm-c-00000000000003"
 	write(t, d.VM(ok).State(), vmJSON(ok))
 	write(t, d.VM(bad).State(), "[]")
 	write(t, filepath.Join(d.VMDir("00000000000009"), "vm.json"), vmJSON(moved))
@@ -461,7 +465,7 @@ func TestReadAll(t *testing.T) {
 	if err := os.Remove(d.VM(bad).State()); err != nil {
 		t.Fatal(err)
 	}
-	if names, err := VMNames(d); err != nil || !slices.Equal(names, []string{ok, moved}) {
+	if names, err := VMNames(d); err != nil || !slices.Equal(names, []vmname.VM{ok, moved}) {
 		t.Errorf("VMNames = %v, %v", names, err)
 	}
 	// Only the VMs' folder failing to be read fails it.
@@ -483,7 +487,7 @@ func TestVMCorrupt(t *testing.T) {
 		"name=devvm-p-00000000000000\n", "[]", "null", `{"version": "1"}`,
 		strings.Replace(vmJSON(vmP), `"version": 1`, `"version": 0`, 1),
 		strings.Replace(vmJSON(vmP), `"id": "x"`, `"id": ""`, 1),
-		strings.Replace(vmJSON(vmP), vmP, "vm", 1),
+		strings.Replace(vmJSON(vmP), string(vmP), "vm", 1),
 		strings.Replace(vmJSON(vmP), `"image": "base"`, `"other": 1`, 1),
 		strings.Replace(vmJSON(vmP), `"dir": "/p"`, `"dir": ""`, 1),
 		strings.Replace(vmJSON(vmP), `"backend": "lima"`, `"backend": ""`, 1),
@@ -566,7 +570,7 @@ func TestVMFailures(t *testing.T) {
 
 func TestVMRefuses(t *testing.T) {
 	d := testDirs(t)
-	for _, name := range []string{"", ".", "..", ".hidden", "a/b", "../x", "vm", "devvm-img-0123456789ab", "devvm-tools-build", "devvm-p/../00000000000000"} {
+	for _, name := range []vmname.VM{"", ".", "..", ".hidden", "a/b", "../x", "vm", "devvm-img-0123456789ab", "devvm-tools-build", "devvm-p/../00000000000000"} {
 		if _, err := ReadVM(d, name); err == nil {
 			t.Errorf("ReadVM(%q): want an error", name)
 		}

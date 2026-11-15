@@ -8,12 +8,13 @@ import (
 	"github.com/devvmhq/devvm/internal/gitprotect"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Listed is a project VM as devvm ls shows it. A field is "" when the VM's
 // state doesn't record it (its creation didn't finish).
 type Listed struct {
-	Name   string
+	Name   vmname.VM
 	Status string   // as its backend reports it
 	Image  string   // its image: base, or its layers joined with +
 	Tools  []string // its shared tools: node claude

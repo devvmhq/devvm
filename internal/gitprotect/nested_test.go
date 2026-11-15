@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/stubtest"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // walked gives the fixture's protector what the walk finds now, as a
@@ -72,7 +73,7 @@ func TestNestedProtected(t *testing.T) {
 	f.repo("ws/b")
 	f.walked()
 	f.checked(false)
-	if !slices.Equal(f.warns.Names(), []string{"git_nested_appeared repo=ws/b vm=" + f.vm.Name()}) || !f.locked(f.path("ws/b/.git/config")) {
+	if !slices.Equal(f.warns.Names(), []string{"git_nested_appeared repo=ws/b vm=" + f.vm.Name().String()}) || !f.locked(f.path("ws/b/.git/config")) {
 		t.Errorf("appeared: %q, locks %q", f.warns.Names(), f.flags)
 	}
 	// A running VM's check walks nothing: what's recorded is checked, and
@@ -95,8 +96,8 @@ func TestNestedProtected(t *testing.T) {
 	// The old .git, a git dir that isn't a .git now, is named too: git
 	// run below it would take it for its repo.
 	want := []string{
-		"git_replaced git=" + f.path("ws/a/.git"), "git_nested_gone repo=ws/b vm=" + f.vm.Name(),
-		"git_nested_bare dirs=ws/a/.git-old vm=" + f.vm.Name(),
+		"git_replaced git=" + f.path("ws/a/.git"), "git_nested_gone repo=ws/b vm=" + f.vm.Name().String(),
+		"git_nested_bare dirs=ws/a/.git-old vm=" + f.vm.Name().String(),
 	}
 	if !slices.Equal(f.warns.Names(), want) || !slices.Equal(f.recordedRepos(), []string{"rel", "sub", "ws/a"}) {
 		t.Errorf("replaced and gone: %q, %q", f.warns.Names(), f.recordedRepos())
@@ -130,7 +131,7 @@ func TestNestedNoTopRepo(t *testing.T) {
 	// Past the walk's bound, what isn't protected is counted.
 	f.p.Nested.More, f.p.Nested.Past = 3, []string{"x", "y", "z"}
 	f.set(On)
-	if !slices.Equal(f.warns.Names(), []string{"git_nested_past_bound count=3 repos=x, y, z vm=" + f.vm.Name()}) {
+	if !slices.Equal(f.warns.Names(), []string{"git_nested_past_bound count=3 repos=x, y, z vm=" + f.vm.Name().String()}) {
 		t.Errorf("past the bound: %q", f.warns.Names())
 	}
 }
@@ -152,7 +153,7 @@ func TestNestedExistingVM(t *testing.T) {
 	f.repo("a")
 	f.walked()
 	f.checked(false)
-	if !slices.Equal(f.warns.Names(), []string{"git_nested_protectable repos=a vm=" + f.vm.Name()}) || f.locked(f.path("a/.git/config")) {
+	if !slices.Equal(f.warns.Names(), []string{"git_nested_protectable repos=a vm=" + f.vm.Name().String()}) || f.locked(f.path("a/.git/config")) {
 		t.Errorf("first check: %q, locks %q", f.warns.Names(), f.flags)
 	}
 	f.checked(false)
@@ -162,7 +163,7 @@ func TestNestedExistingVM(t *testing.T) {
 	f.repo("c")
 	f.walked()
 	f.checked(false)
-	if !slices.Equal(f.warns.Names(), []string{"git_nested_unprotected repos=c vm=" + f.vm.Name()}) {
+	if !slices.Equal(f.warns.Names(), []string{"git_nested_unprotected repos=c vm=" + f.vm.Name().String()}) {
 		t.Errorf("one more: %q", f.warns.Names())
 	}
 	f.set(On)
@@ -185,7 +186,7 @@ func TestNestedUnlockKept(t *testing.T) {
 	if err := f.newVM(false); err != nil {
 		t.Fatal(err)
 	}
-	f.p.Kept = func(vm string) func(string) msg.M {
+	f.p.Kept = func(vm vmname.VM) func(string) msg.M {
 		if vm != f.vm.Name() {
 			t.Errorf("kept asked for %s", vm)
 		}
@@ -262,9 +263,9 @@ func TestNestedIntoTopGit(t *testing.T) {
 	f.walked()
 	f.checked(false)
 	for _, w := range []string{
-		"git_nested_appeared_runs repo=lib runs=core.fsmonitor vm=" + f.vm.Name(),
-		"git_nested_appeared_runs repo=src runs=core.fsmonitor vm=" + f.vm.Name(),
-		"git_nested_unprotected repos=lib, src vm=" + f.vm.Name(),
+		"git_nested_appeared_runs repo=lib runs=core.fsmonitor vm=" + f.vm.Name().String(),
+		"git_nested_appeared_runs repo=src runs=core.fsmonitor vm=" + f.vm.Name().String(),
+		"git_nested_unprotected repos=lib, src vm=" + f.vm.Name().String(),
 	} {
 		if !f.warned(w) {
 			t.Errorf("not warned %s: %q", w, f.warns.Names())
@@ -509,13 +510,13 @@ func TestNestedWatch(t *testing.T) {
 		t.Errorf("new VM: %q, %v", f.warns.Names(), f.section().Watched.Sums)
 	}
 	f.p.WarnUnprotected(f.vm)
-	if !slices.Equal(f.warns.Names(), []string{"git_unprotected vm=" + f.vm.Name()}) {
+	if !slices.Equal(f.warns.Names(), []string{"git_unprotected vm=" + f.vm.Name().String()}) {
 		t.Errorf("launch: %q", f.warns.Names())
 	}
 	f.git(f.path("a"), "config", "core.fsmonitor", "./evil")
 	f.repo("b")
 	f.walked()
-	if w := f.check(); !slices.Equal(w, []string{"git_nested_appeared repo=b vm=" + f.vm.Name(), "git_changed paths=a/.git/config vm=" + f.vm.Name()}) {
+	if w := f.check(); !slices.Equal(w, []string{"git_nested_appeared repo=b vm=" + f.vm.Name().String(), "git_changed paths=a/.git/config vm=" + f.vm.Name().String()}) {
 		t.Errorf("changed: %q", w)
 	}
 	// One an older devvm watched records its nested repos without naming.
@@ -563,7 +564,7 @@ func TestNestedGitdirInside(t *testing.T) {
 	if err := f.newVM(false); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(f.warns.Names(), []string{"git_nested_unprotected repos=b vm=" + f.vm.Name()}) {
+	if !slices.Equal(f.warns.Names(), []string{"git_nested_unprotected repos=b vm=" + f.vm.Name().String()}) {
 		t.Errorf("warned %q", f.warns.Names())
 	}
 	if got := f.recordedRepos(); !slices.Equal(got, []string{"a", "b"}) || !f.locked(f.path("b/.git")) {

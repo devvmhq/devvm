@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/project"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 func TestLinkArgs(t *testing.T) {
@@ -55,8 +56,8 @@ func TestLinkAddr(t *testing.T) {
 		{Name: "api", Port: 80, Target: "devvm-api-0123456789abc3", TargetID: "i2", Addr: a("127.77.0.3")},
 	}
 	for _, tc := range []struct {
-		target, id string
-		want       string
+		target   vmname.VM
+		id, want string
 	}{
 		{"devvm-db-0123456789abc2", "i1", "127.77.0.1"},  // its own, shared by its ports
 		{"devvm-api-0123456789abc3", "i2", "127.77.0.3"}, // its own
@@ -229,22 +230,23 @@ func TestCheckLinkUnreadPolicy(t *testing.T) {
 // the client's hostname.
 func TestLinkNameFor(t *testing.T) {
 	client := &target{f: project.Folder{Name: "devvm-app-0123456789abc1"}}
-	db, api := "devvm-db-0123456789abc2", "devvm-api-0123456789abc3"
+	const db, api vmname.VM = "devvm-db-0123456789abc2", "devvm-api-0123456789abc3"
 	links := []Link{{Name: "pg", Port: 5432, Target: db, TargetID: "i1"}}
 	for _, tc := range []struct {
-		target, id, as string
-		want, err      string
+		target    vmname.VM
+		id, as    string
+		want, err string
 	}{
 		{target: db, id: "i1", want: "pg"},
 		{target: db, id: "i1", as: "pg", want: "pg"},
-		{target: db, id: "i1", as: "db", err: "link_target_named name=pg target=" + db + " vm=devvm-app-0123456789abc1"},
+		{target: db, id: "i1", as: "db", err: "link_target_named name=pg target=" + db.String() + " vm=devvm-app-0123456789abc1"},
 		{target: api, id: "i2", want: "api"},
-		{target: api, id: "i2", as: "pg", err: "link_name_taken name=pg target=" + db + " vm=devvm-app-0123456789abc1"},
+		{target: api, id: "i2", as: "pg", err: "link_name_taken name=pg target=" + db.String() + " vm=devvm-app-0123456789abc1"},
 		{target: api, id: "i2", as: "app", err: "link_name_host name=app vm=devvm-app-0123456789abc1"},
 		{target: api, id: "i2", as: "localhost", err: "link_name_host name=localhost vm=devvm-app-0123456789abc1"},
 		// db made again: another VM, which the old link's name doesn't name.
 		{target: db, id: "i9", want: "db"},
-		{target: db, id: "i9", as: "pg", err: "link_name_taken name=pg target=" + db + " vm=devvm-app-0123456789abc1"},
+		{target: db, id: "i9", as: "pg", err: "link_name_taken name=pg target=" + db.String() + " vm=devvm-app-0123456789abc1"},
 		// A client whose folder part is another's: its own hostname.
 		{target: "devvm-app-fedcba98765433", id: "i3", err: "link_name_host name=app vm=devvm-app-0123456789abc1"},
 	} {

@@ -121,7 +121,7 @@ func TestSetSize(t *testing.T) {
 		t.Errorf("pending = %+v", p)
 	}
 
-	if err := s.SetSize(t.Context(), Size{Disk: "50"}, false); msg.NamesOf(err) != "disk_shrink have=100 vm="+vm+" want=50" {
+	if err := s.SetSize(t.Context(), Size{Disk: "50"}, false); msg.NamesOf(err) != "disk_shrink have=100 vm="+vm.String()+" want=50" {
 		t.Errorf("smaller disk: %s", msg.NamesOf(err))
 	}
 	caps := allNative()
@@ -144,7 +144,7 @@ func TestSetSize(t *testing.T) {
 	if err := s.SetSize(t.Context(), Size{Disk: "120"}, false); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if ms := f.Methods()[before:]; slices.Contains(ms, "Start") || !slices.Equal(said.Names(), []string{"size_pending size=cpus=2 disk=120GiB vm=" + vm}) {
+	if ms := f.Methods()[before:]; slices.Contains(ms, "Start") || !slices.Equal(said.Names(), []string{"size_pending size=cpus=2 disk=120GiB vm=" + vm.String()}) {
 		t.Errorf("stopped: calls %q, said %q", ms, said.Names())
 	}
 	// Its next start gives it its size.

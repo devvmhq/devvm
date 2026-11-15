@@ -25,6 +25,7 @@ import (
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
 	"github.com/devvmhq/devvm/internal/trust"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Proxy starts and stops VMs' proxies: devvm _proxy, one per VM, in the
@@ -79,7 +80,7 @@ func NewProxy(d paths.Dirs, assets fs.FS, self string, store *secrets.Store, r m
 // proc is the VM's proxy as a background process: its pid file in the
 // VM's run folder, and devvm _proxy -config with the VM's config in its
 // arguments.
-func (p *Proxy) proc(vm string) daemon.Proc {
+func (p *Proxy) proc(vm vmname.VM) daemon.Proc {
 	files := p.Dirs.VM(vm)
 	return daemon.Proc{
 		PIDFile: files.Proxy(".pid"), Args: p.Args, Signal: p.Signal,
@@ -89,7 +90,7 @@ func (p *Proxy) proc(vm string) daemon.Proc {
 
 // PID returns the pid of the VM's running proxy: the process its pid file
 // names, if that still runs as the VM's proxy.
-func (p *Proxy) PID(vm string) (int, bool) { return p.proc(vm).PID() }
+func (p *Proxy) PID(vm vmname.VM) (int, bool) { return p.proc(vm).PID() }
 
 // otherBinary reports whether p's VM vm has a proxy running, started from
 // another devvm binary than p's (the config it started with, its
@@ -97,7 +98,7 @@ func (p *Proxy) PID(vm string) (int, bool) { return p.proc(vm).PID() }
 // otherwise, such as one by method and path, until the VM's next launch
 // starts it again. A running proxy whose config, or this binary, can't be
 // read counts as another's: devvm can't tell.
-func otherBinary(p *Proxy, vm string) bool {
+func otherBinary(p *Proxy, vm vmname.VM) bool {
 	if _, ok := p.PID(vm); !ok {
 		return false
 	}
@@ -112,7 +113,7 @@ func otherBinary(p *Proxy, vm string) bool {
 // Stop stops the VM's proxy, if it runs: SIGTERM, then after two seconds
 // SIGKILL, waiting up to two more for it to end. It reports whether no
 // proxy of the VM's runs then.
-func (p *Proxy) Stop(vm string) bool { return p.proc(vm).Stop(4 * p.Tick) }
+func (p *Proxy) Stop(vm vmname.VM) bool { return p.proc(vm).Stop(4 * p.Tick) }
 
 // Prepare readies a VM to start on b, or a running one to go on, on its
 // tier: the VM's own CA and its secret files, whatever its tier; its
@@ -267,7 +268,7 @@ func (p *Proxy) Company() *settings.CompanyProxy {
 // than cfg (its Sum): one that's gone or can't be read counts as another.
 // It warns when that proxy went through a company proxy and cfg goes
 // through none, as a shell without the proxy settings would start it.
-func (p *Proxy) stale(vm string, cfg proxy.Config) bool {
+func (p *Proxy) stale(vm vmname.VM, cfg proxy.Config) bool {
 	old, err := proxy.ReadConfig(p.Dirs.VM(vm).ProxyConfig())
 	if err != nil {
 		return true
@@ -314,7 +315,7 @@ func (p *Proxy) proxyPort(ctx context.Context, st *state.VM, up, running bool) (
 // wrote them. A VM whose files can't be written doesn't stop the others',
 // so a secret deleted or unbound leaves every other VM's proxy at once,
 // and the errors come back together.
-func (p *Proxy) RefreshSecrets(ctx context.Context, vms ...string) error {
+func (p *Proxy) RefreshSecrets(ctx context.Context, vms ...vmname.VM) error {
 	if len(vms) == 0 {
 		all, err := state.VMNames(p.Dirs)
 		if err != nil {
@@ -349,7 +350,7 @@ func (p *Proxy) RefreshSecrets(ctx context.Context, vms ...string) error {
 // of a version after 1, for a binding by method or pattern, which a proxy
 // from another devvm binary (otherBinary) may refuse whole, so it puts none
 // of the VM's secrets in until it starts again.
-func (p *Proxy) SecretsWritten(vm string) {
+func (p *Proxy) SecretsWritten(vm vmname.VM) {
 	if l, err := proxy.ReadBindings(p.Dirs.VM(vm).Secrets()); err == nil && l.Version != 1 && otherBinary(p, vm) {
 		p.Warn(msg.SecretsOtherBinary(vm))
 	}
@@ -359,7 +360,7 @@ func (p *Proxy) SecretsWritten(vm string) {
 // it, devvm _proxy -config FILE, waiting for it to listen. The config holds
 // the password and the company proxy's, so it's the user's alone, and in
 // no process's arguments, which other users can see.
-func (p *Proxy) start(vm string, cfg proxy.Config) error {
+func (p *Proxy) start(vm vmname.VM, cfg proxy.Config) error {
 	files := p.Dirs.VM(vm)
 	if err := p.writeConfig(vm, cfg); err != nil {
 		return err
@@ -387,7 +388,7 @@ func (p *Proxy) start(vm string, cfg proxy.Config) error {
 // writeConfig writes the VM's proxy's config whole, mode 600, so a proxy
 // never reads half of it, and two devvms writing it at once leave one of
 // theirs.
-func (p *Proxy) writeConfig(vm string, cfg proxy.Config) error {
+func (p *Proxy) writeConfig(vm vmname.VM, cfg proxy.Config) error {
 	return state.WriteFile(p.Dirs.VM(vm).ProxyConfig(), cfg.Encode())
 }
 

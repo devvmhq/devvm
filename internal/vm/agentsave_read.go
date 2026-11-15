@@ -12,6 +12,7 @@ import (
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/shell"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // What devvm agent save reads from a VM at most: the whole stream, one
@@ -94,7 +95,7 @@ type sentEntry struct {
 // folder, what devvm's store keeps of its ~/.claude.json (or that it
 // isn't JSON), and its entries by their paths relative to its home.
 type sent struct {
-	vm        string
+	vm        vmname.VM
 	home      string
 	claude    []byte
 	claudeBad bool
@@ -107,7 +108,7 @@ type sent struct {
 // once, relative, clean and of characters a terminal shows; a file at most
 // saveMaxFile, and at most saveMaxEntries of them all. Any other is an
 // error, and nothing is saved.
-func readSent(r io.Reader, vm string, agents []string) (*sent, error) {
+func readSent(r io.Reader, vm vmname.VM, agents []string) (*sent, error) {
 	s := &sent{vm: vm, entries: map[string]*sentEntry{}}
 	tr := tar.NewReader(r)
 	for n := 0; ; n++ {

@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/sshagent"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // The names tests read and change a VM's state by (get, set), each one
@@ -194,7 +195,7 @@ func get(st *state.VM, key string) string {
 // formatLink is a link as tests show it: NAME,PORT,TARGET,ID,ADDR, then
 // ,group when its group made it.
 func formatLink(l Link) string {
-	e := l.Name + "," + strconv.Itoa(l.Port) + "," + l.Target + "," + l.TargetID + "," + l.Addr.String()
+	e := l.Name + "," + strconv.Itoa(l.Port) + "," + l.Target.String() + "," + l.TargetID + "," + l.Addr.String()
 	if l.Group {
 		e += ",group"
 	}
@@ -314,7 +315,7 @@ func setField(st *state.VM, key, val string) error {
 				f = append(f, "")
 			}
 			addr, _ := netip.ParseAddr(f[4])
-			links = append(links, Link{Name: f[0], Port: atoi(f[1]), Target: f[2], TargetID: f[3], Addr: addr, Group: len(f) > 5 && f[5] == "group"})
+			links = append(links, Link{Name: f[0], Port: atoi(f[1]), Target: vmname.VM(f[2]), TargetID: f[3], Addr: addr, Group: len(f) > 5 && f[5] == "group"})
 		}
 		return lp(func(l *linksInVM) { l.Links = links })
 	case keyCPUs, keyMemory, keyDisk:

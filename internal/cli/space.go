@@ -24,6 +24,7 @@ import (
 	"github.com/devvmhq/devvm/internal/tools"
 	"github.com/devvmhq/devvm/internal/ui"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // spaceTimeout bounds what devvm space asks each backend, so a backend
@@ -155,16 +156,16 @@ type spaceReport struct {
 
 // goneVM is a VM whose project folder is gone or not connected.
 type goneVM struct {
-	Backend string `json:"backend"`
-	Name    string `json:"name"`
-	Folder  string `json:"folder"`
+	Backend string    `json:"backend"`
+	Name    vmname.VM `json:"name"`
+	Folder  string    `json:"folder"`
 }
 
 // strayVM is a VM with devvm's label that this devvm has no state for.
 type strayVM struct {
-	Backend string `json:"backend"`
-	Name    string `json:"name"`
-	Data    string `json:"data"` // the data folder its label names
+	Backend string    `json:"backend"`
+	Name    vmname.VM `json:"name"`
+	Data    string    `json:"data"` // the data folder its label names
 }
 
 // spaceEnv is what devvm space reads: devvm's folders, its backends (the

@@ -21,6 +21,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // Section is the name of the SSH agent section in a VM's state.
@@ -138,7 +139,10 @@ func CheckLifetime(s string) error {
 }
 
 // Mount is a host folder a project VM mounts.
-type Mount struct{ VM, Dir string }
+type Mount struct {
+	VM  vmname.VM
+	Dir string
+}
 
 // Agent is devvm's own SSH agent. New sets every field; tests change them.
 type Agent struct {
@@ -337,7 +341,7 @@ func (a *Agent) load(ctx context.Context, k AddedKey) (string, error) {
 // mountedBy returns a project VM that mounts a folder holding the file key
 // names in the end (a link to a key in a project folder is as readable
 // there), or "": both by their physical paths (paths.Physical).
-func (a *Agent) mountedBy(ctx context.Context, key string) (string, error) {
+func (a *Agent) mountedBy(ctx context.Context, key string) (vmname.VM, error) {
 	file := paths.Physical(key)
 	ms, err := a.Mounts(ctx)
 	if err != nil {

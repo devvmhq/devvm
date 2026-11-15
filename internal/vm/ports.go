@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 	"github.com/devvmhq/devvm/internal/vmssh"
 )
 
@@ -176,7 +177,7 @@ func (e Settings) Ports(ctx context.Context) (PortsShown, error) {
 	held, _ := f.Held(t.f.Name, fwd)
 	for _, other := range slices.Sorted(maps.Keys(held)) {
 		list := backend.FormatPortRanges(held[other])
-		e.Warn(msg.PortsHeld(backend.CountPorts(held[other]), other, list, t.f.Name))
+		e.Warn(msg.PortsHeld(backend.CountPorts(held[other]), other.String(), list, t.f.Name))
 		out.Held = append(out.Held, PortsHeld{VM: other, Ports: list})
 	}
 	return out, nil
@@ -190,8 +191,8 @@ type PortsShown struct {
 
 // PortsHeld is some of a VM's listed ports, which another VM forwards now.
 type PortsHeld struct {
-	VM    string // the other VM
-	Ports string // a list of ports and ranges
+	VM    vmname.VM // the other VM
+	Ports string    // a list of ports and ranges
 }
 
 // PortsDefault returns what new VMs forward, and where that came from.

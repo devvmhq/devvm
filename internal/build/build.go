@@ -363,7 +363,7 @@ func (b Builds) buildOnce(ctx context.Context, name image.Name) error {
 	if err != nil || done {
 		return err
 	}
-	if err := b.Review.Require(b.Backend, name.String(), spec.Features()...); err != nil {
+	if err := b.Review.RequireFor(b.Backend, name.String(), spec.Features()...); err != nil {
 		return err
 	}
 	if leftover {

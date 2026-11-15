@@ -20,7 +20,7 @@ vm_name WEB web
 exec limactl stop $WEB
 stub_reset
 exec devvm history export
-stdout '^==> starting vm=devvm-web-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-web-[0-9a-f]{14}$'
 stdout '^==> exported file=\S*/data/devvm/exports/devvm-web-[0-9a-f]{14}-[0-9]{8}-[0-9]{6}\.tar\.gz vm=devvm-web-[0-9a-f]{14}$'
 stub_calls
 stdout 'exec ''bash'' ''-c'' ''devvm_opencode_clean\(\) \{$'

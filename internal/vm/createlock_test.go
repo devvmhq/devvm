@@ -55,13 +55,13 @@ func TestUpCreateLock(t *testing.T) {
 		t.Fatal(msg.NamesOf(err1))
 	}
 	vm := vmName(t, e)
-	if msg.NamesOf(err) != "create_running vm="+vm {
+	if msg.NamesOf(err) != "create_running vm="+vm.String() {
 		t.Errorf("second creation: %v", msg.NamesOf(err))
 	}
 	if n := countOf(f.Methods(), "CreateVM"); n != 1 || len(f.Instances) != 1 {
 		t.Errorf("CreateVM called %d times, %d VMs", n, len(f.Instances))
 	}
-	if names, err := state.VMNames(e.Dirs); err != nil || !slices.Equal(names, []string{vm}) {
+	if names, err := state.VMNames(e.Dirs); err != nil || !slices.Equal(names, []vmname.VM{vm}) {
 		t.Errorf("states = %q (%v)", names, err)
 	}
 	if st, err := state.ReadVM(e.Dirs, vm); err != nil || !st.Finished() {
@@ -73,7 +73,7 @@ func TestUpCreateLock(t *testing.T) {
 	if n := countOf(f.Methods(), "CreateVM"); n != 1 || len(*execs) != 2 {
 		t.Errorf("after: CreateVM called %d times, %d shells", n, len(*execs))
 	}
-	h, _ := vmname.HashOf(vm)
+	h, _ := vm.Hash()
 	if _, err := os.Lstat(e.Dirs.CreateLock(h)); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("the lock file stays: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestUpCreateLock(t *testing.T) {
 func TestTeardownDropsCreateLock(t *testing.T) {
 	e, _, _ := upEnv(t, allNative())
 	vm := existingVM(t, e, newOpts()).Name()
-	h, _ := vmname.HashOf(vm)
+	h, _ := vm.Hash()
 	lock := e.Dirs.CreateLock(h)
 	if err := state.WriteFile(lock, nil); err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestUpInterruptedHoldsCreateLock(t *testing.T) {
 		t.Fatal("made")
 	}
 	vm := vmName(t, e)
-	if _, err := holdCreate(e, vm); msg.NamesOf(err) != "create_running vm="+vm {
+	if _, err := holdCreate(e, vm); msg.NamesOf(err) != "create_running vm="+vm.String() {
 		t.Errorf("before the cleanups: %v", msg.NamesOf(err))
 	}
 	for i := len(cleanups) - 1; i >= 0; i-- {
@@ -164,15 +164,15 @@ func TestCreateLockRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake(e).Terminal = true
-	if err := (Launch{e}).Up(t.Context(), newOpts()); msg.NamesOf(err) != "create_running vm="+vm {
+	if err := (Launch{e}).Up(t.Context(), newOpts()); msg.NamesOf(err) != "create_running vm="+vm.String() {
 		t.Errorf("up: %v", msg.NamesOf(err))
 	}
 	lc := Lifecycle{e}
-	if err := lc.Rm(t.Context(), RmOptions{Force: true}); msg.NamesOf(err) != "create_running vm="+vm {
+	if err := lc.Rm(t.Context(), RmOptions{Force: true}); msg.NamesOf(err) != "create_running vm="+vm.String() {
 		t.Errorf("rm: %v", msg.NamesOf(err))
 	}
 	gone := &target{f: project.Folder{Dir: st.Dir, Name: vm}, st: st, b: f, exists: true}
-	if err := lc.rmGone(t.Context(), gone, FolderGone, RmOptions{Force: true}); msg.NamesOf(err) != "create_running vm="+vm {
+	if err := lc.rmGone(t.Context(), gone, FolderGone, RmOptions{Force: true}); msg.NamesOf(err) != "create_running vm="+vm.String() {
 		t.Errorf("rm VM: %v", msg.NamesOf(err))
 	}
 	if _, ok := f.Instances[vm]; !ok {
@@ -201,7 +201,7 @@ func TestRmChangedMeanwhile(t *testing.T) {
 	}
 	change(t, st, func(st *state.VM) error { st.Created = created; return nil })
 	t1 := &target{f: project.Folder{Dir: st.Dir, Name: vm}, st: unfinished, b: f, exists: true}
-	if _, err := holdForRm(e, t1); msg.NamesOf(err) != "create_running vm="+vm {
+	if _, err := holdForRm(e, t1); msg.NamesOf(err) != "create_running vm="+vm.String() {
 		t.Errorf("finished since: %v", msg.NamesOf(err))
 	}
 	finished, err := state.ReadVM(e.Dirs, vm)
@@ -212,7 +212,7 @@ func TestRmChangedMeanwhile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t2 := &target{f: t1.f, st: finished, b: f, exists: true}
-	if _, err := holdForRm(e, t2); msg.NamesOf(err) != "create_running vm="+vm {
+	if _, err := holdForRm(e, t2); msg.NamesOf(err) != "create_running vm="+vm.String() {
 		t.Errorf("deleted since: %v", msg.NamesOf(err))
 	}
 	// Each refusal let go of the lock.
@@ -243,7 +243,7 @@ func TestForgetHoldsCreateLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if err := (Leftovers{e}).Forget(t.Context(), r.Orphans[0]); msg.NamesOf(err) != "create_running vm="+vm {
+	if err := (Leftovers{e}).Forget(t.Context(), r.Orphans[0]); msg.NamesOf(err) != "create_running vm="+vm.String() {
 		t.Errorf("forget while held: %v", msg.NamesOf(err))
 	}
 	if _, err := os.Stat(e.Dirs.VM(vm).State()); err != nil {

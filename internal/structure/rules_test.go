@@ -883,11 +883,101 @@ func callerCases() []ruleCase {
 	}
 }
 
+// vmNameCases break and keep the VM-name type's rule.
+func vmNameCases() []ruleCase {
+	r := rules{vmNames: vmNameRule{owner: "internal/vmname", free: []string{"internal/stubtest"}}}
+	converts := rules{vmNames: vmNameRule{owner: "internal/vmname", converts: map[string]string{"internal/msg/a.go": "x"}}}
+	notNames := rules{vmNames: vmNameRule{owner: "internal/vmname", notNames: map[string]string{"NewVMs": "x"}}}
+	vmname := "package vmname\n\ntype VM string\n"
+	uses := func(p, body string) string {
+		return "package " + p + "\n\nimport \"example.com/m/internal/vmname\"\n\nvar _ vmname.VM\n\n" + body
+	}
+	return []ruleCase{
+		{
+			name:  "a VM's name as a string parameter",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\nfunc f(ctx int, vm string) {}\n"},
+			r:     r, want: &want{ruleOwners, "vm is a VM's name: make it a vmname.VM"},
+		},
+		{
+			name:  "VM names as a list in a field",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\ntype T struct{ otherVMs []string }\n"},
+			r:     r, want: &want{ruleOwners, "otherVMs is a VM's name"},
+		},
+		{
+			name:  "a map keyed on VM names as a result",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\nfunc f() (vms map[string]int) { return nil }\n"},
+			r:     r, want: &want{ruleOwners, "vms is a VM's name"},
+		},
+		{
+			name:  "a VM's name as a variadic parameter",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\nfunc f(vmNames ...string) {}\n"},
+			r:     r, want: &want{ruleOwners, "vmNames is a VM's name"},
+		},
+		{
+			name:  "a VM's name as a pointer to a string",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\nfunc f(vm *string) {}\n"},
+			r:     r, want: &want{ruleOwners, "vm is a VM's name"},
+		},
+		{
+			name:  "an alias of vmname.VM",
+			files: map[string]string{"internal/vmname/a.go": vmname, "internal/vm/a.go": uses("vm", "type name = vmname.VM\n")},
+			r:     r, want: &want{ruleOwners, "name is an alias of vmname.VM"},
+		},
+		{
+			name:  "a type of its own on vmname.VM",
+			files: map[string]string{"internal/vmname/a.go": vmname, "internal/vm/a.go": uses("vm", "type name vmname.VM\n")},
+			r:     r,
+		},
+		{
+			name:  "a typed VM's name",
+			files: map[string]string{"internal/vmname/a.go": vmname, "internal/vm/a.go": uses("vm", "func f(vm vmname.VM, kvm, KVM string, vmx int) {}\n")},
+			r:     r,
+		},
+		{
+			name:  "a name in notNames",
+			files: map[string]string{"internal/vm/a.go": "package vm\n\ntype R struct{ NewVMs string }\n"},
+			r:     notNames,
+		},
+		{
+			name:  "a notNames name that's gone",
+			files: map[string]string{"internal/vm/a.go": "package vm\n"},
+			r:     notNames, want: &want{ruleOwners, "nothing is named NewVMs"},
+		},
+		{
+			name:  "a string made a VM",
+			files: map[string]string{"internal/vmname/a.go": vmname, "internal/vm/a.go": uses("vm", "func f(s string) { _ = vmname.VM(s) }\n")},
+			r:     r, want: &want{ruleOwners, "makes a vmname.VM of a string"},
+		},
+		{
+			name:  "a literal made a VM",
+			files: map[string]string{"internal/vmname/a.go": vmname, "internal/vm/a.go": uses("vm", "func f() { _ = vmname.VM(\"devvm-tools-build\") }\n")},
+			r:     r,
+		},
+		{
+			name: "a conversion in a file that may",
+			files: map[string]string{
+				"internal/vmname/a.go": vmname, "internal/msg/a.go": uses("msg", "func f(s string) vmname.VM { return vmname.VM(s) }\n"),
+			},
+			r: converts,
+		},
+		{
+			name:  "a converts file that converts nothing",
+			files: map[string]string{"internal/vmname/a.go": vmname, "internal/msg/a.go": "package msg\n"},
+			r:     converts, want: &want{ruleOwners, "internal/msg/a.go converts no string"},
+		},
+		{
+			name:  "a string VM in vmname, a test and the stubs",
+			files: map[string]string{"internal/vmname/b.go": "package vmname\n\nfunc f(vm string) {}\n", "internal/vm/a_test.go": "package vm\n\nfunc f(vm string) {}\n", "internal/stubtest/stub/a.go": "package stub\n\nfunc f(vm string) {}\n"},
+			r:     r,
+		},
+	}
+}
+
 // Each rule fails on code that breaks it, naming the rule, and passes
 // what it allows.
 func TestRulesFail(t *testing.T) {
 	var broken []string // the layer violations' texts
-	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), commandCases(), envCases(), agentCases(), switchCases(), separatorCases(), runnerCases(), pathCases(), callerCases()) {
+	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), commandCases(), envCases(), agentCases(), switchCases(), separatorCases(), runnerCases(), pathCases(), callerCases(), vmNameCases()) {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := fstest.MapFS{"go.mod": {Data: []byte("module example.com/m\n\ngo 1.27\n")}}
 			for name, src := range tc.files {

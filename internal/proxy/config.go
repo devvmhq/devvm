@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/devvmhq/devvm/internal/safefile"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // --- how devvm runs it ---
@@ -35,7 +36,7 @@ type Config struct {
 	// Listen is the address it listens on: a loopback one, its port 0 for any free one.
 	Listen string `json:"listen"`
 	// VM is the VM's name, for the log.
-	VM string `json:"vm"`
+	VM vmname.VM `json:"vm"`
 	// Password is the VM's password: every request carries it in Proxy-Authorization, with the
 	// user ProxyUser. Required.
 	Password string `json:"password"`

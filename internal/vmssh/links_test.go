@@ -24,6 +24,7 @@ import (
 	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // shortDir is a folder whose paths are short enough for sockets: a test's
@@ -100,7 +101,7 @@ func TestLinkArgs(t *testing.T) {
 // is, as the forwarder's are (Forwards.Control).
 func TestLinkFiles(t *testing.T) {
 	home := "/Users/" + strings.Repeat("h", 24)
-	long := "devvm-" + strings.Repeat("f", 35) + "-0123456789abcd"
+	long := vmname.VM("devvm-" + strings.Repeat("f", 35) + "-0123456789abcd")
 	l := &Links{VM: long, Dir: home + "/.local/share/devvm/run"}
 	a := netip.MustParseAddr
 	names := []string{
@@ -738,7 +739,7 @@ func TestLinksCarryCut(t *testing.T) {
 		checked++
 		return LinkTarget{SSH: SSH{VM: lk.Target}, Start: "s"}, "", ""
 	}
-	l.masters = map[string]*targetMaster{}
+	l.masters = map[vmname.VM]*targetMaster{}
 	carry := func(end *linkEnd) net.Conn {
 		a, b := net.Pipe()
 		t.Cleanup(func() { _ = b.Close() })
@@ -790,7 +791,7 @@ func TestLinksList(t *testing.T) {
 	api := Link{Name: "api", Target: "devvm-api-0123456789abcd", Addr: a("127.77.0.2"), Port: 80, Hosts: []string{"api", "api.devvm.internal"}}
 	f := &fakeLinks{}
 	l := f.newLinks(t)
-	l.List = filepath.Join(l.Dir, l.VM+".links.json")
+	l.List = filepath.Join(l.Dir, l.VM.String()+".links.json")
 	f.taken["127.77.0.2:80"] = true
 	f.target = func(lk Link) (LinkTarget, string, string) {
 		return LinkTarget{SSH: SSH{VM: lk.Target, User: "u", Key: "/k2", KnownHosts: "/kh", Port: 62022}, Start: "s"}, "", ""
@@ -866,7 +867,7 @@ func TestLinksList(t *testing.T) {
 // nothing more to wait for: a line for every link, or the session ending
 // or failing.
 func TestReadLinksLog(t *testing.T) {
-	vm := "devvm-app-0123456789abcd"
+	const vm = "devvm-app-0123456789abcd"
 	db := Link{Name: "db", Addr: netip.MustParseAddr("127.77.0.1"), Port: 5432}
 	api := Link{Name: "api", Addr: netip.MustParseAddr("127.77.0.2"), Port: 3000}
 	both := []Link{db, api}
@@ -913,7 +914,7 @@ func fakeSSH(t *testing.T, script string) {
 // pieces between the session's own lines, and what ssh -O says is one
 // line of the session's.
 func TestLinksLogForged(t *testing.T) {
-	vm := "devvm-app-0123456789abcd"
+	const vm = "devvm-app-0123456789abcd"
 	db := Link{Name: "db", Addr: netip.MustParseAddr("127.77.0.1"), Port: 5432}
 	forged := `devvm links: 127.77.0.1:5432: refused by the VM\ndevvm links: ` + vm + ` stopped\n`
 	fakeSSH(t, `printf 'Received disconnect from 127.0.0.1 port 22:2: x\r\n`+forged+`' >&2

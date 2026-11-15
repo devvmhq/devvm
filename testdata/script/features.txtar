@@ -17,10 +17,10 @@ stdout '^==> base_features features=cli-tools fzf omb$'
 grep '^  "features": \[\n    "cli-tools",\n    "fzf",\n    "omb"\n  \]$' $CHOSEN
 cmp $STUB_DIR/scripts ran-all
 catg $DATA/logs/runs/*.log
-stdout '^# \[4/10\] running_script script=apt\.sh vm=devvm-img-'
-stdout '^# \[5/10\] running_script script=base\.sh vm=devvm-img-'
-stdout '^# \[6/10\] running_script script=cli-tools\.sh vm=devvm-img-'
-stdout '^# \[9/10\] running_script script=apt\.sh vm=devvm-img-'
+stdout '^# \[4/10\] running_script script=apt\.sh what=devvm-img-'
+stdout '^# \[5/10\] running_script script=base\.sh what=devvm-img-'
+stdout '^# \[6/10\] running_script script=cli-tools\.sh what=devvm-img-'
+stdout '^# \[9/10\] running_script script=apt\.sh what=devvm-img-'
 stdout '^# \[10/10\] stopping vm=devvm-img-'
 
 # Chosen once: the next build keeps the choice, and base. The script in
@@ -40,11 +40,11 @@ stderr '^devvm: unknown_feature feature=mine$'
 ! stdout base_features
 cmp $STUB_DIR/scripts ran-some
 exec sh -c 'cat "$XDG_DATA_HOME"/devvm/logs/runs/*.log'
-stdout '^# \[5/9\] running_script script=base\.sh vm=devvm-img-'
-stdout '^# \[6/9\] running_script script=fzf\.sh vm=devvm-img-'
-stdout '^# \[7/9\] running_script script=omb\.sh vm=devvm-img-'
+stdout '^# \[5/9\] running_script script=base\.sh what=devvm-img-'
+stdout '^# \[6/9\] running_script script=fzf\.sh what=devvm-img-'
+stdout '^# \[7/9\] running_script script=omb\.sh what=devvm-img-'
 stdout '^# \[9/9\] stopping vm=devvm-img-'
-stdout '^# \[5/6\] running_script script=foo\.sh vm=devvm-img-'
+stdout '^# \[5/6\] running_script script=foo\.sh what=devvm-img-'
 ! stdout '\[10/9\]|\[7/6\]'
 
 # None chosen: base runs only base.sh.

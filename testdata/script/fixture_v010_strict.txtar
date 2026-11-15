@@ -24,7 +24,7 @@ stdout '\A{\n  "version": 1,\n  "mode": "on"\n}\n\z'
 
 stub_reset
 exec devvm
-stdout '^==> starting vm=devvm-app-[0-9a-f]{14}$'
+stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
 stderr '^devvm: git_strict_converted vm=devvm-app-[0-9a-f]{14}$'
 ! stderr 'replaced|refused|failed|git_strict_left'
 ! exec git config --file .git/config diff.ignoreSubmodules

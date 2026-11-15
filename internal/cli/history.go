@@ -10,6 +10,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/ui"
 	"github.com/devvmhq/devvm/internal/vm"
+	"github.com/devvmhq/devvm/internal/vmname"
 )
 
 // newHistoryCmd is devvm history: the exports of agents' history in
@@ -58,11 +59,11 @@ type historyOutput struct {
 }
 
 type exportJSON struct {
-	File   string `json:"file"`
-	VM     string `json:"vm"`
-	Folder string `json:"folder"`
-	Date   string `json:"date"`
-	Size   int64  `json:"size"`
+	File   string    `json:"file"`
+	VM     vmname.VM `json:"vm"`
+	Folder string    `json:"folder"`
+	Date   string    `json:"date"`
+	Size   int64     `json:"size"`
 }
 
 func historyJSON(es []vm.Export) historyOutput {
@@ -78,7 +79,7 @@ func historyJSON(es []vm.Export) historyOutput {
 func writeHistory(tab *ui.Table, es []vm.Export) error {
 	tab.Header("FILE", "VM", "FOLDER", "DATE", "SIZE")
 	for _, e := range es {
-		tab.Row(cell(e.Path), cell(e.VM), cell(e.Folder), cell(exportDate(e.At)), cell(humanSize(e.Size)))
+		tab.Row(cell(e.Path), cell(e.VM.String()), cell(e.Folder), cell(exportDate(e.At)), cell(humanSize(e.Size)))
 	}
 	return tab.Flush()
 }
