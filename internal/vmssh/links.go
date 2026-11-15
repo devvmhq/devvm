@@ -454,10 +454,7 @@ func (l *Links) writeList(want []Link) {
 			Hosts: slices.Clone(lk.Hosts), Addr: lk.Addr.String(), Port: lk.Port, Target: lk.Target, Socket: l.Socket(lk),
 		})
 	}
-	b, err := json.Marshal(list)
-	if err != nil {
-		return
-	}
+	b, _ := json.Marshal(list)
 	if _, serr := os.Lstat(l.List); serr == nil && bytes.Equal(b, l.listed) {
 		return
 	}

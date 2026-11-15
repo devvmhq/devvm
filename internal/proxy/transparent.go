@@ -152,7 +152,7 @@ func looksHTTP(r *bufio.Reader) bool {
 // (replay): the far end (carry), interception (intercept), or the 403 page (refusePage).
 func (t *transparent) tls(ctx context.Context, c bufConn, port int) {
 	s := t.s
-	rec, sni, _ := peekClientHello(c.r)
+	rec, sni, _ := peekClientHello(ctx, c.r)
 	if rec == nil {
 		t.refuse(TransparentHost, port, reasonHelloBroken)
 		return
@@ -175,7 +175,7 @@ func (t *transparent) tls(ctx context.Context, c bufConn, port int) {
 			return
 		}
 		defer func() { _ = up.Close() }()
-		s.carry(c, up, host, rt.e)
+		s.carry(ctx, c, up, host, rt.e)
 	case routeIntercept:
 		s.intercept(ctx, c, host, port, rt.e)
 	case routeBlocked:

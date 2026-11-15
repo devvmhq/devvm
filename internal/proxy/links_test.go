@@ -92,10 +92,7 @@ func (lt *linkTarget) record(s string) {
 // writeLinkList writes the list as devvm _links would, mode 600.
 func writeLinkList(t *testing.T, path string, entries ...LinkEntry) {
 	t.Helper()
-	b, err := json.Marshal(LinkList{Version: LinkListVersion, Links: entries})
-	if err != nil {
-		t.Fatal(err)
-	}
+	b, _ := json.Marshal(LinkList{Version: LinkListVersion, Links: entries})
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
 	}

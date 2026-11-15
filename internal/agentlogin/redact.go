@@ -169,8 +169,8 @@ func (r *redaction) list(l []any, path, k string, secret bool) []any {
 		}
 	}
 	if !secret {
-		if out, ok := scrubArgs(l); ok {
-			l, changed = out.([]any), true
+		if out, ok := scrubList(l); ok {
+			l, changed = out, true
 		}
 	}
 	if changed {

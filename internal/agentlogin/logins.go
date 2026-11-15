@@ -291,7 +291,7 @@ func jwtExp(tok string) (time.Time, bool) {
 // fakeJWT: a JWT-shaped placeholder with these claims and no real signature. Deterministic, so the
 // same claims give the same placeholder (bindings name it).
 func fakeJWT(claims map[string]any) string {
-	enc := func(v any) string { b, _ := json.Marshal(v); return base64.RawURLEncoding.EncodeToString(b) }
+	enc := func(v any) string { b, _ := json.Marshal(v); return base64.RawURLEncoding.EncodeToString(b) } //nolint:errchkjson // claims are strings, numbers and decoded JSON, which always encode
 	return enc(map[string]string{"alg": "none", "typ": "JWT"}) + "." + enc(claims) + "." + jwtMark
 }
 
@@ -798,6 +798,11 @@ func scrubArgs(v any) (any, bool) {
 	if !ok {
 		return v, false
 	}
+	return scrubList(as)
+}
+
+// scrubList is scrubArgs for a list.
+func scrubList(as []any) ([]any, bool) {
 	out, changed := make([]any, len(as)), false
 	for i, a := range as {
 		out[i] = a

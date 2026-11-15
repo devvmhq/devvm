@@ -293,9 +293,6 @@ func (y Yours) write(cs []Secret) error {
 			Scheme: c.Scheme, Path: c.Path, PathPattern: c.Path != "", Methods: c.Methods, BasicUser: c.BasicUser,
 		})
 	}
-	b, err := json.MarshalIndent(l, "", "  ")
-	if err != nil {
-		return err
-	}
+	b, _ := json.MarshalIndent(l, "", "  ")
 	return state.WriteFile(y.s.Dirs.CustomSecrets(), append(b, '\n'))
 }

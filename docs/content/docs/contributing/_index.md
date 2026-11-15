@@ -75,8 +75,18 @@ golangci-lint enforces most of the [Go conventions](#go-conventions) in `.golang
 | nolintlint | every `//nolint` names its linters and says why, and is still needed |
 | reassign | no package reassigns another package's variables, tests included |
 | revive | at most 100 statements or 160 lines a function (`function-length`), and a cognitive complexity of 75 (`cognitive-complexity`) |
+| govet | besides its defaults, `nilness` (a nil pointer dereferenced, or a nil check that is always true or always false), `unusedwrite` (a field written to a copy of a struct that nothing reads again), `hostport` (an address built as `host + ":" + port`, which breaks on IPv6, where `net.JoinHostPort` belongs) and `waitgroup` (`WaitGroup.Add` called inside the goroutine it counts) |
+| nilnesserr | a function that checks an error and then returns a different error that is always nil, which reports success for a failure |
+| durationcheck | two `time.Duration` values multiplied together, which gives nanoseconds squared instead of a duration |
+| canonicalheader | an HTTP header named other than its canonical form, such as `WWW-Authenticate` or `X-Request-ID` |
+| errchkjson | a JSON encoding's error is checked when the value could fail to encode (it holds an `any`, a float, a channel or a custom marshaler), and dropped as `_` when errchkjson proves it can't fail, so a value that changes type gets its check back; a struct with no exported fields, which encodes as `{}`, is reported too. The tests may drop the error of a value they built or decoded themselves |
+| forcetypeassert | a type assertion without its `ok`, which panics on any other type; the tests are exempt, because a panic there fails the run and names the line |
+| contextcheck | a function given a context that calls one making a context of its own, instead of passing its caller's along |
+| gochecksumtype | a type switch on a sum type names every type in it, even when the switch has a `default` |
 
-A fresh context elsewhere, such as for a cleanup that outlives a canceled run, or a lookup that many requests share, takes `//nolint:forbidigo // <why>`.
+A function passes its caller's context along, even to work that must outlive it. Work that many requests share, such as a lookup whose value is cached for all of them, uses `context.WithTimeout(context.WithoutCancel(ctx), …)`, which keeps the caller's values and drops its cancel, so no one request's end stops it. A fresh context is the exception, for code with no caller's context to take, such as a cleanup that outlives a canceled run or the proxy's own start, and it takes `//nolint:forbidigo // <why>`. contextcheck can't follow a request's own context through `httputil.ReverseProxy`'s `Rewrite`, and it doesn't count `context.WithoutCancel` alone as deriving one, so those few places take `//nolint:contextcheck // <why>`.
+
+A sum type is an interface whose implementations are a closed set: it has an unexported method, so only its own package can add one, and its doc comment ends with a `//sumtype:decl` line. gochecksumtype then fails any type switch on it that leaves out one of its types, as exhaustive does for a switch on an enum's constants. The login file formats (`format` in `internal/agentlogin`) are one. A new interface with a fixed list of implementations, which code switches on by type, is declared the same way.
 
 `testdata/lint/forbidigo.go` breaks each forbidigo rule once, on a line that ends in `// want forbidigo`. `mise run lint:code` lints it with forbidigo alone and fails unless forbidigo reports exactly those lines, so a rule whose pattern stops matching fails there. A new rule gets its line in the file. `./...` leaves `testdata` out, so the file never fails the lint run of the code itself.
 

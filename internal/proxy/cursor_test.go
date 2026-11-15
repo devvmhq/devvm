@@ -276,7 +276,7 @@ func TestCursorReplyHeaders(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader("ok")), Request: req, Trailer: http.Header{}}
 	}
 	ok := reply(http.Header{"Set-Cookie": {"session=x"}, "X-Request-Id": {"abc"}})
-	if err := s.cursorReply(ok); err != nil || ok.Header.Get("Set-Cookie") != "" || ok.Header.Get("X-Request-Id") != "abc" {
+	if err := s.cursorReply(ok); err != nil || ok.Header.Get("Set-Cookie") != "" || ok.Header.Get("X-Request-ID") != "abc" {
 		t.Errorf("a plain reply: %v, %v", err, ok.Header)
 	}
 	_ = ok.Body.Close()

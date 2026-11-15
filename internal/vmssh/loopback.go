@@ -55,19 +55,19 @@ func (o SSH) forwardLoopback(ctx context.Context, carry func(context.Context, ne
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	f := &LoopbackForward{ls: []net.Listener{l}, cancel: cancel}
+	ports := []int{need} // each listener's, in f.ls's order
 	for _, p := range slices.Concat([]int{need}, also) {
 		for _, h := range []string{Loopback, "::1"} {
 			if p == need && h == Loopback {
 				continue
 			}
 			if l, err := listen(h, p); err == nil {
-				f.ls = append(f.ls, l)
+				f.ls, ports = append(f.ls, l), append(ports, p)
 			}
 		}
 	}
-	for _, l := range f.ls {
-		port := l.Addr().(*net.TCPAddr).Port
-		f.wg.Go(func() { f.serve(ctx, l, port, carry) })
+	for i, l := range f.ls {
+		f.wg.Go(func() { f.serve(ctx, l, ports[i], carry) })
 	}
 	go func() {
 		<-ctx.Done()

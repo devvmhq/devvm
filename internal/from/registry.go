@@ -220,7 +220,7 @@ func (r *Registry) head(ctx context.Context, u, token string) (answer, error) {
 			return true, fmt.Errorf("%s: %s", u, resp.Status)
 		}
 		a = answer{status: resp.StatusCode, digest: resp.Header.Get("Docker-Content-Digest")}
-		if c := resp.Header.Values("Www-Authenticate"); len(c) > 0 {
+		if c := resp.Header.Values("WWW-Authenticate"); len(c) > 0 {
 			a.challenge = c[len(c)-1]
 		}
 		return false, nil

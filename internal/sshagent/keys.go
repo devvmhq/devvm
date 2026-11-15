@@ -56,10 +56,7 @@ func (a *Agent) saveAdded(keys []AddedKey) error {
 			return err
 		}
 	}
-	data, err := json.MarshalIndent(keysFile{Keys: append([]AddedKey{}, keys...)}, "", "  ")
-	if err != nil {
-		return err
-	}
+	data, _ := json.MarshalIndent(keysFile{Keys: append([]AddedKey{}, keys...)}, "", "  ")
 	return state.WriteFile(a.Dirs.AgentKeys(), append(data, '\n'))
 }
 

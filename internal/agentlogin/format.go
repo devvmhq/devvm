@@ -10,7 +10,10 @@ import (
 )
 
 // format is what devvm makes of one kind of login file (agents.Login's Kind), parsed as m:
-// File's Bindings, VMCopy and Get go to the format of its Kind.
+// File's Bindings, VMCopy and Get go to the format of its Kind. The formats are a closed set,
+// formats' list, and declaring it a sum type holds any type switch on a format to naming each.
+//
+//sumtype:decl
 type format interface {
 	// kind is the kind of login file it's the format of (agents.Login's Kind).
 	kind() string

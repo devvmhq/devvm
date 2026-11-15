@@ -138,7 +138,7 @@ func (f *fakeRegistry) serve(w http.ResponseWriter, r *http.Request) {
 			realm = f.srv.URL + "/token"
 		}
 		repo, _, _ := strings.Cut(repoTag, ":")
-		w.Header().Set("Www-Authenticate", `Bearer realm="`+realm+`",service="registry.test",scope="repository:`+repo+`:pull"`)
+		w.Header().Set("WWW-Authenticate", `Bearer realm="`+realm+`",service="registry.test",scope="repository:`+repo+`:pull"`)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}

@@ -94,7 +94,7 @@ func TestInject(t *testing.T) {
 	h := http.Header{}
 	h.Set("Authorization", "token PH")
 	h.Set("X-Echo", "PH")
-	if used := s.inject(h, bs); len(used) != 1 || used[0] != "github" {
+	if used := s.inject(t.Context(), h, bs); len(used) != 1 || used[0] != "github" {
 		t.Errorf("used = %v", used)
 	}
 	if h.Get("Authorization") != "token real" || h.Get("X-Echo") != "PH" {
@@ -102,20 +102,20 @@ func TestInject(t *testing.T) {
 	}
 	h = http.Header{}
 	h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:PH")))
-	s.inject(h, bs)
+	s.inject(t.Context(), h, bs)
 	if raw, _ := basic(h.Get("Authorization")); raw != "x-access-token:real" {
 		t.Errorf("basic = %q", raw)
 	}
 	h = http.Header{}
 	h.Set("Authorization", "Bearer something-else")
-	if used := s.inject(h, bs); len(used) != 0 || h.Get("Authorization") != "Bearer something-else" {
+	if used := s.inject(t.Context(), h, bs); len(used) != 0 || h.Get("Authorization") != "Bearer something-else" {
 		t.Error("a header without the placeholder changed")
 	}
 	// Two values that hold the placeholder, which a server may join into one: neither changes.
 	h = http.Header{}
 	h.Add("Authorization", "xxxx PH yyyy")
 	h.Add("Authorization", "token PH")
-	if used := s.inject(h, bs); len(used) != 0 || !reflect.DeepEqual(h.Values("Authorization"), []string{"xxxx PH yyyy", "token PH"}) {
+	if used := s.inject(t.Context(), h, bs); len(used) != 0 || !reflect.DeepEqual(h.Values("Authorization"), []string{"xxxx PH yyyy", "token PH"}) {
 		t.Errorf("a secret's values = %q, used %v", h.Values("Authorization"), used)
 	}
 }
@@ -191,7 +191,7 @@ func TestInjectSecretShapes(t *testing.T) {
 		for _, v := range tc.vals {
 			h.Add(tc.b.Header, v)
 		}
-		used := s.inject(h, []Binding{tc.b})
+		used := s.inject(t.Context(), h, []Binding{tc.b})
 		got := h.Values(tc.b.Header)
 		switch {
 		case tc.basicWant != "":
@@ -263,7 +263,7 @@ func TestInjectLoginExact(t *testing.T) {
 			h.Add(tc.header, v)
 		}
 		h.Set("X-Echo", "PH")
-		used := s.inject(h, []Binding{b})
+		used := s.inject(t.Context(), h, []Binding{b})
 		want := tc.want
 		if want == nil {
 			want = tc.values
@@ -307,11 +307,11 @@ func TestInjectLoginTwoHeaders(t *testing.T) {
 			h.Set("Authorization", tc.auth)
 		}
 		if tc.key != "" {
-			h.Set("x-api-key", tc.key)
+			h.Set("X-Api-Key", tc.key)
 		}
-		used := s.inject(h, bs)
-		if h.Get("Authorization") != tc.wantAuth || h.Get("x-api-key") != tc.wantKey || len(used) != tc.used {
-			t.Errorf("%q, %q: got %q, %q, used %v", tc.auth, tc.key, h.Get("Authorization"), h.Get("x-api-key"), used)
+		used := s.inject(t.Context(), h, bs)
+		if h.Get("Authorization") != tc.wantAuth || h.Get("X-Api-Key") != tc.wantKey || len(used) != tc.used {
+			t.Errorf("%q, %q: got %q, %q, used %v", tc.auth, tc.key, h.Get("Authorization"), h.Get("X-Api-Key"), used)
 		}
 	}
 }
@@ -422,7 +422,7 @@ func TestLookupRoots(t *testing.T) {
 		lookup := func(ctx context.Context, _ Binding) (string, error) { roots = RootsOf(ctx); return "v", nil }
 		s, err := newServer(c, IO{Secret: lookup}, quiet(), io.Discard)
 		must(t, err)
-		_, err = s.secrets.value(Binding{Name: "codex", Kind: KindLogin, Agent: "codex"})
+		_, err = s.secrets.value(t.Context(), Binding{Name: "codex", Kind: KindLogin, Agent: "codex"})
 		must(t, err)
 		return roots
 	}
@@ -628,7 +628,7 @@ func TestSecretValueLooksUpInProcess(t *testing.T) {
 	asked := fakeSecret(s, " real\n")
 	b := Binding{Name: "codex", Kind: KindLogin, Agent: "codex"}
 	for range 2 {
-		if v, err := s.value(b); v != "real" || err != nil {
+		if v, err := s.value(t.Context(), b); v != "real" || err != nil {
 			t.Fatalf("value = %q, %v", v, err)
 		}
 	}
@@ -636,28 +636,28 @@ func TestSecretValueLooksUpInProcess(t *testing.T) {
 		t.Errorf("looked up %+v, want %+v once", *asked, b)
 	}
 	s.values[valueKeyOf(b)] = cached{"real", time.Now().Add(-loginTTL)}
-	if _, err := s.value(b); err != nil || len(*asked) != 2 {
+	if _, err := s.value(t.Context(), b); err != nil || len(*asked) != 2 {
 		t.Errorf("an expired value: %v, %d lookups", err, len(*asked))
 	}
 	s.values = map[valueKey]cached{}
 	s.lookup = func(context.Context, Binding) (string, error) { return "", errors.New("locked") }
-	if _, err := s.value(b); err == nil || !strings.Contains(err.Error(), "codex: locked") {
+	if _, err := s.value(t.Context(), b); err == nil || !strings.Contains(err.Error(), "codex: locked") {
 		t.Errorf("a failed lookup: %v", err)
 	}
 	s.lookup = func(context.Context, Binding) (string, error) { return " ", nil }
-	if _, err := s.value(b); err == nil {
+	if _, err := s.value(t.Context(), b); err == nil {
 		t.Error("an empty value was taken")
 	}
 	if _, ok := s.values[valueKeyOf(b)]; ok {
 		t.Error("a failed lookup was cached")
 	}
 	s.lookup = nil
-	if _, err := s.value(b); err == nil {
+	if _, err := s.value(t.Context(), b); err == nil {
 		t.Error("a value without a lookup")
 	}
 	h := http.Header{}
 	h.Set("Authorization", "Bearer PH")
-	if used := s.inject(h, []Binding{{Name: "codex", Kind: KindLogin, Header: "Authorization", Placeholder: "PH"}}); used != nil || h.Get("Authorization") != "Bearer PH" {
+	if used := s.inject(t.Context(), h, []Binding{{Name: "codex", Kind: KindLogin, Header: "Authorization", Placeholder: "PH"}}); used != nil || h.Get("Authorization") != "Bearer PH" {
 		t.Errorf("without a value: used %v, %q", used, h.Get("Authorization"))
 	}
 }
@@ -674,7 +674,7 @@ func TestValuesCachedByBinding(t *testing.T) {
 		b    Binding
 		want string
 	}{{login, "login-value"}, {secret, "secret-value"}, {login, "login-value"}} {
-		if v, err := s.value(tc.b); v != tc.want || err != nil {
+		if v, err := s.value(t.Context(), tc.b); v != tc.want || err != nil {
 			t.Errorf("value(%+v) = %q, %v, want %q", tc.b, v, err, tc.want)
 		}
 	}

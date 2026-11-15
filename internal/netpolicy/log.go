@@ -322,10 +322,7 @@ func linkEvent(e proxy.Event) (what, d string) {
 // at most too, and the proxy goes on writing to the new log.
 func AppendEvent(path, vm string, e Event) error {
 	e.Time, e.VM = time.Now().UTC().Format(time.RFC3339), vm
-	b, err := json.Marshal(e)
-	if err != nil {
-		return err
-	}
+	b, _ := json.Marshal(e)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}

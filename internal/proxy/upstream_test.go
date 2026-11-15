@@ -208,7 +208,7 @@ func TestLookupRoute(t *testing.T) {
 		}
 		s, err := newServer(Config{VM: "vm", Upstream: up}, IO{Secret: lookup}, quiet(), io.Discard)
 		must(t, err)
-		if _, err := s.secrets.value(Binding{Name: "codex", Kind: KindLogin, Agent: "codex"}); err != nil {
+		if _, err := s.secrets.value(t.Context(), Binding{Name: "codex", Kind: KindLogin, Agent: "codex"}); err != nil {
 			t.Fatal(err)
 		}
 		if route == nil {

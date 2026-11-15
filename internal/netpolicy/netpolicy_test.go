@@ -1268,10 +1268,10 @@ func TestSelfCheck(t *testing.T) {
 			}
 			p := &Proxy{Reporter: &msg.Fake{OnConfirm: func(msg.M) bool { return tc.yes }, Terminal: tc.tty}}
 			restarted := false
-			err := p.SelfCheck(t.Context(), f, st, func(context.Context) error {
+			err := p.SelfCheck(t.Context(), f, st, func(ctx context.Context) error {
 				restarted = true
 				f.Unconfined = !tc.fixed
-				return f.Start(t.Context(), vmV, backend.Want{}, backend.Confinement{Net: backend.NetProxy})
+				return f.Start(ctx, vmV, backend.Want{}, backend.Confinement{Net: backend.NetProxy})
 			})
 			if msg.NamesOf(err) != tc.want {
 				t.Errorf("SelfCheck = %v, want %q", msg.NamesOf(err), tc.want)

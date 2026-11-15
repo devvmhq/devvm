@@ -951,10 +951,10 @@ func TestServersApart(t *testing.T) {
 	fakeSecret(a.secrets, "a-value")
 	fakeSecret(b.secrets, "b-value")
 	bind := Binding{Name: "t", Kind: KindSecret}
-	if v, err := a.secrets.value(bind); v != "a-value" || err != nil {
+	if v, err := a.secrets.value(t.Context(), bind); v != "a-value" || err != nil {
 		t.Errorf("a's value: %q, %v", v, err)
 	}
-	if v, err := b.secrets.value(bind); v != "b-value" || err != nil {
+	if v, err := b.secrets.value(t.Context(), bind); v != "b-value" || err != nil {
 		t.Errorf("b's value: %q, %v", v, err)
 	}
 	la, err := a.ca.leafFor("api.example.com")
@@ -1144,7 +1144,7 @@ func clientHello(t *testing.T, name string) []byte {
 	go func() { _ = c.HandshakeContext(t.Context()) }()
 	r := bufio.NewReader(b)
 	must(t, b.SetReadDeadline(time.Now().Add(5*time.Second)))
-	rec, sni, isTLS := peekClientHello(r)
+	rec, sni, isTLS := peekClientHello(t.Context(), r)
 	_ = a.Close()
 	if !isTLS {
 		t.Fatal("not recognised as TLS")
@@ -1161,7 +1161,7 @@ func TestClientHello(t *testing.T) {
 		t.Errorf("record not returned for replay: %d bytes", len(rec))
 	}
 	clientHello(t, "")
-	if _, _, isTLS := peekClientHello(bufio.NewReader(bytes.NewReader([]byte("SSH-2.0-OpenSSH_9.9\r\n")))); isTLS {
+	if _, _, isTLS := peekClientHello(t.Context(), bufio.NewReader(bytes.NewReader([]byte("SSH-2.0-OpenSSH_9.9\r\n")))); isTLS {
 		t.Error("SSH treated as TLS")
 	}
 }
@@ -1437,7 +1437,7 @@ func FuzzClientHello(f *testing.F) {
 	f.Add([]byte{0x16})
 	f.Add([]byte{0x16, 2, 1, 0, 1, 0})
 	f.Fuzz(func(t *testing.T, b []byte) {
-		rec, _, isTLS := peekClientHello(bufio.NewReader(bytes.NewReader(b)))
+		rec, _, isTLS := peekClientHello(t.Context(), bufio.NewReader(bytes.NewReader(b)))
 		if isTLS != (len(b) >= 1 && b[0] == 0x16) {
 			t.Fatalf("% x: TLS = %v", b, isTLS)
 		}

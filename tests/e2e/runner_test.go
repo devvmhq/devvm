@@ -104,7 +104,7 @@ func newRunner(ctx context.Context, out *output, sb *sandbox, o options) *runner
 	r.total = r.expected()
 	_ = os.MkdirAll(sb.tdir, 0o700)
 	_ = os.RemoveAll(sb.proxyLogs()) // the last run's failed checks'
-	r.open(limitBuild, "setup")
+	r.open(limitBuild, "setup")      //nolint:contextcheck // open's window derives from r.ctx, which is ctx
 	go r.heartbeat()
 	return r
 }

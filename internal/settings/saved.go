@@ -43,9 +43,6 @@ func readSaved(path string) (Values, error) {
 
 // writeSaved replaces settings.json at path with v, indented.
 func writeSaved(path string, v Values) error {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
+	data, _ := json.MarshalIndent(v, "", "  ")
 	return state.WriteFile(path, append(data, '\n'))
 }

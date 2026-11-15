@@ -292,7 +292,7 @@ func ttlOf(b Binding) time.Duration {
 
 // value returns b's value from the lookup, cached (see ttlOf). Lookups go one at a time, so two
 // requests never refresh a login at once.
-func (s *secrets) value(b Binding) (string, error) {
+func (s *secrets) value(ctx context.Context, b Binding) (string, error) {
 	s.valueMu.Lock()
 	defer s.valueMu.Unlock()
 	if c, ok := s.values[valueKeyOf(b)]; ok && time.Since(c.at) < ttlOf(b) {
@@ -301,8 +301,10 @@ func (s *secrets) value(b Binding) (string, error) {
 	if s.lookup == nil {
 		return "", errors.New("no secret lookup")
 	}
-	// The value is cached for every request: no one request's end cancels it.
-	ctx, cancel := context.WithTimeout(context.Background(), lookupTimeout) //nolint:forbidigo // shared by every request
+	// The value is cached for every request: no one request's end cancels it,
+	// and the lookup reads only s.route and s.roots, set here, never a
+	// request's own values, as the cache key holds none of them.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lookupTimeout)
 	defer cancel()
 	if s.route != nil {
 		ctx = WithRoute(ctx, s.route)
@@ -323,7 +325,7 @@ func (s *secrets) value(b Binding) (string, error) {
 
 // inject puts each binding's value in its header, where it takes it (takes): only the binding's
 // header is touched. It returns the names of the secrets it put in.
-func (s *secrets) inject(h http.Header, bs []Binding) (used []string) {
+func (s *secrets) inject(ctx context.Context, h http.Header, bs []Binding) (used []string) {
 	for _, b := range bs {
 		vs := h.Values(b.Header)
 		if !b.takes(vs) {
@@ -332,7 +334,7 @@ func (s *secrets) inject(h http.Header, bs []Binding) (used []string) {
 			}
 			continue
 		}
-		val, err := s.value(b)
+		val, err := s.value(ctx, b)
 		if err != nil {
 			s.log.Printf("%v", err)
 			return used
@@ -504,6 +506,11 @@ type leaf struct {
 	cert *tls.Certificate
 }
 
+// leafOf is the leaf in el, an element of a CA's order.
+func leafOf(el *list.Element) *leaf {
+	return el.Value.(*leaf) //nolint:forcetypeassert // a CA's order holds *leaf alone: keep pushes nothing else
+}
+
 // leafCacheMax is how many leaves a CA keeps: a binding for one host needs one, and one with a
 // wildcard host (*.example.com) one for each name the VM asks for, which could grow without end.
 // Minting one again costs one signature, and each leaf kept takes a few KiB, so 1024 keep every
@@ -655,7 +662,7 @@ func (c *ca) mint(host string, now time.Time) (*tls.Certificate, error) {
 		return nil, errCAEnded
 	}
 	if el, ok := c.leaves[host]; ok {
-		l := el.Value.(*leaf).cert
+		l := leafOf(el).cert
 		if now.Before(l.Leaf.NotAfter) && (l.Leaf.NotAfter.Sub(now) > time.Hour || l.Leaf.NotAfter.Equal(c.cert.NotAfter)) {
 			c.order.MoveToFront(el)
 			return l, nil
@@ -692,14 +699,14 @@ func (c *ca) mint(host string, now time.Time) (*tls.Certificate, error) {
 // leafMax; c.mu is held.
 func (c *ca) keep(host string, l *tls.Certificate) {
 	if el, ok := c.leaves[host]; ok {
-		el.Value.(*leaf).cert = l
+		leafOf(el).cert = l
 		c.order.MoveToFront(el)
 		return
 	}
 	c.leaves[host] = c.order.PushFront(&leaf{host: host, cert: l})
 	for c.order.Len() > c.leafMax {
 		old := c.order.Back()
-		delete(c.leaves, old.Value.(*leaf).host)
+		delete(c.leaves, leafOf(old).host)
 		c.order.Remove(old)
 	}
 }
@@ -720,7 +727,7 @@ func (s *server) intercept(ctx context.Context, client net.Conn, host string, po
 	}
 	e.Event = "intercept"
 	s.events.record(e)
-	fwd, done := s.forwarder("https", net.JoinHostPort(host, fmt.Sprint(port)), host, port)
+	fwd, done := s.forwarder("https", net.JoinHostPort(host, fmt.Sprint(port)), host, port) //nolint:contextcheck // its Rewrite takes each request's own context (pr.In), which contextcheck can't follow
 	defer done()
 	serveOne(tconn, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h, _ := splitHostPort(r.Host, port); h != host {
@@ -913,7 +920,7 @@ func (s *server) forwarder(scheme, target, host string, port int) (fwd http.Hand
 			// Secrets only ever go over TLS, to :443, each for the method and the path that go out.
 			if scheme == "https" && s.interceptPorts[port] {
 				if bs := s.secrets.forRequest(host, pr.Out); len(bs) > 0 {
-					e.Secrets = s.secrets.inject(pr.Out.Header, bs)
+					e.Secrets = s.secrets.inject(pr.In.Context(), pr.Out.Header, bs)
 				}
 			}
 			s.events.record(e)

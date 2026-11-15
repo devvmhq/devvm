@@ -16,7 +16,7 @@ func starts(t *testing.T, f *backendtest.Fake) []backend.Confinement {
 	var out []backend.Confinement
 	for _, c := range f.Calls() {
 		if c.Method == "Start" {
-			out = append(out, c.Args[2].(backend.Confinement)) //nolint:forcetypeassert // the fake's Start
+			out = append(out, c.Args[2].(backend.Confinement))
 		}
 	}
 	return out

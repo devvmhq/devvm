@@ -116,10 +116,7 @@ func Update(dir string, fn func(*State) error) error {
 	if err := fn(st); err != nil {
 		return err
 	}
-	out, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
-		return err
-	}
+	out, _ := json.MarshalIndent(st, "", "  ")
 	tmp := filepath.Join(dir, File+".new")
 	if err := os.WriteFile(tmp, append(out, '\n'), 0o600); err != nil {
 		return err

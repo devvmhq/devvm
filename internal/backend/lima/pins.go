@@ -126,10 +126,7 @@ func encodePins(p backend.Pins) (string, error) {
 	if !filepath.IsAbs(p.File) {
 		return "", msg.QEMUPinsInvalid(p.File)
 	}
-	b, err := json.Marshal(s)
-	if err != nil {
-		return "", err
-	}
+	b, _ := json.Marshal(s)
 	return p.File, state.WriteFileMode(p.File, b, 0o600)
 }
 
@@ -219,10 +216,7 @@ func addPinEvent(file string, e backend.PinEvent) error {
 	if file == "" {
 		return nil
 	}
-	b, err := json.Marshal(e)
-	if err != nil {
-		return err
-	}
+	b, _ := json.Marshal(e)
 	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600) //nolint:gosec // devvm's own, in the VM's run folder
 	if err != nil {
 		return err

@@ -9,14 +9,21 @@ linters:
   default: standard
   enable:
     - bodyclose
+    - canonicalheader
+    - contextcheck
     - depguard
+    - durationcheck
+    - errchkjson
     - errorlint
     - exhaustive
     - forbidigo
+    - forcetypeassert
+    - gochecksumtype
     - gocritic
     - gosec
     - misspell
     - nilerr
+    - nilnesserr
     - noctx
     - nolintlint
     - reassign
@@ -114,6 +121,21 @@ linters:
           msg: read a file a VM can write through internal/safefile (Read, Open, OpenRoot), which never waits on a FIFO or follows a link it wasn't asked to, and reads only a regular file within its cap; what opens a file to write, or a folder, says why in a nolint.
         - pattern: ^netip\.Addr\.IsPrivate$
           msg: ask proxy.Public whether an address is on the internet, the one table of the ranges that aren't.
+    # A value errchkjson proves encodes without fail drops the error; any
+    # other checks it, so a field that could fail gets its check back.
+    errchkjson:
+      check-error-free-encoding: true
+      report-no-exported: true
+    # A switch on a sum type's type (//sumtype:decl) names every case, as
+    # exhaustive holds a switch on an enum's values to.
+    gochecksumtype:
+      default-signifies-exhaustive: false
+    govet:
+      enable:
+        - hostport
+        - nilness
+        - unusedwrite
+        - waitgroup
     nolintlint:
       require-explanation: true
       require-specific: true
@@ -156,6 +178,15 @@ linters:
       - path: _test\.go$
         linters: [gosec]
         text: G703
+      # A test's assertion that fails panics, which fails the run and names
+      # the line.
+      - path: _test\.go$
+        linters: [forcetypeassert]
+      # Tests encode values they built or decoded themselves, of strings,
+      # numbers, lists and maps, which always encode.
+      - path: _test\.go$
+        linters: [errchkjson]
+        text: is not checked
       - path: ^internal/ui/
         linters: [forbidigo]
         text: fmt\.Print|os\.(Stdout|Stderr)|context\.(Background|TODO)

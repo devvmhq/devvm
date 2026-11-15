@@ -930,7 +930,7 @@ func TestSetLinuxAndNoGit(t *testing.T) {
 	if err := f.newVM(false); err != nil || Mode(f.vm) != Off {
 		t.Errorf("new on linux: %s, %v", Mode(f.vm), err)
 	}
-	if err := f.p.Set(t.Context(), f.vm, On); err == nil || err.(msg.M).Names() != "git_protect_on_needs_locks" { //nolint:errorlint,forcetypeassert // a message
+	if err := f.p.Set(t.Context(), f.vm, On); err == nil || err.(msg.M).Names() != "git_protect_on_needs_locks" { //nolint:errorlint // a message
 		t.Errorf("on on linux: %v", err)
 	}
 	f.set(Off)

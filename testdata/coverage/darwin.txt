@@ -5,7 +5,7 @@ internal/agentlogin 95.2
 internal/agents 100.0
 internal/backend 97.1
 internal/backend/backendtest 74.4
-internal/backend/lima 91.4
+internal/backend/lima 91.5
 internal/backend/registry 100.0
 internal/build 88.5
 internal/cli 91.2
@@ -22,7 +22,7 @@ internal/image 99.4
 internal/jsonc 97.1
 internal/msg 72.1
 internal/msg/gen 93.3
-internal/netpolicy 91.6
+internal/netpolicy 91.7
 internal/paths 98.1
 internal/platform 90.4
 internal/ports 91.7
@@ -30,15 +30,15 @@ internal/project 98.5
 internal/proxy 93.2
 internal/redact 97.7
 internal/safefile 97.7
-internal/secrets 93.2
-internal/settings 96.3
+internal/secrets 93.4
+internal/settings 96.4
 internal/shell 100.0
-internal/sshagent 84.2
+internal/sshagent 84.4
 internal/sshconfig 95.0
 internal/state 94.3
 internal/stubtest 83.4
 internal/stubtest/stub 92.9
-internal/stubtest/stubstate 91.2
+internal/stubtest/stubstate 93.8
 internal/testbuild 100.0
 internal/tools 90.9
 internal/trust 95.0

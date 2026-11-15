@@ -41,9 +41,9 @@ func transparentServer(t *testing.T, c Config, rules string) (*server, string, *
 // openTransparent connects to the proxy at addr as a VM's devvm-transparent does, with socat's
 // CONNECT: HTTP/1.0, no Host header, password pw, the reserved target at port. It returns the
 // connection once the proxy has answered 200.
-func openTransparent(t *testing.T, addr, pw string, port int) bufConn {
+func openTransparent(ctx context.Context, t *testing.T, addr, pw string, port int) bufConn {
 	t.Helper()
-	c, err := new(net.Dialer).DialContext(t.Context(), "tcp", addr)
+	c, err := new(net.Dialer).DialContext(ctx, "tcp", addr)
 	must(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	must(t, c.SetDeadline(time.Now().Add(10*time.Second)))
@@ -137,7 +137,7 @@ func rawHello(name string) []byte {
 func TestRawHello(t *testing.T) {
 	t.Parallel()
 	for _, n := range []string{"example.com", "1.2.3.4", "Kubernetes.io", ""} {
-		if got, ok := sniOf(rawHello(n)); got != n || !ok {
+		if got, ok := sniOf(t.Context(), rawHello(n)); got != n || !ok {
 			t.Errorf("sniOf(rawHello(%q)) = %q, %v", n, got, ok)
 		}
 	}
@@ -150,7 +150,7 @@ func TestTransparentTLSAllowed(t *testing.T) {
 	t.Parallel()
 	port, pool := tlsUpstream(t)
 	_, addr, ev := transparentServer(t, Config{Password: "pw"}, fmt.Sprintf("localhost:%d\n127.0.0.1:%d\n", port, port))
-	tc := tls.Client(openTransparent(t, addr, "pw", port), &tls.Config{ServerName: "LocalHost", RootCAs: pool})
+	tc := tls.Client(openTransparent(t.Context(), t, addr, "pw", port), &tls.Config{ServerName: "LocalHost", RootCAs: pool})
 	fmt.Fprint(tc, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
 	resp, err := http.ReadResponse(bufio.NewReader(tc), nil)
 	must(t, err)
@@ -184,7 +184,7 @@ func TestTransparentSNI(t *testing.T) {
 		{TransparentHost, TransparentHost, reasonOwnDomain},
 		{"x.devvm.internal", "x.devvm.internal", reasonViaLink},
 	} {
-		c0 := openTransparent(t, addr, "", 443)
+		c0 := openTransparent(t.Context(), t, addr, "", 443)
 		_, _ = c0.Write(rawHello(c.sni))
 		if !closed(c0) {
 			t.Errorf("%q: not closed at once", c.sni)
@@ -203,7 +203,7 @@ func TestTransparentBlockedPage(t *testing.T) {
 	s, addr, ev := transparentServer(t, Config{}, "")
 	pool := x509.NewCertPool()
 	pool.AddCert(s.ca.cert)
-	tc := tls.Client(openTransparent(t, addr, "", 443), &tls.Config{ServerName: "blocked.test", RootCAs: pool, NextProtos: []string{"http/1.1"}})
+	tc := tls.Client(openTransparent(t.Context(), t, addr, "", 443), &tls.Config{ServerName: "blocked.test", RootCAs: pool, NextProtos: []string{"http/1.1"}})
 	must(t, tc.HandshakeContext(t.Context()))
 	if l := tc.ConnectionState().PeerCertificates[0]; !slices.Equal(l.DNSNames, []string{"blocked.test"}) {
 		t.Errorf("the leaf names %v", l.DNSNames)
@@ -221,7 +221,7 @@ func TestTransparentBlockedPage(t *testing.T) {
 		}
 	}
 	tr := &http.Transport{ForceAttemptHTTP2: true, DialTLSContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		c := tls.Client(openTransparent(t, addr, "", 443), &tls.Config{ServerName: "blocked.test", RootCAs: pool, NextProtos: []string{"h2"}})
+		c := tls.Client(openTransparent(ctx, t, addr, "", 443), &tls.Config{ServerName: "blocked.test", RootCAs: pool, NextProtos: []string{"h2"}})
 		return c, c.HandshakeContext(ctx)
 	}}
 	defer tr.CloseIdleConnections()
@@ -245,7 +245,7 @@ func TestTransparentBlockedNoCA(t *testing.T) {
 	s := testServer(t, Config{}, "")
 	ev := logs(s)
 	addr := listen(t, s)
-	c := openTransparent(t, addr, "", 443)
+	c := openTransparent(t.Context(), t, addr, "", 443)
 	_, _ = c.Write(rawHello("blocked.test"))
 	if !closed(c) {
 		t.Error("not closed")
@@ -253,7 +253,7 @@ func TestTransparentBlockedNoCA(t *testing.T) {
 	waitEvent(t, ev, func(e Event) bool { return e.Event == "blocked" && e.Host == "blocked.test" })
 	ended, addr2, ev2 := transparentServer(t, Config{}, "")
 	ended.ca = testCA(t, time.Now().Add(-48*time.Hour), time.Now().Add(-time.Hour))
-	c = openTransparent(t, addr2, "", 443)
+	c = openTransparent(t.Context(), t, addr2, "", 443)
 	_, _ = c.Write(rawHello("blocked.test"))
 	if !closed(c) {
 		t.Error("not closed once the CA ended")
@@ -277,7 +277,7 @@ func TestTransparentIntercept(t *testing.T) {
 		code int
 		body string
 	}{{"localhost", http.StatusOK, "Bearer real"}, {"other.test", http.StatusMisdirectedRequest, ""}} {
-		tc := tls.Client(openTransparent(t, addr, "", port), &tls.Config{ServerName: "localhost", RootCAs: pool, NextProtos: []string{"http/1.1"}})
+		tc := tls.Client(openTransparent(t.Context(), t, addr, "", port), &tls.Config{ServerName: "localhost", RootCAs: pool, NextProtos: []string{"http/1.1"}})
 		fmt.Fprintf(tc, "GET / HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer PH\r\nConnection: close\r\n\r\n", c.host)
 		resp, err := http.ReadResponse(bufio.NewReader(tc), nil)
 		must(t, err)
@@ -303,7 +303,7 @@ func TestTransparentHTTP(t *testing.T) {
 	port := portOf(t, up.Listener.Addr())
 	_, addr, ev := transparentServer(t, Config{}, fmt.Sprintf("localhost:%d\n127.0.0.1:%d\n", port, port))
 	hp := fmt.Sprintf("localhost:%d", port)
-	c := openTransparent(t, addr, "", port)
+	c := openTransparent(t.Context(), t, addr, "", port)
 	fmt.Fprintf(c, "GET /a HTTP/1.1\r\nHost: %s\r\n\r\nGET /b HTTP/1.1\r\nHost: blocked.test:%d\r\n\r\n", hp, port)
 	for _, want := range []int{http.StatusOK, http.StatusForbidden} {
 		resp, err := http.ReadResponse(c.r, nil)
@@ -332,7 +332,7 @@ func TestTransparentHTTP(t *testing.T) {
 		{"GET /nix/nix-cache-info HTTP/1.1\r\nHost: devvm.proxy\r\n\r\n", http.StatusForbidden, "need the proxy settings"},
 		{"GET http://devvm.proxy/blocked/new?after=0 HTTP/1.1\r\nHost: devvm.proxy\r\n\r\n", http.StatusForbidden, "need the proxy settings"},
 	} {
-		c := openTransparent(t, addr, "", port)
+		c := openTransparent(t.Context(), t, addr, "", port)
 		fmt.Fprint(c, x.req)
 		resp, err := http.ReadResponse(c.r, nil)
 		must(t, err)
@@ -344,8 +344,8 @@ func TestTransparentHTTP(t *testing.T) {
 	}
 	p := new(http.Protocols)
 	p.SetUnencryptedHTTP2(true)
-	tr := &http.Transport{Protocols: p, DialContext: func(context.Context, string, string) (net.Conn, error) {
-		return openTransparent(t, addr, "", port), nil
+	tr := &http.Transport{Protocols: p, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return openTransparent(ctx, t, addr, "", port), nil
 	}}
 	defer tr.CloseIdleConnections()
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+hp+"/", nil)
@@ -377,7 +377,7 @@ func TestTransparentFirstBytes(t *testing.T) {
 		{[]byte{0x16, 3, 1, 0, 0xff}, reasonHelloBroken},
 		{[]byte{0x16, 3, 1, 0xff, 0xff}, reasonHelloBroken},
 	} {
-		c0 := openTransparent(t, addr, "", 5432)
+		c0 := openTransparent(t.Context(), t, addr, "", 5432)
 		_, _ = c0.Write(c.first)
 		if !closed(c0) {
 			t.Errorf("%d: not closed", i)
@@ -417,7 +417,7 @@ func TestTransparentCap(t *testing.T) {
 	s, addr, _ := transparentServer(t, Config{}, "")
 	s.connects = make(chan struct{}, 1)
 	s.helloWait = 5 * time.Second
-	openTransparent(t, addr, "", 443)
+	openTransparent(t.Context(), t, addr, "", 443)
 	if code, _ := roundTrip(t, addr, "CONNECT "+TransparentHost+":443 HTTP/1.0\r\n\r\n"); code != http.StatusServiceUnavailable {
 		t.Errorf("past the limit: %d", code)
 	}
@@ -428,7 +428,7 @@ func TestTransparentOpen(t *testing.T) {
 	t.Parallel()
 	port, pool := tlsUpstream(t)
 	_, addr, ev := transparentServer(t, Config{Open: true}, "")
-	tc := tls.Client(openTransparent(t, addr, "", port), &tls.Config{ServerName: "localhost", RootCAs: pool})
+	tc := tls.Client(openTransparent(t.Context(), t, addr, "", port), &tls.Config{ServerName: "localhost", RootCAs: pool})
 	must(t, tc.HandshakeContext(t.Context()))
 	waitEvent(t, ev, func(e Event) bool { return e.Event == "tunnel" && e.Rule == openRule && e.Via == ViaDNS })
 }
@@ -668,7 +668,7 @@ func TestTunnelAddressSplitHello(t *testing.T) {
 func TestPeekClientHelloCap(t *testing.T) {
 	t.Parallel()
 	r := bufio.NewReader(io.MultiReader(bytes.NewReader([]byte{0x16, 3, 1, 0xff, 0xff}), failReader{t}))
-	if rec, sni, isTLS := peekClientHello(r); rec != nil || sni != "" || !isTLS {
+	if rec, sni, isTLS := peekClientHello(t.Context(), r); rec != nil || sni != "" || !isTLS {
 		t.Errorf("got %d bytes, %q, %v", len(rec), sni, isTLS)
 	}
 }

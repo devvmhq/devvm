@@ -480,10 +480,7 @@ func TestKeeps(t *testing.T) {
 // own repo's fields stay where 0.1.0 had them.
 func TestMadeJSON(t *testing.T) {
 	m := Made{Protected: true, Repo: Repo{GitID: "1:2", GitDirs: []string{"s"}}, Nested: true, Repos: map[string]Repo{"a": {GitID: "3:4"}}}
-	b, err := json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
-	}
+	b, _ := json.Marshal(m)
 	const want = `{"protected":true,"git_id":"1:2","git_dirs":["s"],"nested":true,"repos":{"a":{"git_id":"3:4"}}}`
 	if string(b) != want {
 		t.Errorf("%s", b)

@@ -30,6 +30,7 @@ import (
 // A Key is a minisign key pair of the test's own.
 type Key struct {
 	id   [8]byte
+	pub  ed25519.PublicKey
 	priv ed25519.PrivateKey
 }
 
@@ -39,15 +40,14 @@ func NewKey() Key {
 	if err != nil {
 		panic(err)
 	}
-	var k Key
+	k := Key{pub: pub, priv: priv}
 	copy(k.id[:], pub[:8])
-	k.priv = priv
 	return k
 }
 
 // Public is the public key's base64 line, as minisign -P takes it.
 func (k Key) Public() string {
-	raw := append(append([]byte("Ed"), k.id[:]...), k.priv.Public().(ed25519.PublicKey)...)
+	raw := append(append([]byte("Ed"), k.id[:]...), k.pub...)
 	return base64.StdEncoding.EncodeToString(raw)
 }
 

@@ -172,7 +172,7 @@ func skipsLayout(cmd *cobra.Command) bool {
 // unknown command), which is followed by usage_help, naming the
 // command's own --help.
 func Execute(ctx context.Context, u *ui.UI, args []string) int {
-	return execute(ctx, u, NewRoot(u), args)
+	return execute(ctx, u, NewRoot(u), args) //nolint:contextcheck // the commands' functions run later, with cmd.Context(), which execute sets from ctx
 }
 
 // execute runs root with args, as Execute does.

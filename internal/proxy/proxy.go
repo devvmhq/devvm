@@ -888,7 +888,7 @@ func (s *server) tunnel(w http.ResponseWriter, r *http.Request, host string, por
 		return
 	}
 	defer func() { _ = client.Close() }()
-	s.carry(client, up, host, e)
+	s.carry(r.Context(), client, up, host, e)
 }
 
 // carry passes client's bytes to up, the far end of an allowed connection to host, and up's to
@@ -898,13 +898,13 @@ func (s *server) tunnel(w http.ResponseWriter, r *http.Request, host string, por
 // in one record, and its SNI must be host (which blunts domain fronting), and nothing of the
 // client's reaches the far end before that. A client may wait as long as it likes before its first
 // byte, as on any tunnel. Other protocols (SSH on :22, …) pass as they are.
-func (s *server) carry(client bufConn, up net.Conn, host string, e Event) {
+func (s *server) carry(ctx context.Context, client bufConn, up net.Conn, host string, e Event) {
 	splice(client, up, func() bool {
 		if _, err := client.r.Peek(1); err != nil {
 			return false
 		}
 		_ = client.SetReadDeadline(time.Now().Add(s.helloWait))
-		first, sni, isTLS := peekClientHello(client.r)
+		first, sni, isTLS := peekClientHello(ctx, client.r)
 		_ = client.SetReadDeadline(time.Time{})
 		switch {
 		case isTLS && first == nil: // no rule could allow it
@@ -957,7 +957,7 @@ const helloRecordMax = 16<<10 + 256
 // which its callers refuse: never a stream passed on unchecked, whose ClientHello could follow
 // later, or in its next record, and name another host, an address's tunnel's included, which may
 // have no name.
-func peekClientHello(r *bufio.Reader) ([]byte, string, bool) {
+func peekClientHello(ctx context.Context, r *bufio.Reader) ([]byte, string, bool) {
 	if b, err := r.Peek(1); err != nil || b[0] != 0x16 {
 		return nil, "", false
 	}
@@ -973,7 +973,7 @@ func peekClientHello(r *bufio.Reader) ([]byte, string, bool) {
 	if _, err := io.ReadFull(r, rec); err != nil {
 		return nil, "", true
 	}
-	sni, parsed := sniOf(rec)
+	sni, parsed := sniOf(ctx, rec)
 	if !parsed {
 		return nil, "", true
 	}
@@ -1034,9 +1034,9 @@ func (s *server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Some clients half-close after sending; don't treat that as the client going away.
-	fwd, done := s.forwarder(scheme, r.URL.Host, host, port)
+	fwd, done := s.forwarder(scheme, r.URL.Host, host, port) //nolint:contextcheck // its Rewrite takes each request's own context (pr.In), which contextcheck can't follow
 	defer done()
-	fwd.ServeHTTP(noCloseNotify{w}, r.WithContext(context.WithoutCancel(r.Context())))
+	fwd.ServeHTTP(noCloseNotify{w}, r.WithContext(context.WithoutCancel(r.Context()))) //nolint:contextcheck // derived from the request's context, its values kept; contextcheck doesn't count WithoutCancel as deriving one
 }
 
 type noCloseNotify struct{ http.ResponseWriter }

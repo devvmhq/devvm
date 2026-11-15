@@ -176,9 +176,8 @@ func TestCloneSubmodules(t *testing.T) {
 	if got := c.allRepos(); !reflect.DeepEqual(got, want) {
 		t.Errorf("own: %+v", got)
 	}
-	b, err := json.Marshal(c)
-	if err != nil || string(b) != `{"on":true,"made":{"remote":"devvm","seeded":true,"submodules":[{"path":"lib","remote":"devvm-2","seeded":true,"submodules":[{"path":"deep","remote":"devvm","seeded":true}]}]}}` {
-		t.Errorf("written: %s, %v", b, err)
+	if b, _ := json.Marshal(c); string(b) != `{"on":true,"made":{"remote":"devvm","seeded":true,"submodules":[{"path":"lib","remote":"devvm-2","seeded":true,"submodules":[{"path":"deep","remote":"devvm","seeded":true}]}]}}` {
+		t.Errorf("written: %s", b)
 	}
 	ws := cloneInVM{On: true, Workspace: true, Repos: []cloneRepo{{Path: "a"}, {Path: "b", Submodules: []cloneRepo{{Path: "../out"}}}}}
 	if err := ws.addSubmodule("a", "x", "devvm"); err != nil {
