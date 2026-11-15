@@ -1301,6 +1301,19 @@ func serve(c Config, std IO, tick time.Duration) error {
 		return err
 	}
 	srv := httpServer(s)
+	// The VM's agent's relay listens before the proxy says it's ready: the VM's backend forwards
+	// its socket from the VM's start.
+	if c.AgentSocket != "" {
+		ctx, cancel := context.WithCancel(context.Background()) //nolint:forbidigo // the relay runs for the proxy's whole life, and Main has no caller's ctx
+		defer cancel()
+		agent, err := listenAgent(ctx, c.AgentSocket, c.Agent, l)
+		if err != nil {
+			_ = ln.Close()
+			return err
+		}
+		defer agent.close()
+		go agent.serve(ctx)
+	}
 	l.Printf("listening on %s for %s", ln.Addr(), s.vm)
 	// What devvm waits for as it starts the proxy: the address it listens on.
 	if err := daemon.Ready(ln.Addr().String()); err != nil {

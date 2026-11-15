@@ -528,7 +528,9 @@ func hasGit(dir string) bool {
 // inspect finds the VM for folder f, whose state is st, on the backend
 // its state records, else a new VM's, and reads it from its backend
 // (target.refresh). One that exists gets its SSH agent (target.agent):
-// the one it runs with, else its choice.
+// a running VM's proxy's relay for a relayed start, the agent an older
+// devvm's recorded start forwards, or none for a start devvm didn't
+// record (sshagent.ReachOf); a stopped VM's, its choice.
 func (e finder) inspect(ctx context.Context, f project.Folder, st *state.VM) (*target, error) {
 	choice, err := e.Registry.For(st)
 	if err != nil {
@@ -548,9 +550,21 @@ func (e finder) inspect(ctx context.Context, f project.Folder, st *state.VM) (*t
 	}
 	mode := sshagent.Mode(st)
 	if t.in.Status == backend.StatusRunning {
-		if mode, err = runningAgent(ctx, b, st); err != nil {
+		run, err := b.Running(ctx, st.Name())
+		if err != nil {
 			return nil, err
 		}
+		// A relayed start's VM gets its relay; only an older devvm's
+		// recorded start gets the agent's own socket; one devvm didn't
+		// record gets none.
+		switch sshagent.ReachOf(st, run.ID) {
+		case sshagent.Relay:
+			t.agent = e.Dirs.AgentRelay(st.Name())
+		case sshagent.Raw:
+			t.agent = e.agentSocket(sshagent.Running(st, run.ID))
+		case sshagent.None:
+		}
+		return t, nil
 	}
 	t.agent = e.agentSocket(mode)
 	return t, nil

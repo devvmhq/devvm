@@ -1635,6 +1635,19 @@ func projectSSHAgents(s *S) {
 		}
 		return nil
 	})
+	s.Check("the VM can't remove your agent's keys, lock it or add its own", func() error {
+		// The lock's password comes from an askpass of the VM's own, so ssh-add sends the request.
+		lock := `printf '#!/bin/sh\necho pw\n' > /tmp/ap && chmod +x /tmp/ap && SSH_ASKPASS=/tmp/ap SSH_ASKPASS_REQUIRE=force ssh-add -x </dev/null`
+		for _, c := range []string{"ssh-add -D", lock, `rm -f /tmp/k /tmp/k.pub && ssh-keygen -q -t ed25519 -N "" -f /tmp/k && ssh-add /tmp/k`} {
+			if r, err := s.Run(Cmd{Args: append(slices.Clone(inVM), "sh", "-c", c), Env: asUser}); err == nil {
+				return errors.New(c + " in the VM succeeded:\n" + r.Out)
+			}
+		}
+		if k := keys(); k != "devvm-e2e-user-key" {
+			return errors.New("your agent's keys: " + k)
+		}
+		return nil
+	})
 	s.Check("ssh-agent add loads a key into devvm's own agent", func() error {
 		r, _ := DevvmIn(s, "", "", asUser, "ssh-agent", "add", filepath.Join(sa, "devvm-key"))
 		if !grepF(r.Out, s.Msg("agent_holds", "keys=devvm-e2e-key")) {
@@ -1679,6 +1692,18 @@ func projectSSHAgents(s *S) {
 	s.Check("so does an editor connecting by name, whatever agent it has", func() error {
 		if k := keys(byName...); k != "devvm-e2e-key" {
 			return errors.New("ssh by name's keys: " + k)
+		}
+		return nil
+	})
+	s.Check("neither the VM nor an editor's connection can remove devvm's own agent's keys", func() error {
+		for _, c := range [][]string{append(slices.Clone(inVM), "ssh-add", "-D"), append(slices.Clone(byName), "ssh-add", "-D")} {
+			if r, err := s.Run(Cmd{Args: c, Env: asUser}); err == nil {
+				return fmt.Errorf("%v succeeded:\n%s", c, r.Out)
+			}
+		}
+		own, _ := s.Run(Cmd{Args: []string{"ssh-add", "-l"}, Env: []string{"SSH_AUTH_SOCK=" + filepath.Join(s.Paths.Devvm, "agent.sock")}})
+		if k := KeyComments(own.Stdout); k != "devvm-e2e-key" {
+			return errors.New("devvm's own agent's keys: " + k)
 		}
 		return nil
 	})

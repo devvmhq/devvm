@@ -76,7 +76,7 @@ func ownerDocs() []ownerDoc {
 		},
 		{
 			check:     "forbidigo, `os.Setenv`, `os.Unsetenv`, `os.Clearenv` and `syscall`'s",
-			owner:     "each command's own environment, its `exec.Cmd`'s `Env`, because every command and background process devvm starts inherits devvm's. A VM's SSH agent is one: the finder's `target` carries its socket, which goes to the backend in `backend.ExecOpts.Agent`, `backend.ShellOpts.Agent` and `Confinement.AgentSocket`, and Lima sets `SSH_AUTH_SOCK` on that VM's `limactl` commands alone, so a run that reaches several VMs never gives one another's",
+			owner:     "each command's own environment, its `exec.Cmd`'s `Env`, because every command and background process devvm starts inherits devvm's. A VM's SSH agent is one: the finder's `target` carries its socket, its proxy's relay (`netpolicy.Proxy.Prepare`), which goes to the backend in `backend.ExecOpts.Agent`, `backend.ShellOpts.Agent` and `Confinement.AgentSocket`, and Lima sets `SSH_AUTH_SOCK` on that VM's `limactl` commands alone, so a run that reaches several VMs never gives one another's",
 			elsewhere: "`daemon.Ready` in `internal/daemon/status.go`, which takes the status file's name out of a background process's own environment; `stubtest.NoGitRepo`, which takes git's variables that pick a repo out of a test's environment until the test ends; and tests, which use `t.Setenv`",
 		},
 		{

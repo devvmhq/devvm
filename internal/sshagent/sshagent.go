@@ -43,6 +43,12 @@ type Made struct {
 	// Toggle is set when its backend emulates turning its forwarding on
 	// or off, and it was made ready for that, which its starts rely on.
 	Toggle bool `json:"toggle,omitempty"`
+	// Relayed is set on every start of this devvm's that forwards an
+	// agent, through its proxy's relay (paths.Dirs.AgentRelay), one with
+	// no agent to relay included, so nothing gives that VM the agent's own
+	// socket until its next start. Only an older devvm's start, which
+	// forwarded the agent itself, lacks it.
+	Relayed bool `json:"relayed,omitempty"`
 }
 
 // Of returns a VM's SSH agent section.
@@ -85,8 +91,11 @@ func Mode(st *state.VM) string {
 func Forwards(mode string) bool { return mode == On || mode == Devvm }
 
 // RecordStart records that devvm started the VM with mode, start
-// identifying that start; "" records none.
+// identifying that start ("" records none), relayed when mode forwards an
+// agent (Made.Relayed): this devvm forwards one only through its proxy's
+// relay.
 func RecordStart(ctx context.Context, st *state.VM, mode, start string) error {
+	relayed := Forwards(mode)
 	started := ""
 	if start != "" {
 		started = mode + "_" + startHash(start)
@@ -96,10 +105,52 @@ func RecordStart(ctx context.Context, st *state.VM, mode, start string) error {
 		if err != nil {
 			return err
 		}
-		a.Made.Started = started
+		a.Made.Started, a.Made.Relayed = started, relayed && started != ""
 		return Set(st, a)
 	})
 }
+
+// Relayed reports whether the VM's current start, start, is one devvm
+// recorded forwarding its agent through its proxy's relay: then the VM
+// gets the relay or no agent, never the agent's own socket.
+func Relayed(st *state.VM, start string) bool {
+	a, _ := Of(st)
+	return a.Made.Relayed && Recorded(st, start)
+}
+
+// Recorded reports whether devvm recorded the VM's current start, start:
+// one it didn't, such as one started outside devvm, gets no agent but its
+// proxy's relay, never the agent's own socket, as nothing says which
+// agent it forwards.
+func Recorded(st *state.VM, start string) bool {
+	a, _ := Of(st)
+	_, h, ok := strings.Cut(a.Made.Started, "_")
+	return start != "" && ok && h == startHash(start)
+}
+
+// ReachOf is how a running VM whose current start is start gets its
+// agent: Relay, its proxy's relay; Raw, the agent's own socket, only for a
+// start an older devvm recorded without the relay; or None, for a start
+// devvm didn't record, or whose choice forwards none.
+func ReachOf(st *state.VM, start string) Reach {
+	switch {
+	case !Recorded(st, start) || !Forwards(Running(st, start)):
+		return None
+	case Relayed(st, start):
+		return Relay
+	}
+	return Raw
+}
+
+// Reach is how a running VM gets its agent (ReachOf).
+type Reach int
+
+// How a running VM gets its agent.
+const (
+	None  Reach = iota // no agent
+	Relay              // its proxy's relay
+	Raw                // the agent's own socket: an older devvm's start
+)
 
 // Running is the choice a VM runs with, start identifying its current
 // start ("" for none): the one devvm recorded for that start, so a change

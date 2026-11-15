@@ -213,6 +213,19 @@ func read(t *testing.T, path string) string {
 	return string(data)
 }
 
+// olderStart makes st's recorded start one an older devvm recorded,
+// without the relay, as it forwarded the agent itself.
+func olderStart(ctx context.Context, st *state.VM) error {
+	return st.Update(ctx, func(st *state.VM) error {
+		a, err := sshagent.Of(st)
+		if err != nil {
+			return err
+		}
+		a.Made.Relayed = false
+		return sshagent.Set(st, a)
+	})
+}
+
 func setAgent(t *testing.T, c *Config, vm vmname.VM, mode string) {
 	t.Helper()
 	st, err := state.ReadVM(c.Dirs, vm)
@@ -229,39 +242,71 @@ func setAgent(t *testing.T, c *Config, vm vmname.VM, mode string) {
 }
 
 // Agent forwarding is what the VM's state says, whatever its backend
-// config has: devvm's own agent by its socket, as the agent too, so it's
-// forwarded however the editor was started.
+// config has: for a start devvm relayed, its proxy's relay by its socket,
+// as the agent too, so it's forwarded however the editor was started, and
+// even while the relay is down. A start an older devvm recorded without
+// the relay forwards devvm's own agent the same way, or the editor's own.
+// A start devvm didn't record forwards none.
 func TestWriteAgent(t *testing.T) {
 	c, f := testConfig(t)
 	f.Instances = map[vmname.VM]backend.Instance{web: {Name: web, Status: backend.StatusRunning, AgentForwarding: true}}
-	sock := `"` + c.Dirs.AgentSock() + `"`
+	own, relay := `"`+c.Dirs.AgentSock()+`"`, `"`+c.Dirs.AgentRelay(web)+`"`
 	for _, tc := range []struct {
-		mode  string
-		want  string
-		agent bool
+		mode       string
+		relayed    bool
+		want       string
+		agent      string // its IdentityAgent
+		unrecorded bool   // devvm recorded no start of it
 	}{
-		{sshagent.Devvm, "  ForwardAgent " + sock + "\n", true},
-		{sshagent.On, "  ForwardAgent yes\n", false},
-		{sshagent.Off, "  ForwardAgent no\n", false},
-		{"", "  ForwardAgent no\n", false},
+		{sshagent.Devvm, true, "  ForwardAgent " + relay + "\n", relay, false},
+		{sshagent.On, true, "  ForwardAgent " + relay + "\n", relay, false},
+		{sshagent.Off, true, "  ForwardAgent no\n", "", false},
+		{sshagent.Devvm, false, "  ForwardAgent " + own + "\n", own, false},
+		{sshagent.On, false, "  ForwardAgent yes\n", "", false},
+		{sshagent.Off, false, "  ForwardAgent no\n", "", false},
+		{"", false, "  ForwardAgent no\n", "", false},
+		// Started outside devvm: no agent, never the agent's own socket.
+		{sshagent.Devvm, false, "  ForwardAgent no\n", "", true},
+		{sshagent.On, false, "  ForwardAgent no\n", "", true},
 	} {
+		// The start as this devvm records it (relayed) or as an older one
+		// did; the relay's socket itself isn't there, as while its proxy
+		// starts again.
 		setAgent(t, c, web, tc.mode)
+		st, err := state.ReadVM(c.Dirs, web)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run, err := f.Running(t.Context(), web)
+		if tc.unrecorded {
+			run.ID = "" // records none
+		}
+		if err == nil {
+			err = sshagent.RecordStart(t.Context(), st, tc.mode, run.ID)
+		}
+		if err == nil && !tc.relayed {
+			err = olderStart(t.Context(), st)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := c.Write(t.Context(), up(f)); err != nil {
 			t.Fatal(err)
 		}
 		got := read(t, c.Dirs.SSHConfig())
 		if !strings.Contains(got, tc.want) || strings.Count(got, "ForwardAgent") != 1 {
-			t.Errorf("mode %q:\n%s", tc.mode, got)
+			t.Errorf("mode %q, relayed %v:\n%s", tc.mode, tc.relayed, got)
 		}
-		if has := strings.Contains(got, "  ControlPath none\n  IdentityAgent "+sock+"\n"+pinned+"  Hostname "); has != tc.agent {
-			t.Errorf("mode %q: IdentityAgent %v, want %v:\n%s", tc.mode, has, tc.agent, got)
+		if tc.agent == "" && strings.Contains(got, "IdentityAgent") ||
+			tc.agent != "" && !strings.Contains(got, "  ControlPath none\n  IdentityAgent "+tc.agent+"\n"+pinned+"  Hostname ") {
+			t.Errorf("mode %q, relayed %v: want IdentityAgent %s:\n%s", tc.mode, tc.relayed, tc.agent, got)
 		}
 	}
 }
 
 // A VM devvm started forwards the agent its start was made with: a change
-// waits for its next start. One started some other way since forwards the
-// one its state says.
+// waits for its next start. One started some other way since forwards
+// none, as nothing says which agent that start forwards.
 func TestWriteAgentStarted(t *testing.T) {
 	c, f := testConfig(t)
 	f.Instances = map[vmname.VM]backend.Instance{web: {Name: web, Status: backend.StatusRunning, AgentForwarding: true}}
@@ -283,7 +328,8 @@ func TestWriteAgentStarted(t *testing.T) {
 		do         func()
 	}{
 		{"changed while running", "  ForwardAgent no\n", func() {}},
-		{"started outside devvm", "  ForwardAgent yes\n", func() { f.Restart(web) }},
+		// Nothing says which agent a start outside devvm forwards: none.
+		{"started outside devvm", "  ForwardAgent no\n", func() { f.Restart(web) }},
 	} {
 		tc.do()
 		if err := c.Write(t.Context(), up(f)); err != nil {
@@ -305,6 +351,7 @@ func TestWrite(t *testing.T) {
 		"devvm-tools-build":      {Name: "devvm-tools-build", Status: backend.StatusRunning},
 	}
 	made(t, c.Dirs, web, api, imgish)
+	// Its choice is on, but devvm recorded no start of it: no agent.
 	setAgent(t, c, imgish, sshagent.On)
 	if err := c.Write(t.Context(), up(f)); err != nil {
 		t.Fatal(err)
@@ -316,7 +363,7 @@ Host devvm-img-foo ` + imgish + `
   UserKnownHostsFile "` + khImg + `"
   StrictHostKeyChecking yes
   NoHostAuthenticationForLocalhost no
-  ForwardAgent yes
+  ForwardAgent no
   ControlMaster no
   ControlPath none
 ` + pinned + `  Hostname 127.0.0.1

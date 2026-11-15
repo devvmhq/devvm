@@ -213,7 +213,7 @@ func (e Net) applyTier(ctx context.Context, t *target, from, to netpolicy.Tier, 
 	}
 	if from.Confined() && to.Confined() {
 		if running {
-			if _, err := e.Proxy.Prepare(ctx, b, st, true); err != nil {
+			if _, err := e.Proxy.Prepare(ctx, b, st, true, ""); err != nil {
 				return err
 			}
 			say(msg.SettingApplied(vm))

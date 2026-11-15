@@ -443,7 +443,7 @@ func TestPrepare(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	conf, err := p.Prepare(t.Context(), lima, st, false)
+	conf, err := p.Prepare(t.Context(), lima, st, false, "")
 	if err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
@@ -507,14 +507,14 @@ func TestPrepare(t *testing.T) {
 	// Not on Linux.
 	p.OS, excluded = "linux", nil
 	p.Stop(st.Name())
-	if _, err := p.Prepare(t.Context(), lima, st, false); err != nil || excluded != nil {
+	if _, err := p.Prepare(t.Context(), lima, st, false, ""); err != nil || excluded != nil {
 		t.Errorf("Linux: %v, excluded %q", err, excluded)
 	}
 	// Its ssh port is one of its own forwards now: a new one, as its
 	// backend would refuse it.
 	p.Stop(st.Name())
 	setPorts(t, st, func(p *ports.Ports) { p.Forward = strconv.Itoa(p.Host.SSH) })
-	conf, err = p.Prepare(t.Context(), lima, st, false)
+	conf, err = p.Prepare(t.Context(), lima, st, false, "")
 	if err != nil || conf.SSHPort == sp || hostPorts(t, st).SSH != conf.SSHPort {
 		t.Errorf("forwarded ssh port: %d (had %d), %v", conf.SSHPort, sp, err)
 	}
@@ -526,9 +526,58 @@ func TestPrepareWaitsForTheProxy(t *testing.T) {
 	d, st := sandbox(t, "base")
 	p, f := testProxy(t, d)
 	f.quiet = true
-	_, err := p.Prepare(t.Context(), lifelined(), st, false)
+	_, err := p.Prepare(t.Context(), lifelined(), st, false, "")
 	if want := "proxy_start_failed log=" + d.VM(st.Name()).ProxyLog() + " vm=" + st.Name().String(); msg.NamesOf(err) != want {
 		t.Errorf("Prepare = %v, want %s", msg.NamesOf(err), want)
+	}
+}
+
+// A start's proxy relays the agent it forwards on the VM's own socket,
+// which its confinement carries; a running VM's goes on relaying the one
+// its start's did, without starting again, whichever agent devvm has now.
+// A start without one relays none.
+func TestPrepareRelaysTheAgent(t *testing.T) {
+	d, st := sandbox(t, "base")
+	p, f := testProxy(t, d)
+	vm, config := st.Name(), d.VM(st.Name()).ProxyConfig()
+	relayed := func() (string, string) {
+		t.Helper()
+		cfg, err := proxy.ReadConfig(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg.Agent, cfg.AgentSocket
+	}
+	conf, err := p.Prepare(t.Context(), lifelined(), st, false, "/agent.sock")
+	if err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	if a, s := relayed(); a != "/agent.sock" || s != d.AgentRelay(vm) || conf.AgentSocket != s {
+		t.Errorf("a start relays %q on %q, the VM gets %q", a, s, conf.AgentSocket)
+	}
+	conf, err = p.Prepare(t.Context(), lifelined(), st, true, "")
+	if err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	if a, s := relayed(); a != "/agent.sock" || conf.AgentSocket != d.AgentRelay(vm) || f.count() != 1 {
+		t.Errorf("running: relays %q on %q, the VM gets %q, %d starts", a, s, conf.AgentSocket, f.count())
+	}
+	conf, err = p.Prepare(t.Context(), lifelined(), st, false, "")
+	if err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	if a, s := relayed(); a != "" || s != "" || conf.AgentSocket != "" {
+		t.Errorf("a start without one relays %q on %q, the VM gets %q", a, s, conf.AgentSocket)
+	}
+	// Stopped by a signal, a proxy leaves its socket: Stop deletes it.
+	if err := os.WriteFile(d.AgentRelay(vm), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Stop(vm) {
+		t.Fatal("the proxy didn't stop")
+	}
+	if _, err := os.Stat(d.AgentRelay(vm)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the relay's socket after Stop: %v", err)
 	}
 }
 
@@ -540,7 +589,7 @@ func TestPrepareRestartsTheProxy(t *testing.T) {
 	p, f := testProxy(t, d)
 	prepare := func(running bool) {
 		t.Helper()
-		if _, err := p.Prepare(t.Context(), lifelined(), st, running); err != nil {
+		if _, err := p.Prepare(t.Context(), lifelined(), st, running, ""); err != nil {
 			t.Fatal(msg.NamesOf(err))
 		}
 	}
@@ -612,11 +661,11 @@ func TestPrepareRestartsTheProxy(t *testing.T) {
 	// program.
 	p.Stop(st.Name())
 	p.Listening = func(_ context.Context, port int) bool { return strconv.Itoa(port) == pp }
-	if _, err := p.Prepare(t.Context(), lifelined(), st, true); msg.NamesOf(err) != "proxy_port_taken port="+pp+" vm="+st.Name().String() {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, true, ""); msg.NamesOf(err) != "proxy_port_taken port="+pp+" vm="+st.Name().String() {
 		t.Errorf("port taken: %v", msg.NamesOf(err))
 	}
 	// Stopped, it moves.
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil || strconv.Itoa(hostPorts(t, st).Proxy) == pp {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil || strconv.Itoa(hostPorts(t, st).Proxy) == pp {
 		t.Errorf("stopped with its port taken: %v, port %d", err, hostPorts(t, st).Proxy)
 	}
 	// A port only VMs' ssh may have, which an older devvm chose: kept while
@@ -632,11 +681,11 @@ func TestPrepareRestartsTheProxy(t *testing.T) {
 		pp.Host.Proxy = ssh
 		return ports.Set(st, pp)
 	}))
-	if _, err := p.Prepare(t.Context(), lifelined(), st, true); err != nil || hostPorts(t, st).Proxy != ssh {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, true, ""); err != nil || hostPorts(t, st).Proxy != ssh {
 		t.Errorf("running on an ssh port: %v, port %d", err, hostPorts(t, st).Proxy)
 	}
 	p.Stop(st.Name())
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil || hostPorts(t, st).Proxy == ssh {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil || hostPorts(t, st).Proxy == ssh {
 		t.Errorf("stopped on an ssh port: %v, port %d", err, hostPorts(t, st).Proxy)
 	}
 }
@@ -652,7 +701,7 @@ func TestPrepareUpstream(t *testing.T) {
 	p.Getenv = func(k string) string { return env[k] }
 	prepare := func(running bool) error {
 		t.Helper()
-		_, err := p.Prepare(t.Context(), lifelined(), st, running)
+		_, err := p.Prepare(t.Context(), lifelined(), st, running, "")
 		return err
 	}
 	if err := prepare(false); err != nil {
@@ -732,7 +781,7 @@ func TestPrepareUpstreamConfig(t *testing.T) {
 	}
 	prepare := func() error {
 		t.Helper()
-		_, err := p.Prepare(t.Context(), lifelined(), st, false)
+		_, err := p.Prepare(t.Context(), lifelined(), st, false, "")
 		return err
 	}
 	if err := prepare(); msg.NamesOf(err) != "proxy_password_missing" {
@@ -773,18 +822,18 @@ func TestPrepareStopsTheOldProxy(t *testing.T) {
 	p, f := testProxy(t, d)
 	p.Tick = 20 * time.Millisecond
 	f.stubborn = true
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
 	old, _ := p.PID(st.Name())
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
 	if pid, ok := p.PID(st.Name()); !ok || pid == old || daemon.Alive(old) {
 		t.Errorf("the old proxy %d: alive %v; now %d", old, daemon.Alive(old), pid)
 	}
 	p.Signal = func(int, syscall.Signal) error { return nil } // signals that never arrive
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); msg.NamesOf(err) != "proxy_stop_failed vm="+st.Name().String() {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); msg.NamesOf(err) != "proxy_stop_failed vm="+st.Name().String() {
 		t.Errorf("a proxy that won't stop: %v", msg.NamesOf(err))
 	}
 }
@@ -799,7 +848,7 @@ func TestPrepareOpen(t *testing.T) {
 	p.Tick = 20 * time.Millisecond
 	vm, ca := st.Name(), d.VM(st.Name()).CA()
 	setNet(t, st, func(n *Net) { n.Tier = TierOpen })
-	conf, err := p.Prepare(t.Context(), lifelined(), st, false)
+	conf, err := p.Prepare(t.Context(), lifelined(), st, false, "")
 	if err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
@@ -821,11 +870,11 @@ func TestPrepareOpen(t *testing.T) {
 	}
 	cert, _ := os.ReadFile(ca.Cert())
 	setNet(t, st, func(n *Net) { n.Tier = TierAllowlist })
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
 	setNet(t, st, func(n *Net) { n.Tier = TierOpen })
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
 	if again, err := os.ReadFile(ca.Cert()); err != nil || !bytes.Equal(again, cert) {
@@ -856,7 +905,7 @@ func TestPrepareRunning(t *testing.T) {
 		b := lifelined()
 		b.Instances[st.Name()] = backend.Instance{Name: st.Name(), Status: backend.StatusRunning}
 		b.Unconfined = !tc.confined
-		if conf, err := p.Prepare(t.Context(), b, st, true); err != nil || conf.Net != tc.want {
+		if conf, err := p.Prepare(t.Context(), b, st, true, ""); err != nil || conf.Net != tc.want {
 			t.Errorf("%s, confined %v: %v, %v; want %v", tc.tier, tc.confined, conf.Net, msg.NamesOf(err), tc.want)
 		}
 	}
@@ -870,7 +919,7 @@ func TestPrepareTiers(t *testing.T) {
 		d, st := sandbox(t, "base", "node", "claude")
 		p, _ := testProxy(t, d)
 		setNet(t, st, func(n *Net) { n.Tier = tier })
-		if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil {
+		if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil {
 			t.Fatal(msg.NamesOf(err))
 		}
 		cfg, err := proxy.ReadConfig(d.VM(st.Name()).ProxyConfig())
@@ -886,7 +935,7 @@ func TestPrepareCAFails(t *testing.T) {
 	d, st := sandbox(t, "base")
 	p, _ := testProxy(t, d)
 	p.InitCA = func(context.Context, paths.CA) error { return errors.New("disk full") }
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); msg.NamesOf(err) != "proxy_ca_failed dir="+d.VM(st.Name()).CA().Dir {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); msg.NamesOf(err) != "proxy_ca_failed dir="+d.VM(st.Name()).CA().Dir {
 		t.Errorf("Prepare = %v", msg.NamesOf(err))
 	}
 }
@@ -902,7 +951,7 @@ func TestPrepareWarnsPolicy(t *testing.T) {
 	if err := os.WriteFile(f, []byte("ok.test\n! bad.test\na b\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
 	want := []string{"policy_broken_deny file=" + f + " line=2 rule=! bad.test", "policy_not_rule file=" + f + " line=3 rule=a b"}
@@ -966,7 +1015,7 @@ func TestPrepareWriteFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	var le *os.LinkError
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); !errors.As(err, &le) || le.New != config {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); !errors.As(err, &le) || le.New != config {
 		t.Fatalf("Prepare: %v; want the config's rename failing", err)
 	}
 	es, _ := os.ReadDir(filepath.Dir(config))
@@ -986,7 +1035,7 @@ func TestOtherBinaries(t *testing.T) {
 	p, f := testProxy(t, d)
 	var warned []string
 	p.Reporter = &msg.Fake{OnWarn: func(m msg.M) { warned = append(warned, m.Names()) }}
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	narrowed := []string{"!api.example.com POST"}
@@ -1028,7 +1077,7 @@ func TestRefreshSecretsOtherBinary(t *testing.T) {
 	p, _ := testProxy(t, d)
 	var warned []string
 	p.Reporter = &msg.Fake{OnWarn: func(m msg.M) { warned = append(warned, m.Names()) }}
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	file := d.VM(st.Name()).Secrets()
@@ -1092,7 +1141,7 @@ func TestNarrowNotesUnreadable(t *testing.T) {
 func TestPID(t *testing.T) {
 	d, st := sandbox(t, "base")
 	p, f := testProxy(t, d)
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	pid, ok := p.PID(st.Name())
@@ -1133,7 +1182,7 @@ func TestPID(t *testing.T) {
 func TestStopKeepsFiles(t *testing.T) {
 	d, st := sandbox(t, "base")
 	p, _ := testProxy(t, d)
-	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil {
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	pid, _ := p.PID(st.Name())

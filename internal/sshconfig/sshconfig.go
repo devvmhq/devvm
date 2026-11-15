@@ -132,9 +132,31 @@ func (c *Config) Write(ctx context.Context, up []Running) error {
 	return state.WriteFile(c.Dirs.SSHConfig(), []byte(buf.String()))
 }
 
+// agentSocket is the agent an editor connecting to vm forwards, its
+// current start being start (sshagent.ReachOf): for a start devvm relayed,
+// its proxy's relay of the agent that start forwarded, as devvm's own
+// shell has it, whatever agent the editor has, even while the relay is
+// down. A start an older devvm recorded without the relay forwards what
+// that start did: devvm's own agent's socket, or "yes", the editor's own
+// agent. A start devvm didn't record, such as one outside devvm, gets none,
+// as does a choice of none: "".
+func (c *Config) agentSocket(vm vmname.VM, st *state.VM, start string) string {
+	switch sshagent.ReachOf(st, start) {
+	case sshagent.Relay:
+		return c.Dirs.AgentRelay(vm)
+	case sshagent.Raw:
+		if sshagent.Running(st, start) == sshagent.Devvm {
+			return c.Dirs.AgentSock()
+		}
+		return "yes"
+	case sshagent.None:
+	}
+	return ""
+}
+
 // entry writes vm's Host block. Its own host keys are checked, and agent
-// forwarding is the choice its current start (start) was made with, as
-// devvm's own shell has it (sshagent.Running), an explicit no included, so
+// forwarding is as its current start (start) was made, as devvm's own
+// shell has it (agentSocket), an explicit no included, so
 // a Host * of the user's doesn't apply: ssh takes an option's first value.
 // It logs in as login says, its backend's checked target (vmssh.FromTarget),
 // with the target's other login options (opts).
@@ -148,15 +170,13 @@ func (c *Config) entry(buf *strings.Builder, alias string, in backend.Instance, 
 		return err
 	}
 	forward, identity := "no", ""
-	switch sshagent.Running(st, start) {
-	case sshagent.On:
-		forward = "yes"
-	case sshagent.Devvm:
-		// Editors forward devvm's own agent too. OpenSSH forwards a
-		// socket only when it sees an agent of its own: the same one,
-		// so an editor started without SSH_AUTH_SOCK (or with another)
-		// still forwards it.
-		forward = `"` + c.Dirs.AgentSock() + `"`
+	if sock := c.agentSocket(in.Name, st, start); sock == "yes" {
+		forward = sock
+	} else if sock != "" {
+		// OpenSSH forwards a socket only when it sees an agent of its
+		// own: the same one, so an editor started without SSH_AUTH_SOCK
+		// (or with another) still forwards it.
+		forward = `"` + sock + `"`
 		identity = "  IdentityAgent " + forward
 	}
 	lines := []string{

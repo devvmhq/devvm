@@ -218,15 +218,28 @@ func confinementFor(st *state.VM) backend.Confinement {
 // made open while it ran confined included, as it stays on its proxy
 // until it starts again, or its tier is confined; else its backend's own
 // network, with the proxy. A VM whose proxy can't start is stopped
-// (Unproxied): it never runs on without it. Its agent is the one mode,
-// the choice it runs with (runningAgent), says.
+// (Unproxied): it never runs on without it. Its agent is its proxy's
+// relay of the one its start forwarded, whatever start it is. One whose
+// proxy relays none gets no agent, never the agent's own socket, whether
+// devvm recorded its start as relayed (its proxy's config lost) or didn't
+// record it (started outside devvm); only a start an older devvm recorded
+// without the relay (sshagent.ReachOf's Raw) gets the one mode, the choice
+// it runs with (runningAgent), says.
 func (s starter) runningConfinement(ctx context.Context, b backend.Backend, st *state.VM, mode string) (backend.Confinement, error) {
 	vm := st.Name()
-	c, err := s.Proxy.Prepare(ctx, b, st, true)
+	c, err := s.Proxy.Prepare(ctx, b, st, true, "")
 	if err != nil {
 		return c, s.Proxy.Unproxied(ctx, b, vm, err)
 	}
-	c.AgentSocket = s.agentSocket(mode)
+	if c.AgentSocket == "" {
+		run, err := b.Running(ctx, vm)
+		if err != nil {
+			return c, err
+		}
+		if sshagent.ReachOf(st, run.ID) == sshagent.Raw {
+			c.AgentSocket = s.agentSocket(mode)
+		}
+	}
 	return c, nil
 }
 
@@ -565,7 +578,7 @@ func (s starter) startOnce(ctx context.Context, t *target, conf backend.Confinem
 	// The VM's backend forwards the agent it gets when it starts, and its
 	// connections to the VM carry it: devvm's own, with the keys it lacks
 	// loaded, for a VM that uses it; the user's; none for one that uses
-	// none.
+	// none. It gets the proxy's relay of that agent (confine).
 	mode := sshagent.Mode(st)
 	conf.NoAgent = !sshagent.Forwards(mode)
 	if mode == sshagent.Devvm {
@@ -638,6 +651,10 @@ func (s starter) startOnce(ctx context.Context, t *target, conf backend.Confinem
 	if err != nil {
 		run.ID = ""
 	}
+	// Every start of this devvm's that forwards an agent is recorded as
+	// relayed, one without an agent to relay (no SSH_AUTH_SOCK) included:
+	// that VM then gets the relay's socket, where nothing listens, never
+	// the agent's own, which only an older devvm's start keeps.
 	return conf, sshagent.RecordStart(ctx, st, mode, run.ID)
 }
 
@@ -689,14 +706,15 @@ func (s starter) checkRunningPins(ctx context.Context, t *target) {
 // confine is start's network: the proxy's confinement for the VM's tier
 // (Prepare), its proxy started, its ssh port recorded, so other VMs'
 // forwarders never take it before its backend binds it, and the VM's
-// links checked, with the agent conf chose.
+// links checked, with the agent conf chose, which the proxy relays: the
+// VM forwards the relay's socket, never the agent's own.
 func (s starter) confine(ctx context.Context, b backend.Backend, st *state.VM, conf backend.Confinement) (backend.Confinement, error) {
 	vm := st.Name()
-	p, err := s.Proxy.Prepare(ctx, b, st, false)
+	p, err := s.Proxy.Prepare(ctx, b, st, false, conf.AgentSocket)
 	if err != nil {
 		return conf, err
 	}
-	p.AgentSocket, p.NoAgent = conf.AgentSocket, conf.NoAgent
+	p.NoAgent = conf.NoAgent
 	if err := s.syncer.checkStartLinks(st); err != nil {
 		s.Proxy.Stop(vm)
 		return conf, err

@@ -34,7 +34,7 @@ func devvm() rules {
 		// fake's own types each implement.
 		maxMethods: 24,
 		largeTypes: map[string]large{
-			"internal/paths.Dirs": {61, "one method per folder or file devvm uses: a list (a VM's own files are paths.VM's)"},
+			"internal/paths.Dirs": {62, "one method per folder or file devvm uses: a list (a VM's own files are paths.VM's)"},
 			"internal/ui.UI":      {46, "the one terminal: messages and where they go, as text or names, the logo, errors with the caller's exit code, prompts and their refusals, whether the picker shows, status line, tables, run log and how many are kept, cleanups, signals"},
 		},
 		allowedVars: devvmVars(),
@@ -346,7 +346,8 @@ func devvmGoroutineSites() map[string]string {
 		"internal/platform/pin_linux.go: WatchFolders":      "WatchFolders's stop, which closes the inotify file its read in Go's poller is on",
 		"internal/platform/pinrun_linux.go: runChild":       "runChild, on passed, once it has closed the signals' channel",
 		"internal/platform/pinrun_linux.go: RunPinned":      "keep, which returns the child's end that it sends",
-		"internal/proxy/proxy.go: serve":                    detached + "the lifeline's watch, which runs for the proxy's life and ends it once the VM's hostagent is gone",
+		"internal/proxy/proxy.go: serve":                    detached + "the lifeline's watch, which runs for the proxy's life and ends it once the VM's hostagent is gone, and the SSH agent relay's accept loop, which ends once serve's deferred close closes its listener",
+		"internal/proxy/agent.go: agentRelay.serve":         detached + "each connection's relay, which ends when either side closes, when the client sends no whole request within agentIdle, or with the proxy; nothing waits for one waiting on the agent's answer",
 		"internal/proxy/splice.go: splice":                  "splice, on done, once both directions have ended",
 		"internal/proxy/proxy.go: whileHeard":               "whileHeard's cancel, which handleHTTP defers, so it ends with the request's handler",
 		"internal/proxy/conns.go: conns.close":              detached + "the handlers' wait, which close gives closeWait at most: it ends with the last handler, as the proxy exits",

@@ -463,18 +463,18 @@ func (f *Forwarder) open(ctx context.Context, port int) (*forward, error) {
 }
 
 // serve relays each connection to a listener to the port in the VM, until
-// the listener closes (acceptRetry).
+// the listener closes (daemon.AcceptRetry).
 func (f *Forwarder) serve(ctx context.Context, l net.Listener, port int, fw *forward) {
-	var retry acceptRetry
+	var retry daemon.AcceptRetry
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			if retry.failed(ctx, err, func(err error) { f.logf("port %d: %v", port, err) }) {
+			if retry.Failed(ctx, err, func(err error) { f.logf("port %d: %v", port, err) }) {
 				continue
 			}
 			return
 		}
-		retry.accepted()
+		retry.Accepted()
 		select {
 		case f.relays <- struct{}{}:
 		default:

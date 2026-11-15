@@ -224,7 +224,7 @@ A VM's state is `vm.json`, a JSON file that only devvm writes. It starts with th
 | `net` | network tier | the VM's `tier`, and what devvm made for it: the proxy's password, the salt that ends its placeholders and the last [self-check](network.md#the-self-check)'s result |
 | `git` | [.git protection](git-protection.md) | the mode, the mode chosen while the VM ran, and what locking found: `.git`'s identity, the git folders it locked besides `.git`, and a hash of what the locked files hand over to the project folder |
 | `ports` | the port allocator | which ports the VM forwards, and the host ports devvm chose for its ssh, its proxy and its desktop |
-| `agent` | SSH agent forwarding | the VM's choice, and the start devvm last started it with |
+| `agent` | SSH agent forwarding | the VM's choice, the start devvm last started it with, and whether that start forwarded its proxy's [relay](processes.md#the-ssh-agents) of the agent |
 | `tools` | the shared tools | the VM's shared tools by name, and their images and C library |
 | `secrets` | secrets | the secrets bound to the VM |
 | `size` | `devvm size` | the CPUs, memory and disk asked for |

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/platform"
 )
 
@@ -84,21 +85,21 @@ func (o SSH) forwardLoopback(ctx context.Context, carry func(context.Context, ne
 // whatever else on this machine connects can't start ssh without end.
 const loopbackConnsMax = 16
 
-// serve accepts l's connections until it's closed (acceptRetry), carrying
-// each to port, and closing those past loopbackConnsMax at once.
+// serve accepts l's connections until it's closed (daemon.AcceptRetry),
+// carrying each to port, and closing those past loopbackConnsMax at once.
 func (f *LoopbackForward) serve(ctx context.Context, l net.Listener, port int, carry func(context.Context, net.Conn, int)) {
 	var conns sync.WaitGroup
 	defer conns.Wait()
-	var retry acceptRetry
+	var retry daemon.AcceptRetry
 	for {
 		c, err := l.Accept()
 		if err != nil {
-			if retry.failed(ctx, err, nil) {
+			if retry.Failed(ctx, err, nil) {
 				continue
 			}
 			return
 		}
-		retry.accepted()
+		retry.Accepted()
 		select {
 		case f.slots <- struct{}{}:
 		default:

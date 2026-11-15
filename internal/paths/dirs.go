@@ -168,8 +168,8 @@ func (d Dirs) FromDigests() string { return filepath.Join(d.Cache(), "from-diges
 func (d Dirs) ReleaseCheck() string { return filepath.Join(d.Cache(), "release.json") }
 
 // Run holds what running VMs need that isn't one VM's, or whose path
-// must be short: the QEMU wrapper, the claims lock, the port forwarders'
-// and link sessions' sockets, named by hashes (a socket's path has fewer
+// must be short: the QEMU wrapper, the claims lock, the port forwarders',
+// link sessions' and SSH agent relays' sockets, named by hashes (a socket's path has fewer
 // than SocketMax characters), and build VMs' folders (VM).
 func (d Dirs) Run() string { return filepath.Join(d.Data, "run") }
 
@@ -259,6 +259,18 @@ func (d Dirs) NixCache() string { return filepath.Join(d.Cache(), "nix-cache") }
 
 // AgentSock is the socket of devvm's own SSH agent.
 func (d Dirs) AgentSock() string { return filepath.Join(d.Data, "agent.sock") }
+
+// AgentRelay is the socket a VM's proxy relays the VM's SSH agent on,
+// which the VM forwards instead of the agent's own: in the run folder, by
+// the VM's hash (its name, for a VM without one), as its path must be
+// short.
+func (d Dirs) AgentRelay(vm vmname.VM) string {
+	h, ok := vm.Hash()
+	if !ok {
+		h = vm.String()
+	}
+	return filepath.Join(d.Run(), "agent-"+h+".sock")
+}
 
 // OCIBuildLock is held while a base image is built from a container image.
 func (d Dirs) OCIBuildLock() string { return filepath.Join(d.Data, "oci-build.lock") }

@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -94,6 +95,11 @@ type Config struct {
 	// their sockets, devvm's run folder: without both, no link is reached.
 	Links       string `json:"links,omitempty"`
 	LinkSockets string `json:"link_sockets,omitempty"`
+	// Agent is the SSH agent the VM forwards, its socket, and AgentSocket the socket the proxy
+	// relays it on, which the VM's backend forwards instead: only listing keys, signing with them
+	// and binding a connection to a host reach the agent (agent.go). Both or neither, absolute.
+	Agent       string `json:"agent,omitempty"`
+	AgentSocket string `json:"agent_socket,omitempty"`
 	// DevvmSHA256, CASHA256 and CANextSHA256 are the SHA-256 of the devvm binary, of the VM's CA
 	// certificate and of its next CA's it was started with. The proxy doesn't read them: they're
 	// in the file so a new binary or a new CA makes another config, and devvm starts the proxy
@@ -153,6 +159,8 @@ type configFile struct {
 	NixCacheMax        int64     `json:"nix_cache_max,omitempty"`
 	Links              string    `json:"links,omitempty"`
 	LinkSockets        string    `json:"link_sockets,omitempty"`
+	Agent              string    `json:"agent,omitempty"`
+	AgentSocket        string    `json:"agent_socket,omitempty"`
 	DevvmSHA256        string    `json:"devvm_sha256,omitempty"`
 	CASHA256           string    `json:"ca_sha256,omitempty"`
 	CANextSHA256       string    `json:"ca_next_sha256,omitempty"`
@@ -165,7 +173,7 @@ func (c Config) file() configFile {
 		c.Version, c.Listen, c.VM, password, c.BuiltinPolicies, c.Policies, c.DenyPolicies, c.Open,
 		c.Log, c.ProxyLog, c.Lifeline, c.CA, c.CAKey, c.CANext, c.CANextKey, c.Secrets, c.Captures,
 		c.UpstreamCAs, c.Upstream, c.UpstreamUnresolved, c.NixCache, c.NixCacheMax, c.Links, c.LinkSockets,
-		c.DevvmSHA256, c.CASHA256, c.CANextSHA256,
+		c.Agent, c.AgentSocket, c.DevvmSHA256, c.CASHA256, c.CANextSHA256,
 	}
 }
 
@@ -175,7 +183,7 @@ func (f configFile) config() Config {
 		f.Version, f.Listen, f.VM, redact.NewSecret(f.Password), f.BuiltinPolicies, f.Policies, f.DenyPolicies, f.Open,
 		f.Log, f.ProxyLog, f.Lifeline, f.CA, f.CAKey, f.CANext, f.CANextKey, f.Secrets, f.Captures,
 		f.UpstreamCAs, f.Upstream, f.UpstreamUnresolved, f.NixCache, f.NixCacheMax, f.Links, f.LinkSockets,
-		f.DevvmSHA256, f.CASHA256, f.CANextSHA256,
+		f.Agent, f.AgentSocket, f.DevvmSHA256, f.CASHA256, f.CANextSHA256,
 	}
 }
 
@@ -249,6 +257,12 @@ func (c Config) check() error {
 	}
 	if c.CANext != "" && c.CA == "" {
 		return errors.New("ca_next needs ca")
+	}
+	if (c.Agent == "") != (c.AgentSocket == "") {
+		return errors.New("agent and agent_socket go together")
+	}
+	if c.Agent != "" && (!filepath.IsAbs(c.Agent) || !filepath.IsAbs(c.AgentSocket)) {
+		return errors.New("agent and agent_socket must be absolute paths")
 	}
 	return checkCaptures(c.Captures, c.CA != "")
 }

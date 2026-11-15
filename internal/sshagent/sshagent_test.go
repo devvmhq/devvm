@@ -557,11 +557,56 @@ func TestMode(t *testing.T) {
 	if Running(again, "start-1") != Devvm || Running(again, "start-2") != On {
 		t.Errorf("Running = %q, %q; want devvm for its start, else on", Running(again, "start-1"), Running(again, "start-2"))
 	}
-	if err := RecordStart(t.Context(), st, Off, ""); err != nil {
+	// Relayed only for the start recorded so.
+	if !Relayed(again, "start-1") || Relayed(again, "start-2") || Relayed(again, "") {
+		t.Errorf("Relayed = %v, %v, %v; want only start-1's", Relayed(again, "start-1"), Relayed(again, "start-2"), Relayed(again, ""))
+	}
+	if ReachOf(again, "start-1") != Relay || ReachOf(again, "start-2") != None {
+		t.Errorf("ReachOf = %v, %v; want the relay for its start, none for one not recorded", ReachOf(again, "start-1"), ReachOf(again, "start-2"))
+	}
+	// Every start this devvm records that forwards an agent is relayed,
+	// whichever agent: only an older devvm's record lacks it.
+	if err := RecordStart(t.Context(), st, On, "start-1"); err != nil {
 		t.Fatal(err)
 	}
-	if a, _ := Of(st); a.Made.Started != "" {
-		t.Errorf("no start recorded: %q", a.Made.Started)
+	if !Relayed(st, "start-1") || ReachOf(st, "start-1") != Relay {
+		t.Error("a start of this devvm's that forwards your agent isn't relayed")
+	}
+	olderStart(t, st, Devvm, "start-1")
+	if Relayed(st, "start-1") || ReachOf(st, "start-1") != Raw || ReachOf(st, "") != None {
+		t.Error("an older devvm's start: not relayed, the agent's own socket, and none for no start")
+	}
+	if err := RecordStart(t.Context(), st, Off, "start-1"); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := Of(st); ReachOf(st, "start-1") != None || a.Made.Relayed {
+		t.Error("a start without an agent reaches one, or is relayed")
+	}
+	if err := RecordStart(t.Context(), st, Devvm, ""); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := Of(st); a.Made.Started != "" || a.Made.Relayed {
+		t.Errorf("no start recorded: %+v", a.Made)
+	}
+}
+
+// olderStart records start as an older devvm did: the start, without
+// Made.Relayed, as that devvm forwarded the agent itself.
+func olderStart(t *testing.T, st *state.VM, mode, start string) {
+	t.Helper()
+	if err := RecordStart(t.Context(), st, mode, start); err != nil {
+		t.Fatal(err)
+	}
+	err := st.Update(t.Context(), func(st *state.VM) error {
+		a, err := Of(st)
+		if err != nil {
+			return err
+		}
+		a.Made.Relayed = false
+		return Set(st, a)
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

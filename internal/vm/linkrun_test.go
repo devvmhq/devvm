@@ -236,11 +236,13 @@ func TestLinkLeftovers(t *testing.T) {
 	listen("link-0000000000000002.ctl", false)
 	listen("link-0000000000000003.sock", true)
 	listen("devvm-app-0123456789abcd.proxy.sock", false)
+	listen("agent-0123456789abcd.sock", false) // a killed proxy's relay
+	listen("agent-0123456789abce.sock", true)
 	if err := os.WriteFile(filepath.Join(d.Run(), "link-0000000000000004.sock"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := LeftoverSockets(t.Context(), d)
-	stale := []string{filepath.Join(d.Run(), "link-0000000000000001.sock"), filepath.Join(d.Run(), "link-0000000000000002.ctl")}
+	stale := []string{filepath.Join(d.Run(), "link-0000000000000001.sock"), filepath.Join(d.Run(), "link-0000000000000002.ctl"), filepath.Join(d.Run(), "agent-0123456789abcd.sock")}
 	slices.Sort(stale)
 	if err != nil || !slices.Equal(got, stale) {
 		t.Errorf("LeftoverSockets = %v, %v; want %v", got, err, stale)

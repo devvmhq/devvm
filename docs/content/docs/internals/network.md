@@ -476,6 +476,7 @@ The config is one JSON file, `proxy.Config`, which a VM's proxy and a build's pr
 | `nix_cache_max` | with `nix_cache`: the cache's cap, in bytes (none: 10 GiB) |
 | `links` | the VM's links' list, which `devvm _links` writes: reach each link through its socket, before any rule ([links through the proxy](#links-through-the-proxy)); a missing list has no links |
 | `link_sockets` | with `links`: the folder of the links' sockets, devvm's run folder; without it, no link is reached |
+| `agent`, `agent_socket` | together, as absolute paths: the SSH agent that the VM's start forwards, your own or devvm's, and the VM's own socket in devvm's run folder, `agent-<hash>.sock`, on which the proxy relays it and which the VM's backend forwards instead ([the SSH agents](processes.md#the-ssh-agents)); devvm keeps a running VM's as its start set them |
 | `devvm_sha256`, `ca_sha256`, `ca_next_sha256` | the SHA-256 of devvm's binary, of the VM's CA certificate and of its next CA's that the proxy started with; the proxy doesn't read them, and they're there so that a new binary or a new CA makes another config ([how long a proxy runs](#how-long-a-proxy-runs)) |
 
 `-config` is the proxy's only flag, and running the proxy is its only mode. What only this machine does for a VM's proxy runs inside devvm itself, never through the proxy's arguments. devvm makes each VM's CAs with `trust.InitCA`, and `internal/agentlogin` makes the VM's copies of agents' logins and settings files, their bindings and their values.

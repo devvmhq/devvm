@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
@@ -653,7 +654,7 @@ func (l *Links) serve(ctx context.Context, end *linkEnd) {
 		<-taken
 	}()
 	ul, _ := end.ln.(interface{ SetDeadline(time.Time) error })
-	var retry acceptRetry
+	var retry daemon.AcceptRetry
 	for {
 		if ul != nil {
 			var d time.Time
@@ -677,12 +678,12 @@ func (l *Links) serve(ctx context.Context, end *linkEnd) {
 			// Out of files, say, in a burst: what's accepted goes on, and the
 			// socket is tried again shortly.
 			release(true)
-			if retry.failed(ctx, err, func(err error) { l.logf("%s: %v", end.sock, err) }) {
+			if retry.Failed(ctx, err, func(err error) { l.logf("%s: %v", end.sock, err) }) {
 				continue
 			}
 			return
 		}
-		retry.accepted()
+		retry.Accepted()
 		if len(batch) == 0 {
 			first = time.Now()
 		}

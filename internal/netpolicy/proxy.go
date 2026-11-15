@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -117,8 +118,37 @@ func otherBinary(p *Proxy, vm vmname.VM) bool {
 
 // Stop stops the VM's proxy, if it runs: SIGTERM, then after two seconds
 // SIGKILL, waiting up to two more for it to end. It reports whether no
-// proxy of the VM's runs then.
-func (p *Proxy) Stop(vm vmname.VM) bool { return p.proc(vm).Stop(4 * p.Tick) }
+// proxy of the VM's runs then, and then deletes the socket the proxy
+// relayed the VM's SSH agent on, which a signal leaves behind.
+func (p *Proxy) Stop(vm vmname.VM) bool {
+	if !p.proc(vm).Stop(4 * p.Tick) {
+		return false
+	}
+	_ = os.Remove(p.Dirs.AgentRelay(vm))
+	return true
+}
+
+// relayedAgent is the SSH agent a VM's proxy relays and the socket it
+// relays it on: a start's, agent ("" none), on the VM's own socket
+// (paths.Dirs.AgentRelay); a running VM's, the one its proxy's start
+// relayed, as its backend forwards that socket until its next start.
+func relayedAgent(d paths.Dirs, vm vmname.VM, running bool, agent string) (upstream, sock string) {
+	if running {
+		old, err := proxy.ReadConfig(d.VM(vm).ProxyConfig())
+		if err != nil {
+			return "", ""
+		}
+		return old.Agent, old.AgentSocket
+	}
+	if agent == "" {
+		return "", ""
+	}
+	// A relative SSH_AUTH_SOCK is devvm's folder's, where the proxy isn't.
+	if abs, err := filepath.Abs(agent); err == nil {
+		agent = abs
+	}
+	return agent, d.AgentRelay(vm)
+}
 
 // Prepare readies a VM to start on b, or a running one to go on, on its
 // tier: the VM's own CA and its secret files, whatever its tier; its
@@ -126,8 +156,12 @@ func (p *Proxy) Stop(vm vmname.VM) bool { return p.proc(vm).Stop(4 * p.Tick) }
 // starts it with (Tier.Net): a running VM keeps the one it started with
 // until its next start, on its proxy alone when it started so or its tier
 // is confined. The proxy follows the host process that runs the VM (its
-// Run.Lifeline): a VM started again gets a new proxy.
-func (p *Proxy) Prepare(ctx context.Context, b backend.Backend, st *state.VM, running bool) (backend.Confinement, error) {
+// Run.Lifeline): a VM started again gets a new proxy. A start forwards
+// the SSH agent at agent ("" none): its proxy relays it, and the
+// confinement's AgentSocket is the relay's socket (proxy.Config.Agent). A
+// running VM's proxy relays the agent its start forwarded, whatever agent
+// says (relayedAgent).
+func (p *Proxy) Prepare(ctx context.Context, b backend.Backend, st *state.VM, running bool, agent string) (backend.Confinement, error) {
 	vm, tier := st.Name(), TierOf(st)
 	// The tier as its state has it now: a command that read the state
 	// before devvm network changed it never starts the proxy with the
@@ -159,6 +193,7 @@ func (p *Proxy) Prepare(ctx context.Context, b backend.Backend, st *state.VM, ru
 	if err != nil {
 		return none, err
 	}
+	cfg.Agent, cfg.AgentSocket = relayedAgent(p.Dirs, vm, running, agent)
 	if stale := p.stale(vm, cfg); !running || stale {
 		// Never the old one kept: it would go on with what it started with.
 		if !p.Stop(vm) {
@@ -175,7 +210,7 @@ func (p *Proxy) Prepare(ctx context.Context, b backend.Backend, st *state.VM, ru
 		return none, err
 	}
 	conf := backend.Confinement{
-		Net: net, ProxyPort: pp, ProxyPassword: key, Env: Env, SSHPort: sp,
+		Net: net, ProxyPort: pp, ProxyPassword: key, Env: Env, SSHPort: sp, AgentSocket: cfg.AgentSocket,
 	}
 	// The logs hold each VM's requests: the user's alone.
 	for _, d := range []string{p.Dirs.Run(), p.Dirs.VM(vm).Run(), p.Dirs.VM(vm).Logs()} {

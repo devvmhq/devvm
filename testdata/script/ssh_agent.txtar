@@ -2,8 +2,8 @@
 # devvm ssh-agent devvm devvm's own, which holds only the keys added to it
 # and not removed with devvm ssh-agent rm (the ssh-agent and ssh-add
 # stubs). Every connection devvm opens to a VM
-# carries the agent its mode says, or none. Your own agent is a made-up
-# socket the stubs never answer on.
+# carries the agent its mode says, through the VM's proxy's relay, or
+# none. Your own agent is a made-up socket the stubs never answer on.
 env SSH_AUTH_SOCK=$WORK/user.sock
 
 # No VM yet.
@@ -37,7 +37,9 @@ exec devvm --ssh-agent
 stderr '^devvm: new_vm_flags_ignored_run command=devvm ssh-agent on flags=--ssh-agent vm=devvm-web-[0-9a-f]{14}$'
 
 # --ssh-agent: yours, checked first (not running here, with a key in
-# ~/.ssh: it says so), on every connection; no hint for an SSH origin.
+# ~/.ssh: it says so), which the VM's proxy relays on the VM's own
+# socket, on every connection; its entry names the relay as the agent;
+# no hint for an SSH origin.
 project fwd git
 exec git remote add origin git@github.com:o/r.git
 mkdir $HOME/.ssh
@@ -53,10 +55,11 @@ stub_calls
 stdout '^limactl clone .* --set \.ssh\.forwardAgent=true '
 stdout '^ssh-add -l SOCK=\S*/user\.sock$'
 exec sh -c 'cat "$STUB_DIR"/start-agent-devvm-fwd-* "$STUB_DIR/shell-agent"'
-stdout '\A\S*/user\.sock\n\S*/user\.sock\n\z'
+stdout '\A\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock\n\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock\n\z'
+exec sh -c 'cat "$FWD_dir/run/proxy.json"'
+stdout '^  "agent": "\S*/user\.sock",\n  "agent_socket": "\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock",$'
 exec sh -c 'cat "$DATA/ssh_config"'
-stdout '^Host devvm-fwd devvm-fwd-[0-9a-f]{14}\n(  .*\n)*  ForwardAgent yes\n'
-! stdout IdentityAgent
+stdout '^Host devvm-fwd devvm-fwd-[0-9a-f]{14}\n(  .*\n)*  ForwardAgent "\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock"\n  ControlMaster no\n  ControlPath none\n  IdentityAgent "\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock"\n'
 exec devvm ssh-agent
 stdout '\Aon\n\z'
 rm $HOME/.ssh
@@ -128,13 +131,26 @@ exec devvm
 cd $WORK/web
 exec sh -c 'cat "$DATA/ssh_config"'
 stdout '^Host devvm-web devvm-web-[0-9a-f]{14}\n(  .*\n)*  ForwardAgent no\n'
-stdout '^Host devvm-fwd devvm-fwd-[0-9a-f]{14}\n(  .*\n)*  ForwardAgent yes\n'
-! stdout IdentityAgent
+stdout '^Host devvm-fwd devvm-fwd-[0-9a-f]{14}\n(  .*\n)*  ForwardAgent "\S*/run/agent-[0-9a-f]{14}\.sock"\n'
 
-# Restarted: its backend forwards an agent, devvm's, with the keys its
-# agent lacks loaded again (after a reboot here); so do devvm's
-# connections, and its entry, which names it as the agent, so OpenSSH
-# forwards it however the editor was started.
+# Started outside devvm: nothing says which agent that start forwards, so
+# its entry forwards none, never the agent's own socket, and devvm's
+# shell gets its proxy's relay of the agent devvm's last start chose.
+# (The exit keeps limactl start sh's child, as in existing_agents.)
+cd $WORK/fwd
+exec sh -c 'limactl stop "$FWD" && limactl start --tty=false "$FWD"; exit $?'
+exec devvm
+exec sh -c 'cat "$DATA/ssh_config"'
+stdout '^Host devvm-fwd devvm-fwd-[0-9a-f]{14}\n(  .*\n)*  ForwardAgent no\n'
+exec sh -c 'cat "$STUB_DIR/shell-agent"'
+stdout '\A\S*/run/agent-[0-9a-f]{14}\.sock\n\z'
+! stdout user\.sock
+cd $WORK/web
+
+# Restarted: its backend forwards an agent, devvm's, through its proxy's
+# relay, with the keys its agent lacks loaded again (after a reboot
+# here); so do devvm's connections, and its entry, which names the relay
+# as the agent, so OpenSSH forwards it however the editor was started.
 exec stub agent-stop
 stub_reset
 exec devvm restart
@@ -143,25 +159,31 @@ stdout '^limactl edit --tty=false devvm-web-[0-9a-f]{14} --set \.ssh\.forwardAge
 stdout '^ssh-agent -a \S*/data/devvm/agent\.sock$'
 stdout '^ssh-add -t 12h key:deploy$'
 exec sh -c 'cat "$STUB_DIR"/start-agent-devvm-web-* "$STUB_DIR/shell-agent"'
-stdout '\A\S*/data/devvm/agent\.sock\n\S*/data/devvm/agent\.sock\n\z'
+stdout '\A\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock\n\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock\n\z'
+exec sh -c 'cat "$WEB_dir/run/proxy.json"'
+stdout '^  "agent": "\S*/data/devvm/agent\.sock",\n  "agent_socket": "\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock",$'
 exec sh -c 'cat "$DATA/ssh_config"'
-stdout '^Host devvm-web devvm-web-[0-9a-f]{14}\n(  .*\n)*  ForwardAgent "\S*/data/devvm/agent\.sock"\n  ControlMaster no\n  ControlPath none\n  IdentityAgent "\S*/data/devvm/agent\.sock"\n'
+stdout '^Host devvm-web devvm-web-[0-9a-f]{14}\n(  .*\n)*  ForwardAgent "\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock"\n  ControlMaster no\n  ControlPath none\n  IdentityAgent "\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock"\n'
 
-# Off again: from its next start; until then devvm's connections and its
-# entry keep devvm's agent, then carry none.
+# Off again: from its next start; until then devvm's connections, its
+# entry and its proxy keep devvm's agent, then carry none.
 exec devvm ssh-agent off
 stdout '^==> next_start count=1 vm=devvm-web-[0-9a-f]{14}$'
 ! stderr risk
 exec devvm
 exec sh -c 'cat "$STUB_DIR/shell-agent"'
-stdout '\A\S*/data/devvm/agent\.sock\n\z'
+stdout '\A\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock\n\z'
 exec sh -c 'cat "$DATA/ssh_config"'
-stdout '^Host devvm-web devvm-web-[0-9a-f]{14}\n(  .*\n)*  ForwardAgent "\S*/data/devvm/agent\.sock"\n'
+stdout '^Host devvm-web devvm-web-[0-9a-f]{14}\n(  .*\n)*  ForwardAgent "\S*/data/devvm/run/agent-[0-9a-f]{14}\.sock"\n'
+exec sh -c 'cat "$WEB_dir/run/proxy.json"'
+stdout '^  "agent": "\S*/data/devvm/agent\.sock",$'
 exec devvm restart
 exec sh -c 'cat "$STUB_DIR/shell-agent"'
 stdout '\Aunset\n\z'
 exec sh -c 'cat "$DATA/ssh_config"'
 stdout '^Host devvm-web devvm-web-[0-9a-f]{14}\n(  .*\n)*  ForwardAgent no\n'
+exec sh -c 'cat "$WEB_dir/run/proxy.json"'
+! stdout '"agent_socket"'
 
 # devvm ssh-agent rm: the key out of devvm's agent and agent-keys, found
 # by its fingerprint, the key file left as it is. One not added is

@@ -4,7 +4,8 @@
 // file and its arguments (Proc), stops it (SIGTERM, a wait, then SIGKILL),
 // waits for it to say it's ready in a status file of its own (Ready,
 // WaitReady), and gives each the one meaning of a lifeline, the file of
-// the process that runs a VM, which it follows (Lifeline).
+// the process that runs a VM, which it follows (Lifeline). Their accept
+// loops wait after an error that leaves the listener open (AcceptRetry).
 //
 // It's the one place devvm signals a process by its pid (forbidigo holds
 // the rest to it). Standard library only, so devvm _proxy (internal/proxy)

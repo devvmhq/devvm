@@ -311,8 +311,9 @@ func runningAgent(ctx context.Context, b backend.Backend, st *state.VM) (string,
 
 // agentSocket is the SSH agent socket a VM whose choice is mode gets:
 // devvm's, the user's (the one devvm started with), or none (""). Its
-// start forwards it, and devvm's own connections to that VM carry it
-// (target.agent), each VM's its own, as devvm's environment never changes.
+// start forwards its proxy's relay of it (netpolicy.Proxy.Prepare),
+// and devvm's own connections to that VM carry the relay (target.agent),
+// each VM's its own, as devvm's environment never changes.
 func (e *Env) agentSocket(mode string) string {
 	switch mode {
 	case sshagent.Devvm:

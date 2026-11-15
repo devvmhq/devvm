@@ -12,7 +12,9 @@ import (
 	"github.com/devvmhq/devvm/internal/backend/backendtest"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/sshagent"
+	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -48,9 +50,24 @@ func sameAgent(got []string, want string) bool {
 	return len(got) > 0 && !slices.ContainsFunc(got, func(a string) bool { return a != want })
 }
 
+// relayed returns the agent vm's proxy relays, as its config has it, ""
+// for none, and checks that it relays it on the VM's own socket.
+func relayed(t *testing.T, e *Env, vm vmname.VM) string {
+	t.Helper()
+	cfg, err := proxy.ReadConfig(e.Dirs.VM(vm).ProxyConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[bool]string{true: e.Dirs.AgentRelay(vm)}[cfg.Agent != ""]; cfg.AgentSocket != want {
+		t.Errorf("%s's proxy relays its agent on %q, want %q", vm, cfg.AgentSocket, want)
+	}
+	return cfg.Agent
+}
+
 // --ssh-agent: the new VM forwards the user's agent, which is checked
-// first, and devvm's connections to it carry it. Without, they carry none.
-// devvm's own environment stays as it was.
+// first, through its proxy's relay, and devvm's connections to it carry
+// the relay. Without, they carry none. devvm's own environment stays as
+// it was.
 func TestUpSSHAgent(t *testing.T) {
 	for _, on := range []bool{true, false} {
 		e, f, _ := upEnv(t, allNative())
@@ -58,9 +75,12 @@ func TestUpSSHAgent(t *testing.T) {
 		e.SSHAdd = func(_ context.Context, args ...string) int { adds = append(adds, strings.Join(args, " ")); return 0 }
 		st := existingVM(t, e, Options{Network: "open", SSHAgent: on})
 		spec, _ := call(f, "CreateVM").Args[1].(backend.VMSpec)
-		mode, sock := sshagent.Off, ""
+		mode, sock, agent := sshagent.Off, "", ""
 		if on {
-			mode, sock = sshagent.On, "/user/agent"
+			mode, sock, agent = sshagent.On, e.Dirs.AgentRelay(st.Name()), "/user/agent"
+		}
+		if got := relayed(t, e, st.Name()); got != agent {
+			t.Errorf("--ssh-agent %v: its proxy relays %q, want %q", on, got, agent)
 		}
 		if spec.AgentForwarding != on || get(st, keyAgent) != mode {
 			t.Errorf("--ssh-agent %v: forwarding %v, state %q", on, spec.AgentForwarding, get(st, keyAgent))
@@ -129,13 +149,17 @@ func TestAgentPerVM(t *testing.T) {
 		}
 	}
 	calls := f.Calls()[before:]
-	for dir, want := range map[string]string{web: e.Agent.Socket(), api: "/user/agent"} {
+	for dir, agent := range map[string]string{web: e.Agent.Socket(), api: "/user/agent"} {
 		vm := targets[dir].f.Name
+		if got := relayed(t, e, vm); got != agent {
+			t.Errorf("%s's proxy relays %q, want %q", vm, got, agent)
+		}
+		want := e.Dirs.AgentRelay(vm)
 		if got := execAgents(calls, vm); len(got) != map[string]int{web: 2, api: 1}[dir] || !sameAgent(got, want) {
 			t.Errorf("%s: Exec agents %q, want %q", vm, got, want)
 		}
 	}
-	if c, _ := call(f, "Start").Args[2].(backend.Confinement); call(f, "Start").Args[0] != targets[web].f.Name || c.AgentSocket != e.Agent.Socket() {
+	if c, _ := call(f, "Start").Args[2].(backend.Confinement); call(f, "Start").Args[0] != targets[web].f.Name || c.AgentSocket != e.Dirs.AgentRelay(targets[web].f.Name) {
 		t.Errorf("web started with %+v", c)
 	}
 	if got := os.Getenv("SSH_AUTH_SOCK"); got != "/user/agent" {
@@ -144,7 +168,8 @@ func TestAgentPerVM(t *testing.T) {
 }
 
 // A VM with network policy whose mode is devvm starts confined with
-// devvm's agent too: the proxy's confinement keeps it.
+// devvm's agent too, through its proxy's relay: the proxy's confinement
+// keeps it.
 func TestOpenAgentNetworkPolicy(t *testing.T) {
 	e, f, _ := upEnv(t, allNative())
 	f.LifelineFile = filepath.Join(e.Dirs.Lima, "vm", "ha.pid")
@@ -167,8 +192,11 @@ func TestOpenAgentNetworkPolicy(t *testing.T) {
 	if start < 0 {
 		t.Fatalf("%s didn't start: %v", vm, calls)
 	}
-	if c, _ := calls[start].Args[2].(backend.Confinement); c.Net != backend.NetProxy || c.AgentSocket != e.Agent.Socket() || c.ProxyPassword.Empty() || c.NoAgent {
-		t.Errorf("started with %+v, want the proxy and agent %q", c, e.Agent.Socket())
+	if c, _ := calls[start].Args[2].(backend.Confinement); c.Net != backend.NetProxy || c.AgentSocket != e.Dirs.AgentRelay(vm) || c.ProxyPassword.Empty() || c.NoAgent {
+		t.Errorf("started with %+v, want the proxy and agent %q", c, e.Dirs.AgentRelay(vm))
+	}
+	if got := relayed(t, e, vm); got != e.Agent.Socket() {
+		t.Errorf("its proxy relays %q, want %q", got, e.Agent.Socket())
 	}
 	// Off: the proxy's confinement says no agent too.
 	if err := set(t, st, keyAgent, sshagent.Off); err != nil {
@@ -214,13 +242,17 @@ func TestOpenAgent(t *testing.T) {
 	if w, _ := calls[start].Args[1].(backend.Want); !w.AgentForwarding || !f.Instances[vm].AgentForwarding {
 		t.Errorf("started wanting %+v", w)
 	}
-	if c, _ := calls[start].Args[2].(backend.Confinement); c.AgentSocket != e.Agent.Socket() {
-		t.Errorf("started with agent %q, want %q", c.AgentSocket, e.Agent.Socket())
+	relay := e.Dirs.AgentRelay(vm)
+	if c, _ := calls[start].Args[2].(backend.Confinement); c.AgentSocket != relay {
+		t.Errorf("started with agent %q, want %q", c.AgentSocket, relay)
+	}
+	if got := relayed(t, e, vm); got != e.Agent.Socket() {
+		t.Errorf("its proxy relays %q, want %q", got, e.Agent.Socket())
 	}
 	if !slices.Contains(agent.calls, "ssh-add -l") {
 		t.Errorf("devvm's agent wasn't checked: %q", agent.calls)
 	}
-	if got := shellOpts(call(f, "Shell")).Agent; got != e.Agent.Socket() {
+	if got := shellOpts(call(f, "Shell")).Agent; got != relay {
 		t.Errorf("shell's agent %q", got)
 	}
 	// Running: its agent is checked again; a change waits.
@@ -242,12 +274,16 @@ func TestOpenAgent(t *testing.T) {
 	if slices.Contains(f.Methods()[before:], "Start") || !f.Instances[vm].AgentForwarding {
 		t.Errorf("running, turned off: calls %q", f.Methods()[before:])
 	}
-	// devvm's connections keep the agent it started with.
-	if got := execAgents(f.Calls()[before:], vm); !sameAgent(got, e.Agent.Socket()) {
-		t.Errorf("running, turned off: Exec agents %q, want %q", got, e.Agent.Socket())
+	// devvm's connections keep the agent it started with, and so does
+	// its proxy.
+	if got := execAgents(f.Calls()[before:], vm); !sameAgent(got, relay) {
+		t.Errorf("running, turned off: Exec agents %q, want %q", got, relay)
 	}
-	if got := shellOpts(call(f, "Shell")).Agent; got != e.Agent.Socket() {
-		t.Errorf("running, turned off: shell's agent %q, want %q", got, e.Agent.Socket())
+	if got := shellOpts(call(f, "Shell")).Agent; got != relay {
+		t.Errorf("running, turned off: shell's agent %q, want %q", got, relay)
+	}
+	if got := relayed(t, e, vm); got != e.Agent.Socket() {
+		t.Errorf("running, turned off: its proxy relays %q, want %q", got, e.Agent.Socket())
 	}
 	before = len(f.Calls())
 	if err := (Launch{e}).Restart(t.Context(), Options{}); err != nil {
@@ -261,6 +297,129 @@ func TestOpenAgent(t *testing.T) {
 	}
 	if got := os.Getenv("SSH_AUTH_SOCK"); got != "/user/agent" {
 		t.Errorf("devvm's SSH_AUTH_SOCK=%q", got)
+	}
+}
+
+// A running VM whose proxy relays no agent: a start devvm recorded as
+// relayed, whose proxy lost its config, and a start devvm didn't record,
+// such as one outside devvm, get no agent, never the agent's own socket;
+// one an older devvm started, forwarding the agent itself, goes on with
+// that agent until its next start. Its proxy doesn't take one up.
+func TestAgentUnrelayed(t *testing.T) {
+	e, f, _ := upEnv(t, allNative())
+	e.Agent.Run = (&agentCalls{}).run
+	st := existingVM(t, e, Options{Network: "open"})
+	vm := st.Name()
+	if err := set(t, st, keyAgent, sshagent.Devvm); err != nil {
+		t.Fatal(err)
+	}
+	if err := (Launch{e}).Restart(t.Context(), Options{}); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	config := e.Dirs.VM(vm).ProxyConfig()
+	cfg, err := proxy.ReadConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Agent, cfg.AgentSocket = "", ""
+	if err := os.WriteFile(config, cfg.Encode(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run, err := f.Running(t.Context(), vm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		start   string // the start devvm recorded
+		relayed bool
+		want    string
+	}{
+		{"relayed, its proxy's config lost", run.ID, true, ""},
+		{"an older devvm's start", run.ID, false, e.Agent.Socket()},
+		{"a start devvm didn't record", "", false, ""},
+	} {
+		if err := sshagent.RecordStart(t.Context(), st, sshagent.Devvm, tc.start); err != nil {
+			t.Fatal(err)
+		}
+		if !tc.relayed {
+			olderStart(t, st)
+		}
+		before := len(f.Calls())
+		if err := (Launch{e}).Up(t.Context(), Options{}); err != nil {
+			t.Fatal(msg.NamesOf(err))
+		}
+		if got := execAgents(f.Calls()[before:], vm); !sameAgent(got, tc.want) {
+			t.Errorf("%s: Exec agents %q, want %q", tc.name, got, tc.want)
+		}
+		if got := relayed(t, e, vm); got != "" {
+			t.Errorf("%s: its proxy relays %q", tc.name, got)
+		}
+	}
+}
+
+// olderStart makes st's recorded start one an older devvm recorded,
+// without the relay, as it forwarded the agent itself.
+func olderStart(t *testing.T, st *state.VM) {
+	t.Helper()
+	err := st.Update(t.Context(), func(st *state.VM) error {
+		a, err := sshagent.Of(st)
+		if err != nil {
+			return err
+		}
+		a.Made.Relayed = false
+		return sshagent.Set(st, a)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// With your agent as its choice, a start from an environment without
+// SSH_AUTH_SOCK forwards no agent, and a later command from one with it
+// never gets your agent's own socket: not devvm's connections, which get
+// the relay's socket, where nothing listens, and not its ssh entry.
+func TestAgentOnWithoutSocket(t *testing.T) {
+	e, f, _ := upEnv(t, allNative())
+	st := existingVM(t, e, Options{Network: "open"})
+	vm := st.Name()
+	if err := set(t, st, keyAgent, sshagent.On); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Stop(t.Context(), vm); err != nil {
+		t.Fatal(err)
+	}
+	user := e.Environ
+	e.Environ = slices.DeleteFunc(slices.Clone(user), func(kv string) bool { return strings.HasPrefix(kv, "SSH_AUTH_SOCK=") })
+	if err := (Launch{e}).Up(t.Context(), Options{}); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	if c, _ := call(f, "Start").Args[2].(backend.Confinement); c.AgentSocket != "" {
+		t.Errorf("started with agent %q, want none", c.AgentSocket)
+	}
+	if got := relayed(t, e, vm); got != "" {
+		t.Errorf("its proxy relays %q", got)
+	}
+	e.Environ = user
+	before := len(f.Calls())
+	if err := (Launch{e}).Up(t.Context(), Options{}); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	for _, a := range execAgents(f.Calls()[before:], vm) {
+		if a == "/user/agent" {
+			t.Errorf("a later command carries your agent's own socket: %q", execAgents(f.Calls()[before:], vm))
+			break
+		}
+	}
+	if got := shellOpts(call(f, "Shell")).Agent; got == "/user/agent" {
+		t.Errorf("the shell's agent is your agent's own socket")
+	}
+	conf, err := os.ReadFile(e.Dirs.SSHConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(conf), "ForwardAgent yes") || strings.Contains(string(conf), "/user/agent") {
+		t.Errorf("its ssh entry forwards your agent:\n%s", conf)
 	}
 }
 
@@ -387,7 +546,7 @@ func TestAgentToggleEmulated(t *testing.T) {
 	if err := (Launch{e}).Restart(t.Context(), Options{}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if c, _ := call(f, "Start").Args[2].(backend.Confinement); c.NoAgent || c.AgentSocket != e.Agent.Socket() || !f.Instances[vm].AgentForwarding {
+	if c, _ := call(f, "Start").Args[2].(backend.Confinement); c.NoAgent || c.AgentSocket != e.Dirs.AgentRelay(vm) || !f.Instances[vm].AgentForwarding {
 		t.Errorf("devvm: started with %+v", c)
 	}
 	// No longer let through: it doesn't start.

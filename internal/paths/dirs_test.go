@@ -119,6 +119,8 @@ func TestFiles(t *testing.T) {
 		{d.Mise(), "/d/cache/mise"},
 		{d.Exports(), "/d/exports"},
 		{d.AgentSock(), "/d/agent.sock"},
+		{d.AgentRelay("devvm-web-0123456789abcd"), "/d/run/agent-0123456789abcd.sock"},
+		{d.AgentRelay("devvm-build-x"), "/d/run/agent-devvm-build-x.sock"},
 		{d.OCIBuildLock(), "/d/oci-build.lock"},
 		{d.LimaVM("devvm-p-1"), "/l/devvm-p-1"},
 		{d.ConfigFile(), "/c/config.toml"},
