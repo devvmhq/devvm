@@ -156,6 +156,14 @@ A confined VM runs only with its proxy, so when the proxy doesn't start, devvm s
 
 On the allowlist tier, a VM reaches only the hosts on its allowlist, and on the none tier only its agents' and secrets' hosts. To see what the proxy blocked, run `devvm network log --blocked` on this machine, or `devvm-why` in the VM. `devvm network log --blocked` also shows the `devvm network allow` command that allows each host, and the rule applies at once, to the next connection ([logs](../safety/network.md#logs)).
 
+## A name that doesn't resolve
+
+```sh
+curl https://jenkins.corp.example.com/   # in the VM: the host's full name, not jenkins
+```
+
+A block whose reason says that this machine's DNS has no address for the name means that a rule allows the name, but the proxy couldn't resolve it on this machine. So the block suggests no `devvm network allow` command, and `devvm network log --blocked` shows `-` for it. The proxy looks each name up as it's written, without this machine's DNS search domain, so a name without a dot, such as `jenkins`, which your other tools may reach as `jenkins.corp.example.com`, gets a reason that says to use the full name. Name the host in full in the tool's URL or settings. A block that says the DNS didn't answer in time, or can't resolve the name, names `proxy.log` on this machine, which holds the resolver's error ([inside the VM](../safety/network.md#inside-the-vm)).
+
 ## A tool that skips the proxy fails
 
 On a confined tier, devvm's [transparent mode](../safety/network.md#tools-that-ignore-the-proxy) sends a tool that ignores the proxy settings to the proxy by the names it looks up, over HTTPS and HTTP, on ports 443 and 80 and the ports your allow rules name. Such a tool still fails in these cases, and `devvm network log` shows nothing for it, because the connection never reached the proxy:

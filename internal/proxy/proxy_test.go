@@ -631,6 +631,83 @@ func TestResolveSixToFourName(t *testing.T) {
 	}
 }
 
+// searchLookup is a resolver whose search domain is corp.example, as the host's may be: a name
+// without a trailing dot that has no address of its own is looked up under it too, as macOS's
+// resolver and Go's own (resolv.conf's search) do. api.corp.example, api.eu.corp.example and
+// api.other have public addresses; api and api.eu alone have none.
+func searchLookup(asked *[]string) func(context.Context, string, string) ([]netip.Addr, error) {
+	public := map[string]string{"api.corp.example.": "1.1.1.1", "api.eu.corp.example.": "1.1.1.2", "api.other.": "8.8.8.8"}
+	return func(_ context.Context, _, host string) ([]netip.Addr, error) {
+		*asked = append(*asked, host)
+		names := []string{host}
+		if !strings.HasSuffix(host, ".") {
+			names = []string{host + ".", host + ".corp.example."}
+		}
+		for _, n := range names {
+			if a, ok := public[n]; ok {
+				return []netip.Addr{netip.MustParseAddr(a)}, nil
+			}
+		}
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+}
+
+// The proxy looks a name up as it was judged, absolute, so the host's DNS search domain never
+// turns it into another: with api.corp.example and api.eu.corp.example denied and ** allowing the
+// rest, neither api nor api.eu reaches them, directly or through a company proxy, while a full name
+// resolves as ever.
+func TestLookupIgnoresSearchDomain(t *testing.T) {
+	t.Parallel()
+	e := testServer(t, Config{}, "**\n!api.corp.example\n!api.eu.corp.example\n").egress
+	var asked []string
+	e.lookup = searchLookup(&asked)
+	for h, want := range map[string]string{"api": reasonShortName, "api.eu": reasonNotFound} {
+		if _, why := e.check(t.Context(), h, 443, false); why != want {
+			t.Errorf("%s: %q", h, why)
+		}
+		if err := e.floorUpstream(t.Context(), h, 443); !errors.Is(err, errUnresolved) {
+			t.Errorf("%s through a company proxy: %v", h, err)
+		}
+	}
+	if _, why := e.check(t.Context(), "api.corp.example", 443, false); why == "" {
+		t.Error("the denied name itself passed")
+	}
+	if a, err := e.resolve(t.Context(), "api.other", 443); err != nil || len(a) != 1 {
+		t.Errorf("api.other: %v %v", a, err)
+	}
+	for _, h := range asked {
+		if !strings.HasSuffix(h, ".") {
+			t.Errorf("%q was looked up relative to the search domain", h)
+		}
+	}
+}
+
+// A VM's request for a name without a dot that doesn't resolve gets 403 saying to use the full
+// name, and no devvm network allow command, in its page, /blocked/new and the event log: a rule
+// allows the name already.
+func TestShortNameBlock(t *testing.T) {
+	t.Parallel()
+	s := testServer(t, Config{}, "**\n")
+	events := logs(s)
+	var asked []string
+	s.egress.lookup = searchLookup(&asked)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodConnect, "http://jenkins:443", nil)
+	req.Host = "jenkins:443"
+	rec := httptest.NewRecorder()
+	s.handler(rec, req)
+	body := rec.Body.String()
+	if rec.Code != http.StatusForbidden || !strings.Contains(body, reasonShortName) || strings.Contains(body, "devvm network allow") {
+		t.Errorf("%d %q", rec.Code, body)
+	}
+	if !strings.Contains(events.String(), `"refused":true`) {
+		t.Errorf("logged %s", events)
+	}
+	rs, count := s.events.blocked()
+	if n := newBlocks(rs, count, "0"); !strings.Contains(n, "refused CONNECT jenkins") || strings.Contains(n, "devvm network allow") {
+		t.Errorf("/blocked/new: %q", n)
+	}
+}
+
 // A CONNECT's event names the tool that sent it, its User-Agent, as devvm
 // network lock shows it.
 func TestConnectAgent(t *testing.T) {
@@ -843,23 +920,28 @@ func TestUnresolvedReason(t *testing.T) {
 	refused := &net.DNSError{Err: "server misbehaving", Name: "x.test", Server: "10.0.0.1:53", IsTemporary: true}
 	other := errors.New("lookup x.test: something else")
 	for _, c := range []struct {
+		host  string
 		errs  []error
 		why   string
 		calls int
 	}{
-		{[]error{notFound}, reasonNotFound, 1},
-		{[]error{timeout, timeout}, reasonDNSTimeout, 2},
-		{[]error{refused, refused}, reasonUnresolvable, 2},
-		{[]error{other}, reasonUnresolvable, 1},
-		{[]error{timeout}, "", 2}, // the second try answers
-		{[]error{refused}, "", 2},
+		{"x.test", []error{notFound}, reasonNotFound, 1},
+		{"x", []error{notFound}, reasonShortName, 1}, // a name without a dot: use its full name
+		{"x", []error{timeout, timeout}, reasonDNSTimeout, 2},
+		{"x.test", []error{timeout, timeout}, reasonDNSTimeout, 2},
+		{"x.test", []error{refused, refused}, reasonUnresolvable, 2},
+		{"x.test", []error{other}, reasonUnresolvable, 1},
+		{"x.test", []error{timeout}, "", 2}, // the second try answers
+		{"x.test", []error{refused}, "", 2},
 	} {
-		s := testServer(t, Config{}, "x.test\n")
+		s := testServer(t, Config{}, c.host+"\n")
 		out := logs(s)
 		calls := 0
 		s.egress.lookup = fakeLookup(&calls, c.errs...)
-		if _, why := s.egress.check(t.Context(), "x.test", 443, false); why != c.why || calls != c.calls {
-			t.Errorf("%v: %q after %d lookups, want %q after %d", c.errs, why, calls, c.why, c.calls)
+		// A rule allows the name already, so no allow rule would lift the block: it's refused.
+		_, why, refusedBlock := s.egress.checkRefused(t.Context(), c.host, 443, false)
+		if why != c.why || calls != c.calls || refusedBlock != (c.why != "") {
+			t.Errorf("%s %v: %q (refused %v) after %d lookups, want %q after %d", c.host, c.errs, why, refusedBlock, calls, c.why, c.calls)
 		}
 		if c.why != "" && !strings.Contains(out.String(), c.errs[0].Error()) {
 			t.Errorf("%v: the proxy's log has %q", c.errs, out)

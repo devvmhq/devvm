@@ -485,7 +485,7 @@ On the none tier, a VM with Claude Code gets Claude Code's built-in policy whole
 
 Every login in the VM has the proxy settings in its environment (`HTTP_PROXY`, `HTTPS_PROXY` and their lowercase forms, `NO_PROXY` for the VM itself, and `NODE_USE_ENV_PROXY`), and the [CA variables](../using/settings.md#a-companys-ca) that every VM has point the tools that don't read the system's store at the VM's own CAs. devvm also points apt, sudo, ssh and Docker at the proxy ([how](../internals/network.md#the-vms-setup)), on every tier.
 
-On a confined tier, a direct connection to an address fails at once, even as root, and no DNS query leaves the VM. Names resolve in the proxy, and inside the VM every name resolves to one stand-in address, which leads to the proxy too, so a tool that skips the proxy settings still reaches the hosts the rules allow over HTTPS and HTTP ([tools that ignore the proxy](#tools-that-ignore-the-proxy)). Such a tool's connection to another port of a name is refused at once, and nothing reaches the log for it ([what to do](../using/troubleshooting.md#a-tool-that-skips-the-proxy-fails)).
+On a confined tier, a direct connection to an address fails at once, even as root, and no DNS query leaves the VM. Names resolve in the proxy, as the tool wrote them, without this machine's DNS search domain added, so to reach a host on your network, use its full name, such as `jenkins.corp.example.com` rather than `jenkins`. Inside the VM, every name resolves to one stand-in address, which leads to the proxy too, so a tool that skips the proxy settings still reaches the hosts the rules allow over HTTPS and HTTP ([tools that ignore the proxy](#tools-that-ignore-the-proxy)). Such a tool's connection to another port of a name is refused at once, and nothing reaches the log for it ([what to do](../using/troubleshooting.md#a-tool-that-skips-the-proxy-fails)).
 
 A blocked request gets `403`, and the response names the host, the reason and the rule that would allow it, but for a [quiet host](#quiet-hosts). The proxy also answers at `http://devvm.proxy/`:
 
@@ -833,7 +833,7 @@ devvm keeps your secrets' hosts, headers, variables, prefixes, paths, methods an
 | `reason` | the reason it was blocked, or what came of a cache request |
 | `agent` | the request's `User-Agent` header |
 | `secrets` | the secrets put in |
-| `refused` | for a request refused whatever the allowlist says |
+| `refused` | for a request refused whatever the allowlist says, such as an allowed name that doesn't resolve |
 | `quiet` | for a block of a [quiet host](#quiet-hosts) |
 | `upstream` | the company proxy it went through |
 | `target` | the VM that a link's connection went to |

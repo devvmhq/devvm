@@ -234,7 +234,7 @@ type Event struct {
 	// Login is the agent whose login a token endpoint's reply held (a login event): saved on the
 	// host, the VM given placeholders. Never a value.
 	Login   string `json:"login,omitempty"`
-	Refused bool   `json:"refused,omitempty"` // blocked whatever the allowlist says: no rule allows it
+	Refused bool   `json:"refused,omitempty"` // blocked whatever the allowlist says: no rule allows it, or a rule does and its name didn't resolve
 	// Quiet is a block of a host a built-in policy marks quiet (rule.quiet), such as a tool's
 	// telemetry: the VM gets no notice of it and no command to allow it.
 	Quiet bool `json:"quiet,omitempty"`
@@ -478,7 +478,8 @@ type egress struct {
 	own *hostAddrs
 	up  upstreams
 	log *log.Logger // the proxy's own log: why a name didn't resolve
-	// lookup resolves a name: net.DefaultResolver.LookupNetIP, which tests replace.
+	// lookup resolves a name, absolute (lookupName): net.DefaultResolver.LookupNetIP, which tests
+	// replace.
 	lookup func(ctx context.Context, network, host string) ([]netip.Addr, error)
 	// connect connects to an address the policy allowed (dial): a net.Dialer's, which tests
 	// replace with one in memory.
@@ -492,9 +493,11 @@ type egress struct {
 // The reasons the VM gets when a name doesn't resolve or a connection fails. The error itself goes
 // to the proxy's own log alone: the resolver's can name the host's DNS server, and the company
 // proxy's its address. reasonClientLeft is a lookup that ended because the client went away, which
-// is no block (events.record drops it) but goes in the proxy's own log (abandoned).
+// is no block (events.record drops it) but goes in the proxy's own log (abandoned). A name's rule
+// allows it already, so these blocks are Refused: no allow command would help.
 const (
 	reasonNotFound      = "this machine's DNS has no address for it"
+	reasonShortName     = "this machine's DNS has no address for it, and names resolve without its search domain; use the full name, such as jenkins.corp.example.com"
 	reasonDNSTimeout    = "this machine's DNS didn't answer in time; see proxy.log on the host"
 	reasonUnresolvable  = "can't resolve it; see proxy.log on the host"
 	reasonConnectFailed = "connect failed; see proxy.log on the host"
@@ -527,20 +530,28 @@ func (e *egress) abandoned(host string, port int) {
 }
 
 // lookupName resolves host to its addresses, of both families, asking once more after a temporary
-// failure (a timeout, or a DNS server that failed to answer) while ctx lasts.
+// failure (a timeout, or a DNS server that failed to answer) while ctx lasts. host, a name in
+// NormHost's form, is looked up absolute, with its trailing dot back: the host's DNS search domain
+// (macOS's network settings, resolv.conf's search) would otherwise try api as api.corp.example,
+// a name the policy never judged, which a deny of it never stopped.
 func (e *egress) lookupName(ctx context.Context, host string) ([]netip.Addr, error) {
-	ips, err := e.lookup(ctx, "ip", host)
+	abs := host + "."
+	ips, err := e.lookup(ctx, "ip", abs)
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) && dnsErr.IsTemporary && !dnsErr.IsNotFound && ctx.Err() == nil {
-		ips, err = e.lookup(ctx, "ip", host)
+		ips, err = e.lookup(ctx, "ip", abs)
 	}
 	return ips, err
 }
 
-// unresolvedReason is the reason the VM gets for err, a lookup's error.
-func unresolvedReason(err error) string {
+// unresolvedReason is the reason the VM gets for err, host's lookup's error. A name without a dot
+// that has no address gets reasonShortName: the proxy looks it up as it's written (lookupName), so
+// a tool that counted on this machine's search domain is told to name the host in full.
+func unresolvedReason(host string, err error) string {
 	var dnsErr *net.DNSError
 	switch {
+	case errors.As(err, &dnsErr) && dnsErr.IsNotFound && !strings.Contains(host, "."):
+		return reasonShortName
 	case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
 		return reasonNotFound
 	case errors.As(err, &dnsErr) && dnsErr.IsTimeout:
@@ -657,8 +668,8 @@ func (e *egress) check(ctx context.Context, host string, port int, plain bool) (
 	return rule, why
 }
 
-// checkRefused is check, and whether a refusal is one no allow rule would lift (a broken deny's),
-// which its event marks Refused.
+// checkRefused is check, and whether a refusal is one no allow rule would lift (a broken deny's, or
+// an allowed name's that didn't resolve), which its event marks Refused.
 func (e *egress) checkRefused(ctx context.Context, host string, port int, plain bool) (string, string, bool) {
 	rule, why, refused, _ := e.checkHost(ctx, host, port, plain)
 	return rule, why, refused
@@ -672,15 +683,16 @@ func (e *egress) checkHost(ctx context.Context, host string, port int, plain boo
 	if !ok {
 		return "", rule, refused, hr
 	}
-	if why := e.floorCheck(ctx, host, port, plain); why != "" {
-		return "", why, false, hr
+	if why, refused := e.floorCheck(ctx, host, port, plain); why != "" {
+		return "", why, refused, hr
 	}
 	return rule, "", false, hr
 }
 
 // floorCheck is check past the rules for an allowed host: the address floor, or the company
-// proxy's. It returns why not, or "".
-func (e *egress) floorCheck(ctx context.Context, host string, port int, plain bool) string {
+// proxy's. It returns why not, or "", and whether no allow rule would lift it: a name that didn't
+// resolve, which a rule allows already, so its block suggests no devvm network allow command.
+func (e *egress) floorCheck(ctx context.Context, host string, port int, plain bool) (string, bool) {
 	floor := func() error { _, err := e.resolve(ctx, host, port); return err }
 	if e.up.route(host, port, plain) != nil {
 		floor = func() error { return e.floorUpstream(ctx, host, port) }
@@ -688,17 +700,17 @@ func (e *egress) floorCheck(ctx context.Context, host string, port int, plain bo
 	err := floor()
 	switch {
 	case err == nil:
-		return ""
+		return "", false
 	case errors.Is(err, errFloor):
-		return "it " + err.Error() + "; allow the address itself to reach it"
+		return "it " + err.Error() + "; allow the address itself to reach it", false
 	case errors.Is(err, errUnresolved):
-		return err.Error()
+		return err.Error(), false
 	case ctx.Err() != nil:
 		e.abandoned(host, port)
-		return reasonClientLeft
+		return reasonClientLeft, false
 	default:
 		e.log.Printf("%s:%d: can't resolve it: %v", host, port, err)
-		return unresolvedReason(err)
+		return unresolvedReason(host, err), true
 	}
 }
 
