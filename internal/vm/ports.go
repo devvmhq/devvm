@@ -219,6 +219,7 @@ func (e Settings) SetPorts(ctx context.Context, c PortsChange) error {
 			return err
 		}
 		e.Info(msg.PortsDefault(list))
+		e.warnSSHListed(list)
 		return nil
 	}
 	t, err := e.finder.target(ctx, need{has: hasMade, noVM: msg.NoVMPorts})
@@ -247,6 +248,7 @@ func (e Settings) SetPorts(ctx context.Context, c PortsChange) error {
 	if err := st.Update(ctx, func(st *state.VM) error { return ports.SetForward(st, list) }); err != nil {
 		return err
 	}
+	e.warnSSHListed(list)
 	if t.in.Status != backend.StatusRunning {
 		e.Info(msg.PortsNow(list, vm))
 		return nil
@@ -254,6 +256,41 @@ func (e Settings) SetPorts(ctx context.Context, c PortsChange) error {
 	e.forwards().Start(ctx, b, st)
 	e.Info(msg.PortsForwarding(list, vm))
 	return nil
+}
+
+// warnSSHListed warns when a ports list names ports VMs' ssh comes from
+// (ports.SSHListed), which browsers refuse: as devvm ports sets it, and
+// at each launch, whatever set it (--ports, a devcontainer.json,
+// config.toml's ports or devvm ports).
+func (e *Env) warnSSHListed(list string) {
+	if l, n := ports.SSHListed(list); n > 0 {
+		e.Warn(msg.PortsSSHListed(n, l))
+	}
+}
+
+// warnOldSSH warns, at each launch, of the VMs that still run with their
+// ssh on a port an older devvm chose, which browsers don't refuse, until
+// their next start moves it: those whose recorded port a program has
+// (ports.Allocator.OffList) and whose backend says they run, as another
+// program may have a stopped one's.
+func (e *Env) warnOldSSH(ctx context.Context) {
+	var old []vmname.VM
+	for _, vm := range e.Proxy.Ports().OffList(ctx) {
+		st, err := state.ReadVM(e.Dirs, vm)
+		if err != nil {
+			continue
+		}
+		c, err := e.Registry.For(st)
+		if err != nil {
+			continue
+		}
+		if r, err := c.Backend.Running(ctx, vm); err == nil && r.ID != "" {
+			old = append(old, vm)
+		}
+	}
+	if len(old) > 0 {
+		e.Warn(msg.PortsSSHOld(vmname.Join(old, ", ")))
+	}
 }
 
 // forwards is VMs' port forwarders as devvm runs them (Forwarders): what

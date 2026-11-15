@@ -1,0 +1,59 @@
+# A VM's ssh port is one of the ports browsers refuse (here the sandbox's
+# own, DEVVM_SSH_PORTS): chosen as it's made, kept at its starts. A
+# running VM on a port an older devvm chose is warned of at each launch,
+# and a start with none of the ports free fails, naming who has them.
+
+# A new VM's port is on the list, and its clone sets it.
+project web
+exec devvm --network open --no-git-protect
+vm_name WEB web
+exec sh -c 'p=$(sed -n "s/.*\"ssh\": \([0-9]*\).*/\1/p" "$WEB_dir/vm.json") && case ",$DEVVM_SSH_PORTS," in *",$p,"*) ;; *) exit 1 ;; esac'
+! stderr ports_ssh
+
+# Running on a port off the list, as an older devvm started it: kept, and
+# each launch warns of it.
+listen_any OLD
+json_set $WEB_dir/vm.json ports.host.ssh:=$OLD
+stub_reset
+exec devvm
+stderr '^devvm: ports_ssh_old vms=devvm-web-[0-9a-f]{14}$'
+stub_calls
+! stdout 'limactl (edit|start)'
+grep '"ssh": '$OLD'\b' $WEB_dir/vm.json
+
+# Stopped, it moves back onto the list at its next start, with no
+# warning. (Its Lima config still has the port it was made with, which
+# the start may choose again, so it makes at most one edit; the frozen
+# fixtures' starts check the edit.)
+exec limactl stop $WEB
+stub_reset
+exec devvm
+! stderr ports_ssh
+stub_calls
+! stdout '(?s)limactl edit .*limactl edit'
+! grep '"ssh": '$OLD'\b' $WEB_dir/vm.json
+exec sh -c 'p=$(sed -n "s/.*\"ssh\": \([0-9]*\).*/\1/p" "$WEB_dir/vm.json") && case ",$DEVVM_SSH_PORTS," in *",$p,"*) ;; *) exit 1 ;; esac'
+exec limactl stop $WEB
+
+# A list that names ports browsers refuse, kept for VMs' ssh, says so;
+# one without them says nothing.
+exec devvm ports -g 5173,6000-6666
+stderr '^devvm: ports_ssh_listed count=4 ports=6000,6566,6665,6666$'
+exec devvm ports -g 5173
+! stderr ports_ssh_listed
+exec devvm ports 6000
+stderr '^devvm: ports_ssh_listed count=1 ports=6000$'
+# And each launch says so, whatever set the list: here, --ports.
+project x11
+exec devvm --network open --no-git-protect --ports 5173,6000
+stderr '^devvm: ports_ssh_listed count=1 ports=6000$'
+vm_name X11 x11
+exec limactl stop $X11
+
+# None of the ports free: a new VM isn't made, saying they're taken on
+# this machine.
+listen_any HELD
+env DEVVM_SSH_PORTS=$HELD
+project api
+! exec devvm --network open --no-git-protect
+stderr '^devvm: ports_ssh_limit_others limit=1$'

@@ -5,6 +5,8 @@ package registry
 import (
 	"errors"
 	"io/fs"
+	"strconv"
+	"strings"
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/backend/lima"
@@ -35,6 +37,21 @@ type Overrides struct {
 	// Pins (DEVVM_PINS) stands in for Lima's probe of whether this host
 	// pins paths in QEMU's namespace: on, or else the error it gives.
 	Pins string
+	// SSHPorts (DEVVM_SSH_PORTS) is the ports VMs' ssh comes from, in
+	// place of ports.SSHPorts (ports.Allocator's SSHList), comma-separated.
+	SSHPorts string
+}
+
+// SSHList is o's SSHPorts as numbers, each entry that isn't a port
+// skipped: nil for none, which leaves ports.SSHPorts.
+func (o Overrides) SSHList() []int {
+	var out []int
+	for e := range strings.SplitSeq(o.SSHPorts, ",") {
+		if n, err := strconv.Atoi(strings.TrimSpace(e)); err == nil && backend.ValidPort(n) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // New returns the registry of devvm's backends, on devvm's folders, its
@@ -49,6 +66,7 @@ func New(d paths.Dirs, assets fs.FS, r msg.Reporter, o Overrides, cp *settings.C
 		l.KVM = o.KVM
 	}
 	l.UbuntuRelease = o.UbuntuRelease
+	l.Ports.SSHList = o.SSHList()
 	switch o.Pins {
 	case "":
 	case "on":

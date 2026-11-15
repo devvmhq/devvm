@@ -157,6 +157,7 @@ func (a *app) vmEnv() (*vm.Env, error) {
 		e.Folder = a.folder.rule()
 		e.HistoryMax = a.testOverrides().HistoryMax
 		e.PasteWait = time.Duration(a.testOverrides().PasteWait) * time.Second
+		e.Proxy.SSHList = a.testOverrides().SSHList()
 		clip := platform.Clipboard{Tools: a.testOverrides().ClipTools}
 		e.ReadClip, e.CopyText = clip.ReadClip, clip.CopyText
 		return e, nil

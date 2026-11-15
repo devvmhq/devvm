@@ -618,6 +618,26 @@ func TestPrepareRestartsTheProxy(t *testing.T) {
 	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil || strconv.Itoa(hostPorts(t, st).Proxy) == pp {
 		t.Errorf("stopped with its port taken: %v, port %d", err, hostPorts(t, st).Proxy)
 	}
+	// A port only VMs' ssh may have, which an older devvm chose: kept while
+	// the VM runs, a new one at its next start.
+	p.Stop(st.Name())
+	p.Listening = func(context.Context, int) bool { return false }
+	ssh := ports.SSHPorts()[0]
+	must(t, st.Update(t.Context(), func(st *state.VM) error {
+		pp, err := ports.Of(st)
+		if err != nil {
+			return err
+		}
+		pp.Host.Proxy = ssh
+		return ports.Set(st, pp)
+	}))
+	if _, err := p.Prepare(t.Context(), lifelined(), st, true); err != nil || hostPorts(t, st).Proxy != ssh {
+		t.Errorf("running on an ssh port: %v, port %d", err, hostPorts(t, st).Proxy)
+	}
+	p.Stop(st.Name())
+	if _, err := p.Prepare(t.Context(), lifelined(), st, false); err != nil || hostPorts(t, st).Proxy == ssh {
+		t.Errorf("stopped on an ssh port: %v, port %d", err, hostPorts(t, st).Proxy)
+	}
 }
 
 // The company proxy in devvm's environment goes to the VM's proxy in its

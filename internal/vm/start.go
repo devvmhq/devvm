@@ -85,6 +85,8 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 	}
 	s.Protector(t.f.Dir).WarnUnprotected(st)
 	s.warnMountCache(st, in)
+	s.warnOldSSH(ctx)
+	s.warnSSHListed(sectionOf[ports.Ports](st, ports.Section).Forward)
 	need, err := startNeeds(st, in)
 	if err != nil {
 		return backend.Confinement{}, err

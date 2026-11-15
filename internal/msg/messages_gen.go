@@ -3823,6 +3823,31 @@ func PortsRmAll() M {
 	return M{id: "ports_rm_all"}
 }
 
+// PortsSSHLimit is [ports_ssh_limit]: "No more VMs can start, because {{.held}} of the {{.limit}} ports VMs' ssh can use are in use by {{.vms}}, and the other {{.others}} are taken on this machine. Stop one of those VMs first, with devvm stop in its folder."
+func PortsSSHLimit(held string, limit string, others string, vms string) M {
+	return M{id: "ports_ssh_limit", vals: []val{{"held", held}, {"limit", limit}, {"others", others}, {"vms", vms}}}
+}
+
+// PortsSSHLimitAll is [ports_ssh_limit_all]: "No more VMs can start, because all {{.limit}} ports VMs' ssh can use are in use by {{.vms}}. Stop one of those VMs first, with devvm stop in its folder."
+func PortsSSHLimitAll(limit string, vms string) M {
+	return M{id: "ports_ssh_limit_all", vals: []val{{"limit", limit}, {"vms", vms}}}
+}
+
+// PortsSSHLimitOthers is [ports_ssh_limit_others]: "No more VMs can start, because all {{.limit}} ports VMs' ssh can use are taken on this machine, by VMs starting or building, by ports a running VM lists to forward, or by other programs. Wait for the builds to finish, take the ports out of the VM's list with devvm ports, or end the programs that have them."
+func PortsSSHLimitOthers(limit string) M {
+	return M{id: "ports_ssh_limit_others", vals: []val{{"limit", limit}}}
+}
+
+// PortsSSHListed is [ports_ssh_listed]: "Ports {{.ports}} are among the ports browsers refuse, which devvm keeps for VMs' ssh. No browser opens them, and while a VM forwards them, fewer VMs can start."
+func PortsSSHListed(count int, ports string) M {
+	return M{id: "ports_ssh_listed", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"ports", ports}}}
+}
+
+// PortsSSHOld is [ports_ssh_old]: "{{.vms}} still run with ssh on a port browsers don't refuse, which an older devvm chose. Run devvm stop in each one's folder, and its next start moves it."
+func PortsSSHOld(vms string) M {
+	return M{id: "ports_ssh_old", vals: []val{{"vms", vms}}}
+}
+
 // PortsTaken is [ports_taken]: "{{.vm}} doesn't forward ports {{.ports}} for now because they're in use on this machine."
 func PortsTaken(count int, ports string, vm vmname.VM) M {
 	return M{id: "ports_taken", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"ports", ports}, {"vm", string(vm)}}}
@@ -6053,6 +6078,11 @@ var specs = map[string]spec{
 	"ports_now":                      {fields: []string{"ports", "vm"}},
 	"ports_refused":                  {plural: true, fields: []string{"count", "ports", "vm"}},
 	"ports_rm_all":                   {},
+	"ports_ssh_limit":                {fields: []string{"held", "limit", "others", "vms"}},
+	"ports_ssh_limit_all":            {fields: []string{"limit", "vms"}},
+	"ports_ssh_limit_others":         {fields: []string{"limit"}},
+	"ports_ssh_listed":               {plural: true, fields: []string{"count", "ports"}},
+	"ports_ssh_old":                  {fields: []string{"vms"}},
 	"ports_taken":                    {plural: true, fields: []string{"count", "ports", "vm"}},
 	"program_broken":                 {fields: []string{"command", "name"}},
 	"program_broken_fix":             {fields: []string{"command", "fix", "name"}},

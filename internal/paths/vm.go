@@ -122,9 +122,10 @@ func (v VM) ProxyLog() string { return filepath.Join(v.Logs(), "proxy.log") }
 // LinksLog is the VM's link session's own output.
 func (v VM) LinksLog() string { return filepath.Join(v.Logs(), "links.log") }
 
-// Forwarder is one of the files of the VM's port forwarder in Run, named
-// by ext: .pid, .status, .lock, and .forwarded, the host ports it
-// forwards now.
+// Forwarder is one of the files of the VM's ports in Run, named by ext:
+// its port forwarder's .pid, .status, .lock, and .forwarded, the host
+// ports it forwards now, and .ssh-hold, the ssh port a start of the VM's
+// holds for a minute as its backend binds it (ports.Allocator.SSH).
 func (v VM) Forwarder(ext string) string { return filepath.Join(v.Run(), "ports"+ext) }
 
 // KnownHosts is the VM's host keys as devvm pins them for its current

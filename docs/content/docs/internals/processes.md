@@ -154,7 +154,7 @@ These are the listeners on this machine that carry bytes a VM controls. Every on
 | Listener | Process | Gate | What the VM controls |
 | --- | --- | --- | --- |
 | each forwarded port, on `127.0.0.1` and `::1` | the port forwarder | none: whatever connects reaches the VM's server, 256 connections at once | everything its server sends back |
-| the VM's ssh port, on the loopback | the hostagent on macOS, QEMU on Linux | the VM's sshd, which each of devvm's connections checks against the VM's pinned host key | everything the VM's sshd sends |
+| the VM's ssh port, on the loopback, one of the 17 ports every browser refuses ([why](lima.md#what-devvm-sets-on-a-vm)) | the hostagent on macOS, QEMU on Linux | the VM's sshd, which each of devvm's connections checks against the VM's pinned host key, and browsers' own refusal of the port | everything the VM's sshd sends, which root in the VM can make speak HTTP |
 | Lima's DNS resolver, on loopback ports the system picks | the hostagent, for an open VM and every build, never for a VM confined to its proxy | none | its lookups |
 | the unix sockets in the VM's Lima folder: the network socket on macOS, which carries the VM's network frames, and Lima's ssh control socket, `ssh.sock` | the hostagent, and Lima's ssh | the folder's mode | its network frames, and everything its sshd sends |
 | the VM's proxy port, on `127.0.0.1` | the VM's proxy | the VM's password, before anything else | its requests |

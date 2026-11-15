@@ -52,6 +52,10 @@ type Proxy struct {
 	// PortRange is the range new ports come from (platform.ChoosablePorts,
 	// which the zero value means too), which its allocator (Ports) has.
 	PortRange platform.PortRange
+	// SSHList is the ports VMs' ssh comes from in place of
+	// ports.SSHPorts, which its allocator (Ports) has: nil but in a test
+	// build (DEVVM_SSH_PORTS).
+	SSHList []int
 	// Tick is how often a start looks for the proxy to listen, ten times;
 	// a stop waits four Ticks for each signal to end it.
 	Tick time.Duration
@@ -285,20 +289,21 @@ func listenOn(port int) string { return "127.0.0.1:" + strconv.Itoa(port) }
 // Ports is the allocator of VMs' host ports, which asks Listening
 // whether a program has one.
 func (p *Proxy) Ports() ports.Allocator {
-	return ports.Allocator{Dirs: p.Dirs, Listening: p.Listening, Range: p.PortRange}
+	return ports.Allocator{Dirs: p.Dirs, Listening: p.Listening, Range: p.PortRange, SSHList: p.SSHList}
 }
 
 // proxyPort returns the port of the VM's proxy: a new free one (Ports)
 // when it has none, or when its proxy doesn't run and another program
-// took it, unless the VM runs: its backend holds the port it started
-// with.
+// took it, or when it's one only VMs' ssh may have (ports.Allocator's
+// SSHOnly), which an older devvm chose, unless the VM runs: its backend
+// holds the port it started with.
 func (p *Proxy) proxyPort(ctx context.Context, st *state.VM, up, running bool) (int, error) {
 	pp, err := ports.Of(st)
 	if err != nil {
 		return 0, err
 	}
 	n := pp.Host.Proxy
-	if up || n != 0 && !p.Listening(ctx, n) {
+	if up || n != 0 && !p.Listening(ctx, n) && (running || !p.Ports().SSHOnly(n)) {
 		return n, nil
 	}
 	if running && n != 0 {

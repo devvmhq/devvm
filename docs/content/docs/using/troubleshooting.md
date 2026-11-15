@@ -223,6 +223,17 @@ devvm warns about two other reasons too, each in its own words, and `devvm ports
 - **The VM already forwards 256 ports**, the most it forwards at once. Stop the servers you don't need in the VM, or list fewer ports with `devvm ports`, and devvm forwards the port within about 10 seconds of the VM forwarding fewer.
 - **This machine doesn't let devvm use the port.** On Linux, only root can listen on a port below 1024, so a listed port such as 80 isn't forwarded. Have the server in the VM listen on a port from 1024 up and list that port instead.
 
+## Too many VMs at once
+
+At most 17 VMs run at once, because each VM's ssh is on one of the 17 ports that every browser refuses, so no page in your browser can reach it. A start past that fails and names the VMs that run on those ports, so stop one of them first:
+
+```sh
+devvm stop   # in a running VM's folder
+devvm ls     # which VMs run
+```
+
+A stopped VM can give up its port to a VM that starts, and it gets another at its own next start. When the message says the ports are taken on this machine without naming your VMs, VMs that are starting or building have them, a running VM lists them to forward, which you change with `devvm ports` in its folder, or another program has them, such as another user's on this machine, whom you'd ask to end it. A VM that an older devvm started keeps its old ssh port until you stop it and start it again, and devvm warns of it at each launch until then ([the ssh port](../internals/lima.md#what-devvm-sets-on-a-vm)).
+
 ## A VM won't boot
 
 A Lima VM that doesn't answer over ssh within a minute of starting is stopped. Read its console log before you start it again, because every start overwrites the log. The log is `serialv.log`, or another `serial*.log`, in the VM's folder in devvm's Lima home, which is `~/.local/share/devvm/lima/<vm>/` unless you set `DEVVM_LIMA_HOME` ([Lima's limits](../backends/lima.md#limits)).

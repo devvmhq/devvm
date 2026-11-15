@@ -76,9 +76,19 @@ func TestDesktopListener(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = l3.Close() }()
 	if p := l3.Addr().(*net.TCPAddr).Port; p != p2 {
 		t.Errorf("third on %d, want the kept %d", p, p2)
+	}
+	_ = l3.Close()
+	// The kept one is one only VMs' ssh may have: a new one.
+	e.Proxy.SSHList = []int{p2}
+	l4, err := e.listener(t.Context(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l4.Close() }()
+	if p := l4.Addr().(*net.TCPAddr).Port; p == p2 || get(st, KeyDesktopPort) != strconv.Itoa(p) {
+		t.Errorf("fourth on %d (kept %q), not off the ssh port %d", p, get(st, KeyDesktopPort), p2)
 	}
 }
 

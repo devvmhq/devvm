@@ -49,6 +49,7 @@ A VM never takes a port that a program on this machine already has, a port that 
 - A program that starts on a port after the VM's forward does can still bind it on all addresses, as most servers do, and then that program's `localhost` connections reach the VM.
 - When the VM's server listens on a listed port that the VM can't forward, because a program on this machine has it, the VM already forwards 256 ports, or this machine doesn't let devvm use the port, such as one below 1024 on Linux, `devvm ports` warns you and says which of these it is ([a listed port isn't forwarded](troubleshooting.md#a-listed-port-isnt-forwarded)).
 - If the forwarder can't start at all, devvm warns you and names its log, and the VM runs on without forwarded ports.
+- The ports devvm uses for its VMs' ssh are the 17 that every browser refuses, so no page in your browser reaches a VM's ssh, and at most 17 VMs run at once ([too many VMs at once](troubleshooting.md#too-many-vms-at-once)). A VM that forwards every port leaves those 17 out, and forwards one only when you list it, which `devvm ports` and each launch warn of.
 
 **UDP isn't forwarded, on any backend.** Run the UDP client in the VM instead, or tunnel it over a forwarded TCP port with [socat](http://www.dest-unreach.org/socat/doc/socat.html), installed on both sides. For a UDP server on port 8125 in the VM, with TCP port 9125 forwarded:
 

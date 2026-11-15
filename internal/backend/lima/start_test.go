@@ -17,7 +17,6 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
-	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/state"
 )
@@ -212,7 +211,10 @@ func testStartBuildSSHPort(t *testing.T, goos string) {
 	if err := st.Create(t.Context(), func(st *state.VM) error { return ports.Set(st, ports.Ports{Host: ports.Host{SSH: 20000}}) }); err != nil {
 		t.Fatal(err)
 	}
-	l.Ports = ports.Allocator{Dirs: l.Dirs, Range: platform.PortRange{Lo: 20000, Hi: 20001}, Listening: func(context.Context, int) bool { return false }}
+	// The ports VMs' ssh comes from: the VM's, which a build takes only
+	// when no other is free, and one more.
+	listening := map[int]bool{}
+	l.Ports = ports.Allocator{Dirs: l.Dirs, SSHList: []int{20000, 20001}, Listening: func(_ context.Context, port int) bool { return listening[port] }}
 	rec := filepath.Join(l.Dirs.BuildPorts(), "v")
 	held, edit := "", f.do
 	f.do = func(c call) {
@@ -235,7 +237,8 @@ func testStartBuildSSHPort(t *testing.T, goos string) {
 		t.Errorf("the port's still held: %v", err)
 	}
 	// No port free: no start.
-	l.Ports.Range = platform.PortRange{Lo: 20000, Hi: 20000}
+	l.Ports.SSHList = []int{20000}
+	listening[20000] = true // the VM runs
 	f.calls = nil
 	if err := l.start(t.Context(), "v", nil, backend.Confinement{Net: backend.NetInternet}); err == nil || slices.Contains(f.lines(), "limactl start --tty=false v") {
 		t.Errorf("started without a port: %v, %q", err, f.lines())
@@ -244,7 +247,7 @@ func testStartBuildSSHPort(t *testing.T, goos string) {
 	// always edits a new one in (each time, of the two ports left, the one
 	// the config doesn't have).
 	f.out["limactl list --json"] = `{"name":"v","status":"Stopped","config":{"ssh":{"forwardAgent":true,"localPort":20001}}}`
-	l.Ports.Range = platform.PortRange{Lo: 20000, Hi: 20002}
+	l.Ports.SSHList = []int{20000, 20001, 20002}
 	for range 10 {
 		f.calls = nil
 		if err := l.start(t.Context(), "v", nil, backend.Confinement{Net: backend.NetInternet}); err != nil {

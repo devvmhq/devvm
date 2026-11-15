@@ -153,12 +153,19 @@ cmp $APP_dir/run/secrets.json $WORK/app-secrets.json
 [darwin] ! stderr mount_cache_unchosen
 stub_calls
 stdout '^limactl start --tty=false devvm-app-[0-9a-f]{14}$'
-! stdout 'limactl (edit|create|clone|delete)'
+# Its ssh port, which 0.1.0 chose from the whole range, moves onto the
+# ports browsers refuse (here the sandbox's own, DEVVM_SSH_PORTS), in one
+# edit of that alone.
+stdout '^limactl edit --tty=false devvm-app-[0-9a-f]{14} --set \.ssh\.localPort=[0-9]+$'
+! stdout '(?s)limactl edit .*limactl edit'
+! stdout 'limactl (create|clone|delete)'
 [darwin] stdout '^chflags -R -P uchg \S*/home/src/app/\.git/config$'
 stdout '^limactl shell --workdir \S*/home/src/app devvm-app-[0-9a-f]{14}$'
 
-# The launch kept every field 0.1.0 wrote, but the start it records.
-json_superset -changes .agent.made.started $WORK/app-before.json $APP_dir/vm.json
+# The launch kept every field 0.1.0 wrote, but the start it records and
+# its ssh port, now one of the sandbox's list.
+json_superset -changes .agent.made.started -changes .ports.host.ssh $WORK/app-before.json $APP_dir/vm.json
+exec sh -c 'p=$(sed -n "s/.*\"ssh\": \([0-9]*\).*/\1/p" "$APP_dir/vm.json") && case ",$DEVVM_SSH_PORTS," in *",$p,"*) ;; *) exit 1 ;; esac'
 vm_state $APP_dir/vm.json
 stdout '^agent\.made\.started=off_[0-9a-f]{32}$'
 [linux] stdout '^git\.mode=off$'
@@ -168,8 +175,8 @@ stdout '^agent\.made\.started=off_[0-9a-f]{32}$'
 grep '\A1\n\z' $DATA/version
 
 # scratch and web start too, with the same notes, their Lima configs
-# unchanged, and nothing said of nested repos or the github secret, which
-# neither has.
+# unchanged but their ssh ports, and nothing said of nested repos or the
+# github secret, which neither has.
 cd $HOME/src/scratch
 stub_reset
 exec devvm
@@ -179,7 +186,9 @@ stderr '^devvm: vm_outdated changed=base$'
 ! stderr 'git_nested|no_github_token'
 [linux] stderr '^devvm: mount_cache_unchosen mode=mmap vm=devvm-scratch-[0-9a-f]{14}$'
 stub_calls
-! stdout 'limactl (edit|create|clone|delete)'
+stdout '^limactl edit --tty=false devvm-scratch-[0-9a-f]{14} --set \.ssh\.localPort=[0-9]+$'
+! stdout '(?s)limactl edit .*limactl edit'
+! stdout 'limactl (create|clone|delete)'
 # web is a --clone VM: it mounts no project folder to cache.
 cd $HOME/src/web
 stub_reset
@@ -190,7 +199,9 @@ stderr '^devvm: vm_outdated changed=base$'
 ! stderr 'git_nested|no_github_token'
 ! stderr mount_cache_unchosen
 stub_calls
-! stdout 'limactl (edit|create|clone|delete)'
+stdout '^limactl edit --tty=false devvm-web-[0-9a-f]{14} --set \.ssh\.localPort=[0-9]+$'
+! stdout '(?s)limactl edit .*limactl edit'
+! stdout 'limactl (create|clone|delete)'
 
 # devvm agent save reads web's Claude Code settings, which are 0.1.0's
 # store's.

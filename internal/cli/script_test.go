@@ -23,6 +23,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
+	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/stubtest"
 	"github.com/devvmhq/devvm/internal/ubuntu"
 	"github.com/devvmhq/devvm/internal/upgrade/upgradetest"
@@ -178,6 +179,35 @@ func logProxies(t testscript.T, root string) {
 	}
 }
 
+// sandboxPorts returns n ports for a sandbox's own, each free now on every
+// address, for listeners that last as long as its VMs: from below the
+// ephemeral range, as devvm chooses ports, so an outgoing connection never
+// takes one meanwhile.
+func sandboxPorts(n int) ([]string, error) {
+	var out []string
+	chosen := map[int]bool{}
+	for range n {
+		port, err := platform.FreePort(context.Background(), platform.ChoosablePorts(), func(ctx context.Context, p int) bool { //nolint:forbidigo // a sandbox's setup, before any script's context
+			if chosen[p] || slices.Contains(ports.SSHPorts(), p) {
+				return false
+			}
+			var lc net.ListenConfig
+			l, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(p))
+			if err != nil {
+				return false
+			}
+			_ = l.Close()
+			return true
+		})
+		if err != nil {
+			return nil, err
+		}
+		chosen[port] = true
+		out = append(out, strconv.Itoa(port))
+	}
+	return out, nil
+}
+
 // sandbox points every folder devvm uses into a new temporary folder, puts
 // devvm and the stubs first on PATH, and leaves out git's variables that
 // pick a repo (stubtest.GitEnv).
@@ -259,6 +289,14 @@ func sandbox(env *testscript.Env, bin, stubs string) error {
 	// Linux hosts that can't pin .git in QEMU's namespace, whatever the
 	// host's kernel lets devvm do: a script that tests pins sets on.
 	env.Setenv("DEVVM_PINS", "this host's kernel refused")
+	// VMs' ssh ports: as many of the sandbox's own in place of the ports
+	// browsers refuse, which your own VMs may hold, and which scripts
+	// running at once would share.
+	sshPorts, err := sandboxPorts(len(ports.SSHPorts()))
+	if err != nil {
+		return err
+	}
+	env.Setenv("DEVVM_SSH_PORTS", strings.Join(sshPorts, ","))
 	env.Setenv("DEVVM_SECRET_SERVICE", "devvm-test")
 	// No launch asks GitHub for devvm's newest release: a script that
 	// tests the check unsets it and serves its own (release_server).

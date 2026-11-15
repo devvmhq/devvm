@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/backend"
+	"github.com/devvmhq/devvm/internal/ports"
 )
 
 // projectSection: a base project VM (its launch, mounts, ports, a
@@ -228,7 +229,8 @@ func projectBaseVM(s *S, w *webVM) {
 		return nil
 	})
 	// Without network policy too: so no other VM's forwarder takes it before Lima binds it.
-	s.Check("its ssh port is the one its state records, on this machine's loopback alone", func() error {
+	// One of the ports browsers refuse, so no page reaches what answers on it.
+	s.Check("its ssh port is the one its state records, one browsers refuse, on this machine's loopback alone", func() error {
 		st := w.state(s)
 		sp := st["ports.host.ssh"]
 		if sp == "" || st["net.tier"] == "allowlist" {
@@ -239,6 +241,9 @@ func projectBaseVM(s *S, w *webVM) {
 			return errors.New("Lima's ssh port is " + r.Stdout + ", its state's " + sp)
 		}
 		n, _ := strconv.Atoi(sp)
+		if !slices.Contains(ports.SSHPorts(), n) {
+			return errors.New("its ssh port " + sp + " isn't one browsers refuse")
+		}
 		return loopbackOnly(s, n)
 	})
 }
@@ -577,6 +582,9 @@ func projectExisting(s *S, w *webVM) {
 		sp := w.state(s)["ports.host.ssh"]
 		if sp == "" || sp == oldSP {
 			return errors.New("its ssh port is still " + oldSP)
+		}
+		if n, _ := strconv.Atoi(sp); !slices.Contains(ports.SSHPorts(), n) {
+			return errors.New("its new ssh port " + sp + " isn't one browsers refuse")
 		}
 		lr, _ := s.Limactl("list", "--format", "{{.SSHLocalPort}}", vm)
 		if Trim(lr.Stdout) != sp {

@@ -148,14 +148,15 @@ func desktopPassword(ctx context.Context, st *state.VM) (string, error) {
 }
 
 // listener listens on this machine's loopback (127.0.0.1 alone) for the
-// VM's desktop: on the port it had, while no program has it, else on a
-// new one the allocator chooses (ports.Allocator), which it keeps, so a
+// VM's desktop: on the port it had, while no program has it and it isn't
+// one only VMs' ssh may have (ports.Allocator's SSHOnly), else on a new
+// one the allocator chooses (ports.Allocator), which it keeps, so a
 // viewer finds it at the same address each time.
 func (e Desktop) listener(ctx context.Context, st *state.VM) (net.Listener, error) {
 	listen := func(p int) (net.Listener, error) {
 		return platform.ListenLoopback(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
 	}
-	if p := sectionOf[ports.Ports](st, ports.Section).Host.Desktop; backend.ValidPort(p) {
+	if p := sectionOf[ports.Ports](st, ports.Section).Host.Desktop; backend.ValidPort(p) && !e.Proxy.Ports().SSHOnly(p) {
 		if l, err := listen(p); err == nil {
 			return l, nil
 		}

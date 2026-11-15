@@ -1384,6 +1384,27 @@ description = "ports is a list of ports and ranges, like 5173,8000-8010; count i
 one = "{{.vm}} forwards port {{.ports}} once {{.other}} stops forwarding it."
 other = "{{.vm}} forwards ports {{.ports}} once {{.other}} stops forwarding them."
 
+[ports_ssh_limit]
+description = "held is how many of the ports your VMs have, those whose state records a port that's in use; limit is how many ports VMs' ssh can use, 17; others is how many of them are taken otherwise, at least 1; vms are those VMs' names, comma-separated, a name like 'a or b' where two VMs record one port"
+other = "No more VMs can start, because {{.held}} of the {{.limit}} ports VMs' ssh can use are in use by {{.vms}}, and the other {{.others}} are taken on this machine. Stop one of those VMs first, with devvm stop in its folder."
+
+[ports_ssh_limit_all]
+description = "limit is how many ports VMs' ssh can use, 17; vms are the names of the VMs whose state records a port that's in use, comma-separated, a name like 'a or b' where two VMs record one port"
+other = "No more VMs can start, because all {{.limit}} ports VMs' ssh can use are in use by {{.vms}}. Stop one of those VMs first, with devvm stop in its folder."
+
+[ports_ssh_limit_others]
+description = "limit is how many ports VMs' ssh can use, 17"
+other = "No more VMs can start, because all {{.limit}} ports VMs' ssh can use are taken on this machine, by VMs starting or building, by ports a running VM lists to forward, or by other programs. Wait for the builds to finish, take the ports out of the VM's list with devvm ports, or end the programs that have them."
+
+[ports_ssh_listed]
+description = "ports is a list of ports, like 6000,6665; count is how many ports"
+one = "Port {{.ports}} is one of the ports browsers refuse, which devvm keeps for VMs' ssh. No browser opens it, and while a VM forwards it, one fewer VM can start."
+other = "Ports {{.ports}} are among the ports browsers refuse, which devvm keeps for VMs' ssh. No browser opens them, and while a VM forwards them, fewer VMs can start."
+
+[ports_ssh_old]
+description = "vms are running VMs' names, comma-separated"
+other = "{{.vms}} still run with ssh on a port browsers don't refuse, which an older devvm chose. Run devvm stop in each one's folder, and its next start moves it."
+
 [no_vm_ports]
 other = "There's no VM for {{.dir}}. Run devvm --ports PORTS to make one that forwards only those ports, or devvm ports -g to set what new VMs forward."
 

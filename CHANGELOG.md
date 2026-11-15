@@ -113,6 +113,15 @@ The first release of devvm, which gives each project folder an isolated VM of it
 
 These changes are on `main` and go out in the next release.
 
+### Breaking
+
+- **At most 17 VMs run at once:** each VM's ssh is now on one of the 17 ports from 1024 up that every browser refuses, so no page in your browser reaches a server in a VM through it. Root in a VM could make its ssh port answer as a web server, which got the cookies of the apps you use on `localhost`, even in a VM that forwards no ports. A start past 17 fails and names the VMs that run on those ports ([too many VMs at once](https://next.devvm.dev/docs/using/troubleshooting/#too-many-vms-at-once)).
+- **A VM that forwards every port leaves out those 17:** a server in the VM on one of them, such as an X server on 6000, reaches this machine only when you list the port with `devvm ports`, so a VM can't take the ports other VMs' ssh needs. `devvm ports` and each launch warn when a VM's list names one of them ([ports](https://next.devvm.dev/docs/using/ports-size/#ports)).
+
+### After you upgrade
+
+- Each existing VM's ssh moves to one of the 17 ports that browsers refuse at the VM's next start, in the one change devvm makes to its Lima config, which gives the VM new ssh host keys, as any change to its Lima config does. A VM that runs as you upgrade keeps its old port until then, and devvm warns of it at each launch, so stop it with `devvm stop` in its folder, and its next start moves it ([too many VMs at once](https://next.devvm.dev/docs/using/troubleshooting/#too-many-vms-at-once)).
+
 ### Fixed
 
 - **A VM's host keys are pinned whatever its ports:** when other programs on this machine, such as your own dev servers, held every port a VM lists, or the VM forwarded none with `devvm ports none`, a start that went no further than starting the VM, such as `devvm clone fetch` on a stopped `--clone` VM, didn't pin the VM's ssh host keys. devvm's own ssh to the VM then failed until something else pinned them, so `devvm clone fetch` and `devvm rm`'s fetch failed with `clone_fetch_failed`. devvm now pins the keys each time it starts a VM, whatever the VM forwards, and a command that finds the VM running without them pins them first ([ssh into VMs](https://next.devvm.dev/docs/internals/security/#ssh-into-vms)).

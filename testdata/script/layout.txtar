@@ -55,7 +55,8 @@ vm_state $APP_dir/vm.json
 stdout '^made_by=\S+$'
 
 # Every file and folder, with the VMs' hashes named and other hashes,
-# times and versions left out.
+# times and versions left out. Each VM's start holds its ssh port for a
+# minute (run/ports.ssh-hold in its folder).
 exec sh $WORK/list.sh $CFG
 cmp stdout $WORK/config.txt
 exec sh $WORK/list.sh $DATA
@@ -135,6 +136,7 @@ vms/APP/run/links.pid
 vms/APP/run/ports.forwarded
 vms/APP/run/ports.lock
 vms/APP/run/ports.pid
+vms/APP/run/ports.ssh-hold
 vms/APP/run/ports.status
 vms/APP/run/proxy.json
 vms/APP/run/proxy.pid
@@ -161,6 +163,7 @@ vms/DB/run/known_hosts
 vms/DB/run/ports.forwarded
 vms/DB/run/ports.lock
 vms/DB/run/ports.pid
+vms/DB/run/ports.ssh-hold
 vms/DB/run/ports.status
 vms/DB/run/proxy.json
 vms/DB/run/proxy.pid
@@ -226,6 +229,7 @@ vms/APP/run/links.pid
 vms/APP/run/ports.forwarded
 vms/APP/run/ports.lock
 vms/APP/run/ports.pid
+vms/APP/run/ports.ssh-hold
 vms/APP/run/ports.status
 vms/APP/run/proxy.json
 vms/APP/run/proxy.pid
@@ -251,6 +255,7 @@ vms/DB/run/known_hosts
 vms/DB/run/ports.forwarded
 vms/DB/run/ports.lock
 vms/DB/run/ports.pid
+vms/DB/run/ports.ssh-hold
 vms/DB/run/ports.status
 vms/DB/run/proxy.json
 vms/DB/run/proxy.pid

@@ -194,7 +194,7 @@ func TestReserved(t *testing.T) {
 				return now, ok
 			}
 			want := map[int]bool{}
-			for _, n := range slices.Concat(hosts, tc.reserved) {
+			for _, n := range slices.Concat(hosts, tc.reserved, SSHPorts()) {
 				want[n] = true
 			}
 			got, err := Reserved(d, tc.self, live)
@@ -216,42 +216,216 @@ func TestReserved(t *testing.T) {
 	if err != nil || !used[9000] || !used[5173] || !used[8000] || !used[3000] {
 		t.Errorf("Used = %v, %v", used, err)
 	}
+	// One of the ports VMs' ssh comes from is a VM's to forward only when
+	// it lists it.
+	ssh := SSHPorts()[0]
+	st, err := state.ReadVM(d, self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set(t, st, func(p *Ports) { p.Forward += "," + strconv.Itoa(ssh) })
+	none := func(vmname.VM) ([]int, bool) { return nil, false }
+	if r, err := Reserved(d, self, none); err != nil || r[ssh] || !r[SSHPorts()[1]] {
+		t.Errorf("Reserved for a VM that lists %d: %v, %v", ssh, slices.Sorted(maps.Keys(r)), err)
+	}
+	if r, err := Reserved(d, every, none); err != nil || !r[ssh] {
+		t.Errorf("Reserved for a VM that forwards every port: %v, %v", slices.Sorted(maps.Keys(r)), err)
+	}
 }
 
-// A VM's ssh port: chosen once and recorded, kept while it's free, or
-// while the VM runs on it; a stopped VM gets a new one when another
-// program has it, or it lists it to forward.
+// SSHPorts are the Fetch standard's bad ports from 1024 up, as its port
+// blocking lists them (https://fetch.spec.whatwg.org/#port-blocking); a
+// test build's own list stands in for them, and the allocator's other
+// ports never take one of either.
+func TestSSHPorts(t *testing.T) {
+	// Fetch's list, whole; devvm takes those from 1024 up.
+	fetch := []int{
+		0, 1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104,
+		109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526,
+		530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659,
+		4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+	}
+	// Chromium's kRestrictedPorts (net/base/port_util.cc) lacks two of
+	// them, which headless Chrome 157 loads: devvm takes neither.
+	chromiumGaps := []int{4190, 6679}
+	want := slices.DeleteFunc(slices.Clone(fetch), func(n int) bool { return n < 1024 || slices.Contains(chromiumGaps, n) })
+	if got := SSHPorts(); !slices.Equal(got, want) || len(got) != 17 {
+		t.Errorf("SSHPorts = %v, want %v", got, want)
+	}
+	for _, c := range []struct {
+		in, want string
+		n        int
+	}{{"", "", 0}, {"all", "", 0}, {"5173,6000-6666,10080", "6000,6566,6665,6666,10080", 5}} {
+		if got, n := SSHListed(c.in); got != c.want || n != c.n {
+			t.Errorf("SSHListed(%q) = %q, %d; want %q, %d", c.in, got, n, c.want, c.n)
+		}
+	}
+	if a := (Allocator{SSHList: []int{30001}}); !a.SSHOnly(30001) || !a.SSHOnly(want[0]) || a.SSHOnly(30002) {
+		t.Error("SSHOnly with a test build's list")
+	}
+	if a := (Allocator{SSHList: []int{30001}}); !a.OnList(30001) || a.OnList(want[0]) || !(Allocator{}).OnList(want[0]) || (Allocator{}).OnList(0) {
+		t.Error("OnList with a test build's list")
+	}
+	d := testDirs(t)
+	st := newVM(t, d, "devvm-web-0123456789abcd")
+	for _, n := range []int{want[0], 30001} {
+		a := Allocator{Dirs: d, SSHList: []int{30001}, Range: platform.PortRange{Lo: n, Hi: n}, Listening: func(context.Context, int) bool { return false }}
+		if p, err := a.Choose(t.Context(), st, Proxy, func(int, Ports) bool { return false }); err == nil {
+			t.Errorf("a proxy port of the ssh ports: %d", p)
+		}
+	}
+}
+
+// A VM's ssh port: one of the list, chosen once and recorded, kept while
+// it's free, or while the VM runs on it, even one an older devvm chose off
+// the list. A stopped VM gets another when its port is off the list,
+// another program has it, or it lists it to forward.
 func TestSSH(t *testing.T) {
 	d := testDirs(t)
 	st := newVM(t, d, "devvm-web-0123456789abcd")
-	taken := 0
-	a := Allocator{Dirs: d, Listening: func(_ context.Context, port int) bool { return port == taken || port%2 == 0 }}
+	list := []int{20001, 20002, 20003, 20004}
+	listening := map[int]bool{}
+	a := Allocator{Dirs: d, SSHList: list, Listening: func(_ context.Context, port int) bool { return listening[port] }}
+	// An older devvm's: kept while it runs, moved onto the list at its
+	// next start.
+	set(t, st, func(p *Ports) { p.Host.SSH = 22022 })
+	if got, err := a.SSH(t.Context(), st, true); err != nil || got != 22022 {
+		t.Errorf("running on an older devvm's port: %d, %v", got, err)
+	}
 	sp, err := a.SSH(t.Context(), st, false)
-	if err != nil || sp == 0 || sp%2 == 0 || host(t, st).SSH != sp {
-		t.Fatalf("new: %d, %v, state %d", sp, err, host(t, st).SSH)
+	if err != nil || sp != list[0] || host(t, st).SSH != sp {
+		t.Fatalf("moved: %d, %v, state %d", sp, err, host(t, st).SSH)
 	}
 	if got, err := a.SSH(t.Context(), st, false); err != nil || got != sp {
 		t.Errorf("free: %d, %v, want %d", got, err, sp)
 	}
 	// Another program has it: kept while the VM runs (its backend has
 	// it), a new one once it's stopped.
-	taken = sp
+	listening[sp] = true
 	if got, err := a.SSH(t.Context(), st, true); err != nil || got != sp {
 		t.Errorf("running: %d, %v, want %d", got, err, sp)
 	}
 	got, err := a.SSH(t.Context(), st, false)
-	if err != nil || got == sp || host(t, st).SSH != got {
+	if err != nil || got != list[1] || host(t, st).SSH != got {
 		t.Errorf("taken: %d (had %d), %v, state %d", got, sp, err, host(t, st).SSH)
 	}
 	// One of its own forwards.
 	sp = got
 	set(t, st, func(p *Ports) { p.Forward = "5173," + strconv.Itoa(sp) })
-	if got, err := a.SSH(t.Context(), st, false); err != nil || got == sp || host(t, st).SSH != got {
+	if got, err := a.SSH(t.Context(), st, false); err != nil || got != list[2] || host(t, st).SSH != got {
 		t.Errorf("forwarded: %d (had %d), %v", got, sp, err)
 	}
 	// Its forwards stay as they were asked.
 	if p, _ := Of(st); p.Forward != "5173,"+strconv.Itoa(sp) {
 		t.Errorf("forwards after: %q", p.Forward)
+	}
+	// A port another VM lists to forward is never one.
+	other := newVM(t, d, "devvm-api-0123456789abce")
+	set(t, other, func(p *Ports) { p.Forward = strconv.Itoa(list[3]) })
+	if got, err := a.SSH(t.Context(), other, false); msg.IDOf(err) != "ports_ssh_limit_others" {
+		t.Errorf("only listed or held ports left: %d, %v", got, msg.NamesOf(err))
+	}
+}
+
+// Every start holds its port, kept or new, for a minute, as its backend
+// binds it: another start at the same moment never takes it, though
+// nothing listens on it yet, and once the hold is gone a stopped VM's port
+// is taken when no other is free, that VM moving at its own next start.
+// With every port in use the start fails, naming the VMs that run on
+// them.
+func TestSSHHolds(t *testing.T) {
+	d := testDirs(t)
+	list := []int{20001, 20002}
+	listening := map[int]bool{}
+	a := Allocator{Dirs: d, SSHList: list, Listening: func(_ context.Context, port int) bool { return listening[port] }}
+	first := newVM(t, d, "devvm-a-0123456789abc1")
+	second := newVM(t, d, "devvm-b-0123456789abc2")
+	set(t, first, func(p *Ports) { p.Host.SSH = list[0] })
+	set(t, second, func(p *Ports) { p.Host.SSH = list[1] })
+	// Both kept: each its own hold, which never moves it.
+	for i, st := range []*state.VM{first, second} {
+		for range 2 {
+			if got, err := a.SSH(t.Context(), st, false); err != nil || got != list[i] {
+				t.Fatalf("%s keeps its port: %d, %v", st.Name(), got, err)
+			}
+		}
+	}
+	third := newVM(t, d, "devvm-c-0123456789abc3")
+	if got, err := a.SSH(t.Context(), third, false); msg.IDOf(err) != "ports_ssh_limit_others" || host(t, third).SSH != 0 {
+		t.Errorf("a third VM while both start: %d, %v", got, msg.NamesOf(err))
+	}
+	// The first's start done and its VM stopped: its port, which only its
+	// state records now, is the third's, held for the third's start.
+	age(t, d.VM(first.Name()).Forwarder(sshHold), projectHold+time.Second)
+	if n := a.held(first.Name()); n != 0 {
+		t.Errorf("the first's old hold still holds %d", n)
+	}
+	if got, err := a.SSH(t.Context(), third, false); err != nil || got != list[0] {
+		t.Fatalf("a third VM: %d, %v, want the stopped first's %d", got, err, list[0])
+	}
+	if n := a.held(third.Name()); n != list[0] {
+		t.Errorf("the third holds %d, want %d", n, list[0])
+	}
+	if got, err := a.SSH(t.Context(), first, false); msg.IDOf(err) != "ports_ssh_limit_others" {
+		t.Errorf("the first while both others start: %d, %v", got, msg.NamesOf(err))
+	}
+	// Both others run: the first names them.
+	listening[list[0]], listening[list[1]] = true, true
+	age(t, d.VM(second.Name()).Forwarder(sshHold), projectHold+time.Second)
+	age(t, d.VM(third.Name()).Forwarder(sshHold), projectHold+time.Second)
+	_, err := a.SSH(t.Context(), first, false)
+	if want := `ports_ssh_limit_all limit=2 vms=devvm-a-0123456789abc1 or devvm-c-0123456789abc3, devvm-b-0123456789abc2`; msg.NamesOf(err) != want {
+		t.Errorf("full: %v\nwant %s", msg.NamesOf(err), want)
+	}
+	// One program's, one a running VM's.
+	listening[list[0]] = false
+	other := Allocator{Dirs: d, SSHList: []int{list[1], 20009}, Listening: func(_ context.Context, port int) bool { return port == 20009 || listening[port] }}
+	if _, err := other.SSH(t.Context(), first, false); msg.NamesOf(err) != `ports_ssh_limit held=1 limit=2 others=1 vms=devvm-b-0123456789abc2` {
+		t.Errorf("full, one held elsewhere: %v", msg.NamesOf(err))
+	}
+}
+
+// A port another VM lists to forward is avoided only while that VM runs
+// or starts: a stopped VM holds no port.
+func TestSSHListed(t *testing.T) {
+	d := testDirs(t)
+	listening := map[int]bool{}
+	a := Allocator{Dirs: d, SSHList: []int{20001}, Listening: func(_ context.Context, port int) bool { return listening[port] }}
+	lister := newVM(t, d, "devvm-a-0123456789abc1")
+	set(t, lister, func(p *Ports) { p.Forward, p.Host.SSH = "20001", 30001 })
+	st := newVM(t, d, "devvm-b-0123456789abc2")
+	listening[30001] = true // the lister runs
+	if got, err := a.SSH(t.Context(), st, false); msg.IDOf(err) != "ports_ssh_limit_others" {
+		t.Errorf("a port a running VM lists: %d, %v", got, msg.NamesOf(err))
+	}
+	listening[30001] = false
+	if got, err := a.SSH(t.Context(), st, false); err != nil || got != 20001 {
+		t.Errorf("a port a stopped VM lists: %d, %v", got, err)
+	}
+}
+
+// age makes the file at path as old as by.
+func age(t *testing.T, path string, by time.Duration) {
+	t.Helper()
+	old := time.Now().Add(-by)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// OffList names the VMs that run with their ssh on a port off the list,
+// an older devvm's: not one that's stopped, or on the list.
+func TestOffList(t *testing.T) {
+	d := testDirs(t)
+	for name, port := range map[vmname.VM]int{
+		"devvm-old-0123456789abc1": 22022, "devvm-off-0123456789abc4": 22023,
+		"devvm-new-0123456789abc2": 20001, "devvm-none-0123456789abc3": 0,
+	} {
+		set(t, newVM(t, d, name), func(p *Ports) { p.Host.SSH = port })
+	}
+	a := Allocator{Dirs: d, SSHList: []int{20001}, Listening: func(_ context.Context, port int) bool { return port != 22023 }}
+	if got := a.OffList(t.Context()); !slices.Equal(got, []vmname.VM{"devvm-old-0123456789abc1"}) {
+		t.Errorf("OffList = %v", got)
 	}
 }
 
@@ -319,9 +493,9 @@ func TestBuild(t *testing.T) {
 	d := testDirs(t)
 	st := newVM(t, d, "devvm-a-0123456789abc1")
 	set(t, st, func(p *Ports) { p.Host.SSH = 20000 })
-	a := Allocator{Dirs: d, Range: platform.PortRange{Lo: 20000, Hi: 20002}, Listening: func(context.Context, int) bool {
+	a := Allocator{Dirs: d, SSHList: []int{20000, 20001, 20002}, Listening: func(_ context.Context, port int) bool {
 		time.Sleep(10 * time.Millisecond) // a window for another to choose it too
-		return false
+		return port == 20000              // the VM runs
 	}}
 	builds := []vmname.VM{"devvm-img-0123456789ab", "devvm-tools-build"}
 	got := make([]int, len(builds))
@@ -344,13 +518,15 @@ func TestBuild(t *testing.T) {
 		t.Errorf("Used with two builds starting = %v, %v", used, err)
 	}
 	// Full: a VM finds none, until a build's port is released.
-	if _, err := a.Choose(t.Context(), st, Proxy, func(int, Ports) bool { return false }); err == nil {
-		t.Error("a VM chose a port two builds and a VM hold")
+	other := newVM(t, d, "devvm-b-0123456789abc2")
+	if _, err := a.SSH(t.Context(), other, false); msg.IDOf(err) != "ports_ssh_limit" {
+		t.Errorf("a VM chose a port two builds and a VM hold: %v", err)
 	}
 	releases[0]()
-	if p, err := a.Choose(t.Context(), st, Proxy, func(int, Ports) bool { return false }); err != nil || p != got[0] {
+	if p, err := a.SSH(t.Context(), other, false); err != nil || p != got[0] {
 		t.Errorf("after a release: %d, %v, want %d", p, err, got[0])
 	}
+	age(t, d.VM(other.Name()).Forwarder(sshHold), projectHold)
 	// A record that isn't a port reserves nothing.
 	if err := state.WriteFile(filepath.Join(d.BuildPorts(), "x"), []byte("x\n")); err != nil {
 		t.Fatal(err)
@@ -366,7 +542,7 @@ func TestBuild(t *testing.T) {
 	if err := state.WriteFile(stale, []byte("20003\n")); err != nil {
 		t.Fatal(err)
 	}
-	a.Range = platform.PortRange{Lo: 20003, Hi: 20003}
+	a.SSHList = []int{20003}
 	if _, _, err := a.Build(t.Context(), builds[1], 0); err == nil {
 		t.Error("a build took the port a killed devvm's start may still bind")
 	}
@@ -388,14 +564,24 @@ func TestBuild(t *testing.T) {
 	if err := os.Chtimes(filepath.Join(d.BuildPorts(), builds[1].String()), old, old); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Choose(t.Context(), st, Proxy, func(int, Ports) bool { return false }); err == nil {
+	if _, err := a.SSH(t.Context(), other, false); err == nil {
 		t.Error("a VM chose the port a starting build holds")
 	}
 	release()
-	// Never the port the build VM's config has from its image.
-	if n, _, err := a.Build(t.Context(), builds[1], 20003); err == nil {
-		t.Errorf("a build chose %d, the port its clone has", n)
+	// The port the build VM's config has from its image only when no
+	// other is free.
+	a.SSHList = []int{20003, 20004}
+	n, release, err = a.Build(t.Context(), builds[1], 20003)
+	if err != nil || n != 20004 {
+		t.Errorf("a build beside its clone's port: %d, %v, want 20004", n, err)
 	}
+	release()
+	a.SSHList = []int{20003}
+	n, release, err = a.Build(t.Context(), builds[1], 20003)
+	if err != nil || n != 20003 {
+		t.Errorf("a build with only its clone's port free: %d, %v", n, err)
+	}
+	release()
 	// Without a claims lock it can take, there's no port.
 	bad := Allocator{Dirs: paths.Dirs{Data: filepath.Join(d.ClaimsLock(), "x")}, Listening: a.Listening}
 	if _, _, err := bad.Build(t.Context(), builds[0], 0); err == nil {

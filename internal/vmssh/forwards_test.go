@@ -290,9 +290,10 @@ func TestForwardsHeld(t *testing.T) {
 	}
 
 	// What a's forwarder never takes: what b and every forward, and b's
-	// listed ports a doesn't list; none of the stopped VM's.
+	// listed ports a doesn't list, and the ports VMs' ssh comes from; none
+	// of the stopped VM's.
 	reserved, err := f.Reserved(a)
-	if err != nil || !reserved[5173] || !reserved[8000] || !reserved[3000] || len(reserved) != 3 {
+	if err != nil || !reserved[5173] || !reserved[8000] || !reserved[3000] || len(reserved) != 3+len(ports.SSHPorts()) {
 		t.Errorf("Reserved = %v, %v", reserved, err)
 	}
 	// A VM whose forwarder is being started again (its lock held, from its
@@ -307,7 +308,7 @@ func TestForwardsHeld(t *testing.T) {
 		t.Errorf("Reserved while a VM's forwarder starts again = %v, %v", reserved, err)
 	}
 	unlock()
-	if reserved, err = f.Reserved(every); err != nil || !reserved[5173] || !reserved[8000] || len(reserved) != 2 {
+	if reserved, err = f.Reserved(every); err != nil || !reserved[5173] || !reserved[8000] || len(reserved) != 2+len(ports.SSHPorts()) {
 		t.Errorf("Reserved after = %v, %v", reserved, err)
 	}
 
