@@ -96,7 +96,8 @@ run = "scripts/test.sh --raise"
 
 [tasks.vuln]
 description = "Check dependencies for known vulnerabilities"
-run = "govulncheck ./..."
+# Each OS devvm ships for, as the code built for one differs from the other's.
+run = ["GOOS=linux govulncheck ./...", "GOOS=darwin govulncheck ./..."]
 
 [tasks.deadcode]
 description = "List functions nothing calls"

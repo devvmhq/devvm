@@ -48,3 +48,23 @@ jobs:
       - run: mise run test
         env:
           TZ: ${{ matrix.tz }}
+
+  # Its own job, so a newly published vulnerability fails this check alone,
+  # and lint and test still report. The Vulnerabilities workflow scans main
+  # and the releases' binaries each week.
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Only Go and govulncheck, cached apart from the check jobs' full set.
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        with:
+          version: 2026.11.8
+          install_args: go go:golang.org/x/vuln/cmd/govulncheck
+          cache_key_prefix: mise-v1-vuln
+      # mise run would install the rest of mise.toml's tools first.
+      - run: mise run vuln
+        env:
+          MISE_TASK_RUN_AUTO_INSTALL: "false"

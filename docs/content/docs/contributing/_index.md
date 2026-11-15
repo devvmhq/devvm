@@ -52,7 +52,7 @@ Run the tasks with `mise run <task>`:
 | `lint:docs` | runs the docs linters, the message link check, the command line check and the user pages' prose check, and builds the site, which fails on any warning |
 | `test` | runs the tests with the race detector, then checks each package's coverage against its [baseline](tests.md#coverage) |
 | `coverage` | runs the tests, then raises each package's coverage baseline to what they reach (`scripts/test.sh --raise`) |
-| `vuln` | runs govulncheck |
+| `vuln` | runs govulncheck on the code as built for Linux and as built for macOS |
 | `deadcode` | lists functions nothing calls outside the tests: only `backendtest`'s, `stubtest`'s, `upgradetest`'s, `msg.IDOf`, `msg.NamesOf`, `msg.Recorder` and `msg.Fake`, which the tests use, and anything else it lists gets a caller or goes |
 | `cli-docs` | generates the CLI reference |
 | `docs` | generates the CLI reference, then serves the docs site |
@@ -62,7 +62,7 @@ Run the tasks with `mise run <task>`:
 
 Before and after every change, `mise run fmt && mise run lint && mise run test` must pass.
 
-CI runs `lint` and `test` on macOS and Linux. A change that touches only the docs and Markdown files skips them: the Docs workflow runs `lint:docs` and builds the site instead, and on every push to `main` it deploys next.devvm.dev ([the docs sites](maintaining.md#the-docs-sites)).
+CI runs `lint` and `test` on macOS and Linux, and `vuln` in a job of its own. A weekly workflow also scans `main` and the binaries of the latest releases ([Known vulnerabilities](maintaining.md#known-vulnerabilities)). A change that touches only the docs and Markdown files skips them: the Docs workflow runs `lint:docs` and builds the site instead, and on every push to `main` it deploys next.devvm.dev ([the docs sites](maintaining.md#the-docs-sites)).
 
 ## Go lint rules
 

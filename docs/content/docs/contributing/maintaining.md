@@ -1,6 +1,6 @@
 ---
 title: Maintaining
-explainer: Bump pinned versions, release devvm and run the docs sites
+explainer: Bump pinned versions, fix known vulnerabilities, release devvm and run the docs sites
 weight: 2
 ---
 
@@ -52,6 +52,28 @@ The tools, by group, as `--check` prints them:
 - `assets/layers/ubuntu-cloud.gpg` is Ubuntu's cloud image signing key (fingerprint `D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81`), from keyserver.ubuntu.com. If Ubuntu changes it, pinning a new image (a first build of base, or `devvm rebuild base`) stops with `ubuntu_bad_signature`: fetch the new key, check its fingerprint against Ubuntu's announcement, and replace the file (`gpg --export FPR`).
 - `assets/layers/ubuntu-archive.gpg` is Ubuntu's archive signing key, "Ubuntu Archive Automatic Signing Key (2018)" (fingerprint `F6ECB3762474EDA9D21B7022871920D1991BC93C`), fetched from keyserver.ubuntu.com by that fingerprint, checked against the fingerprint that [Ubuntu's security team lists](https://wiki.ubuntu.com/SecurityTeam/FAQ), and exported with `gpg --export-options export-minimal --export FPR`. devvm checks the `InRelease` files of a first build of base against it (`ubuntu.ArchiveKeyring`). If Ubuntu signs the archive with a new key, that build stops with `packages_refused`: fetch the new key, check its fingerprint the same way, and replace the file. The key must be RSA, because `internal/ubuntu/pgp.go` checks only RSA signatures. Moving base to a new Ubuntu release (`ubuntu.Series`, `ubuntu.Version`) also moves `ubuntu.Released`, the day Ubuntu released it, which is the date of that release's own `InRelease` (`dists/<series>/InRelease`), because devvm refuses a release pocket dated before it.
 - Edited scripts change image keys, so the affected images rebuild on next use. An edit to `assets/prelude.sh` changes the key of every image and every shared tool image. Build them in a sandbox of their own (`LIMA_HOME`, `DEVVM_LIMA_HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`) before committing (`devvm build docker`, or a VM made with the tools whose build script changed), then `devvm gc`, and run the [end-to-end tests](tests.md#end-to-end-tests).
+
+## Known vulnerabilities
+
+govulncheck checks devvm against the Go vulnerability database. `mise run vuln` scans the code twice, once as built for Linux and once as built for macOS, because some files build for only one of them, and it reports a vulnerability only when devvm's code calls the vulnerable function. Two workflows run it:
+
+- **CI's `vuln` job** runs `mise run vuln` on every push and pull request that CI runs on, as a job of its own, so a vulnerability published since the last change fails that check alone, and `lint` and `test` still report.
+- **The Vulnerabilities workflow** (`.github/workflows/vuln.yml`) runs every Monday, and you can start it by hand from the Actions tab. It scans `main`'s code for both systems, then downloads the archives of the latest release and of the newest release, prerelease or not, and checks that `SHA256SUMS` lists each archive and matches it. Then it scans each platform's binary with `govulncheck -mode=binary`, because a release's binaries keep the Go and modules they were built with.
+
+A binary's scan works differently from the code's. It reports the vulnerable code that the binary holds rather than the calls into it, and it can name a package that isn't linked into the binary at all. Before you release for a vulnerability that only a binary's scan found, check that the binary has it, with `go version -m BINARY` for its Go and modules and `govulncheck -mode=binary -show traces BINARY` for the code it holds.
+
+The workflow keeps its findings in one issue, "Known vulnerabilities in devvm", which lists each scan's vulnerabilities with the version found and the version that fixes it, and links each one's entry in the database. It comments on the issue whenever the findings change, so a new vulnerability notifies you, and closes the issue once every scan finds nothing. When govulncheck itself fails, the job fails and leaves the issue as it is. Only a scan job with read access runs govulncheck, and a second job, the only one that can write issues, reads its findings and updates the issue, but only in a run on `main`, so a run started on another branch never closes it. The scans cover devvm's Go code alone, not the packages in the VM images, the pinned tools, Lima, or releases older than the two they scan.
+
+To fix a vulnerability, move what it's in to the version that fixes it:
+
+```sh
+mise run vuln                # what govulncheck finds in your checkout, and the calls that reach it
+scripts/bump.sh go           # Go's newest patch release, for one in the standard library
+scripts/bump.sh go-minor     # Go's newest minor release, when only a newer minor has the fix
+scripts/bump.sh go-mods      # the direct modules' newest patches and minors, for one in a module
+```
+
+A module that only `go.mod`'s indirect requirements hold moves with `go get <module>@<fixed version>` and `go mod tidy`. Once `main` is fixed, its scan passes, but the issue stays open while the latest release or the newest release still has the vulnerability, and it closes only when a release with the fix is the latest. A vulnerability that affects devvm's users calls for a release ([Releasing](#releasing)), and one that devvm's code reaches only in a way that doesn't matter can wait for the next one.
 
 ## Checking base against Ubuntu's newest
 
