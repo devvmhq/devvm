@@ -336,7 +336,31 @@ type proxies struct {
 	// stubborn proxies ignore SIGTERM.
 	stubborn bool
 	args     map[int][]string
-	n        int
+	// reaped is each running proxy's, closed once it has ended and been
+	// reaped.
+	reaped map[int]chan struct{}
+	n      int
+}
+
+// signal sends a proxy sig (daemon.Signal), as Stop does, and returns
+// once a signal that ends it has and it's reaped, however busy the
+// machine: a stubborn proxy goes on after SIGTERM.
+func (f *proxies) signal(pid int, sig syscall.Signal) error {
+	if err := daemon.Signal(pid, sig); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	reaped, ok := f.reaped[pid]
+	ends := sig == syscall.SIGKILL || !f.stubborn
+	f.mu.Unlock()
+	if ok && ends {
+		select {
+		case <-reaped:
+		case <-time.After(30 * time.Second):
+			return errors.New("a proxy that won't end")
+		}
+	}
+	return nil
 }
 
 func (f *proxies) start(t *testing.T) daemon.Starter {
@@ -344,9 +368,10 @@ func (f *proxies) start(t *testing.T) daemon.Starter {
 		path, args := c.Path, c.Args
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		cmd := exec.CommandContext(t.Context(), "sleep", "30")
+		// Until the test ends, however slow.
+		cmd := exec.CommandContext(t.Context(), "sleep", "3600")
 		if f.stubborn {
-			cmd = exec.CommandContext(t.Context(), "sh", "-c", `trap "" TERM; exec sleep 30`)
+			cmd = exec.CommandContext(t.Context(), "sh", "-c", `trap "" TERM; exec sleep 3600`)
 		}
 		if f.quiet {
 			cmd = exec.CommandContext(t.Context(), "true")
@@ -367,6 +392,7 @@ func (f *proxies) start(t *testing.T) daemon.Starter {
 			// Reaped once it ends, as a detached process is.
 			done := make(chan struct{})
 			go func() { _ = cmd.Wait(); close(done) }()
+			f.reaped[pid] = done
 			t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
 			if err := daemon.WriteStatus(c.Status, pid, cfg.Listen); err != nil {
 				return 0, err
@@ -405,9 +431,9 @@ func testProxy(t *testing.T, d paths.Dirs) (*Proxy, *proxies) {
 	home.Home = t.TempDir()
 	store := secrets.NewStore(home, testUI(t))
 	store.Keychain, store.Getenv = false, func(string) string { return "" }
-	f := &proxies{args: map[int][]string{}}
+	f := &proxies{args: map[int][]string{}, reaped: map[int]chan struct{}{}}
 	p := NewProxy(d, assets.FS, "/bin/sh", store, testUI(t))
-	p.Start, p.Args, p.Tick = f.start(t), f.argsOf, time.Millisecond
+	p.Start, p.Args, p.Tick, p.Signal = f.start(t), f.argsOf, time.Millisecond, f.signal
 	p.Getenv = func(string) string { return "" } // not the host's proxy settings
 	p.Listening = func(context.Context, int) bool { return false }
 	p.ExcludeFromBackup = func(context.Context, string) error { return nil }

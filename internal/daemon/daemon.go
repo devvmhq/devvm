@@ -133,3 +133,19 @@ func Signal(pid int, sig syscall.Signal) error {
 	}
 	return syscall.Kill(pid, sig)
 }
+
+// SignalGroup sends the process with that pid a signal, and with it every
+// process of its group when it leads one, as each background process
+// does (Detach starts it in a session of its own): what it started, a
+// forwarder's or a link session's ssh masters and relays, ends with it,
+// even when it's killed and can't stop them itself. One that leads no
+// group gets it alone (Signal).
+func SignalGroup(pid int, sig syscall.Signal) error {
+	if pid <= 0 {
+		return syscall.ESRCH
+	}
+	if pgid, err := syscall.Getpgid(pid); err == nil && pgid == pid {
+		return syscall.Kill(-pid, sig)
+	}
+	return Signal(pid, sig)
+}

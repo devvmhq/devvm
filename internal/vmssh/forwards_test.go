@@ -38,7 +38,7 @@ func testForwards(t *testing.T) (*Forwards, *[][]string, *msg.Recorder) {
 	f := &Forwards{
 		Dirs: paths.Dirs{Data: short}, Self: "/devvm", Tick: time.Millisecond,
 		Detach: func(c daemon.Cmd) (int, error) {
-			cmd := exec.CommandContext(t.Context(), "sleep", "30")
+			cmd := exec.CommandContext(t.Context(), "sleep", "3600") // until the test ends, however slow
 			if err := cmd.Start(); err != nil {
 				return 0, err
 			}

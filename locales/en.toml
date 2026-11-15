@@ -846,12 +846,12 @@ description = "vm is the client VM, name and port the link's, target the VM that
 other = "  {{.vm}}'s link {{.name}}:{{.port}} to {{.target}}"
 
 [gc_link_sockets]
-one = "{{.count}} socket is left from a link session that ended."
-other = "{{.count}} sockets are left from link sessions that ended."
+one = "{{.count}} socket is left from a link session, a port forwarder or a proxy that ended."
+other = "{{.count}} sockets are left from link sessions, port forwarders or proxies that ended."
 
 [deleted_link_sockets]
-one = "deleted {{.count}} socket of a link session"
-other = "deleted {{.count}} sockets of link sessions"
+one = "deleted {{.count}} socket of a link session, a port forwarder or a proxy"
+other = "deleted {{.count}} sockets of link sessions, port forwarders or proxies"
 
 [gc_backend_skipped]
 description = "backend is a backend a VM's state names, which couldn't list its images"

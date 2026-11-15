@@ -408,6 +408,7 @@ func (v *VM) locked(ctx context.Context, claims bool, f func() error) error {
 	if err := PrivateDir(v.file.Dir); err != nil {
 		return err
 	}
+	defer held.take(vmLock, v.file.Lock())()
 	unlock, err := platform.LockFile(ctx, v.file.Lock())
 	if err != nil {
 		return err
@@ -431,6 +432,7 @@ func claimed(ctx context.Context, claims string, f func() error) error {
 	if err := PrivateDir(filepath.Dir(claims)); err != nil {
 		return err
 	}
+	defer held.take(claimsLock, claims)()
 	unclaim, err := platform.LockFile(ctx, claims)
 	if err != nil {
 		return err
@@ -461,6 +463,7 @@ func RemoveFolder(ctx context.Context, d paths.Dirs, name vmname.VM) error {
 	if _, err := os.Lstat(f.Dir); errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
+	defer held.take(vmLock, f.Lock())()
 	unlock, err := platform.LockFile(ctx, f.Lock())
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil // another devvm deleted it meanwhile

@@ -272,7 +272,8 @@ type Allocator struct {
 	// (Listening).
 	Listening func(ctx context.Context, port int) bool
 	// Range is the range new ports come from (platform.ChoosablePorts,
-	// which the zero value means too).
+	// which the zero value means too, or a test build's own,
+	// DEVVM_PORT_RANGE, as the CLI tests' sandboxes run at once).
 	Range platform.PortRange
 	// SSHList is the ports VMs' ssh comes from in place of SSHPorts: nil
 	// for those, or a test build's own (DEVVM_SSH_PORTS), as the CLI

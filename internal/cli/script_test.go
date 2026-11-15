@@ -179,35 +179,6 @@ func logProxies(t testscript.T, root string) {
 	}
 }
 
-// sandboxPorts returns n ports for a sandbox's own, each free now on every
-// address, for listeners that last as long as its VMs: from below the
-// ephemeral range, as devvm chooses ports, so an outgoing connection never
-// takes one meanwhile.
-func sandboxPorts(n int) ([]string, error) {
-	var out []string
-	chosen := map[int]bool{}
-	for range n {
-		port, err := platform.FreePort(context.Background(), platform.ChoosablePorts(), func(ctx context.Context, p int) bool { //nolint:forbidigo // a sandbox's setup, before any script's context
-			if chosen[p] || slices.Contains(ports.SSHPorts(), p) {
-				return false
-			}
-			var lc net.ListenConfig
-			l, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(p))
-			if err != nil {
-				return false
-			}
-			_ = l.Close()
-			return true
-		})
-		if err != nil {
-			return nil, err
-		}
-		chosen[port] = true
-		out = append(out, strconv.Itoa(port))
-	}
-	return out, nil
-}
-
 // sandbox points every folder devvm uses into a new temporary folder, puts
 // devvm and the stubs first on PATH, and leaves out git's variables that
 // pick a repo (stubtest.GitEnv).
@@ -217,7 +188,14 @@ func sandbox(env *testscript.Env, bin, stubs string) error {
 	if err != nil {
 		return err
 	}
+	// The sandbox's own block of ports (sandboxPortsLo), given up once
+	// what it ran has stopped.
+	first, release, err := claimPortBlock(sandboxPortsDir(), sandboxPortsWait)
+	if err != nil {
+		return err
+	}
 	env.Defer(func() {
+		defer release()
 		logProxies(env.T(), root)
 		// VMs' proxies follow a stub hostagent that's gone before they
 		// look: stop them with the sandbox.
@@ -289,14 +267,21 @@ func sandbox(env *testscript.Env, bin, stubs string) error {
 	// Linux hosts that can't pin .git in QEMU's namespace, whatever the
 	// host's kernel lets devvm do: a script that tests pins sets on.
 	env.Setenv("DEVVM_PINS", "this host's kernel refused")
-	// VMs' ssh ports: as many of the sandbox's own in place of the ports
-	// browsers refuse, which your own VMs may hold, and which scripts
-	// running at once would share.
-	sshPorts, err := sandboxPorts(len(ports.SSHPorts()))
+	// The sandbox's own ports (sandboxPortsLo), and from them its VMs'
+	// ssh ports: as many in place of the ports browsers refuse, which your
+	// own VMs may hold, and which scripts running at once would share.
+	sshPorts, next, err := takePorts(first, first+sandboxTaken, len(ports.SSHPorts()), false)
 	if err != nil {
 		return err
 	}
-	env.Setenv("DEVVM_SSH_PORTS", strings.Join(sshPorts, ","))
+	env.Setenv("SANDBOX_PORT_NEXT", strconv.Itoa(next))
+	env.Setenv("SANDBOX_PORT_END", strconv.Itoa(first+sandboxTaken))
+	env.Setenv("DEVVM_PORT_RANGE", strconv.Itoa(first+sandboxTaken)+"-"+strconv.Itoa(first+sandboxBlock-1))
+	ssh := make([]string, len(sshPorts))
+	for i, p := range sshPorts {
+		ssh[i] = strconv.Itoa(p)
+	}
+	env.Setenv("DEVVM_SSH_PORTS", strings.Join(ssh, ","))
 	env.Setenv("DEVVM_SECRET_SERVICE", "devvm-test")
 	// No launch asks GitHub for devvm's newest release: a script that
 	// tests the check unsets it and serves its own (release_server).
@@ -465,73 +450,35 @@ func listenAny(ts *testscript.TestScript, neg bool, args []string) {
 	ts.Setenv(args[0], strconv.Itoa(l.Addr().(*net.TCPAddr).Port))
 }
 
-// freePort sets each VAR to a different port nothing on the host listens
-// on now, for a script that lists ports a start or a change finds free: a
-// fixed one (5173) may be a program's here. -range FIRST LAST sets the
-// two to a range of two such ports, LAST the one after FIRST.
+// freePort sets each VAR to a different port of the sandbox's own
+// (sandboxTake) nothing on the host listens on now, for a script that
+// lists ports a start or a change finds free: a fixed one (5173) may be a
+// program's here. -range FIRST LAST sets the two to a range of two such
+// ports, LAST the one after FIRST.
 func freePort(ts *testscript.TestScript, neg bool, args []string) {
 	usage := "usage: free_port VAR... | free_port -range FIRST LAST"
 	if neg || len(args) == 0 {
 		ts.Fatalf("%s", usage)
 	}
-	var held []net.Listener
-	defer func() {
-		for _, l := range held {
-			_ = l.Close()
-		}
-	}()
-	listen := func(port int) (int, bool) {
-		l, err := net.Listen("tcp", ":"+strconv.Itoa(port)) //nolint:noctx // every address, so the port is free on each; closed at once
-		if err != nil {
-			return 0, false
-		}
-		held = append(held, l)
-		return l.Addr().(*net.TCPAddr).Port, true
-	}
 	if args[0] == "-range" {
 		if len(args) != 3 {
 			ts.Fatalf("%s", usage)
 		}
-		for range 100 {
-			first, ok := listen(0)
-			if !ok || first == 65535 {
-				continue
-			}
-			if _, ok := listen(first + 1); ok {
-				ts.Setenv(args[1], strconv.Itoa(first))
-				ts.Setenv(args[2], strconv.Itoa(first+1))
-				return
-			}
-		}
-		ts.Fatalf("free_port: no two free ports in a row")
+		r := sandboxTake(ts, 2, true)
+		ts.Setenv(args[1], strconv.Itoa(r[0]))
+		ts.Setenv(args[2], strconv.Itoa(r[1]))
+		return
 	}
 	for i, port := range freePorts(ts, len(args)) {
 		ts.Setenv(args[i], strconv.Itoa(port))
 	}
 }
 
-// freePorts returns n different ports nothing on the host listens on now,
-// on any address: the system's choice, from its ephemeral range, which
-// devvm never chooses from (platform.ChoosablePorts), so no devvm the
-// tests run takes one of them meanwhile.
-func freePorts(ts *testscript.TestScript, n int) []int {
-	ports := make([]int, 0, n)
-	held := make([]net.Listener, 0, n)
-	defer func() {
-		for _, l := range held {
-			_ = l.Close()
-		}
-	}()
-	for range n {
-		l, err := net.Listen("tcp", ":0") //nolint:noctx,gosec // every address, so the port is free on each; closed once all are chosen
-		if err != nil {
-			ts.Fatalf("no free port: %v", err)
-		}
-		held = append(held, l)
-		ports = append(ports, l.Addr().(*net.TCPAddr).Port)
-	}
-	return ports
-}
+// freePorts returns n different ports of the sandbox's own nothing on the
+// host listens on now, on any address (sandboxTake): no devvm the tests
+// run, no outgoing connection and no other sandbox takes one of them
+// meanwhile.
+func freePorts(ts *testscript.TestScript, n int) []int { return sandboxTake(ts, n, false) }
 
 // stubCalls writes the calls the stubs logged to stdout, one per line.
 // Negated, it fails if any were logged.

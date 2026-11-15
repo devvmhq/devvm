@@ -29,6 +29,12 @@ type cleanup struct {
 // interrupt checks it.
 func (u *UI) Interrupted() bool { return u.interrupted.Load() }
 
+// StopsItsOwn says the run stops what it started itself once its
+// context ends: a background process's ssh masters and relays, which
+// would outlive it otherwise. A signal then waits for the run to return,
+// up to returnGrace, as it does when there are cleanups to run.
+func (u *UI) StopsItsOwn() { u.stopsItsOwn.Store(true) }
+
 // AddCleanup adds f to the cleanup stack, which runs, last added first, when
 // the run ends: normally, failed, or interrupted. f gets a context of
 // its own, as the run's is canceled by then. Call remove once there's
@@ -105,11 +111,11 @@ const returnGrace = 2 * time.Second
 // question has no answer. Then it runs the cleanup stack.
 //
 // INT, TERM and HUP cancel fn's context, which stops the command running,
-// and return InterruptedCode. With cleanups to run, they wait first for fn
-// to return, or returnGrace after the commands it ran ended, whichever is
-// first, unless fn waits for an answer; then the cleanups run. A
-// second signal during the cleanups is ignored, so they aren't stopped
-// halfway. fn's own code fails at its next step, as its context is
+// and return InterruptedCode. With cleanups to run, or a run that stops
+// what it started itself (StopsItsOwn), they wait first for fn to
+// return, or returnGrace after the commands it ran ended, whichever is
+// first, unless fn waits for an answer; then the cleanups run. A second
+// signal during the cleanups is ignored, so they aren't stopped halfway. fn's own code fails at its next step, as its context is
 // canceled, and prints nothing.
 func Main(fn func(ctx context.Context, u *UI) int) int {
 	u := onTerminal()
@@ -143,9 +149,10 @@ func (u *UI) main(fn func(ctx context.Context) int) int {
 
 // interrupt ends a run a signal interrupted: it cancels fn's context,
 // waits for the commands running to end, then, when there are cleanups
-// to run, for fn to return (done), up to returnGrace. Without cleanups,
-// nothing could undo fn's work, so the run ends at once: the proxy and
-// devvm's other background processes stop as soon as they're told to.
+// to run, or the run stops what it started itself (StopsItsOwn), for fn
+// to return (done), up to returnGrace. Otherwise nothing could undo fn's
+// work, so the run ends at once: the proxy stops as soon as it's told
+// to, and a forwarder or a link session once it has stopped its ssh.
 // Nor does it wait while fn waits for an answer: a question doesn't
 // return at Ctrl+C, and its answer would be refused (readLine).
 // The run's code is InterruptedCode, whatever fn returned, but a panic of
@@ -157,7 +164,7 @@ func interrupt(u *UI, cancel context.CancelFunc, done <-chan result) result {
 	u.commands.Lock()   // the commands running have ended
 	u.commands.Unlock() //nolint:staticcheck // the lock is only waited for: each logged command holds it to read
 	r := result{code: InterruptedCode}
-	if hasCleanups(u) && u.asking.Load() == 0 {
+	if (hasCleanups(u) || u.stopsItsOwn.Load()) && u.asking.Load() == 0 {
 		t := time.NewTimer(returnGrace)
 		defer t.Stop()
 		select {

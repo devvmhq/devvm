@@ -294,8 +294,8 @@ func showGCDone(u *ui.UI, d vm.GCDone) {
 	for _, n := range d.Forgot {
 		u.Info(msg.ForgotOrphan(n))
 	}
-	if d.LinkSockets > 0 {
-		u.Info(msg.DeletedLinkSockets(d.LinkSockets))
+	if d.Sockets > 0 {
+		u.Info(msg.DeletedLinkSockets(d.Sockets))
 	}
 	for _, l := range d.Images {
 		switch {

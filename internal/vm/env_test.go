@@ -147,7 +147,7 @@ func testProxy(t *testing.T, d paths.Dirs) *netpolicy.Proxy {
 	ended := map[int]chan struct{}{}
 	p.Start = func(c daemon.Cmd) (int, error) {
 		path, a := c.Path, c.Args
-		cmd := exec.CommandContext(t.Context(), "sleep", "30")
+		cmd := exec.CommandContext(t.Context(), "sleep", "3600") // until the test ends, however slow
 		if err := cmd.Start(); err != nil {
 			return 0, err
 		}
@@ -205,7 +205,7 @@ func testForwarders(t *testing.T, e *Env, f *backendtest.Fake) *[][]string {
 	fw := vmssh.NewForwards(e.Dirs, e.Registry.Review, "/devvm")
 	fw.Run, fw.Tick = short, time.Millisecond
 	fw.Detach = func(c daemon.Cmd) (int, error) {
-		cmd := exec.CommandContext(t.Context(), "sleep", "30")
+		cmd := exec.CommandContext(t.Context(), "sleep", "3600") // until the test ends, however slow
 		if err := cmd.Start(); err != nil {
 			return 0, err
 		}

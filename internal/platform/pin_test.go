@@ -3,6 +3,7 @@ package platform
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,6 +57,8 @@ func pinHelper(mode string, args []string) error {
 		})
 	case "waiter":
 		return waitPinnedAgain(args[0])
+	case "repin":
+		return repinWhileRenamed(args[0])
 	case "unprivileged":
 		return ExecUnprivileged("/no/such/program", []string{"program"}, nil)
 	}
@@ -82,6 +85,39 @@ func waitPinnedAgain(root string) error {
 		time.Sleep(25 * time.Millisecond)
 	}
 	return errors.New("the new f isn't pinned")
+}
+
+// repinWhileRenamed, in the namespace, pins root/f again whenever it
+// isn't pinned, as the keeper does, until the test makes root/stop, while
+// the test renames new files over f: every pin succeeds, f being there all
+// along, however its rename and the pin meet.
+func repinWhileRenamed(root string) error {
+	r, err := OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	if err := PrivateMounts(); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(root, "ready"), nil, 0o600); err != nil {
+		return err
+	}
+	for pins := 0; ; {
+		if _, err := os.Stat(filepath.Join(root, "stop")); err == nil {
+			if pins == 0 {
+				return errors.New("never pinned")
+			}
+			return nil
+		}
+		if Pinned(r, "f", true) {
+			continue
+		}
+		if err := PinBeneath(r, "f", true); err != nil {
+			return fmt.Errorf("pin %d: %w", pins, err)
+		}
+		pins++
+	}
 }
 
 // A file's link count: 1 for a file of its own, 2 once it has another
@@ -243,6 +279,55 @@ func TestPinsInNamespace(t *testing.T) {
 	}
 	if err := os.WriteFile(f, []byte("host"), 0o600); err != nil {
 		t.Errorf("pinned here: %v", err)
+	}
+}
+
+// A pin that meets a rename over its file, the host's git config
+// replacing it as the keeper pins it again: the pin finds the file the
+// rename left, never failing as if it were gone.
+func TestPinWhileRenamed(t *testing.T) {
+	if !HasPins || UsernsLimit() != "" {
+		t.Skip("pins need a Linux host that lets devvm in a user namespace")
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Probe(func(dir string) []string { return []string{self, "pin-helper", "probe", dir} }, 10*time.Second); err != nil {
+		t.Skipf("this host can't pin: %v", err)
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(root, "f")
+	if err := os.WriteFile(f, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- RunInNamespace(self, []string{"pin-helper", "repin", root}) }()
+	for i := 0; i < 200; i++ {
+		if _, err := os.Stat(filepath.Join(root, "ready")); err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	for end := time.Now().Add(2 * time.Second); time.Now().Before(end); {
+		if err := os.WriteFile(f+".lock", []byte("new"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(f+".lock", f); err != nil {
+			t.Fatal(err)
+		}
+		// As git does, one write at a time: a host that renamed over f without a pause could
+		// take every one of a pin's tries.
+		time.Sleep(time.Millisecond)
+	}
+	if err := os.WriteFile(filepath.Join(root, "stop"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Errorf("a pin as f was renamed over: %v", err)
 	}
 }
 

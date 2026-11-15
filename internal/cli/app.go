@@ -158,6 +158,9 @@ func (a *app) vmEnv() (*vm.Env, error) {
 		e.HistoryMax = a.testOverrides().HistoryMax
 		e.PasteWait = time.Duration(a.testOverrides().PasteWait) * time.Second
 		e.Proxy.SSHList = a.testOverrides().SSHList()
+		if r := a.testOverrides().Range(); r != (platform.PortRange{}) {
+			e.Proxy.PortRange = r
+		}
 		clip := platform.Clipboard{Tools: a.testOverrides().ClipTools}
 		e.ReadClip, e.CopyText = clip.ReadClip, clip.CopyText
 		return e, nil

@@ -21,7 +21,7 @@ type Proc struct {
 	Is func(args []string) bool
 	// Args returns a running process's arguments (platform.ProcessArgs).
 	Args func(pid int) ([]string, error)
-	// Signal sends it a signal: Signal, or a test's.
+	// Signal sends it, and its group, a signal: SignalGroup, or a test's.
 	Signal func(pid int, sig syscall.Signal) error
 	// Alive reports whether a process has pid: Alive, or a test's.
 	Alive func(pid int) bool
@@ -92,7 +92,8 @@ func (p Proc) Start(start Starter, c Cmd) (int, error) {
 // arguments can't be read (ended), nor to another given the pid whose
 // arguments can't be read either. Once it has ended its pid file goes,
 // unless a start since has written another pid there. It reports whether
-// none runs then.
+// none runs then. Each signal reaches the process's group too
+// (SignalGroup), so what it started ends with it.
 func (p Proc) Stop(wait time.Duration) bool {
 	pid, ok := p.PID()
 	if !ok {
@@ -100,7 +101,7 @@ func (p Proc) Stop(wait time.Duration) bool {
 	}
 	signal := p.Signal
 	if signal == nil {
-		signal = Signal
+		signal = SignalGroup
 	}
 	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGKILL} {
 		if sig == syscall.SIGTERM || p.runs(pid) {

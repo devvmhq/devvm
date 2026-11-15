@@ -35,7 +35,7 @@ func devvm() rules {
 		maxMethods: 24,
 		largeTypes: map[string]large{
 			"internal/paths.Dirs": {62, "one method per folder or file devvm uses: a list (a VM's own files are paths.VM's)"},
-			"internal/ui.UI":      {46, "the one terminal: messages and where they go, as text or names, the logo, errors with the caller's exit code, prompts and their refusals, whether the picker shows, status line, tables, run log and how many are kept, cleanups, signals"},
+			"internal/ui.UI":      {47, "the one terminal: messages and where they go, as text or names, the logo, errors with the caller's exit code, prompts and their refusals, whether the picker shows, status line, tables, run log and how many are kept, cleanups, signals and what waits for them"},
 		},
 		allowedVars: devvmVars(),
 		// hostgit runs git without fsmonitor, hooks, filters, GIT_* or prompts, ssh only; tests, stubtest.Git (GitEnv).
@@ -275,6 +275,7 @@ func devvmVars() map[string]string {
 		"internal/tools.muslT":                    fixture,
 		"internal/structure.update":               "a test flag, set on go test's command line",
 		"internal/leaktest.allowed":               table,
+		"internal/state.held":                     "the state locks this process's goroutines hold, which test builds check the order of: the locks are the process's",
 	}
 }
 

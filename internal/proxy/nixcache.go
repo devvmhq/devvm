@@ -475,6 +475,11 @@ func (n *nixCache) fetchOnce(ctx context.Context, p, file string, m narMeta) err
 		n.mu.Unlock()
 		close(ch)
 	}()
+	// A fetch that ended after the caller missed the cache, and before this one's turn, kept it:
+	// fetched again, it would download it twice and count it twice against the cap.
+	if fi, err := os.Lstat(file); err == nil && fi.Mode().IsRegular() && fi.Size() == m.fileSize { //nolint:gosec // a name nixPath checked, in the cache's folder
+		return nil
+	}
 	select {
 	case n.slots <- struct{}{}:
 	case <-ctx.Done():

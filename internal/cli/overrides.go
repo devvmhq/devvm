@@ -39,6 +39,9 @@ type Overrides struct {
 	// paste.sh in the VM, in seconds (vm.Env.PasteWait), in place of 10
 	// minutes for a write and 2 for a count or a delete.
 	PasteWait int
+	// LockOrder, in every test build, checks the order the state's
+	// locks are taken in (state.CheckLockOrder).
+	LockOrder bool
 }
 
 // ReleaseOverrides are devvm upgrade's stand-ins: a fake release server
@@ -79,6 +82,7 @@ func readOverrides(getenv func(string) string) Overrides {
 			UbuntuRelease: getenv("DEVVM_UBUNTU_RELEASE"),
 			Pins:          getenv("DEVVM_PINS"),
 			SSHPorts:      getenv("DEVVM_SSH_PORTS"),
+			PortRange:     getenv("DEVVM_PORT_RANGE"),
 		},
 		HostMise:     getenv("DEVVM_HOST_MISE"),
 		PipedAnswers: getenv("DEVVM_PIPED_ANSWERS") == "1",
@@ -90,5 +94,6 @@ func readOverrides(getenv func(string) string) Overrides {
 		HistoryMax: historyMax,
 		ClipTools:  getenv("DEVVM_CLIP_TOOLS"),
 		PasteWait:  pasteWait,
+		LockOrder:  true,
 	}
 }

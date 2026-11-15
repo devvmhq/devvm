@@ -235,6 +235,8 @@ func TestLinkLeftovers(t *testing.T) {
 	listen("link-0000000000000001.sock", false)
 	listen("link-0000000000000002.ctl", false)
 	listen("link-0000000000000003.sock", true)
+	listen("port-0000000000000005.ctl", false)
+	listen("port-0000000000000006.ctl", true)
 	listen("devvm-app-0123456789abcd.proxy.sock", false)
 	listen("agent-0123456789abcd.sock", false) // a killed proxy's relay
 	listen("agent-0123456789abce.sock", true)
@@ -242,7 +244,10 @@ func TestLinkLeftovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := LeftoverSockets(t.Context(), d)
-	stale := []string{filepath.Join(d.Run(), "link-0000000000000001.sock"), filepath.Join(d.Run(), "link-0000000000000002.ctl"), filepath.Join(d.Run(), "agent-0123456789abcd.sock")}
+	stale := []string{
+		filepath.Join(d.Run(), "link-0000000000000001.sock"), filepath.Join(d.Run(), "link-0000000000000002.ctl"),
+		filepath.Join(d.Run(), "agent-0123456789abcd.sock"), filepath.Join(d.Run(), "port-0000000000000005.ctl"),
+	}
 	slices.Sort(stale)
 	if err != nil || !slices.Equal(got, stale) {
 		t.Errorf("LeftoverSockets = %v, %v; want %v", got, err, stale)
@@ -268,7 +273,7 @@ func linkRunsEnv(t *testing.T, logged string) (linkRuns, *[][]string) {
 	var started [][]string
 	e.Proxy.Start = func(c daemon.Cmd) (int, error) {
 		path, a, out := c.Path, c.Args, c.Out
-		cmd := exec.CommandContext(t.Context(), "sleep", "30")
+		cmd := exec.CommandContext(t.Context(), "sleep", "3600") // until the test ends, however slow
 		if err := cmd.Start(); err != nil {
 			return 0, err
 		}

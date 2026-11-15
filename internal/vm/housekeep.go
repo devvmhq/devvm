@@ -352,8 +352,8 @@ func (p GCPlan) Empty() bool {
 // GCDone is what a plan's Apply deleted, in the order it did, for its
 // caller to say.
 type GCDone struct {
-	Forgot      []vmname.VM // the orphans forgotten, by name
-	LinkSockets int         // the link sockets deleted with the dead links
+	Forgot  []vmname.VM // the orphans forgotten, by name
+	Sockets int         // the leftover sockets deleted (LeftoverSockets)
 	// Images are the stale images, each deleted or, Refused, kept.
 	Images []DeletedImage
 	Mise   int // old mise versions
@@ -425,7 +425,7 @@ func (p GCPlan) applyOrphans(ctx context.Context, done *GCDone) error {
 		if err := p.leftovers.ForgetLinks(ctx); err != nil {
 			return err
 		}
-		done.LinkSockets = len(p.Orphans.Sockets)
+		done.Sockets = len(p.Orphans.Sockets)
 	}
 	return nil
 }

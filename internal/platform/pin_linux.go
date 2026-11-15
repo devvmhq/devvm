@@ -105,8 +105,32 @@ func linked(f *os.File, st *unix.Stat_t) bool {
 // PinBeneath binds rel, beneath root, over itself, read-only when
 // readOnly: a folder or a file, never a symlink or through one, nor a
 // file with another name (ErrLinked), or a folder holding one. It needs
-// CAP_SYS_ADMIN in the mount namespace's user namespace.
+// CAP_SYS_ADMIN in the mount namespace's user namespace. A file renamed
+// over rel as it pins (git config on the host) leaves the bind a target
+// no longer there, which it opens again: what the rename left is pinned.
 func PinBeneath(root *os.File, rel string, readOnly bool) error {
+	for range pinTries - 1 {
+		err := pinOnce(root, rel, readOnly)
+		if !errors.Is(err, errMovedAway) {
+			return err
+		}
+	}
+	return pinOnce(root, rel, readOnly)
+}
+
+// pinTries is how many times PinBeneath opens rel again, each time a
+// rename takes the file it opened away before the bind: a rename is
+// over in microseconds, so only a host replacing the file without a pause
+// takes it to the last.
+const pinTries = 50
+
+// errMovedAway is a bind's refusal (ENOENT) of a target that was renamed
+// over or removed after it was opened.
+var errMovedAway = errors.New("moved away as it was pinned")
+
+// pinOnce is PinBeneath's one try, errMovedAway when its target went
+// before the bind.
+func pinOnce(root *os.File, rel string, readOnly bool) error {
 	target, err := openBeneath(root, rel)
 	if err != nil {
 		return err
@@ -133,6 +157,9 @@ func PinBeneath(root *os.File, rel string, readOnly bool) error {
 		}
 	}
 	if err := unix.MoveMount(tree, "", int(target.Fd()), "", unix.MOVE_MOUNT_F_EMPTY_PATH|unix.MOVE_MOUNT_T_EMPTY_PATH); err != nil {
+		if errors.Is(err, unix.ENOENT) {
+			err = errMovedAway
+		}
 		return &os.PathError{Op: "move_mount", Path: rel, Err: err}
 	}
 	return nil

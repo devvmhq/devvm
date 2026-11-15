@@ -73,7 +73,7 @@ stdout 'limactl clone --tty=false devvm-img-[0-9a-f]+ devvm-app-[0-9a-f]{14} --m
 vm_state $APP_dir/vm.json
 stdout '^image=base$'
 stdout '^net\.tier=allowlist$'
-stdout '^ports\.forward=3000,8080$'
+stdout '^ports\.forward='$FIXTURE_PORT_3000','$FIXTURE_PORT_8080'$'
 stdout '^tools\.names=node claude codex$'
 stdout '^secrets\.names=github$'
 stdout '^links\.group=backend$'

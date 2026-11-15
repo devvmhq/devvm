@@ -41,6 +41,9 @@ func NewRoot(u *ui.UI) *cobra.Command {
 			f := *fl
 			f.PipedAnswers, f.PickOnPipe = a.testOverrides().PipedAnswers, a.testOverrides().PickOnPipe
 			u.SetFlags(f)
+			if a.testOverrides().LockOrder {
+				state.CheckLockOrder()
+			}
 			if wantsJSON(cmd) {
 				u.DataOnly() // stdout is the JSON's alone
 			}

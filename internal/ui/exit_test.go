@@ -42,6 +42,11 @@ func helper(mode string) int {
 			u.Say(msg.MsgUnknown("ready"))
 			return blocked(ctx, "stuck command", record)
 		}
+		if mode == "stops its own" { // a background process, which stops its ssh
+			u.StopsItsOwn()
+			u.Say(msg.MsgUnknown("ready"))
+			return blocked(ctx, "blocked command", record)
+		}
 		u.AddCleanup(func(context.Context) {
 			record("cleanup interrupted=" + map[bool]string{true: "yes", false: "no"}[u.Interrupted()])
 			if mode == "slow cleanup" {
@@ -297,6 +302,21 @@ func TestSignalsWithoutCleanupsEndAtOnce(t *testing.T) {
 	}
 	if _, err := os.Stat(record); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the command returned (record: %v), want it still blocked as the run ended", err)
+	}
+}
+
+// A run that stops what it started itself, a forwarder's ssh, does so
+// before the run ends, without cleanups.
+func TestSignalsWaitForARunThatStopsItsOwn(t *testing.T) {
+	cmd, record, _ := startHelper(t, "stops its own")
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if code := exitStatus(t, cmd.Wait()); code != InterruptedCode {
+		t.Errorf("exit code %d, want %d", code, InterruptedCode)
+	}
+	if got, want := readFile(t, record), "command returned\n"; got != want {
+		t.Errorf("record %q, want %q", got, want)
 	}
 }
 

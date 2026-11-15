@@ -287,6 +287,44 @@ func TestProcStop(t *testing.T) {
 	}
 }
 
+// Stop's signals reach the process's group, so what it started (a
+// forwarder's ssh master) ends with it, never left running on its own.
+func TestProcStopEndsItsGroup(t *testing.T) {
+	p, start, _ := proc(t)
+	dir := t.TempDir()
+	out, err := os.Create(filepath.Join(dir, "out")) //nolint:gosec // the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = out.Close() }()
+	if _, err := p.Start(start, Cmd{Path: "/bin/sh", Args: []string{"-c", `sleep 30 & echo "child=$!"; wait`}, Out: out}); err != nil {
+		t.Fatal(err)
+	}
+	child, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(output(t, out.Name(), "\n"), "child=")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = Signal(child, syscall.SIGKILL) }()
+	if !p.Stop(2 * time.Second) {
+		t.Fatal("not stopped")
+	}
+	for range 100 {
+		if !Alive(child) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if Alive(child) {
+		t.Error("what it started outlived it")
+	}
+	if err := SignalGroup(os.Getpid(), 0); err != nil {
+		t.Errorf("signal 0 to this test: %v", err)
+	}
+	if err := SignalGroup(0, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Errorf("SignalGroup(0) = %v", err)
+	}
+}
+
 // A process that's ending still has its files, a listening socket among
 // them, after its arguments can no longer be read (macOS's kern.procargs2
 // fails first): Stop waits until it's gone, so its port is free when Stop

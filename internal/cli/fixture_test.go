@@ -43,7 +43,8 @@ type fixtureVM struct {
 		} `json:"made"`
 	} `json:"git"`
 	Ports struct {
-		Host map[string]int `json:"host"`
+		Forward string         `json:"forward"`
+		Host    map[string]int `json:"host"`
 	} `json:"ports"`
 }
 
@@ -51,7 +52,8 @@ type fixtureVM struct {
 // into the sandbox, as that devvm would have left it here: its sandbox's
 // folder becomes this one, and each VM's name's hash, its folder's and
 // .git's identities and its backend's place become what they are here,
-// and its host ports ones free here. Nothing else changes. The VMs' folders must exist first. What that
+// and its host ports, and the ports it forwards, ones free here
+// (FIXTURE_PORT_<port> names each). Nothing else changes. The VMs' folders must exist first. What that
 // devvm's --json printed goes in $WORK/fixture/json, changed the same way.
 func fixture(ts *testscript.TestScript, neg bool, args []string) {
 	if neg || len(args) != 1 {
@@ -138,20 +140,57 @@ func fixtureReplacer(ts *testscript.TestScript, src, root string) fixtureRewrite
 		for _, p := range vm.Ports.Host {
 			ports = append(ports, strconv.Itoa(p))
 		}
+		ports = append(ports, forwarded(ts, s, vm.Ports.Forward)...)
 	}
-	return fixtureRewrite{where: strings.NewReplacer(pairs...), ports: portsFreeHere(ts, ports), number: regexp.MustCompile(`\b[0-9]+\b`)}
+	var set struct {
+		Ports string `json:"ports"`
+	}
+	settings := filepath.Join(src, "data", "devvm", "settings.json")
+	ts.Check(json.Unmarshal([]byte(ts.ReadFile(settings)), &set))
+	ports = append(ports, forwarded(ts, settings, set.Ports)...)
+	m := portsFreeHere(ts, ports)
+	for _, p := range ports {
+		// A script names a forwarded port by what it is here.
+		ts.Setenv("FIXTURE_PORT_"+p, m[p])
+	}
+	return fixtureRewrite{where: strings.NewReplacer(pairs...), ports: m, number: regexp.MustCompile(`\b[0-9]+\b`)}
 }
 
-// portsFreeHere maps each of the host ports a fixture's VMs had (ports.host)
-// to a different one nothing listens on here (freePorts): the release made
-// its fixture with ports free on its machine, which a program here may
-// have, or another run of these tests, so a launch would find them taken
-// and choose others, editing the VM's config.
+// forwarded is the ports of list, a forwarded ports' list in the file
+// file ("3000,5173"), each on its own: a fixture's lists have no ranges.
+func forwarded(ts *testscript.TestScript, file, list string) []string {
+	if list == "" || list == "none" {
+		return nil
+	}
+	var out []string
+	for p := range strings.SplitSeq(list, ",") {
+		if _, err := strconv.Atoi(p); err != nil {
+			ts.Fatalf("%s: forwarded port %q isn't one port", file, p)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// portsFreeHere maps each of the host ports a fixture had to a different
+// one nothing listens on here, of the sandbox's own (freePorts): the VMs'
+// own (ports.host) and the ports they and its defaults forward. The
+// release made its fixture with ports free on its machine, which a
+// program here may have (a web server on 3000), or another run of these
+// tests, so a launch would find them taken and choose others, editing the
+// VM's config, or warn that it can't forward them.
 func portsFreeHere(ts *testscript.TestScript, had []string) map[string]string {
-	free := freePorts(ts, len(had))
 	m := make(map[string]string, len(had))
-	for i, p := range had {
-		m[p] = strconv.Itoa(free[i])
+	for _, p := range had {
+		m[p] = ""
+	}
+	free := freePorts(ts, len(m))
+	i := 0
+	for _, p := range had {
+		if m[p] == "" {
+			m[p] = strconv.Itoa(free[i])
+			i++
+		}
 	}
 	return m
 }

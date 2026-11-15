@@ -52,7 +52,8 @@ type Proxy struct {
 	// Listening reports whether a program has a host loopback port.
 	Listening func(ctx context.Context, port int) bool
 	// PortRange is the range new ports come from (platform.ChoosablePorts,
-	// which the zero value means too), which its allocator (Ports) has.
+	// which the zero value means too, or a test build's own,
+	// DEVVM_PORT_RANGE), which its allocator (Ports) has.
 	PortRange platform.PortRange
 	// SSHList is the ports VMs' ssh comes from in place of
 	// ports.SSHPorts, which its allocator (Ports) has: nil but in a test
@@ -61,7 +62,8 @@ type Proxy struct {
 	// Tick is how often a start looks for the proxy to listen, ten times;
 	// a stop waits four Ticks for each signal to end it.
 	Tick time.Duration
-	// Signal sends a process a signal (Stop's: daemon.Signal).
+	// Signal sends a background process a signal, and its group with it
+	// (Stop's: daemon.SignalGroup).
 	Signal func(pid int, sig syscall.Signal) error
 	// Getenv reads devvm's environment: the host's proxy settings, which a
 	// VM's proxy goes through over config.toml's (settings.HostProxy).
@@ -78,7 +80,7 @@ func NewProxy(d paths.Dirs, assets fs.FS, self string, store *secrets.Store, r m
 		Dirs: d, Assets: assets, Self: self, OS: runtime.GOOS, Secrets: store,
 		Start: daemon.Detach, Args: platform.ProcessArgs, ExcludeFromBackup: platform.ExcludeFromBackup,
 		InitCA:    trust.InitCA,
-		Listening: ports.Listening, PortRange: platform.ChoosablePorts(), Tick: 500 * time.Millisecond, Signal: daemon.Signal, Getenv: os.Getenv,
+		Listening: ports.Listening, PortRange: platform.ChoosablePorts(), Tick: 500 * time.Millisecond, Signal: daemon.SignalGroup, Getenv: os.Getenv,
 		Reporter: r,
 	}
 }

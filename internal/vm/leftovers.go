@@ -48,7 +48,8 @@ type LeftoverReport struct {
 	// whose state changed in the last hour: never orphans.
 	Elsewhere, Recent []vmname.VM
 	// Links are clients' links to VMs that have no state, and Sockets the
-	// link sessions' sockets nothing listens on (LeftoverSockets).
+	// link sessions', port forwarders' and proxies' agent relays' sockets
+	// nothing listens on (LeftoverSockets).
 	Links   []DeadLink
 	Sockets []string
 }

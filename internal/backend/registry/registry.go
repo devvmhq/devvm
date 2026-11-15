@@ -40,6 +40,23 @@ type Overrides struct {
 	// SSHPorts (DEVVM_SSH_PORTS) is the ports VMs' ssh comes from, in
 	// place of ports.SSHPorts (ports.Allocator's SSHList), comma-separated.
 	SSHPorts string
+	// PortRange (DEVVM_PORT_RANGE) is the range new host ports come from,
+	// LO-HI, in place of platform.ChoosablePorts (ports.Allocator's
+	// Range): each CLI test's sandbox's own, as sandboxes that run at once
+	// would otherwise choose the same ones.
+	PortRange string
+}
+
+// Range is o's PortRange: the zero range, which leaves
+// platform.ChoosablePorts, for none or one that isn't LO-HI of ports.
+func (o Overrides) Range() platform.PortRange {
+	lo, hi, ok := strings.Cut(o.PortRange, "-")
+	l, err1 := strconv.Atoi(lo)
+	h, err2 := strconv.Atoi(hi)
+	if !ok || err1 != nil || err2 != nil || !backend.ValidPort(l) || !backend.ValidPort(h) || l > h {
+		return platform.PortRange{}
+	}
+	return platform.PortRange{Lo: l, Hi: h}
 }
 
 // SSHList is o's SSHPorts as numbers, each entry that isn't a port
@@ -66,7 +83,7 @@ func New(d paths.Dirs, assets fs.FS, r msg.Reporter, o Overrides, cp *settings.C
 		l.KVM = o.KVM
 	}
 	l.UbuntuRelease = o.UbuntuRelease
-	l.Ports.SSHList = o.SSHList()
+	l.Ports.SSHList, l.Ports.Range = o.SSHList(), o.Range()
 	switch o.Pins {
 	case "":
 	case "on":

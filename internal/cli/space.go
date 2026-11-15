@@ -431,7 +431,8 @@ func (e spaceEnv) nixCacheRow() (spaceRow, error) {
 
 // leftovers is what devvm gc --orphans would forget (vm.Leftovers.FindIn):
 // the whole folder of each orphan, its state, run and backend files, and
-// the link sessions' sockets that nothing listens on, one each. Its
+// the link sessions', port forwarders' and proxies' agent relays'
+// sockets that nothing listens on, one each. Its
 // retention frees the orphans orphans.age reaches, as retention would.
 func (e spaceEnv) leftovers() spaceRow {
 	row := spaceRow{What: "leftover state", Sized: true, Kept: keptLeftover, Rest: "gc --orphans", Retain: e.retainOf(settings.RetainOrphansAge)}

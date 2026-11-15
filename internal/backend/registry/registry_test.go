@@ -33,7 +33,7 @@ func TestOverrides(t *testing.T) {
 		Host:       platform.Overrides{CPUs: "1234", MemoryGiB: "4321", FreeGiB: "0"},
 		Unreviewed: "lima:egress-proxy",
 		KVM:        "/x/kvm", UbuntuURL: "file:///x/ubuntu/",
-		SSHPorts: "20001, 20002,x,0,70000",
+		SSHPorts: "20001, 20002,x,0,70000", PortRange: "10000-10199",
 	}
 	for _, c := range []struct {
 		o    Overrides
@@ -56,7 +56,8 @@ func TestOverrides(t *testing.T) {
 			"the registry's free":   free == 0,
 			"lima's CPUs":           l.CPUs() == 1234,
 			// Entries that aren't ports skipped.
-			"lima's ssh ports": slices.Equal(l.Ports.SSHList, []int{20001, 20002}),
+			"lima's ssh ports":  slices.Equal(l.Ports.SSHList, []int{20001, 20002}),
+			"lima's port range": l.Ports.Range == platform.PortRange{Lo: 10000, Hi: 10199},
 		} {
 			if got != c.want {
 				t.Errorf("overrides %v: %s overridden = %v", c.want, what, got)
@@ -64,6 +65,12 @@ func TestOverrides(t *testing.T) {
 		}
 		if !c.want && (l.KVM != "/dev/kvm" || l.UbuntuURL != ubuntu.DefaultURL) {
 			t.Errorf("none: KVM %q, Ubuntu %q", l.KVM, l.UbuntuURL)
+		}
+	}
+	// A range that isn't LO-HI of ports is none.
+	for _, bad := range []string{"", "10000", "x-10", "10-x", "0-10", "10-70000", "20-10"} {
+		if r := (Overrides{PortRange: bad}).Range(); r != (platform.PortRange{}) {
+			t.Errorf("range %q: %v", bad, r)
 		}
 	}
 	// The probe of the host's pins: on, or the error it stands in for.

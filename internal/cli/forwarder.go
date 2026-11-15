@@ -15,7 +15,8 @@ import (
 // gets ports.sh and devvm's folders, where it reads the ports it never
 // forwards (ports.Reserved); its log lines are data, written to devvm's
 // stderr. Hidden: it's not for users. Its flags are the forwarder's own,
-// parsed by vmssh.Main.
+// parsed by vmssh.Main. A signal waits for it to stop its ssh master and
+// relays (ui.UI.StopsItsOwn).
 func newForwarderCmd(a *app) *cobra.Command {
 	u := a.u
 	return &cobra.Command{
@@ -24,6 +25,7 @@ func newForwarderCmd(a *app) *cobra.Command {
 		Hidden:             true,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			u.StopsItsOwn()
 			fail := func(err error) error { return msg.ForwarderFailed(err.Error()).Because(err) }
 			d, err := a.dirs()
 			if err != nil {

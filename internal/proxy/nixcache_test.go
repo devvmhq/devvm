@@ -360,6 +360,16 @@ func TestNixCacheFetches(t *testing.T) {
 	if code, _ := nixReq(t, s, "HEAD", nar); code != 200 {
 		t.Errorf("HEAD of a NAR in the cache: %d", code)
 	}
+	// A fetch that ended between this request's look at the cache and its own turn to fetch
+	// leaves the NAR there, which it serves without fetching it again.
+	must(t, os.Remove(filepath.Join(dir, fixNar)))
+	s.nix.floor = func(context.Context) error {
+		return os.WriteFile(filepath.Join(dir, fixNar), fixture(t, fixNar), 0o600)
+	}
+	if code, body := nixReq(t, s, "GET", nar); code != 200 || len(body) != 958 || len(f.requests()) != 2 {
+		t.Errorf("a NAR another fetch just kept: %d, %d bytes, upstream got %q", code, len(body), f.requests())
+	}
+	s.nix.floor = func(context.Context) error { return nil }
 	// A copy of another size is dropped and fetched again.
 	must(t, os.WriteFile(filepath.Join(dir, fixNar), []byte("short"), 0o600))
 	if code, body := nixReq(t, s, "GET", nar); code != 200 || len(body) != 958 || len(f.requests()) != 3 {

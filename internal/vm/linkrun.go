@@ -300,13 +300,14 @@ func (e linkRuns) apply(ctx context.Context, b backend.Backend, st *state.VM, ad
 	return true, nil
 }
 
-// LeftoverSockets returns the link sessions' sockets, and the SSH agent
-// relays' of VMs' proxies, in the run folder that nothing listens on any
-// more, which a session or a proxy that was killed leaves behind: devvm gc
-// --orphans deletes them, and devvm space counts them.
+// LeftoverSockets returns the link sessions' sockets, the SSH agent
+// relays' of VMs' proxies and the port forwarders' control sockets
+// (vmssh.ControlGlob) in the run folder that nothing listens on any more,
+// which a session, a proxy or a forwarder that was killed leaves behind:
+// devvm gc --orphans deletes them, and devvm space counts them.
 func LeftoverSockets(ctx context.Context, d paths.Dirs) ([]string, error) {
 	var out []string
-	for _, pattern := range []string{"link-*.sock", "link-*.ctl", "agent-*.sock"} {
+	for _, pattern := range []string{"link-*.sock", "link-*.ctl", "agent-*.sock", vmssh.ControlGlob} {
 		m, err := filepath.Glob(filepath.Join(d.Run(), pattern))
 		if err != nil {
 			return nil, err

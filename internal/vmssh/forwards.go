@@ -89,6 +89,11 @@ func (f Forwards) Control(vm vmname.VM) string {
 	return filepath.Join(cmp.Or(f.Run, f.Dirs.Run()), "port-"+hex.EncodeToString(sum[:])[:16]+".ctl")
 }
 
+// ControlGlob matches every forwarder's control socket (Control) in the
+// run folder: one a forwarder that was killed left, which nothing
+// listens on, devvm gc --orphans deletes.
+const ControlGlob = "port-*.ctl"
+
 // logMax is the most a forwarder's log keeps from earlier starts: past
 // it, a start empties it.
 const logMax = 1 << 20

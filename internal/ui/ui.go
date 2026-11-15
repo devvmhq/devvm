@@ -66,6 +66,9 @@ type UI struct {
 	interruptGrace time.Duration
 
 	interrupted atomic.Bool
+	// stopsItsOwn is set by StopsItsOwn: a signal waits for the run to
+	// return, as cleanups do.
+	stopsItsOwn atomic.Bool
 	// logoShown is set once Logo printed the logo.
 	logoShown atomic.Bool
 	// dataOnly sends what Say, Info and LogNote print to stderr, so

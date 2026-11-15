@@ -1303,7 +1303,7 @@ func DeletedImage(image string, key string) M {
 	return M{id: "deleted_image", vals: []val{{"image", image}, {"key", key}}}
 }
 
-// DeletedLinkSockets is [deleted_link_sockets]: "deleted {{.count}} sockets of link sessions"
+// DeletedLinkSockets is [deleted_link_sockets]: "deleted {{.count}} sockets of link sessions, port forwarders or proxies"
 func DeletedLinkSockets(count int) M {
 	return M{id: "deleted_link_sockets", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}}}
 }
@@ -1778,7 +1778,7 @@ func GCImages() M {
 	return M{id: "gc_images"}
 }
 
-// GCLinkSockets is [gc_link_sockets]: "{{.count}} sockets are left from link sessions that ended."
+// GCLinkSockets is [gc_link_sockets]: "{{.count}} sockets are left from link sessions, port forwarders or proxies that ended."
 func GCLinkSockets(count int) M {
 	return M{id: "gc_link_sockets", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}}}
 }
