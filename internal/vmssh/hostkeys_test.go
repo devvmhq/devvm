@@ -2,6 +2,8 @@ package vmssh
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"
@@ -240,4 +242,71 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+// typeChars reports whether typ has only the characters a key type ssh has may have, written out
+// apart from keyType: a letter or digit first, then letters, digits and @ . _ + -, at most 64.
+func typeChars(typ string) bool {
+	if typ == "" || len(typ) > 64 {
+		return false
+	}
+	for i, c := range typ {
+		alnum := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+		if !alnum && (i == 0 || !strings.ContainsRune("@._+-", c)) {
+			return false
+		}
+	}
+	return true
+}
+
+// FuzzParseHostKeys: whatever a VM shows for its host keys, each key taken is a type ssh could
+// have, no certificate, marker or pattern, with a key in strict base64 of at most keyMax that names
+// its own type; as the record's line under the VM's name, it is three fields, which read back as
+// that key; and the keys are the VM's lines' own, in order, at most one a line.
+func FuzzParseHostKeys(f *testing.F) {
+	// blobOf is a key in ssh's wire format that names typ, and its base64.
+	blobOf := func(typ string) string {
+		b := binary.BigEndian.AppendUint32(nil, uint32(len(typ))) //nolint:gosec // G115: a seed's short type
+		b = append(append(b, typ...), 0, 0, 0, 3, 'k', 'e', 'y')
+		return base64.StdEncoding.EncodeToString(b)
+	}
+	for _, s := range []string{
+		"ssh-ed25519 " + keyED + " root@vm\necdsa-sha2-nistp256 " + keyEC + "\r\n",
+		"sk-ssh-ed25519@openssh.com " + keySK + " a comment",
+		"@cert-authority ssh-ed25519 " + keyED + "\n*-evil " + keyED + "\nssh-rsa " + keyED,
+		"ssh-ed25519-cert-v01@openssh.com " + keyED + "\nssh-ed25519\"x " + keyED,
+		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5\nssh-ed25519 AAAA\n\x00ssh-ed25519 " + keyED,
+		// Blobs that name their own type, which isn't one a known hosts line may have.
+		"ssh-ed25519-cert-v01@openssh.com " + blobOf("ssh-ed25519-cert-v01@openssh.com"),
+		`x"y ` + blobOf(`x"y`),
+		"@cert-authority " + blobOf("@cert-authority"),
+	} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, out []byte) {
+		keys := ParseHostKeys(out)
+		lines := strings.Split(string(out), "\n")
+		at := 0
+		for _, k := range keys {
+			blob, err := base64.StdEncoding.Strict().DecodeString(k.Key)
+			switch {
+			case !typeChars(k.Type) || strings.Contains(k.Type, "-cert-"):
+				t.Fatalf("took the key type %q", k.Type)
+			case err != nil || len(blob) > keyMax || len(blob) < 4+len(k.Type) || string(blob[4:4+len(k.Type)]) != k.Type ||
+				int(binary.BigEndian.Uint32(blob)) != len(k.Type):
+				t.Fatalf("took the key %q of type %q", k.Key, k.Type)
+			}
+			rec := "devvm-app-0123456789abcd " + k.Type + " " + k.Key
+			if fields := strings.Fields(rec); len(fields) != 3 || !slices.Equal(ParseHostKeys([]byte(k.Type+" "+k.Key)), []HostKey{k}) {
+				t.Fatalf("the record's line %q doesn't read back", rec)
+			}
+			for at < len(lines) && !slices.Equal(strings.Fields(lines[at])[:min(2, len(strings.Fields(lines[at])))], []string{k.Type, k.Key}) {
+				at++
+			}
+			if at == len(lines) {
+				t.Fatalf("took %q, which isn't a line of its own, in order", k)
+			}
+			at++
+		}
+	})
 }

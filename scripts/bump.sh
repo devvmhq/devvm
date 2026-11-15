@@ -760,17 +760,19 @@ bump_ci-mise() {
 }
 
 # Every workflow's uses:, pinned by a release's tag's commit with the tag as a comment: moved to the
-# newest release's (within its major, the next major only reported), the commit from gh api.
+# newest release's (within its major, the next major only reported), the commit from gh api. An
+# action in a folder of its repo (actions/cache/restore) moves with its repo's releases.
 bump_actions() {
   need gh
-  local repo sha tag newest within f new
+  local repo sha tag newest within f new gh_repo
   while read -r repo sha tag; do
-    gh api "repos/$repo/releases?per_page=100" --jq '.[] | select((.draft or .prerelease) | not) | .tag_name' > "$tmp/tags"
+    gh_repo=$(cut -d/ -f1-2 <<<"$repo")
+    gh api "repos/$gh_repo/releases?per_page=100" --jq '.[] | select((.draft or .prerelease) | not) | .tag_name' > "$tmp/tags"
     newest=$(newest_of < "$tmp/tags")
     within=$(newest_of "$(sed 's/^v//; s/\..*//' <<<"$tag")" < "$tmp/tags")
     choose "$repo" "$tag" "${newest:-$tag}" "$within" || continue
     valid action_version "$target"
-    new=$(gh api "repos/$repo/commits/$target" --jq .sha)
+    new=$(gh api "repos/$gh_repo/commits/$target" --jq .sha)
     valid action_commit "$new"
     for f in "$root"/.github/workflows/*.yml; do
       set_text "${f#"$root"/}" text "uses: $repo@$sha # $tag" "uses: $repo@$new # $target"

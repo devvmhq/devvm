@@ -1,6 +1,9 @@
 package upgrade_test
 
 import (
+	"bytes"
+	"crypto/ed25519"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -85,4 +88,48 @@ func TestParsePublicKey(t *testing.T) {
 			t.Errorf("ParsePublicKey(%q) succeeded", s)
 		}
 	}
+}
+
+// FuzzParsePublicKey: a public key is read only from one base64 line, alone or after an
+// untrusted comment, that is "Ed", a key ID and an Ed25519 key, and is read as exactly those.
+func FuzzParsePublicKey(f *testing.F) {
+	for _, s := range []string{
+		fixturePub, strings.Split(fixturePub, "\n")[1], upgradetest.NewKey().Public(), "untrusted comment: x\nnope\n", "a\nb\nc",
+		"RUQl2wfR8/HGRBjOIm1RjKIjqVhIHEUrlNvdrBt9LF4WGpsLpyP5rtoa", "  RWQl2wfR8/HGRBjOIm1RjKIjqVhIHEUrlNvdrBt9LF4WGpsLpyP5rtoa\r\n",
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		k, err := upgrade.ParsePublicKey(s)
+		if err != nil {
+			return
+		}
+		lines := strings.Split(strings.TrimSpace(s), "\n")
+		if len(lines) > 2 || len(lines) == 2 && !strings.HasPrefix(lines[0], "untrusted comment: ") {
+			t.Fatalf("read a key from %d lines: %q", len(lines), s)
+		}
+		raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(lines[len(lines)-1]))
+		want := append(append([]byte("Ed"), k.ID[:]...), k.Key...)
+		if err != nil || len(k.Key) != ed25519.PublicKeySize || !bytes.Equal(raw, want) {
+			t.Fatalf("%q read as %x, %x", s, k.ID, k.Key)
+		}
+	})
+}
+
+// FuzzVerify: whatever the data and the signature file, a signature verifies only for what the
+// key's holder signed, the fixture's data with its trusted comment, which Verify returns as signed.
+func FuzzVerify(f *testing.F) {
+	k, err := upgrade.ParsePublicKey(fixturePub)
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, sig := range []string{fixtureSig, fixtureLegacy, strings.ReplaceAll(fixtureSig, "\n", "\r\n"), fixtureSig + "\n\n", "nope\n"} {
+		f.Add([]byte(fixtureData), []byte(sig))
+	}
+	f.Fuzz(func(t *testing.T, data, sig []byte) {
+		trusted, err := k.Verify(data, sig)
+		if err == nil && (string(data) != fixtureData || trusted != "devvm 0.2.0") {
+			t.Fatalf("verified %q with the trusted comment %q", data, trusted)
+		}
+	})
 }

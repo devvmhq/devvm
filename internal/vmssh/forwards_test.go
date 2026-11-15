@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -401,4 +402,34 @@ func TestSplitPorts(t *testing.T) {
 	if want := []backend.PortRange{r(5173, 5173), r(5175, 5175), r(8080, 8081)}; !slices.Equal(taken, want) {
 		t.Errorf("taken %v, want %v", taken, want)
 	}
+}
+
+// FuzzParsePorts: a forwarder's record, which another VM's forwarder reads, gives only ports that
+// are ones, each an entry of its line as it's written, in order; and the ports record writes read
+// back as themselves.
+func FuzzParsePorts(f *testing.F) {
+	for _, s := range []string{"5173,8080", "", ",", "0,65535,65536,-1", "+80, 81,0x50,8080 ", "99999999999999999999"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		got := parsePorts(s)
+		es := strings.Split(s, ",")
+		at := 0
+		for _, n := range got {
+			for at < len(es) && es[at] != strconv.Itoa(n) && strings.TrimLeft(es[at], "+0") != strconv.Itoa(n) {
+				at++
+			}
+			if !backend.ValidPort(n) || at == len(es) {
+				t.Fatalf("parsePorts(%q) = %v: %d", s, got, n)
+			}
+			at++
+		}
+		line := make([]string, len(got))
+		for i, n := range got {
+			line[i] = strconv.Itoa(n)
+		}
+		if again := parsePorts(strings.Join(line, ",")); !slices.Equal(again, got) {
+			t.Fatalf("%v read back as %v", got, again)
+		}
+	})
 }

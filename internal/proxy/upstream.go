@@ -316,6 +316,12 @@ func parseNoProxy(s string) []noProxyRule {
 		}
 		if h, p, err := net.SplitHostPort(e); err == nil {
 			if n, err := strconv.Atoi(p); err == nil {
+				// A port no request has, or one written otherwise than in plain decimal (080, +80),
+				// which Go's clients match against no request's: the entry names nothing, rather
+				// than every port (0) or another spelling's.
+				if n < 1 || n > 65535 || strconv.Itoa(n) != p {
+					continue
+				}
 				e, r.port = h, n
 			}
 		}

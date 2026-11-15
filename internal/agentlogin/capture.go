@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/url"
 	"os"
@@ -188,7 +189,7 @@ func (t tokenRequest) withSubject(id redact.Secret) []byte {
 var errRepeated = errors.New("the token request repeats a field")
 
 // parseTokenRequest reads a token request's body of Content-Type ctype: a form (or no type) or a
-// JSON object, each field once.
+// JSON object alone, each field once.
 func parseTokenRequest(ctype string, body []byte) (tokenRequest, error) {
 	mt, _, _ := mime.ParseMediaType(ctype)
 	switch mt {
@@ -209,6 +210,11 @@ func parseTokenRequest(ctype string, body []byte) (tokenRequest, error) {
 		d.UseNumber()
 		if d.Decode(&m) != nil || m == nil {
 			return tokenRequest{}, errors.New("the token request isn't a JSON object")
+		}
+		// One object alone: the endpoint would read another after it, or refuse the request, and
+		// devvm would have judged the first.
+		if _, err := d.Token(); !errors.Is(err, io.EOF) {
+			return tokenRequest{}, errors.New("the token request has more after its JSON object")
 		}
 		if n, err := topKeys(body); err != nil || n != len(m) {
 			return tokenRequest{}, errRepeated

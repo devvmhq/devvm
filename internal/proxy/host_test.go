@@ -357,11 +357,23 @@ func sniSites(t *testing.T, sni, other string) {
 // noProxySite: NO_PROXY's entries and the hosts they send directly. Divergence: an entry with
 // anything but printable ASCII isn't folded, where strings.ToLower folded it in Unicode, so it
 // matches no host the proxy takes (the Kelvin sign's kubernetes.io no longer matches
-// kubernetes.io). An entry of dots alone is no entry, as "" and "." weren't.
+// kubernetes.io). An entry of dots alone is no entry, as "" and "." weren't. An entry with a port
+// no request has (0, or past 65535), or one not in plain decimal (080, +80), is no entry, where
+// port 0 was read as every port and 080 as 80.
 func noProxySite(t *testing.T, entry, other string) {
 	entry = strings.ReplaceAll(entry, ",", "") // one entry
 	list := entry + ",*." + entry + ",." + entry
-	rs, lrs := parseNoProxy(list), slices.DeleteFunc(legacyParseNoProxy(list), func(r noProxyRule) bool {
+	var kept []string
+	for e := range strings.SplitSeq(list, ",") {
+		e = strings.ToLower(strings.TrimSpace(e))
+		_, perr := netip.ParsePrefix(e)
+		_, p, err := net.SplitHostPort(e)
+		n, nerr := strconv.Atoi(p)
+		if perr == nil || err != nil || nerr != nil || n >= 1 && n <= 65535 && strconv.Itoa(n) == p {
+			kept = append(kept, e)
+		}
+	}
+	rs, lrs := parseNoProxy(list), slices.DeleteFunc(legacyParseNoProxy(strings.Join(kept, ",")), func(r noProxyRule) bool {
 		return !r.all && !r.prefix.IsValid() && strings.Trim(r.name, ".") == ""
 	})
 	var hosts []string

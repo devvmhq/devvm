@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -473,6 +475,43 @@ func FuzzNixPath(f *testing.F) {
 		}
 		if rel, err := filepath.Rel("/cache", filepath.Join("/cache", p)); err != nil || !filepath.IsLocal(rel) || rel != filepath.FromSlash(p) {
 			t.Fatalf("%q leaves the cache's folder", p)
+		}
+	})
+}
+
+// FuzzParseNarinfo: a narinfo the proxy takes, from the cache or anything between, is one
+// cache.nixos.org-1 signed, of the path asked for: what the signature covers (its store path,
+// NarHash, NarSize and references) is the fixture's, the only signed one the fuzzer has, and what it
+// doesn't is held to its forms: a NAR's URL named by its NarHash or FileHash, and sizes from 1 byte
+// to 1 TiB.
+func FuzzParseNarinfo(f *testing.F) {
+	good, err := os.ReadFile(filepath.Join("testdata", "nix", fixHash+".narinfo"))
+	if err != nil {
+		f.Fatal(err)
+	}
+	want, err := parseNarinfo(good, fixHash)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(good, fixHash)
+	f.Add(good, "0p7ahb9j02av0zx4hqmwqdpbdas9i25q")
+	f.Add(append(bytes.Clone(good), "FileSize: 1\n"...), fixHash)
+	f.Add([]byte(strings.Replace(string(good), "URL: nar/0p7", "URL: nar/1jrm0rjd3i5vxv2sjm6zgqqi87ikb3fjqg3myg7wj0x4q5psb550.nar.zst\nX: ", 1)), fixHash)
+	f.Add([]byte(strings.Replace(string(good), "References: ", "References: 00000000000000000000000000000000-evil ", 1)), fixHash)
+	f.Fuzz(func(t *testing.T, data []byte, hash string) {
+		ni, err := parseNarinfo(data, hash)
+		if err != nil {
+			return
+		}
+		refs := slices.Sorted(slices.Values(ni.refs))
+		switch {
+		case hash != fixHash || ni.storePath != want.storePath || ni.narHash != want.narHash || ni.narSize != want.narSize ||
+			!slices.Equal(refs, slices.Sorted(slices.Values(want.refs))):
+			t.Fatalf("took a narinfo no one signed, for %q: %+v", hash, ni)
+		case nixPath(ni.url) != nixNar || ni.url[4:56] != ni.narHash[7:] && ni.url[4:56] != ni.fileHash[7:]:
+			t.Fatalf("took a NAR's URL %q", ni.url)
+		case ni.fileSize < 1 || ni.fileSize > 1<<40 || ni.narSize < 1 || ni.narSize > 1<<40:
+			t.Fatalf("took sizes %d and %d", ni.fileSize, ni.narSize)
 		}
 	})
 }

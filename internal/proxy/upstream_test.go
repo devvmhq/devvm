@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -15,6 +16,9 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -281,6 +285,13 @@ func TestNoProxy(t *testing.T) {
 	ups.noProxy = parseNoProxy("*")
 	if ups.route("github.com", 443, false) != nil {
 		t.Error("NO_PROXY=* sent a host upstream")
+	}
+	// A port no request has, or one not in plain decimal, names nothing, as in Go's clients: port 0
+	// was read as every port (found by FuzzNoProxy).
+	for _, e := range []string{"git.test:0", "git.test:65536", "[::1]:0", "git.test:080", "git.test:+80"} {
+		if got := parseNoProxy(e); len(got) != 0 {
+			t.Errorf("NO_PROXY=%s: %+v", e, got)
+		}
 	}
 	// Without HTTP_PROXY, plain HTTP goes direct; tunnels still go upstream.
 	ups.noProxy, ups.http = nil, nil
@@ -726,5 +737,120 @@ func TestUpstreamRouteAuthorizes(t *testing.T) {
 	_ = resp.Body.Close()
 	if want := "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:"+upPassword)); auth != want || line != "GET http://example.test/x" {
 		t.Errorf("the company proxy got %q, %q", line, auth)
+	}
+}
+
+// FuzzParseUpstream: a company proxy's URL is taken only as http://, with a host and no
+// whitespace in it, a port that is one or none, and no path but / or query, and the upstream made
+// of it is that host and port, 80 without one, with Basic credentials exactly when it names a user;
+// its errors are the form's or the scheme's alone, never any more of the URL.
+func FuzzParseUpstream(f *testing.F) {
+	for _, s := range []string{
+		"http://user:pw@proxy.corp:8080", "proxy.corp:3128", "proxy.corp", "HTTP://10.0.0.1:8080/",
+		"https://user:pw@proxy.corp:443", "socks5h://proxy.corp:1080", "http://proxy.corp:99999",
+		"http://proxy.corp:8080/path", "", "alice:pw@proxy.corp:8080", "http://[::1]:3128", "http://u%40corp:p%3Aw@proxy.corp:8080",
+		"http://proxy.corp:8080?x", "http://pr oxy:1", "user:p/w@proxy:1", "http://:0", "http://proxy.corp:+80",
+	} {
+		f.Add(s)
+	}
+	// Every error ParseUpstream gives: the URL's form, or the scheme alone.
+	upstreamErr := regexp.MustCompile(`^(not a proxy URL|only http:// proxies can be an upstream: [a-z0-9+.-]*://)$`)
+	f.Fuzz(func(t *testing.T, raw string) {
+		u, err := ParseUpstream(raw)
+		if err != nil {
+			if u != nil || !upstreamErr.MatchString(err.Error()) {
+				t.Fatalf("%q: %v, %v", raw, u, err)
+			}
+			return
+		}
+		port := u.Port()
+		n, perr := strconv.Atoi(cmp.Or(port, "80"))
+		switch {
+		case strings.ToLower(u.Scheme) != "http":
+			t.Fatalf("%q: took scheme %q", raw, u.Scheme)
+		case u.Hostname() == "" || strings.ContainsAny(u.Host, " \t\r\n"):
+			t.Fatalf("%q: took host %q", raw, u.Host)
+		case perr != nil || n < 1 || n > 65535:
+			t.Fatalf("%q: took port %q", raw, port)
+		case u.Path != "" && u.Path != "/" || u.RawQuery != "":
+			t.Fatalf("%q: took path %q and query %q", raw, u.Path, u.RawQuery)
+		}
+		up, err := newUpstream(raw, redact.NewSecret("looked-up"))
+		if err != nil || up == nil || up.addr != net.JoinHostPort(u.Hostname(), cmp.Or(port, "80")) || up.auth.Empty() != (u.User == nil) {
+			t.Fatalf("%q: an upstream of %+v, %v", raw, up, err)
+		}
+	})
+}
+
+// FuzzNoProxy: each NO_PROXY entry sends direct only what it names: * every host; an address or
+// CIDR, addresses alone; a name, itself and the names under it, or only those after a leading .
+// or *.; and with a port, that port alone. A list sends direct what any of its entries does.
+func FuzzNoProxy(f *testing.F) {
+	for _, h := range hostSeeds() {
+		f.Add(" Corp.Example , .internal.test,*.wild.test, 10.0.0.0/8, 192.0.2.7, git.test:22, [2001:db8::1]", h, 443)
+	}
+	for _, s := range [][2]string{
+		{"corp.example", "api.corp.example"},
+		{".internal.test", "internal.test"},
+		{"git.test:22", "git.test"},
+		{"[::1]:8080", "::1"},
+		{"*", "evil.test"},
+		{"..", "a."},
+		{"*.", "x"},
+		{"10.0.0.0/8:443", "10.1.1.1"},
+	} {
+		f.Add(s[0], s[1], 22)
+	}
+	f.Fuzz(func(t *testing.T, list, host string, port int) {
+		h := NormHost(host)
+		some := false
+		for _, e := range strings.Split(list, ",") {
+			hit := slices.ContainsFunc(parseNoProxy(e), func(r noProxyRule) bool { return r.matches(h, port) })
+			some = some || hit
+			if hit {
+				checkNoProxyHit(t, strings.TrimSpace(e), h, port)
+			}
+		}
+		whole := slices.ContainsFunc(parseNoProxy(list), func(r noProxyRule) bool { return r.matches(h, port) })
+		if whole != some {
+			t.Fatalf("NO_PROXY %q sends %q:%d direct %v, its entries %v", list, h, port, whole, some)
+		}
+	})
+}
+
+// checkNoProxyHit checks that the NO_PROXY entry e names h on port, read apart from parseNoProxy.
+func checkNoProxyHit(t *testing.T, e string, h Host, port int) {
+	t.Helper()
+	if e == "*" {
+		return
+	}
+	if p, err := netip.ParsePrefix(e); err == nil {
+		if a, ok := h.Addr(); !ok || !p.Masked().Contains(a.Unmap()) {
+			t.Fatalf("CIDR %q sent %q direct", e, h)
+		}
+		return
+	}
+	if hp, p, err := net.SplitHostPort(e); err == nil {
+		if n, err := strconv.Atoi(p); err == nil {
+			if n != port || strconv.Itoa(n) != p {
+				t.Fatalf("%q sent %q:%d direct", e, h, port)
+			}
+			e = hp
+		}
+	}
+	e = strings.Trim(e, "[]")
+	if want, err := netip.ParseAddr(e); err == nil {
+		if a, ok := h.Addr(); !ok || a.Unmap() != want.Unmap() {
+			t.Fatalf("address %q sent %q direct", e, h)
+		}
+		return
+	}
+	if strings.HasPrefix(e, "*.") {
+		e = e[1:]
+	}
+	name := NormHost(e).String()
+	sub, subOnly := strings.CutPrefix(name, ".")
+	if !strings.HasSuffix(h.String(), "."+sub) && (subOnly || h.String() != name) {
+		t.Fatalf("%q sent %q direct", e, h)
 	}
 }

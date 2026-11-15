@@ -1,6 +1,7 @@
 package redact
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,6 +57,86 @@ func TestSplit(t *testing.T) {
 			t.Errorf("Split(%q, %d) = %d, want %d", tc.in, tc.tail, got, tc.want)
 		}
 	}
+}
+
+// splitWriter is how a writer uses Split, as devvm's run log does: what comes is held; each line
+// that ends is written whole, redacted; and at each of the writer's flush points it writes the
+// line still to come as far as Split lets it, redacted, holding the rest. At the end it writes
+// what it holds.
+func splitWriter(line string, sizes []byte, tail int) string {
+	var out strings.Builder
+	var buf []byte
+	for len(line) > 0 {
+		n := 1
+		if len(sizes) > 0 {
+			n, sizes = int(sizes[0])+1, sizes[1:]
+		}
+		n = min(n, len(line))
+		buf, line = append(buf, line[:n]...), line[n:]
+		if i := bytes.LastIndexAny(buf, "\n\r"); i >= 0 {
+			out.WriteString(String(string(buf[:i+1])))
+			buf = buf[i+1:]
+		}
+		i := Split(buf, tail)
+		out.WriteString(String(string(buf[:i])))
+		buf = buf[i:]
+	}
+	out.WriteString(String(string(buf)))
+	return out.String()
+}
+
+// FuzzSplit: a password that String finds in a line whole, in a URL of up to tail bytes, isn't
+// written by a writer that writes the line in parts, however it comes and wherever Split lets it
+// cut, with a flush after every part.
+func FuzzSplit(f *testing.F) {
+	const pw = "Pw0rdZ9qXk" //nolint:gosec // a fake password
+	for _, s := range [][3]string{
+		{"HTTPS_PROXY=", "alice:", "@proxy.corp:8080 next"},
+		{"get ", "http://alice:", "@proxy:3128/x"},
+		{`"`, "https://u:", `@h:1"`},
+		{"x ", "devvm:", "@127.0.0.1:3128"},
+		{"\n", "bob:", "@[::1]:80\r"},
+		{"x ", "http://alice:", "@proxy:3128/" + strings.Repeat("a", 300)},
+		{"=", "alice:", "@proxy.corp:8080" + strings.Repeat("b", 300)},
+	} {
+		f.Add(s[0], s[1], s[2], []byte{3, 7, 20}, uint16(64))
+		f.Add(s[0], s[1], s[2], []byte{0}, uint16(8))
+	}
+	f.Fuzz(func(t *testing.T, before, url, after string, sizes []byte, tailN uint16) {
+		line := before + url + pw + after
+		tail := int(tailN)%256 + 1
+		// Split itself: in every start of the line, it cuts outside every secret already whole there.
+		for n := range min(len(line), 2048) + 1 { // each start: quadratic, so the first 2 KiB
+			b := []byte(line[:n])
+			i := Split(b, tail)
+			if i < 0 || i > n {
+				t.Fatalf("Split(%q, %d) = %d", b, tail, i)
+			}
+			for _, re := range secrets() {
+				for _, m := range re.FindAllIndex(b, -1) {
+					if m[0] < i && i < m[1] {
+						t.Fatalf("Split(%q, %d) = %d, inside %q", b, tail, i, b[m[0]:m[1]])
+					}
+				}
+			}
+		}
+		if strings.Count(line, pw) != 1 || strings.Contains(String(line), pw) {
+			return // the password twice, or one String doesn't find whole
+		}
+		at := strings.Index(line, pw)
+		within := false
+		for _, re := range secrets() {
+			for _, m := range re.FindAllStringSubmatchIndex(line, -1) {
+				within = within || m[len(m)-2] <= at && at+len(pw) <= m[len(m)-1] && m[1]-m[0] <= tail
+			}
+		}
+		if !within {
+			return // in a URL longer than tail: Split cuts it, as it says
+		}
+		if out := splitWriter(line, sizes, tail); strings.Contains(out, pw) {
+			t.Fatalf("written in parts of %v with tail %d, the password survives: %q", sizes, tail, out)
+		}
+	})
 }
 
 // File overwrites each secret with as many stars in place, so the file keeps its length, and a

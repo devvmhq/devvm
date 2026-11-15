@@ -182,6 +182,8 @@ func TestCaptureRefuses(t *testing.T) {
 		{"no access token", ClaudeOAuth, jsonType, []byte(`{"grant_type":"authorization_code"}`), reply(map[string]any{"refresh_token": "r"})},
 		{"a field twice in a form", Codex, formType, append(form("grant_type", grantCode), "&grant_type=refresh_token"...), reply(map[string]any{"access_token": "a"})},
 		{"a field twice in JSON", ClaudeOAuth, jsonType, []byte(`{"grant_type":"authorization_code","grant_type":"refresh_token"}`), reply(map[string]any{"access_token": "a", "refresh_token": "r"})},
+		// Found by FuzzParseTokenRequest: devvm judged the first object, which the endpoint may not read.
+		{"more after the JSON object", ClaudeOAuth, jsonType, []byte(`{"grant_type":"authorization_code"}{"grant_type":"refresh_token"}`), reply(map[string]any{"access_token": "sk-ant-oat01-a", "refresh_token": "r", "scope": "user:inference"})},
 		{"a Console login", ClaudeOAuth, jsonType, []byte(`{"grant_type":"authorization_code"}`), reply(map[string]any{"access_token": "a", "refresh_token": "r", "scope": "org:create_api_key user:profile"})},
 		{"a login that makes API keys", ClaudeOAuth, jsonType, []byte(`{"grant_type":"authorization_code"}`), reply(map[string]any{"access_token": "sk-ant-oat01-a", "refresh_token": "r", "scope": "user:inference org:create_api_key"})},
 		{"a refresh to a login that makes API keys", ClaudeOAuth, jsonType, []byte(`{"grant_type":"refresh_token","refresh_token":"r"}`), reply(map[string]any{"access_token": "sk-ant-oat01-a", "scope": "user:inference org:create_api_key"})},
@@ -352,4 +354,140 @@ func TestPick(t *testing.T) {
 	if got := Pick(nil, ""); got != "" {
 		t.Errorf("Pick(nil) = %s", got)
 	}
+}
+
+// FuzzParseTokenRequest: a token request is read only when it's a form (or has no type) or a JSON
+// object alone, in which no field is named twice, however its name is written; its fields are
+// then the form's, or the JSON object's strings and numbers as they're written.
+func FuzzParseTokenRequest(f *testing.F) {
+	for _, s := range [][2]string{
+		{formType, string(form("grant_type", grantCode, "code", "c"))},
+		{"", "grant_type=refresh_token&refresh_token=r&grant_type=x"},
+		{formType, "a=1;b=2"},
+		{jsonType, `{"grant_type":"authorization_code","expires_in":3600,"x":{"y":1}}`},
+		{jsonType, `{"grant_type":"a","grant_type":"b"}`},
+		{jsonType, `{"grant_type":"a"}{"grant_type":"b"}`},
+		{jsonType + "; charset=utf-8", `{"a":"1"} `},
+		{"text/plain", "a=1"},
+	} {
+		f.Add(s[0], []byte(s[1]))
+	}
+	f.Fuzz(func(t *testing.T, ctype string, body []byte) {
+		tr, err := parseTokenRequest(ctype, body)
+		if err != nil {
+			return
+		}
+		if tr.form {
+			seen := map[string]bool{}
+			for pair := range strings.SplitSeq(string(body), "&") {
+				k, _, _ := strings.Cut(pair, "=")
+				if k, err := url.QueryUnescape(k); err == nil && pair != "" {
+					if seen[k] {
+						t.Fatalf("a form naming %q twice read: %q", k, body)
+					}
+					seen[k] = true
+				}
+			}
+			return
+		}
+		var top map[string]json.RawMessage
+		if !json.Valid(body) || json.Unmarshal(body, &top) != nil {
+			t.Fatalf("a JSON request that isn't one object read: %q", body)
+		}
+		d := json.NewDecoder(strings.NewReader(string(body)))
+		d.UseNumber()
+		_, _ = d.Token()
+		seen := map[string]bool{}
+		for d.More() {
+			k, _ := d.Token()
+			name, _ := k.(string)
+			var v any
+			if seen[name] || d.Decode(&v) != nil {
+				t.Fatalf("a JSON request naming %q twice read: %q", name, body)
+			}
+			seen[name] = true
+			switch v := v.(type) {
+			case string:
+				if tr.fields.Get(name) != v {
+					t.Fatalf("field %q read as %q, sent as %q", name, tr.fields.Get(name), v)
+				}
+			case json.Number:
+				if tr.fields.Get(name) != v.String() {
+					t.Fatalf("field %q read as %q, sent as %s", name, tr.fields.Get(name), v)
+				}
+			default:
+				if tr.fields.Has(name) {
+					t.Fatalf("field %q, neither a string nor a number, read as %q", name, tr.fields.Get(name))
+				}
+			}
+		}
+	})
+}
+
+// replyTokens are the fields of an endpoint's reply that hold a login's tokens, in every format.
+func replyTokens() []string {
+	return []string{"access_token", "refresh_token", "id_token", "accessToken", "refreshToken"}
+}
+
+// FuzzCapture: whatever an agent's endpoint replies to whatever token request, for every agent
+// whose login devvm captures, the VM's reply, when there is one, holds none of the reply's tokens,
+// only placeholders, and isn't anything but a JSON object; a reply that isn't captured leaves the
+// store as it was.
+//
+//nolint:gosec // a test's fake tokens
+func FuzzCapture(f *testing.F) {
+	var kinds []string
+	for k, ft := range formats() {
+		if _, ok := ft.(captureFormat); ok {
+			kinds = append(kinds, k)
+		}
+	}
+	slices.Sort(kinds)
+	idToken, accessToken := openaiTokens()
+	code := form("grant_type", grantCode, "code", "c", "client_id", openaiClientID, "code_verifier", "v")
+	for i := range kinds {
+		f.Add(uint8(i), formType, code, reply(map[string]any{"id_token": idToken, "access_token": accessToken, "refresh_token": "rt-real-0123456789", "token_type": "Bearer"}))
+		f.Add(uint8(i), jsonType, []byte(`{"grant_type":"authorization_code"}`), reply(map[string]any{"access_token": "sk-ant-oat01-real-0123456789", "refresh_token": "rt-real-0123456789", "scope": "user:inference"}))
+		f.Add(uint8(i), jsonType, []byte(`{"grant_type":"refresh_token","refresh_token":"r"}`), reply(map[string]any{"accessToken": accessToken, "refreshToken": "rt-real-0123456789", "scope": "x"}))
+	}
+	f.Fuzz(func(t *testing.T, kind uint8, ctype string, req, rep []byte) {
+		var r map[string]any
+		if json.Unmarshal(rep, &r) != nil {
+			return
+		}
+		var tokens []string
+		for _, k := range replyTokens() {
+			if s, ok := r[k].(string); ok && len(strings.TrimSpace(s)) >= 16 {
+				tokens = append(tokens, strings.TrimSpace(s))
+			}
+		}
+		fl := File{Kind: kinds[int(kind)%len(kinds)], Path: filepath.Join(t.TempDir(), "logins", "auth.json"), Salt: salt}
+		out, err := fl.Capture(ctype, req, rep)
+		if err != nil {
+			if _, serr := os.Stat(fl.Path); !errors.Is(serr, os.ErrNotExist) {
+				t.Fatalf("refused (%v), and the store was written", err)
+			}
+			return
+		}
+		var vm map[string]any
+		if err := json.Unmarshal(out, &vm); err != nil || vm == nil {
+			t.Fatalf("the VM's reply isn't a JSON object: %q", out)
+		}
+		for _, tok := range tokens {
+			if strings.Contains(string(out), tok) && !keptElsewhere(r, tok) {
+				t.Fatalf("the VM's reply holds the token %q: %s", tok, out)
+			}
+		}
+	})
+}
+
+// keptElsewhere reports whether a field of r besides its tokens holds tok, which the VM's reply
+// may then have from it: its token type or scope.
+func keptElsewhere(r map[string]any, tok string) bool {
+	for k, v := range r {
+		if s, ok := v.(string); ok && !slices.Contains(replyTokens(), k) && strings.Contains(s, tok) {
+			return true
+		}
+	}
+	return false
 }

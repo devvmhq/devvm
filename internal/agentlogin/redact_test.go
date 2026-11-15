@@ -1,8 +1,10 @@
 package agentlogin
 
 import (
+	"net/url"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 )
@@ -273,4 +275,102 @@ func TestRedactJSON(t *testing.T) {
 	if want := "env.ANTHROPIC_API_KEY\nmcp.m.headers.Authorization\nprovider.anthropic.options.apiKey\n"; names != want {
 		t.Errorf("names = %q, want %q", names, want)
 	}
+}
+
+// The secrets FuzzRedact plants: one of a known key's shape, and one that only where it is says
+// is a secret.
+const (
+	plantedShape = "ghp_Zq8vX2mK9pL4wR7tY1nB3c"
+	plantedPlain = "Zq8vX2mK9pL4wR7tY1nB"
+)
+
+// plant puts a secret in the settings file m, below its keys k1 and k2, in the place how picks:
+// a known key's shape as a value and among other words, a URL's password and query, a value under
+// a secret-looking key, an env or headers table's value, and a flag's argument. It returns the
+// secret, and false when Redact keeps what it planted by design: one of Claude Code's own
+// settings in its top-level env (agentSetting).
+func plant(m map[string]any, k1, k2, key, around string, how uint8) (string, bool) {
+	at := func(keys ...string) map[string]any {
+		cur := m
+		for _, k := range keys {
+			next, ok := cur[k].(map[string]any)
+			if !ok {
+				next = map[string]any{}
+				cur[k] = next
+			}
+			cur = next
+		}
+		return cur
+	}
+	switch how % 8 {
+	case 0:
+		at(k1, k2)[key] = plantedShape
+		return plantedShape, true
+	case 1:
+		at(k1, k2)[key] = around + " " + plantedShape + " " + around
+		return plantedShape, true
+	case 2:
+		at(k1, k2)[key] = "https://user:" + plantedPlain + "@proxy.example/x"
+		return plantedPlain, true
+	case 3:
+		at(k1, k2)[key] = "https://h.example/p?" + url.QueryEscape(around) + "=" + plantedShape
+		return plantedShape, true
+	case 4:
+		at(k1, k2)[key+"_token"] = plantedPlain
+		return plantedPlain, true
+	case 5:
+		at(k1, "env")[key] = plantedPlain
+		return plantedPlain, k1 != "" || !agentSetting("env."+key, key)
+	case 6:
+		at(k1, k2)["args"] = []any{"--api-key", plantedPlain}
+		return plantedPlain, true
+	default:
+		at(k1, "headers")["Authorization"] = "Bearer " + plantedPlain
+		return plantedPlain, true
+	}
+}
+
+// FuzzRedact: no secret planted anywhere in an agent's settings file, JSON or TOML, survives into
+// the VM's copy, which is the format's own and reads back.
+func FuzzRedact(f *testing.F) {
+	for i := range uint8(8) {
+		f.Add(false, []byte(`{"mcp":{"m":{"command":"x","env":{"A":"b"}}},"model":"sonnet"}`), "mcp", "m", "TOKEN", "run it", i)
+		f.Add(true, []byte("[mcp_servers.m]\ncommand = \"x\"\nargs = [\"-y\"]\n"), "mcp_servers", "m", "x", "", i)
+		f.Add(false, []byte(`{}`), "", "", "CLAUDE_CODE_X", "Bearer", i)
+	}
+	f.Fuzz(func(t *testing.T, isTOML bool, doc []byte, k1, k2, key, around string, how uint8) {
+		// A file that isn't UTF-8 is refused before Redact reads it.
+		if strings.Contains(string(doc), plantedPlain) || strings.Contains(around, plantedPlain) || !utf8.ValidString(k1+k2+key+around) {
+			return
+		}
+		format := "json"
+		if isTOML {
+			format = "toml"
+		}
+		m := tableOf(format, doc)
+		secret, gone := plant(m, k1, k2, key, around, how)
+		in, err := encode(format, m)
+		if err != nil || !utf8.Valid(in) {
+			return
+		}
+		out, _, err := Redact(format, in)
+		if err != nil {
+			t.Fatalf("Redact refused what it wrote itself: %v\n%s", err, in)
+		}
+		if gone && strings.Contains(string(out), secret) {
+			t.Fatalf("the secret survived:\n%s\nfrom\n%s", out, in)
+		}
+		if _, err := decode(format, out); err != nil {
+			t.Fatalf("the copy doesn't read back: %v\n%s", err, out)
+		}
+	})
+}
+
+// tableOf is the settings file doc as a table, or an empty one when it isn't one.
+func tableOf(format string, doc []byte) map[string]any {
+	v, err := decode(format, doc)
+	if m, ok := v.(map[string]any); err == nil && ok {
+		return m
+	}
+	return map[string]any{}
 }

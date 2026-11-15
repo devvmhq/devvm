@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -437,4 +438,51 @@ func TestLinkSocket(t *testing.T) {
 	if LinkHash("vm", "a") == LinkHash("vma") || LinkHash("vm", "ab") == LinkHash("vm", "a", "b") {
 		t.Error("the parts aren't kept apart")
 	}
+}
+
+// FuzzLinkList: a links list is read only at LinkListVersion, and of what's read, a host and port
+// find only an entry that names them, at a link's address in 127.77.0.0/16 written as netip
+// writes it, on a port that is one, whose socket is this VM's link's for that address and port.
+func FuzzLinkList(f *testing.F) {
+	const dir = "/run/devvm"
+	good := func(addr string, port int, hosts ...string) []byte {
+		b, _ := json.Marshal(LinkList{Version: LinkListVersion, Links: []LinkEntry{linkEntry(dir, addr, port, hosts...)}})
+		return b
+	}
+	f.Add(good("127.77.0.1", 5432, "db", "db.devvm.internal"), "db", 5432)
+	f.Add(good("127.77.0.1", 5432, "db"), "db", 5433)
+	f.Add(good("127.0.0.1", 5432, "db"), "db", 5432)
+	f.Add(good("::ffff:127.77.0.1", 443, "db"), "db", 443)
+	f.Add([]byte(`{"version":1,"links":[{"hosts":["db"],"addr":"127.77.0.1","port":5432,"socket":"/tmp/x.sock"}]}`), "db", 5432)
+	f.Add([]byte(`{"version":2,"links":[]}`), "db", 1)
+	f.Add([]byte(`{"version":1,"links":null}`), "", 0)
+	f.Fuzz(func(t *testing.T, b []byte, host string, port int) {
+		l, err := parseLinkList("links.json", b)
+		if err != nil {
+			if l.Version != 0 || l.Links != nil {
+				t.Fatalf("refused with links: %+v", l)
+			}
+			return
+		}
+		if l.Version != LinkListVersion {
+			t.Fatalf("read a list of version %d", l.Version)
+		}
+		file := filepath.Join(t.TempDir(), "links.json")
+		must(t, os.WriteFile(file, b, 0o600))
+		e, ok := newLinks(file, dir, linkVM, quiet(), nil).find(host, port)
+		if !ok {
+			return
+		}
+		a, err := netip.ParseAddr(e.Addr)
+		switch {
+		case e.Port != port || !slices.Contains(e.Hosts, host):
+			t.Fatalf("%s:%d found %+v", host, port, e)
+		case err != nil || a.String() != e.Addr || !a.Is4() || a.As4()[0] != 127 || a.As4()[1] != 77:
+			t.Fatalf("%s:%d found a link at %q", host, port, e.Addr)
+		case port < 1 || port > 65535:
+			t.Fatalf("found a link on port %d", port)
+		case e.Socket != LinkSocket(dir, linkVM, a, port):
+			t.Fatalf("%s:%d found a link at socket %q", host, port, e.Socket)
+		}
+	})
 }

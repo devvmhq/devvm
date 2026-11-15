@@ -20,8 +20,10 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1214,4 +1216,246 @@ func TestMintsCredential(t *testing.T) {
 			t.Errorf("%s %s%s = %q, want %q", c.method, c.host, c.path, got, c.want)
 		}
 	}
+}
+
+// fuzzBound is a binding FuzzInject's proxy has, its value, and the hosts it may go to, judged
+// apart from the policy's rules: each a host in NormHost's form, or a suffix after a *.
+type fuzzBound struct {
+	b     Binding
+	value string
+	to    func(h Host) bool
+}
+
+func fuzzBindings() []fuzzBound {
+	exact := func(name string) func(Host) bool { return func(h Host) bool { return h.String() == name } }
+	return []fuzzBound{
+		{
+			Binding{Name: "gh", Kind: KindSecret, Hosts: []string{"api.github.com"}, Header: "Authorization", Placeholder: "devvm-ph-gh-1f2e"},
+			"VALgh0q7Zx", exact("api.github.com"),
+		},
+		{
+			Binding{Name: "svc", Kind: KindSecret, Hosts: []string{"*.svc.example"}, Header: "X-Api-Key", Placeholder: "devvm-ph-svc-3c4d"},
+			"VALsvc8w2Ky", func(h Host) bool { return strings.HasSuffix(h.String(), ".svc.example") },
+		},
+		{
+			Binding{Name: "stripe", Kind: KindSecret, Hosts: []string{"api.stripe.com"}, Header: "Authorization", Placeholder: "devvm-ph-st-5a6b", Scheme: "ApiKey", BasicUser: true},
+			"VALst4n6Jv", exact("api.stripe.com"),
+		},
+		{
+			Binding{Name: "codex", Kind: KindLogin, Agent: "codex", Hosts: []string{"chatgpt.com"}, Header: "Authorization", Placeholder: "devvm-ph-cx-7e8f"},
+			"VALcx1m3Hp", exact("chatgpt.com"),
+		},
+		{
+			Binding{Name: "or", Kind: KindSecret, Hosts: []string{"openrouter.ai"}, Path: "/api/", Methods: "POST", Header: "Authorization", Placeholder: "devvm-ph-or-9a0b"},
+			"VALor5r9Lt", exact("openrouter.ai"),
+		},
+	}
+}
+
+// fuzzHeaders reads FuzzInject's headers, a "Name: value" a line.
+func fuzzHeaders(s string) http.Header {
+	h := http.Header{}
+	for line := range strings.SplitSeq(s, "\n") {
+		if k, v, ok := strings.Cut(line, ":"); ok {
+			h.Add(k, strings.TrimPrefix(v, " "))
+		}
+	}
+	return h
+}
+
+// holdsText reports whether the header value v holds s, as it is or inside Basic credentials,
+// read leniently: padded, unpadded or with spaces around them.
+func holdsText(v, s string) bool {
+	if strings.Contains(v, s) {
+		return true
+	}
+	if len(v) < 6 || !strings.EqualFold(v[:6], "basic ") {
+		return false
+	}
+	rest := strings.TrimSpace(v[6:])
+	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding} {
+		if raw, err := enc.DecodeString(rest); err == nil && strings.Contains(string(raw), s) {
+			return true
+		}
+	}
+	return false
+}
+
+// FuzzInject: whatever a request's host, method, path and headers, each binding's value goes in
+// only to a host the binding names, for a request its path and methods allow, in its own header
+// alone, which held its exact placeholder in exactly one of its values, once; every other header
+// stays as it came, and the secrets inject says it put in are the ones that went in.
+func FuzzInject(f *testing.F) {
+	bound := fuzzBindings()
+	file := filepath.Join(f.TempDir(), "bindings.json")
+	var bs []Binding
+	for _, fb := range bound {
+		bs = append(bs, fb.b)
+	}
+	if err := os.WriteFile(file, BindingList{Bindings: bs}.Encode(), 0o600); err != nil {
+		f.Fatal(err)
+	}
+	enc := func(s string) string { return "Basic " + base64.StdEncoding.EncodeToString([]byte(s)) }
+	for _, h := range append(hostSeeds(), "api.github.com", "API.GitHub.com.", "x.svc.example", "svc.example", "api.stripe.com", "chatgpt.com", "openrouter.ai") {
+		f.Add(h, "GET", "/", "Authorization: token devvm-ph-gh-1f2e\nX-Api-Key: devvm-ph-svc-3c4d\nX-Echo: devvm-ph-gh-1f2e")
+	}
+	for _, s := range [][3]string{
+		{"api.stripe.com", "GET", "Authorization: " + enc("devvm-ph-st-5a6b:")},
+		{"api.stripe.com", "GET", "Authorization: ApiKey devvm-ph-st-5a6b"},
+		{"api.github.com", "GET", "Authorization: " + enc("x-access-token:devvm-ph-gh-1f2e")},
+		{"api.github.com", "GET", "Authorization: xx devvm-ph-gh-1f2e\nAuthorization: token devvm-ph-gh-1f2e"},
+		{"chatgpt.com", "GET", "Authorization: Bearer devvm-ph-cx-7e8f"},
+		{"chatgpt.com", "GET", "Authorization: Bearer devvm-ph-cx-7e8f\nAuthorization: Bearer devvm-ph-cx-7e8f"},
+		{"openrouter.ai", "POST", "Authorization: Bearer devvm-ph-or-9a0b\nX-HTTP-Method-Override: DELETE"},
+	} {
+		f.Add(s[0], s[1], "/api/v1/chat", s[2])
+		f.Add(s[0], s[1], "/api/../settings", s[2])
+	}
+	f.Fuzz(func(t *testing.T, host, method, p, headers string) {
+		in := fuzzHeaders(headers)
+		for _, fb := range bound {
+			for _, vs := range in {
+				if slices.ContainsFunc(vs, func(v string) bool { return holdsText(v, fb.value) }) {
+					return // a value the request already holds: nothing to tell apart
+				}
+			}
+		}
+		s := newSecrets(file, nil, quiet())
+		s.lookup = func(_ context.Context, b Binding) (redact.Secret, error) {
+			for _, fb := range bound {
+				if fb.b.Name == b.Name {
+					return redact.NewSecret(fb.value), nil
+				}
+			}
+			return redact.Secret{}, errors.New("no such binding")
+		}
+		r := &http.Request{Method: method, URL: &url.URL{Path: p}, Header: in.Clone()}
+		used := s.inject(t.Context(), r.Header, s.forRequest(host, r))
+		headersOf := map[string]bool{}
+		for _, fb := range bound {
+			headersOf[http.CanonicalHeaderKey(fb.b.Header)] = true
+		}
+		for k, vs := range r.Header {
+			if !headersOf[k] && !slices.Equal(vs, in[k]) {
+				t.Fatalf("header %q, bound to no secret, changed: %q, was %q", k, vs, in[k])
+			}
+		}
+		for _, fb := range bound {
+			checkInjected(t, fb, host, r, in, slices.Contains(used, fb.b.Name))
+		}
+	})
+}
+
+// checkInjected checks where fb's value went in r, the request as it goes out of in's headers,
+// to host, and that inject said it put it in (said) exactly when it did.
+func checkInjected(t *testing.T, fb fuzzBound, host string, r *http.Request, in http.Header, said bool) {
+	t.Helper()
+	b := fb.b
+	n := 0
+	for k, vs := range r.Header {
+		for _, v := range vs {
+			if !holdsText(v, fb.value) {
+				continue
+			}
+			n++
+			if k != http.CanonicalHeaderKey(b.Header) {
+				t.Fatalf("%s's value went in header %q", b.Name, k)
+			}
+		}
+	}
+	if n == 0 {
+		if said {
+			t.Fatalf("inject said %s went in, and it didn't", b.Name)
+		}
+		return
+	}
+	held := 0
+	for _, v := range in.Values(b.Header) {
+		if holdsText(v, b.Placeholder) {
+			held++
+		}
+	}
+	switch {
+	case !said:
+		t.Fatalf("%s's value went in, and inject didn't say so", b.Name)
+	case n > 1:
+		t.Fatalf("%s's value went in %d times", b.Name, n)
+	case held != 1:
+		t.Fatalf("%s's value went in, for %d of its header's values holding its placeholder", b.Name, held)
+	case !fb.to(NormHost(host)):
+		t.Fatalf("%s's value went to %q", b.Name, host)
+	case b.Methods != "" && (r.Method != b.Methods || overridden(r.Header, b.Methods)):
+		t.Fatalf("%s's value went in a %q request, its headers %q", b.Name, r.Method, r.Header)
+	case b.Path != "" && (!strings.HasPrefix(r.URL.Path, b.Path) || !plainFuzzPath(r.URL.Path)):
+		t.Fatalf("%s's value went in a request for %q", b.Name, r.URL.Path)
+	}
+}
+
+// overridden reports whether h says, in a method override header, a method other than method.
+func overridden(h http.Header, method string) bool {
+	for _, k := range []string{"X-HTTP-Method-Override", "X-HTTP-Method", "X-Method-Override"} {
+		if slices.ContainsFunc(h.Values(k), func(v string) bool { return v != method }) {
+			return true
+		}
+	}
+	return false
+}
+
+// plainFuzzPath reports whether p is a path every server reads as itself: no escape, \ or ;, and
+// already clean (a trailing / kept).
+func plainFuzzPath(p string) bool {
+	clean := path.Clean(p)
+	if strings.HasSuffix(p, "/") && clean != "/" {
+		clean += "/"
+	}
+	return !strings.ContainsAny(p, `%\;`) && clean == p
+}
+
+// FuzzParseBindings: a bindings file is read only when it's a version the proxy knows, each
+// binding of a kind it knows, with a path, methods and scheme it takes, and none of version 1
+// that a proxy of that version reads otherwise; one that's read reads back as itself from what
+// Encode writes of it.
+func FuzzParseBindings(f *testing.F) {
+	var bs []Binding
+	for _, fb := range fuzzBindings() {
+		bs = append(bs, fb.b)
+		f.Add(BindingList{Bindings: []Binding{fb.b}}.Encode())
+	}
+	f.Add(BindingList{Bindings: bs}.Encode())
+	for _, s := range []string{
+		`{"version":1,"bindings":[{"name":"or","kind":"login","agent":"pi","hosts":["openrouter.ai"],"path":"/api/","header":"Authorization","placeholder":"PH"}]}`,
+		`{"version":1,"bindings":[{"name":"x","kind":"login","methods":"GET"}]}`,
+		`{"version":2,"bindings":[{"name":"x","kind":"secret","path":"/a**/","scheme":"Basic"}]}`,
+		`{"version":2,"bindings":[{"name":"x","kind":"secret","methods":"head,get","Kind":"env"}]}`,
+		`{"version":3,"bindings":[]}`, `[]`, `null`, `{}`,
+	} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, b []byte) {
+		l, err := parseBindings("bindings.json", b)
+		if err != nil {
+			if l.Version != 0 || l.Bindings != nil {
+				t.Fatalf("refused with bindings: %+v", l)
+			}
+			return
+		}
+		if l.Version != 1 && l.Version != BindingListVersion {
+			t.Fatalf("read a file of version %d", l.Version)
+		}
+		for _, x := range l.Bindings {
+			m, mok := ParseMethods(x.Methods)
+			switch {
+			case x.Kind != KindSecret && x.Kind != KindLogin,
+				x.Path != "" && !PathOK(x.Path),
+				x.Methods != "" && (!mok || m != x.Methods),
+				x.Scheme != "" && !SchemeOK(x.Scheme),
+				l.Version == 1 && !v1Binding(x):
+				t.Fatalf("read a binding it can't take: %+v, version %d", x, l.Version)
+			}
+		}
+		again, err := parseBindings("again", l.Encode())
+		if err != nil || !reflect.DeepEqual(again.Bindings, l.Bindings) && len(l.Bindings) > 0 {
+			t.Fatalf("Encode of %+v reads back as %+v, %v", l, again, err)
+		}
+	})
 }

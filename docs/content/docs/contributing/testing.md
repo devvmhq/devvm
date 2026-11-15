@@ -290,7 +290,71 @@ TZ=Australia/Lord_Howe mise run test
 
 ## Fuzzing
 
-`go test` runs only the seed inputs of each fuzz target, so the Fuzz workflow in `.github/workflows/fuzz.yml` fuzzes every target for two minutes each Monday, and you can start it by hand from the Actions tab. It finds the targets by reading each `func Fuzz` in the tests, so a new target is fuzzed without any change to the workflow, and the proxy's targets run first. When a target fails, the workflow uploads the input that broke it as an artifact named `crash-<target>`. Put that file in the package's `testdata/fuzz/<target>/` folder, fix the code, and commit both, because `go test` then runs the input as a seed every time. To fuzz one target on your machine, run `go test -run '^$' -fuzz '^FuzzParseRule$' -fuzztime 1m ./internal/proxy`.
+devvm's fuzz targets use Go's built-in fuzzing, and each one checks a property of what it fuzzes, not only that nothing panics. `go test` runs only each target's seed inputs, the ones its `f.Add` lines give and the files in its package's `testdata/fuzz/<target>/` folder, so every run of the tests checks them. To fuzz one target on your machine, or to run one failing input again:
+
+```sh
+go test -run '^$' -fuzz '^FuzzNoProxy$' -fuzztime 2m ./internal/proxy   # fuzz one target for two minutes
+go test -run '^$' -fuzz '^FuzzNoProxy$' -parallel 2 ./internal/proxy    # with two workers, on a busy machine
+go test -run '^$' -fuzz '^FuzzUnpack$' -fuzzminimizetime 1000x ./internal/upgrade   # minimizing each new input in 1,000 runs
+go test -run '^FuzzNoProxy/e9e4d242dc7b413a$' ./internal/proxy           # one input in testdata/fuzz/FuzzNoProxy/
+```
+
+When a target fails, `go test` writes the input that broke it to the package's `testdata/fuzz/<target>/` folder. Fix the code, add a test of the fix beside the code's other tests, and commit the input with them, because `go test` then runs it as a seed every time.
+
+### The nightly run
+
+The Fuzz workflow (`.github/workflows/fuzz.yml`) fuzzes every target for five minutes each night, eight targets at a time, and you can start it by hand from the Actions tab. It minimizes each new input in at most 1,000 runs (`-fuzzminimizetime 1000x`), because by default `go test` minimizes each one for up to a minute, and a target whose runs write files, such as `FuzzUnpack`, would spend its five minutes doing that. It finds the targets by reading each `func Fuzz` in the tests, so a new target is fuzzed without any change to the workflow, and the proxy's targets run first. A target's name must be its own across the packages, because its artifacts and its line in the issue are named by it, and two targets of one name fail the run.
+
+Each target starts from its corpus, the inputs that its earlier nights found reaching new code, so each night goes further than the last rather than starting again from the seeds. `go test` keeps a target's corpus in the `fuzz` folder of `GOCACHE`, and the workflow restores it from a cache of the target's own before fuzzing and saves it afterwards, whether the target failed or not. When a target fails, the workflow uploads the input that broke it as an artifact named `crash-<target>`, and it adds the input to the target's corpus, so the target fails on it again each night until the fix is on `main`.
+
+The workflow keeps the failures in one issue, "Fuzzing found failing inputs":
+
+- **It opens the issue** on the first night a target fails. The issue lists each failing target with its package and how its run ended, and links the night's run, where the `crash-<target>` artifacts are. A target whose job reported nothing counts as failing too.
+- **It comments on the issue** when the failing targets change, so a new failure notifies you, and otherwise it only updates the issue's link to the latest run.
+- **It closes the issue** on the first night every target passes, the inputs that failed included.
+- **Only a run on `main` updates the issue,** so a run started on another branch never closes it. The fuzz jobs run the repo's code with read access alone, and the issue job, the only one that can write issues, runs none of it.
+
+### What each target checks
+
+The parsers of what a VM can write, its output and its files, and of what comes from the network fail closed: what they take is only what their format allows, within its caps. A secret's value goes only where it's bound, and a redaction leaves no planted secret behind. The host readers' targets are differential: each checks one reader against a frozen copy of how it read a host before devvm read every host in one form, and allows only the differences that [One form of a host](../internals/design.md#one-form-of-a-host) lists.
+
+| Target | Package | What it checks |
+| --- | --- | --- |
+| `FuzzCursorFrames` | `internal/proxy` | A reply from a Cursor host, of any type, encodings, body and trailers, read in reads of any size, passes only what came, from its start. A Connect or gRPC stream passes whole messages alone, none over `frameMax` as it came or as it decompresses, so a gzip bomb is refused, and none holding a JWT's start once decompressed and, in JSON, with its escapes undone. Another body passes no JWT's start of up to `jwtWindow` bytes, and a trailer holding one never lets the body end cleanly. |
+| `FuzzInject` | `internal/proxy` | Whatever a request's host, method, path and headers, each binding's value goes in only for a host the binding names, judged apart from the policy's matcher, in `NormHost`'s form, for a path and methods it allows. It goes in its own header alone, once, and only when exactly one of that header's values held its exact placeholder. Every other header stays as it came. |
+| `FuzzParseBindings` | `internal/proxy` | A bindings file is read only at a version the proxy knows, with each binding's kind, path, methods and scheme ones it takes, and none of version 1 that a proxy of that version reads otherwise. A file that's read reads back as itself from what `Encode` writes. |
+| `FuzzLinkList` | `internal/proxy` | A links list is read only at its version, and a host and port find only an entry that names them, at a link's address in `127.77.0.0/16` as `netip` writes it, whose socket is this VM's link's for that address and port. |
+| `FuzzParseUpstream` | `internal/proxy` | A company proxy's URL is taken only as `http://`, with a host, a port that is one or none, and no path but `/` or query, and the upstream made of it has that host and port and Basic credentials only when it names a user. Its errors hold no more of the URL than its scheme. |
+| `FuzzNoProxy` | `internal/proxy` | Each `NO_PROXY` entry sends directly only what it names: every host for `*`, addresses alone for an address or a CIDR, a name and the names under it, only those after a leading `.` or `*.`, and only the port an entry names. A list sends directly what any of its entries does. |
+| `FuzzParseNarinfo` | `internal/proxy` | A narinfo is taken only when `cache.nixos.org-1` signed it, for the path asked for, and what the signature doesn't cover keeps to its forms: a NAR's URL named by its `NarHash` or `FileHash`, and sizes from 1 byte to 1 TiB. |
+| `FuzzParseTokenRequest` | `internal/agentlogin` | A token request is read only as a form, or with no type, or as one JSON object alone, with no field named twice however its name is written, and its fields are what it sent. |
+| `FuzzRedact` | `internal/agentlogin` | No secret planted in an agent's settings file, JSON or TOML, survives into the VM's copy, which reads back: a known key's shape as a value or among other words, a URL's password or query value, a value under a secret-looking key, an env or headers table's value, and a flag's argument. Claude Code's own settings in its top-level `env` stay, as Redact keeps them. |
+| `FuzzCapture` | `internal/agentlogin` | Whatever an agent's token endpoint replies to whatever request, for every agent whose login devvm captures, the VM's reply is a JSON object holding none of the reply's tokens, and a reply that isn't captured leaves the store unwritten. |
+| `FuzzSplit` | `internal/redact` | A password that `String` finds in a line, in a URL of at most the tail's length, never reaches the log when the line comes in parts of any size and is written after each part as far as `Split` lets it, as the run log writes it. |
+| `FuzzStrip` | `internal/jsonc` | `Strip` keeps every offset, blanking bytes with spaces and keeping newlines, leaves JSON as it is, and, against `encoding/json`, makes JSON with comments, trailing commas and a byte order mark read as the same value as the JSON without them. |
+| `FuzzParsePublicKey` | `internal/upgrade` | A minisign public key is read only from one base64 line, alone or after its untrusted comment, as exactly its key ID and its Ed25519 key. |
+| `FuzzVerify` | `internal/upgrade` | A signature verifies only the data its key's holder signed, with the trusted comment that was signed. |
+| `FuzzEntryName` | `internal/upgrade` | An archive's entry is taken only as the release's folder or as a regular file right in it, which lands in the folder `unpack` makes and nowhere else. |
+| `FuzzUnpack` | `internal/upgrade` | `unpack` writes only regular files right in the folder it makes, `devvm` among them, each as the archive has it, `devvm` executable and the rest not, at most `unpackCap` in all and nothing outside the folder. An archive it refuses leaves no folder. |
+| `FuzzParseHostKeys` | `internal/vmssh` | Each host key taken from what a VM shows is of a type ssh has, with no certificate, marker or pattern, in strict base64 of at most `keyMax` that names its own type, from a line of the VM's own, in order. Its line in the record is three fields, which read back as that key. |
+| `FuzzParsePorts` | `internal/vmssh` | A forwarder's record, which other VMs' forwarders read, gives only ports that are ones, each an entry of its line, in order, and the ports it writes read back as themselves. |
+| `FuzzParseCloneState` | `internal/vm` | A `--clone` VM's answer to the check is taken only whole: every repo asked for is gone or has its branches and status, within `cloneRefsMax` branches in all and `cloneWorktreesMax` worktrees a repo, each worktree once, at a clean path below the project folder, with a commit's name or none for its HEAD. Nothing taken is more than the answer. |
+| `FuzzParseInit` | `internal/vm` | The VM's answer to its repos' setup names a seed as landed, or of another format, only when a line names that seed's path, and an old git only by what `git --version` prints, else as unknown. |
+| `FuzzParseKept` | `internal/vm` | What a seed's apply kept, which devvm only shows, is the VM's own lines and names as it wrote them, none of them empty. |
+| `FuzzParseLFSPointer` | `internal/vm` | A blob is taken as a Git LFS pointer only as the spec writes one, with its version line first and each line ended, one oid of 64 lowercase hex digits, which names its object's path, and one size of at least 0. |
+| `FuzzHandshakeVM` | `internal/desktop` | The relay's handshake with the VM's VNC server succeeds only for version 3.8 or later, a list of security types that has None, and an OK result, and reads no more than those. It writes only version 3.8, then None, and None only from a list that has it, and its error, which goes in the log, stays short. |
+| `FuzzHostSites` | `internal/proxy` | Each of the proxy's readers of a host reads it as its frozen copy did, but for the listed differences. |
+| `FuzzClaudeHostSite`, `FuzzPromisorHostSite`, `FuzzPublicHostSite`, `FuzzRiskSites`, `FuzzCheckHostSite` | `internal/agentlogin`, `internal/vm`, `internal/from`, `internal/netpolicy`, `internal/secrets` | The other readers of a host, an MCP server's, a promisor remote's, `--from`'s registry's, `devvm network lock`'s and a secret's `--host`, read it as their frozen copies did, but for the listed differences. |
+| `FuzzParseRule` | `internal/proxy` | A rule's text parses back to the same rule, a host rule never holds a space or a slash, and `ParsePolicy` marks a line a rule exactly when `ValidRule` takes it. |
+| `FuzzRequest` | `internal/proxy` | A request target the proxy accepts is a plain host, and the allow command it suggests allows exactly that host and port. |
+| `FuzzDenyBypass` | `internal/proxy` | A deny of `/gists/` and of `POST` holds however a request spells the path or the method. |
+| `FuzzClientHello` | `internal/proxy` | Reading a tunnel's first bytes never hangs, a stream whose first byte starts a TLS record counts as TLS, and only a whole record of TLS's version is returned. |
+| `FuzzTransparent` | `internal/proxy` | Whatever its first bytes, a transparent connection to a proxy whose policy allows nothing reaches nothing. |
+| `FuzzNixPath` | `internal/proxy` | What `nixPath` takes is one of the cache's exact forms and names a file inside its folder. |
+| `FuzzParse` | `internal/devcontainer` | A `devcontainer.json` refuses `${localEnv:…}`, its variables are names and shell words the environment file holds as they are, and nothing it keeps has a NUL. |
+| `FuzzParseRef` | `internal/from` | Any image reference parses into a tag without `/` or `:`, and a valid one parses the same once written out in full. |
+| `FuzzRestrictNetdev` | `internal/backend/lima` | `RestrictNetdev` refuses, or returns at most one network, restricted, with nothing else changed. |
+| `FuzzQuote` | `internal/shell` | A string that `Quote` quotes reaches a shell as itself. |
 
 ## Manual checks
 

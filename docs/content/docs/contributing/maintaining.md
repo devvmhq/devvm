@@ -37,7 +37,7 @@ The tools, by group, as `--check` prints them:
 - `go` moves Go to its newest patch release of the minor that `go.mod` names: the `go` lines of `go.mod` and `docs/go.mod`, `mise.toml`'s `go`, and its `mise.lock` entries, from `go.dev/dl`. `--check` reports a newer minor on the `go-minor` line, and `scripts/bump.sh go-minor` moves the same files to it.
 - `go-mods` moves `go.mod`'s direct modules, the ones the depguard allowlist allows and the tests' own, to their newest patch or minor release from the Go module proxy, with `go get` and `go mod tidy`. The indirect ones move as `go mod tidy` needs them. A module's next major has a new path, so `--check` reports it and you move it by hand. `deadcode` moves the deadcode task's version in `mise.toml` to golang.org/x/tools' newest release.
 - `dev-tools` moves each of `mise.toml`'s tools but Go to mise's newest version of it, edits its line and runs `mise lock`, so `mise.lock` keeps every platform's checksum, and markdownlint-cli2's lock folder in `.mise/locks/` moves with it. nilaway has no releases, so its pin is a pseudo-version, and `dev-tools` moves it to the one for its newest commit.
-- `ci-mise` moves the `version` that the workflows give jdx/mise-action to base's mise, as the run leaves it, so `scripts/bump.sh mise ci-mise` moves both. `actions` moves each workflow's `uses:` to its newest release's tag, as the tag's commit from `gh api`, with the tag in the comment after it, and reports a newer major without applying it.
+- `ci-mise` moves the `version` that the workflows give jdx/mise-action to base's mise, as the run leaves it, so `scripts/bump.sh mise ci-mise` moves both. `actions` moves each workflow's `uses:` to its newest release's tag, as the tag's commit from `gh api`, with the tag in the comment after it, and reports a newer major without applying it. An action in a folder of its repo, such as `actions/cache/restore`, moves with its repo's releases.
 - `hextra` moves the docs site's theme in `docs/go.mod`, and it reminds you to compare the copies of Hextra's files in `docs/layouts/` with the new release's. `pele` moves pele, only when named, because the diagrams need a look on the built site: it runs `npm install` in `docs/` with the exact version and no install scripts, which writes `docs/package.json` and `docs/package-lock.json`, and then draws the diagrams again with `mise run docs:diagrams`. The drawing script's self-check fails that step when the new pele no longer measures and writes its small text, such as edge labels, as the script expects ([diagrams](docs.md#writing-docs)).
 - `cursor` moves Cursor's CLI, only when named, to the release that Cursor's install script fetches, with each platform's SHA-256 computed from its download, because Cursor publishes no checksums. devvm's login and proxy code was read against the pinned release, so read the new one where that code names it, then run `e2e-tools`.
 - A hold keeps a pin below a version, and `--check` shows the newest version beside it. Go modules and actions take Dependabot's ignore list in `.github/dependabot.yml`, which keeps pflag below 1.1.0, because pflag 1.1 prints every boolean flag with `[=true|false]` in the help. The other holds are in `bump.sh`'s `holds`, which keeps Node, the one in `mise.toml`, on its major.
@@ -74,6 +74,17 @@ scripts/bump.sh go-mods      # the direct modules' newest patches and minors, fo
 ```
 
 A module that only `go.mod`'s indirect requirements hold moves with `go get <module>@<fixed version>` and `go mod tidy`. Once `main` is fixed, its scan passes, but the issue stays open while the latest release or the newest release still has the vulnerability, and it closes only when a release with the fix is the latest. A vulnerability that affects devvm's users calls for a release ([Releasing](#releasing)), and one that devvm's code reaches only in a way that doesn't matter can wait for the next one.
+
+## Fuzzing failures
+
+The Fuzz workflow (`.github/workflows/fuzz.yml`) fuzzes every target each night and keeps its failures in one issue, "Fuzzing found failing inputs", which names each failing target and links the night's run. For each target there, download its `crash-<target>` artifact from that run, and fix it as [Fuzzing](testing.md#fuzzing) says:
+
+```sh
+cp ~/Downloads/crash-FuzzNoProxy/* internal/proxy/testdata/fuzz/FuzzNoProxy/   # the input, in its target's seeds
+go test -run '^FuzzNoProxy$' ./internal/proxy                                  # fails until the code is fixed
+```
+
+Commit the input with the fix and its test. The input stays in the target's corpus, so the target fails on it each night until the fix is on `main`, and the issue closes on the first night every target passes ([the nightly run](testing.md#the-nightly-run)).
 
 ## Checking base against Ubuntu's newest
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -267,4 +268,62 @@ func TestRelayVMAsksForPassword(t *testing.T) {
 	if res != resultFail || !strings.Contains(reason, "isn't answering") {
 		t.Errorf("result %d %q", res, reason)
 	}
+}
+
+// scriptedVM is the VM's side of its server's handshake, as FuzzHandshakeVM plays it: what it
+// says, and what the relay wrote to it.
+type scriptedVM struct {
+	says  *bytes.Reader
+	wrote bytes.Buffer
+}
+
+func (s *scriptedVM) Read(p []byte) (int, error)  { return s.says.Read(p) }
+func (s *scriptedVM) Write(p []byte) (int, error) { return s.wrote.Write(p) }
+
+// FuzzHandshakeVM: whatever the VM's server says, the relay's handshake with it succeeds only for
+// version 3.8 or later, a list of security types that has None, and an OK result, reading no more
+// than those; it writes only version 3.8, then None, and None only from a list that has it; and
+// its error, which goes in the log, stays short.
+func FuzzHandshakeVM(f *testing.F) {
+	ok := func(version string, types ...byte) []byte {
+		b := append([]byte(version), byte(len(types))) //nolint:gosec // G115: a seed's few types
+		return binary.BigEndian.AppendUint32(append(b, types...), resultOK)
+	}
+	f.Add(ok("RFB 003.008\n", secNone))
+	f.Add(ok("RFB 003.889\n", secVncAuth, secNone))
+	f.Add(ok("RFB 003.007\n", secNone))
+	f.Add(ok("RFB 003.008\n", secVncAuth))
+	f.Add(ok("RFB 003.008\n"))
+	f.Add([]byte("RFB 003.008\n\x01\x01\x00\x00\x00\x01"))
+	f.Add([]byte("HTTP/1.1 200"))
+	f.Fuzz(func(t *testing.T, says []byte) {
+		vm := &scriptedVM{says: bytes.NewReader(says)}
+		err := handshakeVM(vm)
+		read := len(says) - vm.says.Len()
+		const hello = "RFB 003.008\n"
+		w := vm.wrote.String()
+		if w != "" && w != hello && w != hello+string([]byte{secNone}) {
+			t.Fatalf("wrote %q", w)
+		}
+		if err != nil {
+			if len(err.Error()) > 2048 { // at most 255 types, a number each
+				t.Fatalf("an error of %d bytes", len(err.Error()))
+			}
+			if w == hello+string([]byte{secNone}) && !bytes.Contains(says[min(13, len(says)):min(read, len(says))], []byte{secNone}) {
+				t.Fatalf("chose None from a list without it: %q", says[:read])
+			}
+			return
+		}
+		var major, minor int
+		n := int(says[12])
+		_, serr := fmt.Sscanf(string(says[:12]), "RFB %03d.%03d\n", &major, &minor)
+		switch {
+		case serr != nil || major != 3 || minor < 8:
+			t.Fatalf("took the version %q", says[:12])
+		case read != 12+1+n+4 || n == 0 || !bytes.Contains(says[13:13+n], []byte{secNone}):
+			t.Fatalf("took %q, reading %d bytes", says, read)
+		case binary.BigEndian.Uint32(says[13+n:]) != resultOK || w != hello+string([]byte{secNone}):
+			t.Fatalf("took %q, writing %q", says, w)
+		}
+	})
 }
