@@ -16,5 +16,6 @@ These pages explain how devvm does what the other sections describe, for readers
 - [Security model](security.md): what devvm protects on your machine and how, and what it doesn't protect.
 - [Backends](backends.md): each backend's features, native or emulated, and what happens when one is missing.
 - [Lima](lima.md): devvm's Lima home, confinement, clones and port forwarding on Lima.
+- [Processes](processes.md): what each of devvm's processes holds, reads, writes and is confined by, the listeners a VM's bytes reach, and why devvm is written in Go.
 - [Coding agents](agents.md): how the agents' settings, logins and history reach a VM, and what devvm checks when it imports, saves and exports them.
 - [Design notes](design.md): why devvm is built this way, what failed, and what's still open.

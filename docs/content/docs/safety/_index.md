@@ -73,3 +73,4 @@ flowchart TB
 - [.git protection](git-protection.md): what the lock stops, what still works and what it doesn't cover.
 - [Attack vectors](attack-vectors.md): common attacks one by one, and what devvm does about each.
 - [How it works › Security model](../internals/security.md): how devvm keeps each of these promises.
+- [How it works › Processes](../internals/processes.md): what each of devvm's processes on this machine holds and how it's confined.

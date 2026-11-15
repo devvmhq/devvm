@@ -6,7 +6,7 @@ weight: 7
 
 devvm treats everything in a VM as untrusted, including a coding agent with root, because the VM's user has passwordless sudo. This page explains how devvm keeps that code away from the rest of your machine. [Staying safe](../safety/_index.md) lists [what a VM can reach](../safety/_index.md#what-a-vm-can-reach) and the habits that [keep you safe](../safety/_index.md#the-habits), and [Attack vectors](../safety/attack-vectors.md) goes through common attacks one by one and lists what devvm leaves open.
 
-All of it rests on the VM's boundary.
+All of it rests on the VM's boundary. [Processes](processes.md) goes through each process on this machine that a VM's bytes reach, what it holds and how it's confined, and lists the listeners a VM reaches.
 
 ## What devvm protects, and how
 

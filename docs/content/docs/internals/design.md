@@ -4,7 +4,7 @@ explainer: Why devvm is built this way, and what's open
 weight: 12
 ---
 
-For contributors: why devvm is built the way it is, what was tried and dropped, and what's still open. How each part works is on its own page, and [Contributing](../contributing/_index.md) has the repo's layout and rules.
+For contributors: why devvm is built the way it is, what was tried and dropped, and what's still open. How each part works is on its own page, and [Contributing](../contributing/_index.md) has the repo's layout and rules. Why devvm is written in Go is under [Why Go](processes.md#why-go), with the processes it runs.
 
 ## Emulated features
 

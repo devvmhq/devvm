@@ -38,7 +38,7 @@ devvm leaves Lima's `mountInotify` off, so file watchers in the VM see only the 
 
 ## Confinement
 
-A VM on a confined tier, internet, allowlist or none, reaches nothing but its proxy on the host, which applies its tier's rules, and even root in the VM can't get around that. Direct connections, DNS, UDP and connections to the host's own services fail at once, while forwarded ports, mounts and ssh keep working.
+A VM on a confined tier, internet, allowlist or none, reaches nothing but its proxy on the host, which applies its tier's rules, and even root in the VM can't get around that. Direct connections, DNS, UDP and connections to the host's own services fail at once, while forwarded ports, mounts and ssh keep working. [Processes](processes.md) has what the hostagent and the QEMU wrapper hold, write and wait for ([Lima's hostagent](processes.md#limas-hostagent), [the QEMU wrapper](processes.md#the-qemu-wrapper-and-its-keeper)).
 
 On each host, the VM's traffic passes through one process that devvm confines:
 
