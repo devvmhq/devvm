@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -54,11 +55,11 @@ func TestSecrets(t *testing.T) {
 	}
 	// The company proxy's password: saved as given, spaces inside kept, and
 	// never a VM's.
-	if err := n.SecretSave(ctx, toSave(t, n, "proxy"), " pa55 word\n"); err != nil {
+	if err := n.SecretSave(ctx, toSave(t, n, "proxy"), redact.NewSecret(" pa55 word\n")); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if v, err := e.Proxy.Secrets.Value(ctx, "proxy"); err != nil || v != "pa55 word" {
-		t.Errorf("proxy = %q, %v", v, err)
+	if v, err := e.Proxy.Secrets.Value(ctx, "proxy"); err != nil || v.Reveal() != "pa55 word" {
+		t.Errorf("proxy = %q, %v", v.Reveal(), err)
 	}
 	for _, use := range []bool{true, false} {
 		if err := n.SecretUse(ctx, "proxy", use); msg.NamesOf(err) != "secret_host_only secret=proxy" {
@@ -68,7 +69,7 @@ func TestSecrets(t *testing.T) {
 	if err := n.SecretRm(ctx, "proxy", true); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if err := n.SecretSave(ctx, toSave(t, n, "github"), " ghp_testfake\n"); err != nil {
+	if err := n.SecretSave(ctx, toSave(t, n, "github"), redact.NewSecret(" ghp_testfake\n")); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
 	if err := n.SecretUse(ctx, "github", true); err != nil {
@@ -77,7 +78,7 @@ func TestSecrets(t *testing.T) {
 	if got := secretList(t, n); !strings.Contains(got, "github yes "+vm.String()+"\n") {
 		t.Errorf("Secrets = %q", got)
 	}
-	if err := n.SecretSave(ctx, toSave(t, n, "claude"), "not-a-setup-token"); msg.NamesOf(err) != "not_setup_token" {
+	if err := n.SecretSave(ctx, toSave(t, n, "claude"), redact.NewSecret("not-a-setup-token")); msg.NamesOf(err) != "not_setup_token" {
 		t.Errorf("SecretSave(claude) = %v", msg.NamesOf(err))
 	}
 	if err := n.SecretRm(ctx, "github", true); err != nil {
@@ -132,7 +133,7 @@ func TestCustomSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if err := n.SecretSave(ctx, sec, "sk_test_e2efake\n"); err != nil {
+	if err := n.SecretSave(ctx, sec, redact.NewSecret("sk_test_e2efake\n")); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
 	if got := secretList(t, n); !strings.HasSuffix(got, "proxy no \nstripe yes \n") {
@@ -151,11 +152,11 @@ func TestCustomSecrets(t *testing.T) {
 	if again.Env != "STRIPE_API_KEY" || again.Prefix != "sk_" || again.Hosts[0] != "api.stripe.com" {
 		t.Errorf("saved again as %+v", again)
 	}
-	if err := n.SecretSave(ctx, again, "sk_test_e2efake2"); err != nil {
+	if err := n.SecretSave(ctx, again, redact.NewSecret("sk_test_e2efake2")); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if v, err := e.Proxy.Secrets.Value(ctx, "stripe"); v != "sk_test_e2efake2" || err != nil {
-		t.Errorf("stripe = %q, %v", v, err)
+	if v, err := e.Proxy.Secrets.Value(ctx, "stripe"); v.Reveal() != "sk_test_e2efake2" || err != nil {
+		t.Errorf("stripe = %q, %v", v.Reveal(), err)
 	}
 	if got := secretList(t, n); !strings.Contains(got, "stripe yes "+vm.String()+"\n") {
 		t.Errorf("Secrets = %q", got)
@@ -167,7 +168,7 @@ func TestCustomSecrets(t *testing.T) {
 		t.Fatalf("a new host: %+v, %v", moved, msg.NamesOf(err))
 	}
 	infos = nil
-	if err := n.SecretSave(ctx, moved, "sk_test_e2efake2"); err != nil {
+	if err := n.SecretSave(ctx, moved, redact.NewSecret("sk_test_e2efake2")); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
 	for _, want := range []string{

@@ -111,7 +111,7 @@ func get(st *state.VM, key string) string {
 	case keyCheck:
 		return n.Made.Check
 	case keyProxyKey:
-		return n.Made.ProxyKey
+		return n.Made.ProxyKey.Reveal()
 	case keySSHPort:
 		return num(p.Host.SSH)
 	case keyProxyPort:

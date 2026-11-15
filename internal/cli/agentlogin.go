@@ -9,6 +9,7 @@ import (
 	"github.com/devvmhq/devvm/internal/agentlogin"
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/vm"
 )
 
@@ -50,7 +51,7 @@ func newAgentLoginCmd(a *app) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if strings.TrimSpace(key) == "" {
+				if key.TrimSpace().Empty() {
 					return msg.AgentKeyEmpty()
 				}
 				lo.Key = key
@@ -145,9 +146,9 @@ func flagRefused(d agents.Def, flag string) error {
 
 // askKey asks for the API key without showing it, or with --stdin reads
 // a line.
-func (o agentLoginOpts) askKey(a *app, lo vm.AgentLoginOptions) (string, error) {
+func (o agentLoginOpts) askKey(a *app, lo vm.AgentLoginOptions) (redact.Secret, error) {
 	if o.stdin {
-		return a.u.Line(), nil
+		return redact.NewSecret(a.u.Line()), nil
 	}
 	provider := lo.Provider
 	if provider == "" {

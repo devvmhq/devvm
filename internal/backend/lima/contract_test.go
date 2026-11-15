@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/backend"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/stubtest"
 )
 
@@ -43,7 +44,7 @@ func views(t *testing.T, l *Lima) []view {
 	home := func(p string) string { return strings.Replace(p, l.Dirs.Home, "~", 1) }
 	starts := map[string]backend.Confinement{
 		"direct":   {Net: backend.NetDirect, Env: map[string]string{"LANG": "C.UTF-8"}},
-		"proxy":    {Net: backend.NetProxy, ProxyPort: 3128, ProxyPassword: "pAss-0123_word"},
+		"proxy":    {Net: backend.NetProxy, ProxyPort: 3128, ProxyPassword: redact.NewSecret("pAss-0123_word")},
 		"none":     {Net: backend.NetNone},
 		"internet": {Net: backend.NetInternet},
 	}

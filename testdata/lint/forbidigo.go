@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"unicode"
 
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/testbuild"
 )
 
@@ -57,3 +58,5 @@ func unsetsEnv() error { return os.Unsetenv("SSH_AUTH_SOCK") } // want forbidigo
 func shows(r rune) bool { return unicode.IsGraphic(r) } // want forbidigo
 
 func private(a netip.Addr) bool { return a.IsPrivate() } // want forbidigo
+
+func reveals(s redact.Secret) string { return s.Reveal() } // want forbidigo

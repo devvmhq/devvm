@@ -38,6 +38,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
 )
 
@@ -174,6 +175,13 @@ type tokenRequest struct {
 }
 
 func (t tokenRequest) grant() string { return t.fields.Get("grant_type") }
+
+// withSubject is t, a form, with id as its subject_token: Codex's API-key exchange as it goes on,
+// with the store's id_token in place of the VM's placeholder.
+func (t tokenRequest) withSubject(id redact.Secret) []byte {
+	t.fields.Set("subject_token", id.Reveal()) //nolint:forbidigo // the exchange's request, to OpenAI's token endpoint
+	return []byte(t.fields.Encode())
+}
 
 // errRepeated: a token request names a field twice, which devvm and the endpoint could read
 // apart (the first or the last).
@@ -321,12 +329,11 @@ func (f File) CaptureRequest(ctype string, body []byte) (out, answer []byte, err
 		}
 		return body, nil, nil
 	}
-	id := str(obj(m, "tokens"), "id_token")
-	if id == "" || t.fields.Get("subject_token") != openaiPlaceholder(id, f.Salt) {
+	id := token(obj(m, "tokens"), "id_token")
+	if id.Empty() || t.fields.Get("subject_token") != openaiPlaceholder(id, f.Salt) {
 		return nil, nil, errors.New("the API-key exchange isn't for the login devvm keeps")
 	}
-	t.fields.Set("subject_token", id)
-	return []byte(t.fields.Encode()), nil, nil
+	return t.withSubject(id), nil, nil
 }
 
 // managedReply is the reply to a VM's refresh of its own login, m the store's: its placeholders,
@@ -341,13 +348,13 @@ func (f File) managedReply(m map[string]any) ([]byte, error) {
 
 // openaiManagedReply is the managed reply of an OpenAI login (Codex's or opencode's): at, its
 // access token, and id, its id_token when it has one, as placeholders.
-func openaiManagedReply(at, id, salt string) ([]byte, error) {
+func openaiManagedReply(at, id redact.Secret, salt string) ([]byte, error) {
 	vm := vmReply(map[string]any{"token_type": "Bearer"})
-	if at == "" {
+	if at.Empty() {
 		return nil, errors.New("the store has no login to refresh")
 	}
 	vm["access_token"], vm["refresh_token"] = openaiPlaceholder(at, salt), managed
-	if id != "" {
+	if !id.Empty() {
 		vm["id_token"] = openaiPlaceholder(id, salt)
 	}
 	return json.Marshal(vm)
@@ -417,7 +424,7 @@ func expiresAt(r map[string]any) int64 {
 }
 
 // chatgptAccount is the ChatGPT account a token's claims name, or "".
-func chatgptAccount(tok string) string {
+func chatgptAccount(tok redact.Secret) string {
 	c := jwtClaims(tok)
 	if a := str(c, "chatgpt_account_id"); a != "" {
 		return a
@@ -430,16 +437,16 @@ func chatgptAccount(tok string) string {
 func codexCapture(m map[string]any, t tokenRequest, r map[string]any, salt string) (map[string]any, map[string]any, error) {
 	vm := vmReply(r)
 	if t.grant() == grantExchange {
-		key := str(r, "access_token")
-		if key == "" {
+		key := token(r, "access_token")
+		if key.Empty() {
 			return nil, nil, errNoLogin
 		}
-		m["OPENAI_API_KEY"] = key
+		setToken(m, "OPENAI_API_KEY", key)
 		vm["access_token"] = codexKeyPlaceholder(salt)
 		return m, vm, nil
 	}
-	id, at, rt := str(r, "id_token"), str(r, "access_token"), str(r, "refresh_token")
-	if at == "" || t.grant() == grantCode && (id == "" || rt == "") {
+	id, at, rt := token(r, "id_token"), token(r, "access_token"), token(r, "refresh_token")
+	if at.Empty() || t.grant() == grantCode && (id.Empty() || rt.Empty()) {
 		return nil, nil, errNoLogin
 	}
 	tk := obj(m, "tokens")
@@ -448,20 +455,20 @@ func codexCapture(m map[string]any, t tokenRequest, r map[string]any, salt strin
 		tk = map[string]any{}
 		m = map[string]any{"auth_mode": "chatgpt", "OPENAI_API_KEY": nil, "tokens": tk}
 	}
-	for k, v := range map[string]string{"id_token": id, "access_token": at, "refresh_token": rt} {
-		if v != "" {
-			tk[k] = v
+	for k, v := range map[string]redact.Secret{"id_token": id, "access_token": at, "refresh_token": rt} {
+		if !v.Empty() {
+			setToken(tk, k, v)
 		}
 	}
-	if a := chatgptAccount(str(tk, "id_token")); a != "" {
+	if a := chatgptAccount(token(tk, "id_token")); a != "" {
 		tk["account_id"] = a
 	}
 	m["last_refresh"] = time.Now().UTC().Format(time.RFC3339)
-	if id != "" {
+	if !id.Empty() {
 		vm["id_token"] = openaiPlaceholder(id, salt)
 	}
 	vm["access_token"] = openaiPlaceholder(at, salt)
-	if rt != "" {
+	if !rt.Empty() {
 		vm["refresh_token"] = managed
 	}
 	return m, vm, nil
@@ -470,8 +477,8 @@ func codexCapture(m map[string]any, t tokenRequest, r map[string]any, salt strin
 // opencodeCapture saves an opencode reply in m, its auth.json: its OpenAI login (openai), with its
 // account. It returns m and the VM's reply.
 func opencodeCapture(m map[string]any, t tokenRequest, r map[string]any, salt string) (map[string]any, map[string]any, error) {
-	id, at, rt := str(r, "id_token"), str(r, "access_token"), str(r, "refresh_token")
-	if at == "" || t.grant() == grantCode && rt == "" {
+	id, at, rt := token(r, "id_token"), token(r, "access_token"), token(r, "refresh_token")
+	if at.Empty() || t.grant() == grantCode && rt.Empty() {
 		return nil, nil, errNoLogin
 	}
 	e := obj(m, "openai")
@@ -479,19 +486,20 @@ func opencodeCapture(m map[string]any, t tokenRequest, r map[string]any, salt st
 		e = map[string]any{"type": "oauth"}
 		m["openai"] = e
 	}
-	e["access"], e["expires"] = at, expiresAt(r)
-	if rt != "" {
-		e["refresh"] = rt
+	setToken(e, "access", at)
+	e["expires"] = expiresAt(r)
+	if !rt.Empty() {
+		setToken(e, "refresh", rt)
 	}
 	if a := cmp.Or(chatgptAccount(id), chatgptAccount(at)); a != "" {
 		e["accountId"] = a
 	}
 	vm := vmReply(r)
-	if id != "" {
+	if !id.Empty() {
 		vm["id_token"] = openaiPlaceholder(id, salt)
 	}
 	vm["access_token"] = openaiPlaceholder(at, salt)
-	if rt != "" {
+	if !rt.Empty() {
 		vm["refresh_token"] = managed
 	}
 	return m, vm, nil

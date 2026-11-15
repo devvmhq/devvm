@@ -7,6 +7,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // format is what devvm makes of one kind of login file (agents.Login's Kind), parsed as m:
@@ -23,19 +24,19 @@ type format interface {
 	// it holds as it is (VMFile's Kept) and without its keys and tokens (Withheld).
 	vmCopy(m map[string]any, f File) (map[string]any, VMFile)
 	// get returns the value of the binding named name from f's file, read again.
-	get(ctx context.Context, f File, name string) (string, error)
+	get(ctx context.Context, f File, name string) (redact.Secret, error)
 }
 
 // keyFormat is a format that holds the API keys devvm agent login saves (agents.Keys): setKey
 // returns m with key saved as provider's ("" for an agent's one key).
 type keyFormat interface {
-	setKey(m map[string]any, provider, key string) map[string]any
+	setKey(m map[string]any, provider string, key redact.Secret) map[string]any
 }
 
 // chatGPTFormat is a format that can hold a ChatGPT login: chatGPT returns its tokens, the one
 // that grants access last, none when m holds no ChatGPT login.
 type chatGPTFormat interface {
-	chatGPT(m map[string]any) []string
+	chatGPT(m map[string]any) []redact.Secret
 }
 
 // keep is what of a JSON object in a login file the VM's copy holds: plain, the fields it copies
@@ -157,7 +158,7 @@ func (codexFormat) capture(m map[string]any, t tokenRequest, r map[string]any, s
 
 func (codexFormat) managedReply(m map[string]any, salt string) ([]byte, error) {
 	tk := obj(m, "tokens")
-	return openaiManagedReply(str(tk, "access_token"), str(tk, "id_token"), salt)
+	return openaiManagedReply(token(tk, "access_token"), token(tk, "id_token"), salt)
 }
 
 // exchange: its id_token for an API key.
@@ -176,16 +177,16 @@ func (opencodeFormat) capture(m map[string]any, t tokenRequest, r map[string]any
 }
 
 func (opencodeFormat) managedReply(m map[string]any, salt string) ([]byte, error) {
-	var at string
+	var at redact.Secret
 	if e := obj(m, "openai"); str(e, "type") == "oauth" {
-		at = str(e, "access")
+		at = token(e, "access")
 	}
-	return openaiManagedReply(at, "", salt)
+	return openaiManagedReply(at, redact.Secret{}, salt)
 }
 
 // refreshPlaceholder: its VM copy holds its access token's placeholder as its refresh token too.
 func (opencodeFormat) refreshPlaceholder(m map[string]any, salt string) string {
-	return openaiPlaceholder(str(obj(m, "openai"), "access"), salt)
+	return openaiPlaceholder(token(obj(m, "openai"), "access"), salt)
 }
 
 // endpoints: Claude's, and the Console's, which older versions of Claude Code post to.
@@ -213,18 +214,20 @@ func (codexFormat) vmCopy(m map[string]any, f File) (map[string]any, VMFile) {
 	return c, VMFile{Unknown: unknown}
 }
 
-func (codexFormat) get(ctx context.Context, f File, name string) (string, error) {
+func (codexFormat) get(ctx context.Context, f File, name string) (redact.Secret, error) {
 	return f.codexGet(ctx, name)
 }
 
 // setKey: an API-key login, as codex login --with-api-key makes it, its ChatGPT login gone.
-func (codexFormat) setKey(_ map[string]any, _, key string) map[string]any {
-	return map[string]any{"auth_mode": "apikey", "OPENAI_API_KEY": key}
+func (codexFormat) setKey(_ map[string]any, _ string, key redact.Secret) map[string]any {
+	m := map[string]any{"auth_mode": "apikey"}
+	setToken(m, "OPENAI_API_KEY", key)
+	return m
 }
 
-func (codexFormat) chatGPT(m map[string]any) []string {
+func (codexFormat) chatGPT(m map[string]any) []redact.Secret {
 	t := obj(m, "tokens")
-	return []string{str(t, "id_token"), str(t, "access_token")}
+	return []redact.Secret{token(t, "id_token"), token(t, "access_token")}
 }
 
 func (opencodeFormat) bindings(m map[string]any, salt string) []proxy.Binding {
@@ -237,19 +240,21 @@ func (opencodeFormat) vmCopy(m map[string]any, f File) (map[string]any, VMFile) 
 	return opencodeVM(m, f.Salt, f.Pass), c
 }
 
-func (opencodeFormat) get(ctx context.Context, f File, name string) (string, error) {
+func (opencodeFormat) get(ctx context.Context, f File, name string) (redact.Secret, error) {
 	return f.opencodeGet(ctx, name)
 }
 
 // setKey: provider's entry, its other providers kept.
-func (opencodeFormat) setKey(m map[string]any, provider, key string) map[string]any {
-	m[provider] = map[string]any{"type": "api", "key": key}
+func (opencodeFormat) setKey(m map[string]any, provider string, key redact.Secret) map[string]any {
+	e := map[string]any{"type": "api"}
+	setToken(e, "key", key)
+	m[provider] = e
 	return m
 }
 
-func (opencodeFormat) chatGPT(m map[string]any) []string {
+func (opencodeFormat) chatGPT(m map[string]any) []redact.Secret {
 	if e := obj(m, "openai"); str(e, "type") == "oauth" {
-		return []string{str(e, "access")}
+		return []redact.Secret{token(e, "access")}
 	}
 	return nil
 }
@@ -262,11 +267,14 @@ func (piFormat) vmCopy(m map[string]any, f File) (map[string]any, VMFile) {
 	return piVM(m, f.Salt, f.Pass), c
 }
 
-func (piFormat) get(_ context.Context, f File, name string) (string, error) { return f.piGet(name) }
+func (piFormat) get(_ context.Context, f File, name string) (redact.Secret, error) {
+	return f.piGet(name)
+}
 
 // setKey: provider's entry, its env kept, its other providers kept.
-func (piFormat) setKey(m map[string]any, provider, key string) map[string]any {
-	e := map[string]any{"type": "api_key", "key": key}
+func (piFormat) setKey(m map[string]any, provider string, key redact.Secret) map[string]any {
+	e := map[string]any{"type": "api_key"}
+	setToken(e, "key", key)
 	if env := obj(obj(m, provider), "env"); len(env) > 0 {
 		e["env"] = env
 	}
@@ -284,7 +292,7 @@ func (claudeFormat) vmCopy(m map[string]any, f File) (map[string]any, VMFile) {
 	return c, VMFile{Unknown: claudeAccount(c)}
 }
 
-func (claudeFormat) get(_ context.Context, f File, name string) (string, error) {
+func (claudeFormat) get(_ context.Context, f File, name string) (redact.Secret, error) {
 	return f.claudeGet(name)
 }
 
@@ -296,6 +304,6 @@ func (claudeOAuthFormat) vmCopy(m map[string]any, f File) (map[string]any, VMFil
 	return claudeOAuthVM(m, f.Salt), VMFile{}
 }
 
-func (claudeOAuthFormat) get(ctx context.Context, f File, name string) (string, error) {
+func (claudeOAuthFormat) get(ctx context.Context, f File, name string) (redact.Secret, error) {
 	return f.claudeOAuthGet(ctx, name)
 }

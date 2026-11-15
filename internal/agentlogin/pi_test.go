@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // piHostLogins is a pi auth.json on the host, its keys and tokens fakes (e2efake): the review's
@@ -74,12 +76,12 @@ func TestPiLogins(t *testing.T) {
 	if !slices.Equal(c.Kept, []string{"ollama"}) || !slices.Equal(c.Withheld, withheld) {
 		t.Errorf("kept %v, withheld %v", c.Kept, c.Withheld)
 	}
-	if v, err := f.Get(t.Context(), "pi-anthropic"); err != nil || v != "sk-ant-e2efake" {
-		t.Errorf("Get(pi-anthropic) = %q, %v", v, err)
+	if v, err := f.Get(t.Context(), "pi-anthropic"); err != nil || v.Reveal() != "sk-ant-e2efake" {
+		t.Errorf("Get(pi-anthropic) = %q, %v", v.Reveal(), err)
 	}
 	for _, name := range []string{"pi-openai", "pi-google", "pi-ollama", "pi-openai-codex", "pi-nothing"} {
 		if v, err := f.Get(t.Context(), name); err == nil {
-			t.Errorf("Get(%s) = %q, no error", name, v)
+			t.Errorf("Get(%s) = %q, no error", name, v.Reveal())
 		}
 	}
 }
@@ -92,8 +94,8 @@ func TestPiKeyTemplates(t *testing.T) {
 		"$K": false, "${K}": false, "a$K": false, "a${K}b": false, "$$$K": false, "!cmd": false, "": false,
 	} {
 		m := map[string]any{"anthropic": map[string]any{"type": "api_key", "key": key}}
-		if _, ok := piKey(m, "anthropic"); ok != bound {
-			t.Errorf("piKey(%q) bound = %v, want %v", key, ok, bound)
+		if ok := piBound(m, "anthropic"); ok != bound {
+			t.Errorf("piBound(%q) = %v, want %v", key, ok, bound)
 		}
 	}
 }
@@ -134,8 +136,8 @@ func TestPiSetKey(t *testing.T) {
 		"openai":   map[string]any{"type": "api_key", "key": "old", "env": map[string]any{"OPENAI_ORG": "org-1"}},
 		"lmstudio": map[string]any{"type": "api_key", "key": "lms"},
 	}))
-	must(t, p.SetKey("openai", "sk-new"))
-	must(t, p.SetKey("anthropic", "sk-ant"))
+	must(t, p.SetKey("openai", redact.NewSecret("sk-new")))
+	must(t, p.SetKey("anthropic", redact.NewSecret("sk-ant")))
 	m := readStore(t, p)
 	switch e := obj(m, "openai"); {
 	case str(e, "type") != "api_key" || str(e, "key") != "sk-new" || str(obj(e, "env"), "OPENAI_ORG") != "org-1":
@@ -143,7 +145,7 @@ func TestPiSetKey(t *testing.T) {
 	case str(obj(m, "anthropic"), "key") != "sk-ant" || str(obj(m, "lmstudio"), "key") != "lms":
 		t.Errorf("pi's login: %v", m)
 	}
-	if err := p.SetKey("lmstudio", "k"); err == nil {
+	if err := p.SetKey("lmstudio", redact.NewSecret("k")); err == nil {
 		t.Error("SetKey(pi, lmstudio) took it")
 	}
 	if bs, _ := p.Bindings(); len(bs) != 2 {

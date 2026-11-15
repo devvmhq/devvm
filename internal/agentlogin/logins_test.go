@@ -19,6 +19,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/fetch"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/safefile"
 )
 
@@ -104,10 +105,10 @@ func TestCodexVMCopyHoldsOnlyPlaceholders(t *testing.T) {
 	must(t, json.Unmarshal([]byte(out), &m))
 	tk := m["tokens"].(map[string]any)
 	// Codex decodes these: the account claims survive, and the access token doesn't expire.
-	if c := jwtClaims(tk["id_token"].(string)); c["email"] != "a@b" || c["https://api.openai.com/auth"] == nil {
+	if c := jwtClaims(redact.NewSecret(tk["id_token"].(string))); c["email"] != "a@b" || c["https://api.openai.com/auth"] == nil {
 		t.Errorf("id_token claims = %v", c)
 	}
-	if exp, ok := jwtExp(tk["access_token"].(string)); !ok || exp.Before(time.Now().AddDate(10, 0, 0)) {
+	if exp, ok := jwtExp(redact.NewSecret(tk["access_token"].(string))); !ok || exp.Before(time.Now().AddDate(10, 0, 0)) {
 		t.Errorf("access_token exp = %v %v", exp, ok)
 	}
 	if tk["account_id"] != "acct-1" || m["auth_mode"] != "chatgpt" {
@@ -175,7 +176,7 @@ func TestCodexGetRefreshesOnTheHostWhenDue(t *testing.T) {
 		"access_token": jwtWith(time.Now().Add(time.Minute), nil), "refresh_token": "rt-old", "id_token": "x",
 	}})}
 	v, err := f.Get(t.Context(), "codex")
-	if err != nil || v != "at-new" {
+	if err != nil || v.Reveal() != "at-new" {
 		t.Fatalf("value = %q, %v", v, err)
 	}
 	if !strings.HasPrefix(*got, "application/json ") || !strings.Contains(*got, `"refresh_token":"rt-old"`) ||
@@ -205,7 +206,7 @@ func TestRefreshGoesThroughTheProxysRoute(t *testing.T) {
 	f := File{Kind: Codex, TokenURL: "http://auth.example/oauth/token", Path: writeFile(t, map[string]any{"tokens": map[string]any{ //nolint:gosec // fake values
 		"access_token": jwtWith(time.Now(), nil), "refresh_token": "rt-old",
 	}})}
-	if v, err := f.Get(proxy.WithRoute(t.Context(), route), "codex"); err != nil || v != "at-new" {
+	if v, err := f.Get(proxy.WithRoute(t.Context(), route), "codex"); err != nil || v.Reveal() != "at-new" {
 		t.Fatalf("value = %q, %v", v, err)
 	}
 	if target != "http://auth.example/oauth/token" || auth != "Basic YWxpY2U6ZTJlLW5vdC1hLXNlY3JldA==" {
@@ -231,7 +232,7 @@ func TestRefreshTrustsTheProxysRoots(t *testing.T) {
 	}
 	roots := x509.NewCertPool()
 	roots.AddCert(srv.Certificate())
-	if v, err := file().Get(proxy.WithRoots(t.Context(), roots), "codex"); err != nil || v != "at-new" {
+	if v, err := file().Get(proxy.WithRoots(t.Context(), roots), "codex"); err != nil || v.Reveal() != "at-new" {
 		t.Fatalf("value = %q, %v", v, err)
 	}
 }
@@ -245,7 +246,7 @@ func TestRefreshOutlivesItsCaller(t *testing.T) {
 	}})}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if v, err := f.Get(ctx, "codex"); err != nil || v != "at-new" {
+	if v, err := f.Get(ctx, "codex"); err != nil || v.Reveal() != "at-new" {
 		t.Fatalf("value = %q, %v", v, err)
 	}
 }
@@ -269,7 +270,7 @@ func TestRefreshFails(t *testing.T) {
 			})}
 			before, _ := os.ReadFile(f.Path)
 			if v, err := f.Get(t.Context(), "opencode-openai"); err == nil {
-				t.Errorf("value = %q", v)
+				t.Errorf("value = %q", v.Reveal())
 			}
 			if after, _ := os.ReadFile(f.Path); string(after) != string(before) {
 				t.Errorf("host file = %s", after)
@@ -283,10 +284,10 @@ func TestCodexGetLeavesAFreshTokenAlone(t *testing.T) {
 	access := jwtWith(time.Now().Add(time.Hour), nil)
 	f := File{Kind: Codex, TokenURL: u, Path: writeFile(t, map[string]any{"tokens": map[string]any{"access_token": access, "refresh_token": "rt"}, "OPENAI_API_KEY": "sk-k"})}
 	before, _ := os.ReadFile(f.Path)
-	if v, err := f.Get(t.Context(), "codex"); err != nil || v != access {
+	if v, err := f.Get(t.Context(), "codex"); err != nil || v.Reveal() != access {
 		t.Fatalf("value = %q, %v", v, err)
 	}
-	if v, err := f.Get(t.Context(), "codex-key"); err != nil || v != "sk-k" {
+	if v, err := f.Get(t.Context(), "codex-key"); err != nil || v.Reveal() != "sk-k" {
 		t.Fatalf("codex-key = %q, %v", v, err)
 	}
 	after, _ := os.ReadFile(f.Path)
@@ -314,7 +315,7 @@ func TestGetRefuses(t *testing.T) {
 		{File{Kind: "gemini", Path: codex}, "gemini"},
 	} {
 		if v, err := tc.f.Get(t.Context(), tc.name); err == nil {
-			t.Errorf("%s %s = %q", tc.f.Kind, tc.name, v)
+			t.Errorf("%s %s = %q", tc.f.Kind, tc.name, v.Reveal())
 		}
 	}
 	for _, f := range []File{{Kind: "gemini", Path: codex}, {Kind: Codex, Path: filepath.Join(t.TempDir(), "none.json")}} {
@@ -359,14 +360,14 @@ func TestOpencodeLogins(t *testing.T) {
 	if strings.Contains(out, `"local"`) || kept != nil {
 		t.Errorf("an unknown provider's key reached the VM (kept %v):\n%s", kept, out)
 	}
-	if v, _ := f.Get(t.Context(), "opencode-anthropic"); v != "sk-ant-real" {
-		t.Errorf("anthropic = %q", v)
+	if v, _ := f.Get(t.Context(), "opencode-anthropic"); v.Reveal() != "sk-ant-real" {
+		t.Errorf("anthropic = %q", v.Reveal())
 	}
-	if v, _ := f.Get(t.Context(), "opencode-github-copilot"); v != "gho_real" {
-		t.Errorf("copilot = %q", v)
+	if v, _ := f.Get(t.Context(), "opencode-github-copilot"); v.Reveal() != "gho_real" {
+		t.Errorf("copilot = %q", v.Reveal())
 	}
 	// openai's access token has expired: refreshed here, as a form, and written back.
-	if v, err := f.Get(t.Context(), "opencode-openai"); err != nil || v != "at-new" {
+	if v, err := f.Get(t.Context(), "opencode-openai"); err != nil || v.Reveal() != "at-new" {
 		t.Fatalf("openai = %q, %v", v, err)
 	}
 	if !strings.HasPrefix(*got, "application/x-www-form-urlencoded ") || !strings.Contains(*got, "refresh_token=rt-old") {
@@ -403,7 +404,7 @@ func TestOpencodeVMCopy(t *testing.T) {
 	must(t, err)
 	var vm map[string]any
 	must(t, json.Unmarshal(c.Data, &vm))
-	ph := openaiPlaceholder(str(obj(vm, "openai"), "access"), "s1")
+	ph := openaiPlaceholder(redact.NewSecret(str(obj(vm, "openai"), "access")), "s1")
 	var wantVM map[string]any
 	must(t, json.Unmarshal([]byte(`{
 		"anthropic": {"type": "api", "key": "devvm-proxy-managed-opencode-anthropic-s1"},
@@ -491,7 +492,7 @@ func TestClaudeMCP(t *testing.T) {
 		!strings.Contains(vm, bs[0].Placeholder) || !strings.HasSuffix(bs[0].Placeholder, "-s4lt") {
 		t.Fatalf("bindings %+v", bs)
 	}
-	if v, err := f.Get(t.Context(), bs[0].Name); err != nil || v != "Bearer remote-secret" {
+	if v, err := f.Get(t.Context(), bs[0].Name); err != nil || v.Reveal() != "Bearer remote-secret" {
 		t.Errorf("get %s: %q %v", bs[0].Name, v, err)
 	}
 }

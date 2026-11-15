@@ -30,6 +30,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 const (
@@ -106,53 +107,55 @@ func scopesOf(o map[string]any) []string {
 
 // claudeOAuthGet is the OAuth login's access token, refreshed here when it's due, as Claude Code
 // refreshes it, written back under the file's lock.
-func (f File) claudeOAuthGet(ctx context.Context, name string) (string, error) {
+func (f File) claudeOAuthGet(ctx context.Context, name string) (redact.Secret, error) {
 	if name != ClaudeOAuthName {
-		return "", fmt.Errorf("no Claude Code login %q", name)
+		return redact.Secret{}, fmt.Errorf("no Claude Code login %q", name)
 	}
 	unlock, err := lockLogin(f.Path)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", ErrClaudeNoLogin
+		return redact.Secret{}, ErrClaudeNoLogin
 	} else if err != nil {
-		return "", err
+		return redact.Secret{}, err
 	}
 	defer unlock()
 	m, err := readJSON(f.Path)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", ErrClaudeNoLogin
+		return redact.Secret{}, ErrClaudeNoLogin
 	} else if err != nil {
-		return "", err
+		return redact.Secret{}, err
 	}
 	o := claudeOAuth(m)
-	if str(o, "accessToken") == "" {
-		return "", ErrClaudeNoLogin
+	at := token(o, "accessToken")
+	if at.Empty() {
+		return redact.Secret{}, ErrClaudeNoLogin
 	}
 	exp, _ := o["expiresAt"].(json.Number)
 	ms, _ := exp.Int64()
 	if time.Until(time.UnixMilli(ms)) > refreshMargin {
-		return str(o, "accessToken"), nil
+		return at, nil
 	}
-	fields := map[string]string{"grant_type": grantRefresh, "refresh_token": str(o, "refreshToken"), "client_id": claudeClientID}
+	fields := map[string]string{"client_id": claudeClientID}
 	if sc := scopesOf(o); len(sc) > 0 {
 		fields["scope"] = strings.Join(sc, " ")
 	}
-	nt, err := f.refresh(ctx, false, fields)
-	if err == nil && !claudeTokenOK(str(nt, "access_token")) {
+	nt, err := f.refresh(ctx, false, token(o, "refreshToken"), fields)
+	if err == nil && !claudeTokenOK(token(nt, "access_token")) {
 		err = errors.New("the reply's access token isn't Claude Code's")
 	} else if err == nil {
 		err = claudeScopesOK(strings.Fields(str(nt, "scope")), false)
 	}
 	if err != nil {
-		return "", &RefreshError{Agent: agents.Claude, Err: err}
+		return redact.Secret{}, &RefreshError{Agent: agents.Claude, Err: err}
 	}
-	o["accessToken"], o["expiresAt"] = str(nt, "access_token"), expiresAt(nt)
-	if v := str(nt, "refresh_token"); v != "" {
-		o["refreshToken"] = v
+	setToken(o, "accessToken", token(nt, "access_token"))
+	o["expiresAt"] = expiresAt(nt)
+	if v := token(nt, "refresh_token"); !v.Empty() {
+		setToken(o, "refreshToken", v)
 	}
 	if sc := str(nt, "scope"); sc != "" {
 		o["scopes"] = strings.Fields(sc)
 	}
-	return str(o, "accessToken"), writeRefreshed(f.Path, m)
+	return token(o, "accessToken"), writeRefreshed(f.Path, m)
 }
 
 // claudeCapture saves a Claude Code reply in m, its .credentials.json: its OAuth login
@@ -160,8 +163,8 @@ func (f File) claudeOAuthGet(ctx context.Context, name string) (string, error) {
 // (claudeInference), so a Console login is refused. It returns m and the VM's reply, with its
 // account and organization.
 func claudeCapture(m map[string]any, t tokenRequest, r map[string]any, salt string) (map[string]any, map[string]any, error) {
-	at, rt := str(r, "access_token"), str(r, "refresh_token")
-	if !claudeTokenOK(at) || t.grant() == grantCode && rt == "" {
+	at, rt := token(r, "access_token"), token(r, "refresh_token")
+	if !claudeTokenOK(at) || t.grant() == grantCode && rt.Empty() {
 		return nil, nil, errNoLogin
 	}
 	o := claudeOAuth(m)
@@ -172,16 +175,17 @@ func claudeCapture(m map[string]any, t tokenRequest, r map[string]any, salt stri
 		o = map[string]any{}
 		m = map[string]any{"claudeAiOauth": o}
 	}
-	o["accessToken"], o["expiresAt"] = at, expiresAt(r)
-	if rt != "" {
-		o["refreshToken"] = rt
+	setToken(o, "accessToken", at)
+	o["expiresAt"] = expiresAt(r)
+	if !rt.Empty() {
+		setToken(o, "refreshToken", rt)
 	}
 	if sc := str(r, "scope"); sc != "" {
 		o["scopes"] = strings.Fields(sc)
 	}
 	vm := vmReply(r, "account", "organization")
 	vm["access_token"] = claudeOAuthPlaceholder(salt)
-	if rt != "" {
+	if !rt.Empty() {
 		vm["refresh_token"] = managed
 	}
 	return m, vm, nil
@@ -189,9 +193,10 @@ func claudeCapture(m map[string]any, t tokenRequest, r map[string]any, salt stri
 
 // claudeTokenOK reports whether tok is shaped as Claude Code's access tokens are: its start, then
 // only characters a header and the Keychain's command line take.
-func claudeTokenOK(tok string) bool {
-	return strings.HasPrefix(tok, claudeTokenStart) &&
-		!strings.ContainsFunc(tok, func(r rune) bool { return r <= ' ' || r == '"' || r == '\\' || r == 0x7f })
+func claudeTokenOK(tok redact.Secret) bool {
+	v := tok.Reveal() //nolint:forbidigo // the token's shape, checked before it's saved
+	return strings.HasPrefix(v, claudeTokenStart) &&
+		!strings.ContainsFunc(v, func(r rune) bool { return r <= ' ' || r == '"' || r == '\\' || r == 0x7f })
 }
 
 // claudeScopesOK refuses a login devvm doesn't keep, by the scopes its reply grants: one that can
@@ -232,17 +237,17 @@ func SetupToken(ctype string, body []byte) bool {
 // setup-token's request req (SetupToken), and the reply the VM gets: placeholder in its place, a
 // refresh token only managed, and its account and organization. A reply without a token that
 // starts as Claude Code's do is refused.
-func ClaudeToken(ctype string, req, reply []byte, placeholder string) (string, []byte, error) {
+func ClaudeToken(ctype string, req, reply []byte, placeholder string) (redact.Secret, []byte, error) {
 	if !SetupToken(ctype, req) {
-		return "", nil, errGrant
+		return redact.Secret{}, nil, errGrant
 	}
 	var r map[string]any
 	if json.Unmarshal(reply, &r) != nil || r == nil {
-		return "", nil, errors.New("the reply isn't a JSON object")
+		return redact.Secret{}, nil, errors.New("the reply isn't a JSON object")
 	}
-	at := str(r, "access_token")
-	if !strings.HasPrefix(at, claudeTokenStart) {
-		return "", nil, errNoLogin
+	at := token(r, "access_token")
+	if !strings.HasPrefix(at.Reveal(), claudeTokenStart) { //nolint:forbidigo // the token's shape, checked before it's saved
+		return redact.Secret{}, nil, errNoLogin
 	}
 	vm := vmReply(r, "account", "organization")
 	vm["access_token"] = placeholder

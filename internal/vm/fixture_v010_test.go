@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/devvmhq/devvm/internal/agentlogin"
 	"github.com/devvmhq/devvm/internal/gitprotect"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
@@ -45,7 +46,7 @@ func checkV010App(t *testing.T, app, db *state.VM) {
 	if tier := netpolicy.TierOf(app); tier != netpolicy.TierAllowlist || !tier.Confined() {
 		t.Errorf("app's tier: %q", tier)
 	}
-	if n, _ := netpolicy.Of(app); n.Made.ProxyKey == "" || n.Made.ProxySalt == "" || n.Made.Check != netpolicy.CheckOK {
+	if n, _ := netpolicy.Of(app); n.Made.ProxyKey.Empty() || n.Made.ProxySalt == "" || n.Made.Check != netpolicy.CheckOK {
 		t.Errorf("app's net: %+v", n)
 	}
 	if p, _ := ports.Of(app); p.Forward != "3000,8080" || p.Host.SSH == 0 || p.Host.Proxy == 0 {
@@ -167,6 +168,38 @@ func checkV010Agents(t *testing.T, d paths.Dirs) {
 	} {
 		if _, err := os.Stat(f); err != nil {
 			t.Error(err)
+		}
+	}
+	checkV010Logins(t, d)
+}
+
+// checkV010Logins: 0.1.0's login files give the proxy their keys, and
+// reading them, for a lookup, a VM's copy or its bindings, leaves each
+// file's bytes as the release wrote them.
+func checkV010Logins(t *testing.T, d paths.Dirs) {
+	t.Helper()
+	before := map[string][]byte{}
+	for _, kind := range []string{"claude", "codex"} {
+		b, err := os.ReadFile(secrets.LoginFile(d, kind))
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[kind] = b
+	}
+	codex := agentlogin.File{Kind: "codex", Path: secrets.LoginFile(d, "codex"), Salt: "0123456789abcdef"}
+	if v, err := codex.Get(t.Context(), "codex-key"); v.Reveal() != "sk-testfake-codex" || err != nil {
+		t.Errorf("codex-key = %q, %v", v.Reveal(), err)
+	}
+	for _, kind := range []string{"claude", "codex"} {
+		f := agentlogin.File{Kind: kind, Path: secrets.LoginFile(d, kind), Salt: "0123456789abcdef"}
+		if _, err := f.VMCopy(); err != nil {
+			t.Errorf("%s: VMCopy: %v", kind, err)
+		}
+		if _, err := f.Bindings(); err != nil {
+			t.Errorf("%s: Bindings: %v", kind, err)
+		}
+		if after, _ := os.ReadFile(f.Path); string(after) != string(before[kind]) {
+			t.Errorf("%s's login file changed:\n%s\nthe release wrote\n%s", kind, after, before[kind])
 		}
 	}
 }

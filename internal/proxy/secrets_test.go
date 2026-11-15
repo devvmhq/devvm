@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/safefile"
 )
 
@@ -81,7 +82,10 @@ func fakeSecret(s *secrets, value string) *[]Binding {
 	var asked []Binding
 	s.valueMu.Lock()
 	defer s.valueMu.Unlock()
-	s.lookup = func(_ context.Context, b Binding) (string, error) { asked = append(asked, b); return value, nil }
+	s.lookup = func(_ context.Context, b Binding) (redact.Secret, error) {
+		asked = append(asked, b)
+		return redact.NewSecret(value), nil
+	}
 	s.values = map[valueKey]cached{}
 	return &asked
 }
@@ -419,7 +423,10 @@ func TestLookupRoots(t *testing.T) {
 	must(t, err)
 	rootsOf := func(c Config) *x509.CertPool {
 		var roots *x509.CertPool
-		lookup := func(ctx context.Context, _ Binding) (string, error) { roots = RootsOf(ctx); return "v", nil }
+		lookup := func(ctx context.Context, _ Binding) (redact.Secret, error) {
+			roots = RootsOf(ctx)
+			return redact.NewSecret("v"), nil
+		}
 		s, err := newServer(c, IO{Secret: lookup}, quiet(), io.Discard)
 		must(t, err)
 		_, err = s.secrets.value(t.Context(), Binding{Name: "codex", Kind: KindLogin, Agent: "codex"})
@@ -628,23 +635,23 @@ func TestSecretValueLooksUpInProcess(t *testing.T) {
 	asked := fakeSecret(s, " real\n")
 	b := Binding{Name: "codex", Kind: KindLogin, Agent: "codex"}
 	for range 2 {
-		if v, err := s.value(t.Context(), b); v != "real" || err != nil {
-			t.Fatalf("value = %q, %v", v, err)
+		if v, err := s.value(t.Context(), b); v.Reveal() != "real" || err != nil {
+			t.Fatalf("value = %q, %v", v.Reveal(), err)
 		}
 	}
 	if len(*asked) != 1 || !reflect.DeepEqual((*asked)[0], b) {
 		t.Errorf("looked up %+v, want %+v once", *asked, b)
 	}
-	s.values[valueKeyOf(b)] = cached{"real", time.Now().Add(-loginTTL)}
+	s.values[valueKeyOf(b)] = cached{redact.NewSecret("real"), time.Now().Add(-loginTTL)}
 	if _, err := s.value(t.Context(), b); err != nil || len(*asked) != 2 {
 		t.Errorf("an expired value: %v, %d lookups", err, len(*asked))
 	}
 	s.values = map[valueKey]cached{}
-	s.lookup = func(context.Context, Binding) (string, error) { return "", errors.New("locked") }
+	s.lookup = func(context.Context, Binding) (redact.Secret, error) { return redact.Secret{}, errors.New("locked") }
 	if _, err := s.value(t.Context(), b); err == nil || !strings.Contains(err.Error(), "codex: locked") {
 		t.Errorf("a failed lookup: %v", err)
 	}
-	s.lookup = func(context.Context, Binding) (string, error) { return " ", nil }
+	s.lookup = func(context.Context, Binding) (redact.Secret, error) { return redact.NewSecret(" "), nil }
 	if _, err := s.value(t.Context(), b); err == nil {
 		t.Error("an empty value was taken")
 	}
@@ -667,15 +674,17 @@ func TestSecretValueLooksUpInProcess(t *testing.T) {
 func TestValuesCachedByBinding(t *testing.T) {
 	t.Parallel()
 	s := newSecrets("", nil, quiet())
-	s.lookup = func(_ context.Context, b Binding) (string, error) { return b.Kind + "-value", nil }
+	s.lookup = func(_ context.Context, b Binding) (redact.Secret, error) {
+		return redact.NewSecret(b.Kind + "-value"), nil
+	}
 	login := Binding{Name: "pi-openai", Kind: KindLogin, Agent: "pi"}
 	secret := Binding{Name: "pi-openai", Kind: KindSecret}
 	for _, tc := range []struct {
 		b    Binding
 		want string
 	}{{login, "login-value"}, {secret, "secret-value"}, {login, "login-value"}} {
-		if v, err := s.value(t.Context(), tc.b); v != tc.want || err != nil {
-			t.Errorf("value(%+v) = %q, %v, want %q", tc.b, v, err, tc.want)
+		if v, err := s.value(t.Context(), tc.b); v.Reveal() != tc.want || err != nil {
+			t.Errorf("value(%+v) = %q, %v, want %q", tc.b, v.Reveal(), err, tc.want)
 		}
 	}
 }
@@ -975,7 +984,7 @@ func TestBindingsChangeDropsCachedValues(t *testing.T) {
 	writeBindings(t, path)
 	s.all()
 	s.valueMu.Lock()
-	s.values[valueKey{name: "t"}] = cached{"old", time.Now()}
+	s.values[valueKey{name: "t"}] = cached{redact.NewSecret("old"), time.Now()}
 	s.valueMu.Unlock()
 	later := time.Now().Add(2 * time.Second)
 	must(t, os.Chtimes(path, later, later))

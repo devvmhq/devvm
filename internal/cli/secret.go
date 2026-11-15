@@ -7,6 +7,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/vm"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -142,9 +143,9 @@ func saveSecret(cmd *cobra.Command, a *app, name string, o secretSetOpts) error 
 	}, msg.SecretFailed); err != nil {
 		return err
 	}
-	var given string
+	var given redact.Secret
 	if o.stdin {
-		given = u.Line()
+		given = redact.NewSecret(u.Line())
 	} else {
 		howto, prompt := msg.GithubTokenHowto(), msg.TokenPrompt()
 		switch {

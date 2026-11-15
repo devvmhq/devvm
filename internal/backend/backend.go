@@ -18,6 +18,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -520,7 +521,7 @@ type Confinement struct {
 	// devvm's proxy listens on (host 127.0.0.1), and the password the
 	// guest's proxy settings carry, with ProxyUser (ProxyURL).
 	ProxyPort     int
-	ProxyPassword string
+	ProxyPassword redact.Secret
 	// Env is more guest environment, for every login (the proxy's CA
 	// files, NO_PROXY).
 	Env map[string]string

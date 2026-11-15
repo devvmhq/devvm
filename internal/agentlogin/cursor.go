@@ -27,6 +27,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // Where Cursor's CLI logs in and sends its login.
@@ -111,7 +112,7 @@ var cursorKeep = keep{bound: []string{"accessToken", "refreshToken"}}
 // cursorPlaceholder is the VM's in place of Cursor's access token at, a JWT: one the CLI reads as
 // lasting until farFuture, so it never thinks the login expired, with at's sub, its account's ID,
 // which the CLI names the repos it indexes by.
-func cursorPlaceholder(at, salt string) string {
+func cursorPlaceholder(at redact.Secret, salt string) string {
 	c := map[string]any{"exp": farFuture, "devvm": salted("placeholder", salt)}
 	if sub := str(jwtClaims(at), "sub"); sub != "" {
 		c["sub"] = sub
@@ -125,8 +126,8 @@ func (cursorFormat) kind() string { return agents.Cursor }
 
 // bindings: one for each route's RPCs and paths, all of one name and placeholder.
 func (cursorFormat) bindings(m map[string]any, salt string) []proxy.Binding {
-	at := str(m, "accessToken")
-	if at == "" {
+	at := token(m, "accessToken")
+	if at.Empty() {
 		return nil
 	}
 	var bs []proxy.Binding
@@ -142,7 +143,7 @@ func (cursorFormat) bindings(m map[string]any, salt string) []proxy.Binding {
 // Bedrock's credentials).
 func (cursorFormat) vmCopy(m map[string]any, f File) (map[string]any, VMFile) {
 	c, unknown := cursorKeep.apply(m)
-	if at := str(m, "accessToken"); at != "" {
+	if at := token(m, "accessToken"); !at.Empty() {
 		c["accessToken"], c["refreshToken"] = cursorPlaceholder(at, f.Salt), managed
 	}
 	return c, VMFile{Unknown: unknown}
@@ -152,20 +153,20 @@ func (cursorFormat) vmCopy(m map[string]any, f File) (map[string]any, VMFile) {
 var errCursorExpired = errors.New("the login expired, and Cursor's CLI has no refresh of a login")
 
 // get: the access token, read again, while it lasts.
-func (cursorFormat) get(_ context.Context, f File, name string) (string, error) {
+func (cursorFormat) get(_ context.Context, f File, name string) (redact.Secret, error) {
 	if name != cursorLogin {
-		return "", errors.New("no Cursor login " + name)
+		return redact.Secret{}, errors.New("no Cursor login " + name)
 	}
 	m, err := readJSON(f.Path)
 	if err != nil {
-		return "", err
+		return redact.Secret{}, err
 	}
-	at := str(m, "accessToken")
-	if at == "" {
-		return "", errors.New("the Cursor login in devvm's agent store has no access token")
+	at := token(m, "accessToken")
+	if at.Empty() {
+		return redact.Secret{}, errors.New("the Cursor login in devvm's agent store has no access token")
 	}
 	if exp, ok := jwtExp(at); ok && time.Until(exp) <= 0 {
-		return "", &RefreshError{Agent: agents.Cursor, Err: errCursorExpired}
+		return redact.Secret{}, &RefreshError{Agent: agents.Cursor, Err: errCursorExpired}
 	}
 	return at, nil
 }
@@ -187,15 +188,18 @@ func (cursorFormat) poll(t tokenRequest) bool {
 // capture: the poll's success replaces the store's login with its tokens. A reply without both
 // (an xAI sign-in's, which names its tokens otherwise) is refused, and nothing is saved.
 func (cursorFormat) capture(_ map[string]any, _ tokenRequest, r map[string]any, salt string) (map[string]any, map[string]any, error) {
-	at, rt := str(r, "accessToken"), str(r, "refreshToken")
-	if at == "" || rt == "" {
+	at, rt := token(r, "accessToken"), token(r, "refreshToken")
+	if at.Empty() || rt.Empty() {
 		return nil, nil, errNoLogin
 	}
 	vm := map[string]any{"accessToken": cursorPlaceholder(at, salt), "refreshToken": managed}
 	if id, ok := r["selectedTeamId"]; ok && plainField(id) {
 		vm["selectedTeamId"] = id
 	}
-	return map[string]any{"accessToken": at, "refreshToken": rt}, vm, nil
+	m := map[string]any{}
+	setToken(m, "accessToken", at)
+	setToken(m, "refreshToken", rt)
+	return m, vm, nil
 }
 
 // managedReply: none, as Cursor's CLI never refreshes a login.

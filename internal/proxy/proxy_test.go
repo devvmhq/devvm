@@ -27,6 +27,8 @@ import (
 	"testing/fstest"
 	"time"
 	"unicode/utf8"
+
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // quiet is a log that keeps nothing.
@@ -709,7 +711,7 @@ func TestOpen(t *testing.T) {
 	if !e.pol.byName("unresolvable.test", 443) || e.pol.addrDenied(netip.MustParseAddr("127.0.0.1"), 22) {
 		t.Error("open: a name or an address held back")
 	}
-	if err := (Config{Open: true, Password: "pw", Listen: "127.0.0.1:0", Policies: []string{"/p"}}).check(); err == nil {
+	if err := (Config{Open: true, Password: redact.NewSecret("pw"), Listen: "127.0.0.1:0", Policies: []string{"/p"}}).check(); err == nil {
 		t.Error("an open config with policies")
 	}
 }
@@ -888,7 +890,7 @@ func TestAddressDenyAppliesToNames(t *testing.T) {
 // With a password, every request needs it (user devvm): CONNECT, absolute-form and devvm.proxy alike.
 func TestProxyAuth(t *testing.T) {
 	t.Parallel()
-	addr := listen(t, testServer(t, Config{Password: "k3y"}, ""))
+	addr := listen(t, testServer(t, Config{Password: redact.NewSecret("k3y")}, ""))
 	basic := func(s string) string { return "Basic " + base64.StdEncoding.EncodeToString([]byte(s)) }
 	for _, c := range []struct {
 		auth string
@@ -929,8 +931,8 @@ func TestServersApart(t *testing.T) {
 	other := filepath.Join(dir, "other")
 	must(t, os.Mkdir(other, 0o700))
 	writeCA(t, other)
-	a := testServer(t, Config{VM: "devvm-a", Password: "pa", CA: filepath.Join(dir, "ca.pem"), CAKey: filepath.Join(dir, "ca.key")}, "")
-	b := testServer(t, Config{VM: "devvm-b", Password: "pb", CA: filepath.Join(other, "ca.pem"), CAKey: filepath.Join(other, "ca.key")}, "")
+	a := testServer(t, Config{VM: "devvm-a", Password: redact.NewSecret("pa"), CA: filepath.Join(dir, "ca.pem"), CAKey: filepath.Join(dir, "ca.key")}, "")
+	b := testServer(t, Config{VM: "devvm-b", Password: redact.NewSecret("pb"), CA: filepath.Join(other, "ca.pem"), CAKey: filepath.Join(other, "ca.key")}, "")
 	aEvents, bEvents := logs(a), logs(b)
 	aAddr, bAddr := listen(t, a), listen(t, b)
 	auth := func(pw string) string { return "Proxy-Authorization: " + authOf(ProxyUser, pw) + "\r\n" }
@@ -957,11 +959,11 @@ func TestServersApart(t *testing.T) {
 	fakeSecret(a.secrets, "a-value")
 	fakeSecret(b.secrets, "b-value")
 	bind := Binding{Name: "t", Kind: KindSecret}
-	if v, err := a.secrets.value(t.Context(), bind); v != "a-value" || err != nil {
-		t.Errorf("a's value: %q, %v", v, err)
+	if v, err := a.secrets.value(t.Context(), bind); v.Reveal() != "a-value" || err != nil {
+		t.Errorf("a's value: %q, %v", v.Reveal(), err)
 	}
-	if v, err := b.secrets.value(t.Context(), bind); v != "b-value" || err != nil {
-		t.Errorf("b's value: %q, %v", v, err)
+	if v, err := b.secrets.value(t.Context(), bind); v.Reveal() != "b-value" || err != nil {
+		t.Errorf("b's value: %q, %v", v.Reveal(), err)
 	}
 	la, err := a.ca.leafFor("api.example.com")
 	must(t, err)
@@ -1212,9 +1214,9 @@ func TestMainRefuses(t *testing.T) {
 		{"-config", filepath.Join(t.TempDir(), "missing")},
 		{"-config", writeConfig(t, Config{Listen: "127.0.0.1:0"})},
 		// Bindings without IO.Secret: no value could go in.
-		{"-config", writeConfig(t, Config{Listen: "127.0.0.1:0", Password: "k3y", Secrets: filepath.Join(t.TempDir(), "secrets.json")})},
+		{"-config", writeConfig(t, Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), Secrets: filepath.Join(t.TempDir(), "secrets.json")})},
 		// The company proxy's password in a secret, without IO.Secret.
-		{"-config", writeConfig(t, Config{Listen: "127.0.0.1:0", Password: "k3y", Upstream: &Upstream{HTTPS: "http://u@corp:3128", Secret: UpstreamSecret}})},
+		{"-config", writeConfig(t, Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), Upstream: &Upstream{HTTPS: "http://u@corp:3128", Secret: UpstreamSecret}})},
 	} {
 		if err := Main(args, std); err == nil {
 			t.Errorf("%q: no error", args)
@@ -1227,7 +1229,7 @@ func TestMainRefuses(t *testing.T) {
 	}
 	// A built-in policy devvm's files lack: a devvm bug, so the proxy never listens.
 	std.FS = fstest.MapFS{"layers/base.policy": {Data: []byte("base.test\n")}}
-	c := Config{Listen: "127.0.0.1:0", Password: "k3y", BuiltinPolicies: []string{"layers/base.policy", "layers/gone.policy"}}
+	c := Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), BuiltinPolicies: []string{"layers/base.policy", "layers/gone.policy"}}
 	if err := Main([]string{"-config", writeConfig(t, c)}, std); err == nil || !strings.Contains(err.Error(), "built-in policy layers/gone.policy") {
 		t.Errorf("a missing built-in: %v", err)
 	}
@@ -1264,7 +1266,7 @@ func TestMainRuns(t *testing.T) {
 	done := make(chan error)
 	go func() {
 		done <- run([]string{"--config", writeConfig(t, Config{
-			Listen: addr, VM: "devvm-x", Password: "k3y", Lifeline: pidFile, Log: logFile,
+			Listen: addr, VM: "devvm-x", Password: redact.NewSecret("k3y"), Lifeline: pidFile, Log: logFile,
 			Policies: []string{filepath.Join(dir, "missing")}, Links: filepath.Join(dir, "devvm-x.links.json"),
 			BuiltinPolicies: []string{"layers/base.policy"},
 		})}, IO{Stdout: io.Discard, Stderr: errs, FS: fstest.MapFS{"layers/base.policy": {Data: []byte("base.test:8443\n")}}}, tick)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // golden compares got with testdata/golden/name, or writes it there with UPDATE_GOLDEN=1 in the
@@ -125,7 +126,7 @@ func TestLoginsGolden(t *testing.T) {
 			for _, provider := range append([]string{""}, KeyProviders(kind)...) {
 				k := File{Kind: kind, Path: filepath.Join(t.TempDir(), "auth.json")}
 				must(t, os.WriteFile(k.Path, []byte(data), 0o600))
-				if err := k.SetKey(provider, "sk-e2efake-saved"); err != nil {
+				if err := k.SetKey(provider, redact.NewSecret("sk-e2efake-saved")); err != nil {
 					out.WriteString("set key " + provider + ": " + err.Error() + "\n")
 					continue
 				}

@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
 )
 
@@ -195,7 +196,7 @@ func (y Yours) locked(ctx context.Context, do func(cs []Secret) error) error {
 // it keeps; a new one gets an ID of its own. When the definition of a new
 // one can't be written, its value goes again. A variable another secret
 // of yours gives VMs is secret_env_taken.
-func (y Yours) Save(ctx context.Context, sec Secret, value string) error {
+func (y Yours) Save(ctx context.Context, sec Secret, value redact.Secret) error {
 	return y.locked(ctx, func(cs []Secret) error {
 		if err := envFree(cs, sec); err != nil {
 			return err

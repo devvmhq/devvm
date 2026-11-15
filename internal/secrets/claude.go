@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
 )
 
@@ -31,8 +32,10 @@ type Claude struct{ s *Store }
 func ClaudeOf(s *Store) Claude { return Claude{s} }
 
 // Env is the Claude Code token in devvm's environment
-// (CLAUDE_CODE_OAUTH_TOKEN), which wins over the saved one, or "".
-func (c Claude) Env() string { return c.s.Getenv("CLAUDE_CODE_OAUTH_TOKEN") }
+// (CLAUDE_CODE_OAUTH_TOKEN), which wins over the saved one, or empty.
+func (c Claude) Env() redact.Secret {
+	return redact.NewSecret(c.s.Getenv("CLAUDE_CODE_OAUTH_TOKEN"))
+}
 
 // Login is the Claude Code login VMs get: "token", the claude secret's
 // (Env, or the saved one), which wins as it does in Claude Code; "oauth",
@@ -63,7 +66,7 @@ func (c Claude) lock() (func(), error) {
 
 // saveToken saves a Claude Code token and takes the OAuth login away,
 // under lock.
-func (c Claude) saveToken(ctx context.Context, value string) error {
+func (c Claude) saveToken(ctx context.Context, value redact.Secret) error {
 	if err := c.s.save(ctx, ClaudeToken, value); err != nil {
 		return err
 	}
@@ -88,11 +91,12 @@ func (c Claude) capture(ctx context.Context, agent, salt, ctype string, req, rep
 	defer unlock()
 	if agentlogin.SetupToken(ctype, req) {
 		sec, _ := Lookup(ClaudeToken)
-		tok, vm, err := agentlogin.ClaudeToken(ctype, req, reply, sec.Placeholder(salt))
+		captured, vm, err := agentlogin.ClaudeToken(ctype, req, reply, sec.Placeholder(salt))
 		if err != nil {
 			return nil, true, err
 		}
-		if tok, err = Token(ClaudeToken, tok); err != nil {
+		tok, err := Token(ClaudeToken, captured)
+		if err != nil {
 			return nil, true, err
 		}
 		return vm, true, c.saveToken(ctx, tok)
@@ -112,7 +116,7 @@ func (c Claude) ownSecret(name string) bool { return name == ClaudeToken }
 
 // oauthToken is what the claude secret's binding gets while no token is
 // saved: the OAuth login's access token (Get).
-func (c Claude) oauthToken(ctx context.Context) (string, error) {
+func (c Claude) oauthToken(ctx context.Context) (redact.Secret, error) {
 	return c.s.Get(ctx, proxy.Binding{Kind: proxy.KindLogin, Agent: agents.ClaudeOAuth, Name: agentlogin.ClaudeOAuthName})
 }
 
@@ -167,6 +171,6 @@ func (c Claude) Sums(ctx context.Context) (oauth, token string, err error) {
 	} else if err != nil {
 		return "", "", err
 	}
-	sum := sha256.Sum256([]byte(v))
+	sum := sha256.Sum256([]byte(v.Reveal())) //nolint:forbidigo // a hash, which tells a changed token apart and gives nothing of it away
 	return oauth, hex.EncodeToString(sum[:]), nil
 }

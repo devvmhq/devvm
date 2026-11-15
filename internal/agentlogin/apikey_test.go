@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/agents"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // An API key saved: Codex's login becomes an API-key login, its ChatGPT
@@ -24,7 +25,7 @@ func TestSetKey(t *testing.T) {
 
 	c := storeFile(t, Codex, ".codex/auth.json")
 	must(t, c.lockStoreWrite(map[string]any{"tokens": map[string]any{"access_token": "at"}}))
-	must(t, c.SetKey("", "sk-test"))
+	must(t, c.SetKey("", redact.NewSecret("sk-test")))
 	m := readStore(t, c)
 	if str(m, "OPENAI_API_KEY") != "sk-test" || str(m, "auth_mode") != "apikey" || m["tokens"] != nil {
 		t.Errorf("Codex's login: %v", m)
@@ -35,7 +36,7 @@ func TestSetKey(t *testing.T) {
 
 	o := storeFile(t, Opencode, "auth.json")
 	must(t, o.lockStoreWrite(map[string]any{"openai": map[string]any{"type": "oauth", "access": "a", "refresh": "r", "expires": 1}}))
-	must(t, o.SetKey("anthropic", "sk-ant"))
+	must(t, o.SetKey("anthropic", redact.NewSecret("sk-ant")))
 	m = readStore(t, o)
 	if e := obj(m, "anthropic"); str(e, "type") != "api" || str(e, "key") != "sk-ant" || str(obj(m, "openai"), "refresh") != "r" {
 		t.Errorf("opencode's login: %v", m)
@@ -47,7 +48,7 @@ func TestSetKey(t *testing.T) {
 	}{
 		{c, "anthropic", "k"}, {o, "", "k"}, {o, "lmstudio", "k"}, {c, "", " "}, {c, "", "a\nb"},
 	} {
-		if err := bad.f.SetKey(bad.provider, bad.key); err == nil {
+		if err := bad.f.SetKey(bad.provider, redact.NewSecret(bad.key)); err == nil {
 			t.Errorf("SetKey(%s, %q, %q) took it", bad.f.Kind, bad.provider, bad.key)
 		}
 	}
@@ -68,7 +69,7 @@ func TestOpencodeImport(t *testing.T) {
 		"lmstudio": map[string]any{"type": "api", "key": "lms-kept"},
 		"openai":   map[string]any{"type": "oauth", "access": access, "refresh": "rt-secret", "expires": 1, "accountId": "acct-1"},
 	}))
-	must(t, o.SetKey("anthropic", "sk-ant-secret"))
+	must(t, o.SetKey("anthropic", redact.NewSecret("sk-ant-secret")))
 	o.Salt = "s4lt"
 	c, err := o.VMCopy()
 	must(t, err)
@@ -147,7 +148,7 @@ func TestProviderKeys(t *testing.T) {
 			f := storeFile(t, kind, "auth.json")
 			must(t, f.lockStoreWrite(map[string]any{}))
 			key := id + "-e2efake-key"
-			must(t, f.SetKey(id, key))
+			must(t, f.SetKey(id, redact.NewSecret(key)))
 			f.Salt = "s1"
 			ph := prefix[id] + "devvm-proxy-managed-" + kind + "-" + id + "-s1"
 			bs := bindings(t, f)
@@ -168,7 +169,7 @@ func TestProviderKeys(t *testing.T) {
 			if str(obj(vm, id), "key") != ph || strings.Contains(string(c.Data), "e2efake") || len(c.Withheld) > 0 {
 				t.Errorf("%s's %s VM copy: %s", kind, id, c.Data)
 			}
-			if v, err := f.Get(t.Context(), kind+"-"+id); err != nil || v != key {
+			if v, err := f.Get(t.Context(), kind+"-"+id); err != nil || v.Reveal() != key {
 				t.Errorf("Get(%s-%s) = %q, %v", kind, id, v, err)
 			}
 		}
@@ -200,7 +201,7 @@ func TestChatGPT(t *testing.T) {
 	if e, ok, err := c.ChatGPT(); e != "a@b.test" || !ok || err != nil {
 		t.Errorf("Codex: %q, %v, %v", e, ok, err)
 	}
-	must(t, c.SetKey("", "sk-test"))
+	must(t, c.SetKey("", redact.NewSecret("sk-test")))
 	if _, ok, _ := c.ChatGPT(); ok {
 		t.Error("an API key read as a ChatGPT login")
 	}

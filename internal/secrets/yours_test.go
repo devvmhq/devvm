@@ -10,6 +10,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
 )
 
@@ -41,25 +42,25 @@ func TestCustomStore(t *testing.T) {
 		if cs, err := y.List(); err != nil || len(cs) != 0 {
 			t.Fatalf("no list: %v, %v", cs, err)
 		}
-		if err := y.Save(ctx, stripeDef(t, Def{Header: "x-api-key", Prefix: "sk_"}), "sk_test_e2efake"); err != nil {
+		if err := y.Save(ctx, stripeDef(t, Def{Header: "x-api-key", Prefix: "sk_"}), redact.NewSecret("sk_test_e2efake")); err != nil {
 			t.Fatal(msg.NamesOf(err))
 		}
 		other, _ := Define("other", Def{Hosts: []string{"api.example.com"}, Env: "stripe_api_key"})
-		if err := y.Save(ctx, other, "x"); msg.NamesOf(err) != "secret_env_taken env=stripe_api_key secret=stripe" {
+		if err := y.Save(ctx, other, redact.NewSecret("x")); msg.NamesOf(err) != "secret_env_taken env=stripe_api_key secret=stripe" {
 			t.Errorf("a variable taken: %v", msg.NamesOf(err))
 		}
 		got, ok, err := y.Lookup("stripe")
 		if err != nil || !ok || got.Header != "X-Api-Key" || got.Env != "STRIPE_API_KEY" || got.Prefix != "sk_" || !got.Custom || !idOK(got.ID) {
 			t.Errorf("Lookup = %+v, %v, %v", got, ok, err)
 		}
-		if err := y.Save(ctx, got, "sk_test_e2efake2"); err != nil {
+		if err := y.Save(ctx, got, redact.NewSecret("sk_test_e2efake2")); err != nil {
 			t.Fatal(err)
 		}
 		if again, _, _ := y.Lookup("stripe"); again.ID != got.ID {
 			t.Errorf("saved again, its ID %q, was %q", again.ID, got.ID)
 		}
-		if v, err := s.Value(ctx, "stripe"); v != "sk_test_e2efake2" || err != nil {
-			t.Errorf("Value = %q, %v", v, err)
+		if v, err := s.Value(ctx, "stripe"); v.Reveal() != "sk_test_e2efake2" || err != nil {
+			t.Errorf("Value = %q, %v", v.Reveal(), err)
 		}
 		list, err := os.ReadFile(s.Dirs.CustomSecrets())
 		if err != nil || strings.Contains(string(list), "e2efake") || !strings.Contains(string(list), `"id": "`+got.ID+`"`) {
@@ -89,7 +90,7 @@ func TestCustomStore(t *testing.T) {
 			t.Errorf("Delete again: %v", err)
 		}
 		// A value whose definition was never written: rm takes it away.
-		if err := s.save(ctx, "stripe", "orphan"); err != nil {
+		if err := s.save(ctx, "stripe", redact.NewSecret("orphan")); err != nil {
 			t.Fatal(err)
 		}
 		if !y.HasValue(ctx, "stripe") {
@@ -108,17 +109,17 @@ func TestCustomStore(t *testing.T) {
 // long token never cuts the Keychain's line.
 func TestValueMax(t *testing.T) {
 	s, kc := testStore(t, true, nil)
-	if err := s.Save(t.Context(), "github", "ghp_old"); err != nil {
+	if err := s.Save(t.Context(), "github", redact.NewSecret("ghp_old")); err != nil {
 		t.Fatal(err)
 	}
-	long := strings.Repeat("a", ValueMax+1)
+	long := redact.NewSecret(strings.Repeat("a", ValueMax+1))
 	if _, err := Token("github", long); msg.NamesOf(err) != "token_too_long most=3800" {
 		t.Errorf("Token(long) = %v", msg.NamesOf(err))
 	}
 	if err := s.Save(t.Context(), "github", long); msg.NamesOf(err) != "token_too_long most=3800" || kc["devvm/github"] != "ghp_old" {
 		t.Errorf("Save(long) = %v, the Keychain has %q", msg.NamesOf(err), kc["devvm/github"])
 	}
-	if _, err := Token("github", strings.Repeat("a", ValueMax)); err != nil {
+	if _, err := Token("github", redact.NewSecret(strings.Repeat("a", ValueMax))); err != nil {
 		t.Errorf("Token(ValueMax) = %v", err)
 	}
 }
@@ -130,10 +131,10 @@ func TestGetChecksTheBinding(t *testing.T) {
 	s, _ := testStore(t, true, nil)
 	ctx := t.Context()
 	y := YoursOf(s)
-	if err := y.Save(ctx, stripeDef(t, Def{Hosts: []string{"api.stripe.com", "files.stripe.com"}, Prefix: "sk_", Path: "/v1/"}), "sk_test_e2efake"); err != nil {
+	if err := y.Save(ctx, stripeDef(t, Def{Hosts: []string{"api.stripe.com", "files.stripe.com"}, Prefix: "sk_", Path: "/v1/"}), redact.NewSecret("sk_test_e2efake")); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Save(ctx, "github", "ghp_x"); err != nil {
+	if err := s.Save(ctx, "github", redact.NewSecret("ghp_x")); err != nil {
 		t.Fatal(err)
 	}
 	sec, _, _ := y.Lookup("stripe")
@@ -142,13 +143,13 @@ func TestGetChecksTheBinding(t *testing.T) {
 		Name: "stripe", Kind: proxy.KindSecret, Hosts: []string{"api.stripe.com"}, Header: "Authorization",
 		Placeholder: sec.Placeholder(salt), Path: "/v1/", ID: sec.ID,
 	}
-	if v, err := s.Get(ctx, good); v != "sk_test_e2efake" || err != nil {
-		t.Fatalf("Get = %q, %v", v, msg.NamesOf(err))
+	if v, err := s.Get(ctx, good); v.Reveal() != "sk_test_e2efake" || err != nil {
+		t.Fatalf("Get = %q, %v", v.Reveal(), msg.NamesOf(err))
 	}
 	gh, _ := Lookup("github")
 	ghb := proxy.Binding{Name: "github", Kind: proxy.KindSecret, Hosts: gh.Hosts, Header: "Authorization", Placeholder: gh.Placeholder(salt)}
-	if v, err := s.Get(ctx, ghb); v != "ghp_x" || err != nil {
-		t.Errorf("github's Get = %q, %v", v, msg.NamesOf(err))
+	if v, err := s.Get(ctx, ghb); v.Reveal() != "ghp_x" || err != nil {
+		t.Errorf("github's Get = %q, %v", v.Reveal(), msg.NamesOf(err))
 	}
 	for name, change := range map[string]func(*proxy.Binding){
 		"another host":      func(b *proxy.Binding) { b.Hosts = append(b.Hosts, "evil.example.com") },
@@ -175,11 +176,11 @@ func TestGetChecksTheBinding(t *testing.T) {
 	}
 	// The company proxy's password: the proxy's own lookup, without hosts,
 	// gets it; a binding with hosts never does.
-	if err := s.Save(ctx, "proxy", "pa55"); err != nil {
+	if err := s.Save(ctx, "proxy", redact.NewSecret("pa55")); err != nil {
 		t.Fatal(err)
 	}
-	if v, err := s.Get(ctx, proxy.Binding{Name: "proxy", Kind: proxy.KindSecret}); v != "pa55" || err != nil {
-		t.Errorf("the proxy's own lookup = %q, %v", v, msg.NamesOf(err))
+	if v, err := s.Get(ctx, proxy.Binding{Name: "proxy", Kind: proxy.KindSecret}); v.Reveal() != "pa55" || err != nil {
+		t.Errorf("the proxy's own lookup = %q, %v", v.Reveal(), msg.NamesOf(err))
 	}
 	bad := proxy.Binding{Name: "proxy", Kind: proxy.KindSecret, Hosts: []string{"evil.example.com"}, Header: "Authorization", Placeholder: "x"}
 	if _, err := s.Get(ctx, bad); msg.NamesOf(err) != "secret_binding_changed secret=proxy" {
@@ -197,7 +198,7 @@ func TestWriteFilesCustom(t *testing.T) {
 	s, _ := testStore(t, true, nil)
 	ctx := t.Context()
 	y := YoursOf(s)
-	if err := y.Save(ctx, stripeDef(t, Def{Header: "Authorization", Prefix: "sk_", Scheme: "ApiKey", Path: "/v1/", BasicUser: true}), "sk_test_e2efake"); err != nil {
+	if err := y.Save(ctx, stripeDef(t, Def{Header: "Authorization", Prefix: "sk_", Scheme: "ApiKey", Path: "/v1/", BasicUser: true}), redact.NewSecret("sk_test_e2efake")); err != nil {
 		t.Fatal(err)
 	}
 	sec, _, _ := y.Lookup("stripe")
@@ -226,7 +227,7 @@ func TestWriteFilesCustom(t *testing.T) {
 	// A host gained: the VM keeps the one it had, until it's bound again.
 	grown := sec
 	grown.Hosts = []string{"api.stripe.com", "evil.example.com"}
-	if err := y.Save(ctx, grown, "sk_test_e2efake"); err != nil {
+	if err := y.Save(ctx, grown, redact.NewSecret("sk_test_e2efake")); err != nil {
 		t.Fatal(err)
 	}
 	if data, pol := files(user); data != binding(`"api.stripe.com"`) || pol != "api.stripe.com:443\n" {
@@ -241,7 +242,7 @@ func TestWriteFilesCustom(t *testing.T) {
 	if err := y.Delete(ctx, "stripe", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.Save(ctx, stripeDef(t, Def{Hosts: []string{"other.example.com"}}), "another"); err != nil {
+	if err := y.Save(ctx, stripeDef(t, Def{Hosts: []string{"other.example.com"}}), redact.NewSecret("another")); err != nil {
 		t.Fatal(err)
 	}
 	again, _, _ := y.Lookup("stripe")

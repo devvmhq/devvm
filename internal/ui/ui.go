@@ -20,6 +20,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // The UI is the Reporter devvm's packages report through.
@@ -309,20 +310,21 @@ func (u *UI) readTerminal() (string, error) {
 // Secret reads a value such as a token: in a terminal after q's context
 // and prompt on stderr, without echoing it; with piped answers, a line
 // of input. Where it can't ask, it returns q's refusal, as Ask does.
-func (u *UI) Secret(q msg.Question) (string, error) {
+func (u *UI) Secret(q msg.Question) (redact.Secret, error) {
 	if err := asks(u, q); err != nil {
-		return "", err
+		return redact.Secret{}, err
 	}
 	if !u.stdinTTY {
-		return readLine(u, q)
+		v, err := readLine(u, q)
+		return redact.NewSecret(v), err
 	}
 	u.write(u.stderr, u.errStyle.message(q.M())+" ")
 	v, err := waiting(u, u.readPassword)
 	u.write(u.stderr, "\n")
 	if err != nil || u.Interrupted() {
-		return "", q.Refused(true)
+		return redact.Secret{}, q.Refused(true)
 	}
-	return v, nil
+	return redact.NewSecret(v), nil
 }
 
 // waiting is read's answer, the UI counted as waiting for one meanwhile

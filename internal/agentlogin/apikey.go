@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/devvmhq/devvm/internal/agents"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // KeyProviders are the providers whose API keys devvm agent login saves
@@ -82,8 +83,8 @@ func OpencodeImport(vmCopy []byte) ([]byte, error) {
 // ChatGPT login gone; for one with a key for each provider
 // (agents.ProviderKeys) as provider's entry, of KeyProviders, the other
 // providers kept (a pi entry's env too).
-func (f File) SetKey(provider, key string) error {
-	if strings.TrimSpace(key) == "" || strings.ContainsAny(key, "\r\n") {
+func (f File) SetKey(provider string, key redact.Secret) error {
+	if key.TrimSpace().Empty() || strings.ContainsAny(key.Reveal(), "\r\n") { //nolint:forbidigo // the key's check before it's saved
 		return errors.New("the API key is empty or more than one line")
 	}
 	d, _ := agents.Get(f.Kind)
@@ -117,11 +118,11 @@ func (f File) ChatGPT() (email string, ok bool, err error) {
 	if err != nil {
 		return "", false, err
 	}
-	var tokens []string
+	var tokens []redact.Secret
 	if fm, ok := formats()[f.Kind].(chatGPTFormat); ok {
 		tokens = fm.chatGPT(m)
 	}
-	if len(tokens) == 0 || tokens[len(tokens)-1] == "" {
+	if len(tokens) == 0 || tokens[len(tokens)-1].Empty() {
 		return "", false, nil
 	}
 	for _, tok := range tokens {

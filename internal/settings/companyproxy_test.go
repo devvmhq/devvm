@@ -12,6 +12,7 @@ import (
 	"github.com/devvmhq/devvm/internal/fetch"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // config.toml's company proxy for devvm's own requests and programs on
@@ -21,12 +22,12 @@ func TestCompanyProxy(t *testing.T) {
 	d := testDirs(t)
 	write(t, d.ConfigFile(), "[proxy]\nhttps = \"http://alice@proxy.corp:3128\"\nno-proxy = \".corp\"\n")
 	lookups := 0
-	password := func(_ context.Context, name string) (string, error) {
+	password := func(_ context.Context, name string) (redact.Secret, error) {
 		lookups++
 		if name != proxy.UpstreamSecret {
 			t.Errorf("looked up %q", name)
 		}
-		return "pa55 word", nil
+		return redact.NewSecret("pa55 word"), nil
 	}
 	env := map[string]string{}
 	c := NewCompanyProxy(d, func(k string) string { return env[k] }, password)
@@ -77,7 +78,7 @@ func TestCompanyProxyEnvEncodesPassword(t *testing.T) {
 	d := testDirs(t)
 	write(t, d.ConfigFile(), "[proxy]\nhttps = \"http://alice@proxy.corp:3128\"\n")
 	const password = "p@ss:w/rd #1%?" //nolint:gosec // G101: a test's fake password
-	c := NewCompanyProxy(d, func(string) string { return "" }, func(context.Context, string) (string, error) { return password, nil })
+	c := NewCompanyProxy(d, func(string) string { return "" }, func(context.Context, string) (redact.Secret, error) { return redact.NewSecret(password), nil })
 	vars, err := c.Env(t.Context())
 	const want = "http://alice:p%40ss%3Aw%2Frd%20%231%25%3F@proxy.corp:3128" //nolint:gosec // G101: a fake company proxy's fake password
 	if err != nil || !slices.Equal(vars, []string{"HTTPS_PROXY=" + want, "https_proxy=" + want}) {
@@ -95,9 +96,11 @@ func TestCompanyProxyPasswordMissing(t *testing.T) {
 	d := testDirs(t)
 	write(t, d.ConfigFile(), "[proxy]\nhttp = \"http://alice@proxy.corp:3128\"\n")
 	getenv := func(string) string { return "" }
-	for name, password := range map[string]func(context.Context, string) (string, error){
-		"none saved": func(context.Context, string) (string, error) { return "", msg.ProxyPasswordMissing() },
-		"no lookup":  nil,
+	for name, password := range map[string]func(context.Context, string) (redact.Secret, error){
+		"none saved": func(context.Context, string) (redact.Secret, error) {
+			return redact.Secret{}, msg.ProxyPasswordMissing()
+		},
+		"no lookup": nil,
 	} {
 		c := NewCompanyProxy(d, getenv, password)
 		if _, err := c.Upstream(t.Context()); msg.NamesOf(err) != "proxy_password_missing" {

@@ -19,6 +19,7 @@ import (
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/shell"
 	"github.com/devvmhq/devvm/internal/tools"
@@ -58,7 +59,7 @@ func (e AgentLogin) claude(ctx context.Context, t *target, conf backend.Confinem
 	} else {
 		e.Info(msg.AgentOwnLoginSaved(agents.Of(o.Agent).Display, vm))
 	}
-	if secrets.ClaudeOf(store).Env() != "" {
+	if !secrets.ClaudeOf(store).Env().Empty() {
 		e.Warn(msg.ClaudeEnvTokenWins())
 	}
 	return true, nil
@@ -92,8 +93,8 @@ func claudeTokenUnsaved(store *secrets.Store, name string, vm vmname.VM, warn fu
 // claudeTokenInvalid reports whether v, the saved value of the VM's
 // secret name, is a Claude Code token that isn't one from claude
 // setup-token, so the VM doesn't get it.
-func claudeTokenInvalid(name, v string) bool {
-	return name == secrets.ClaudeToken && !strings.HasPrefix(v, "sk-ant-oat01-")
+func claudeTokenInvalid(name string, v redact.Secret) bool {
+	return name == secrets.ClaudeToken && !strings.HasPrefix(v.Reveal(), "sk-ant-oat01-") //nolint:forbidigo // the token's shape, before a VM gets its placeholder
 }
 
 // claudeSaves reports whether devvm agent save saves a part of the agent's

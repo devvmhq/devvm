@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/ubuntu"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
@@ -141,7 +142,7 @@ func scenario(fx fixture) []step {
 	}
 	changed := backend.Want{Project: fx.project, AgentDirs: fx.agents[:min(1, len(fx.agents))], Size: backend.Size{CPUs: 4, MemoryGiB: 6.5, DiskGiB: 130}}
 	proxy := backend.Confinement{
-		Net: backend.NetProxy, ProxyPort: 3128, ProxyPassword: "pAss-0123_word",
+		Net: backend.NetProxy, ProxyPort: 3128, ProxyPassword: redact.NewSecret("pAss-0123_word"),
 		Env: map[string]string{"NODE_EXTRA_CA_CERTS": "/etc/ssl/devvm.pem", "NO_PROXY": "localhost,127.0.0.1,::1"},
 	}
 	env := map[string]string{"LANG": "C.UTF-8"}

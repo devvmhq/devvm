@@ -130,7 +130,7 @@ func TestClaudeSetupToken(t *testing.T) {
 	var vm map[string]any
 	must(t, err)
 	must(t, json.Unmarshal(out, &vm))
-	if tok != "sk-ant-oat01-long" || vm["access_token"] != "sk-ant-oat01-devvm-proxy-managed-"+salt || vm["refresh_token"] != nil ||
+	if tok.Reveal() != "sk-ant-oat01-long" || vm["access_token"] != "sk-ant-oat01-devvm-proxy-managed-"+salt || vm["refresh_token"] != nil ||
 		strings.Contains(string(out), "long") || obj(vm, "account")["uuid"] != "u" {
 		t.Errorf("ClaudeToken = %q, %s", tok, out)
 	}
@@ -161,7 +161,7 @@ func TestClaudeOAuthGet(t *testing.T) {
 		"scopes": []string{"user:inference", "user:profile"},
 	}})}
 	v, err := f.Get(t.Context(), ClaudeOAuthName)
-	if err != nil || v != "sk-ant-oat01-new" {
+	if err != nil || v.Reveal() != "sk-ant-oat01-new" {
 		t.Fatalf("value = %q, %v", v, err)
 	}
 	if !strings.HasPrefix(*got, "application/json ") || !strings.Contains(*got, `"refresh_token":"sk-ant-ort01-old"`) ||
@@ -176,7 +176,7 @@ func TestClaudeOAuthGet(t *testing.T) {
 		t.Errorf("host file = %v", m)
 	}
 	*got = ""
-	if v, err := f.Get(t.Context(), ClaudeOAuthName); err != nil || v != "sk-ant-oat01-new" || *got != "" {
+	if v, err := f.Get(t.Context(), ClaudeOAuthName); err != nil || v.Reveal() != "sk-ant-oat01-new" || *got != "" {
 		t.Errorf("a fresh token: %q, %v, refreshed %q", v, err, *got)
 	}
 	if _, err := f.Get(t.Context(), "claude-other"); err == nil {

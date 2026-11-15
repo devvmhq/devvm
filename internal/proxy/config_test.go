@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/safefile"
 )
 
@@ -19,7 +20,7 @@ import (
 func TestConfigRoundTrip(t *testing.T) {
 	t.Parallel()
 	c := Config{ //nolint:gosec // G101: a test's fake password
-		Listen: "127.0.0.1:4000", VM: "devvm-x", Password: "k3y",
+		Listen: "127.0.0.1:4000", VM: "devvm-x", Password: redact.NewSecret("k3y"),
 		BuiltinPolicies: []string{"layers/base.policy"}, Policies: []string{"/p/policy"},
 		Log: "/l/network.jsonl", ProxyLog: "/l/proxy.log", Lifeline: "/h/ha.pid",
 		CA: "/ca/ca.pem", CAKey: "/ca/ca.key", CANext: "/ca/next.pem", CANextKey: "/ca/next.key", Secrets: "/r/secrets.json",
@@ -56,18 +57,46 @@ func TestConfigRoundTrip(t *testing.T) {
 	if o := c; func() bool { o.Version = 7; return o.Sum() != sum }() {
 		t.Errorf("Sum depends on the Version a config was given; Encode sets it")
 	}
+	if o := c; func() bool { o.Password = redact.NewSecret("k4y"); return o.Sum() == sum }() {
+		t.Errorf("a new password: the same Sum")
+	}
+	if !bytes.Contains(c.Encode(), []byte(`"password": "k3y",`)) {
+		t.Errorf("the file lacks the password: %s", c.Encode())
+	}
+}
+
+// configFile, the config as its file has it, has Config's fields in Config's order, with its
+// names, tags and types, but the password's, a string, so Encode writes what Config holds and the
+// file's bytes stay what they were before the password was a secret.
+func TestConfigFile(t *testing.T) {
+	t.Parallel()
+	c, f := reflect.TypeFor[Config](), reflect.TypeFor[configFile]()
+	if c.NumField() != f.NumField() {
+		t.Fatalf("Config has %d fields, configFile %d", c.NumField(), f.NumField())
+	}
+	secret := reflect.TypeFor[redact.Secret]()
+	for i := range c.NumField() {
+		cf, ff := c.Field(i), f.Field(i)
+		want := cf.Type
+		if want == secret {
+			want = reflect.TypeFor[string]()
+		}
+		if cf.Name != ff.Name || cf.Tag != ff.Tag || ff.Type != want {
+			t.Errorf("field %d: Config's %s %s %s, configFile's %s %s %s", i, cf.Name, cf.Type, cf.Tag, ff.Name, ff.Type, ff.Tag)
+		}
+	}
 }
 
 // withCA is a good config with a CA and the capture c.
 func withCA(c Capture) Config {
-	return Config{Listen: "127.0.0.1:0", Password: "k3y", CA: "/ca.pem", CAKey: "/ca.key", Captures: []Capture{c}}
+	return Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), CA: "/ca.pem", CAKey: "/ca.key", Captures: []Capture{c}}
 }
 
 // ReadConfig refuses a file that isn't devvm's for this proxy alone, of another version, holding a
 // field it doesn't know, or one the proxy can't run with: each with an error naming why.
 func TestReadConfigRefuses(t *testing.T) {
 	t.Parallel()
-	good := Config{Listen: "127.0.0.1:0", Password: "k3y"}
+	good := Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y")}
 	dir := t.TempDir()
 	write := func(name string, b []byte, mode os.FileMode) string {
 		t.Helper()
@@ -99,16 +128,16 @@ func TestReadConfigRefuses(t *testing.T) {
 		{"a secret command", write("cmd", []byte(`{"version":1,"listen":"127.0.0.1:0","password":"k3y","secret_cmd":"/bin/devvm"}`), 0o600), nil, `unknown field "secret_cmd"`},
 		{"two configs", write("two", append(good.Encode(), good.Encode()...), 0o600), nil, "more than one config"},
 		{"not JSON", write("text", []byte("listen=127.0.0.1:0\n"), 0o600), nil, "invalid character"},
-		{"no password", write("nopw", enc(Config{Listen: "127.0.0.1:0", Password: " "}), 0o600), nil, "no password"},
-		{"a password with a space", write("pwsp", enc(Config{Listen: "127.0.0.1:0", Password: "a b"}), 0o600), nil, "a password with spaces"},
-		{"no address", write("nolisten", enc(Config{Password: "k3y"}), 0o600), nil, "isn't a loopback address"},
-		{"every address", write("all", enc(Config{Listen: "0.0.0.0:3128", Password: "k3y"}), 0o600), nil, "isn't a loopback address"},
-		{"a name", write("name", enc(Config{Listen: "localhost:3128", Password: "k3y"}), 0o600), nil, "isn't a loopback address"},
-		{"a cap below 0", write("cap", enc(Config{Listen: "[::1]:0", Password: "k3y", NixCacheMax: -1}), 0o600), nil, "below 0"},
-		{"a CA without its key", write("ca", enc(Config{Listen: "127.0.0.1:0", Password: "k3y", CA: "/ca.pem"}), 0o600), nil, "ca and ca_key go together"},
-		{"a next CA without its key", write("next", enc(Config{Listen: "127.0.0.1:0", Password: "k3y", CA: "/ca.pem", CAKey: "/ca.key", CANext: "/next.pem"}), 0o600), nil, "ca_next and ca_next_key go together"},
-		{"a next CA alone", write("nextonly", enc(Config{Listen: "127.0.0.1:0", Password: "k3y", CANext: "/next.pem", CANextKey: "/next.key"}), 0o600), nil, "ca_next needs ca"},
-		{"captures without a CA", write("capca", enc(Config{Listen: "127.0.0.1:0", Password: "k3y", Captures: []Capture{{Agent: "codex", Host: "auth.openai.com", Path: "/oauth/token"}}}), 0o600), nil, "captures need ca"},
+		{"no password", write("nopw", enc(Config{Listen: "127.0.0.1:0", Password: redact.NewSecret(" ")}), 0o600), nil, "no password"},
+		{"a password with a space", write("pwsp", enc(Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("a b")}), 0o600), nil, "a password with spaces"},
+		{"no address", write("nolisten", enc(Config{Password: redact.NewSecret("k3y")}), 0o600), nil, "isn't a loopback address"},
+		{"every address", write("all", enc(Config{Listen: "0.0.0.0:3128", Password: redact.NewSecret("k3y")}), 0o600), nil, "isn't a loopback address"},
+		{"a name", write("name", enc(Config{Listen: "localhost:3128", Password: redact.NewSecret("k3y")}), 0o600), nil, "isn't a loopback address"},
+		{"a cap below 0", write("cap", enc(Config{Listen: "[::1]:0", Password: redact.NewSecret("k3y"), NixCacheMax: -1}), 0o600), nil, "below 0"},
+		{"a CA without its key", write("ca", enc(Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), CA: "/ca.pem"}), 0o600), nil, "ca and ca_key go together"},
+		{"a next CA without its key", write("next", enc(Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), CA: "/ca.pem", CAKey: "/ca.key", CANext: "/next.pem"}), 0o600), nil, "ca_next and ca_next_key go together"},
+		{"a next CA alone", write("nextonly", enc(Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), CANext: "/next.pem", CANextKey: "/next.key"}), 0o600), nil, "ca_next needs ca"},
+		{"captures without a CA", write("capca", enc(Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), Captures: []Capture{{Agent: "codex", Host: "auth.openai.com", Path: "/oauth/token"}}}), 0o600), nil, "captures need ca"},
 		{"a capture without an agent", write("capagent", enc(withCA(Capture{Host: "auth.openai.com", Path: "/oauth/token"})), 0o600), nil, "isn't one"},
 		{"a capture at no host", write("caphost", enc(withCA(Capture{Agent: "codex", Host: "auth openai", Path: "/oauth/token"})), 0o600), nil, "isn't one"},
 		{"a capture's unclean path", write("cappath", enc(withCA(Capture{Agent: "codex", Host: "auth.openai.com", Path: "/oauth/../token"})), 0o600), nil, "isn't one"},

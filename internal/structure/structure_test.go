@@ -77,7 +77,7 @@ func devvm() rules {
 		// paths.Dirs.Home is the home folder, read once: tests set HOME,
 		// and e2e gives a run a HOME of its own.
 		envOwners: map[string]string{"HOME": "internal/paths/dirs.go"},
-		vmNames:   devvmVMNames(), hosts: devvmHosts(),
+		vmNames:   devvmVMNames(), hosts: devvmHosts(), secretOwner: "internal/redact",
 		layers: []layer{
 			{
 				name: "only cmd/devvm and internal/cli hold the UI",
@@ -140,8 +140,8 @@ func devvm() rules {
 				to: []string{"..."},
 			},
 			{
-				name: "internal/proxy is standard library only, with internal/daemon, internal/safefile and internal/vmname",
-				from: []string{"internal/proxy/..."}, exceptTo: []string{"internal/proxy/...", "internal/daemon", "internal/safefile", "internal/vmname"},
+				name: "internal/proxy is standard library only, with internal/daemon, internal/redact, internal/safefile and internal/vmname",
+				from: []string{"internal/proxy/..."}, exceptTo: []string{"internal/proxy/...", "internal/daemon", "internal/redact", "internal/safefile", "internal/vmname"},
 				to: []string{"..."},
 			},
 			{
@@ -156,8 +156,8 @@ func devvm() rules {
 			{
 				// Agents' logins hold their tokens: the package that reads,
 				// refreshes and writes them knows nothing of VMs or the UI.
-				name: "internal/agentlogin imports only internal/agents, internal/fetch, internal/jsonc, internal/proxy, internal/safefile and internal/state",
-				from: []string{"internal/agentlogin"}, exceptTo: []string{"internal/agents", "internal/fetch", "internal/jsonc", "internal/proxy", "internal/safefile", "internal/state"},
+				name: "internal/agentlogin imports only internal/agents, internal/fetch, internal/jsonc, internal/proxy, internal/redact, internal/safefile and internal/state",
+				from: []string{"internal/agentlogin"}, exceptTo: []string{"internal/agents", "internal/fetch", "internal/jsonc", "internal/proxy", "internal/redact", "internal/safefile", "internal/state"},
 				to: []string{"..."},
 			},
 			{

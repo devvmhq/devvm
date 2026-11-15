@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"slices"
 	"testing"
+
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // A proxy's address is devvm's user and the password at the host and port
@@ -22,7 +24,7 @@ func TestProxyURL(t *testing.T) {
 		{"::1", 8080, "pw", "http://devvm:pw@[::1]:8080"},
 		{"h", 2, "a b@c:d/e", "http://devvm:a%20b%40c%3Ad%2Fe@h:2"},
 	} {
-		if got := ProxyURL(tc.host, tc.port, tc.password); got != tc.want {
+		if got := ProxyURL(tc.host, tc.port, redact.NewSecret(tc.password)); got != tc.want {
 			t.Errorf("ProxyURL(%q, %d, %q) = %q, want %q", tc.host, tc.port, tc.password, got, tc.want)
 		}
 	}
@@ -33,7 +35,8 @@ func TestNewProxyPassword(t *testing.T) {
 	hex64 := regexp.MustCompile(`^[0-9a-f]{64}$`)
 	seen := map[string]bool{}
 	for range 20 {
-		p, err := NewProxyPassword()
+		s, err := NewProxyPassword()
+		p := s.Reveal()
 		if err != nil || !hex64.MatchString(p) || seen[p] {
 			t.Fatalf("NewProxyPassword = %q, %v (seen: %v)", p, err, seen[p])
 		}

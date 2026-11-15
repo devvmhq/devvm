@@ -19,6 +19,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 const upPassword = "s3cret-upstream-pw"
@@ -133,21 +135,21 @@ func TestParseUpstream(t *testing.T) {
 			t.Errorf("%q: the error holds the password: %v", c.raw, err)
 		}
 	}
-	up, err := newUpstream("proxy.corp", "")
-	if err != nil || up.addr != "proxy.corp:80" || up.auth != "" {
+	up, err := newUpstream("proxy.corp", redact.Secret{})
+	if err != nil || up.addr != "proxy.corp:80" || !up.auth.Empty() {
 		t.Errorf("no port: %+v %v", up, err)
 	}
-	up, err = newUpstream("http://u%40corp:p%3Aw@proxy.corp:8080", "")
-	if err != nil || up.auth != authOf("u@corp", "p:w") {
+	up, err = newUpstream("http://u%40corp:p%3Aw@proxy.corp:8080", redact.Secret{})
+	if err != nil || up.auth.Reveal() != authOf("u@corp", "p:w") {
 		t.Errorf("escaped credentials: %+v %v", up, err)
 	}
 	// A URL's own password wins over the secret's; one without a user gets none.
-	up, err = newUpstream("http://u:own@proxy.corp:8080", "kept")
-	if err != nil || up.auth != authOf("u", "own") {
+	up, err = newUpstream("http://u:own@proxy.corp:8080", redact.NewSecret("kept"))
+	if err != nil || up.auth.Reveal() != authOf("u", "own") {
 		t.Errorf("own password: %+v %v", up, err)
 	}
-	up, err = newUpstream("http://proxy.corp:8080", "kept")
-	if err != nil || up.auth != "" {
+	up, err = newUpstream("http://proxy.corp:8080", redact.NewSecret("kept"))
+	if err != nil || !up.auth.Empty() {
 		t.Errorf("no user: %+v %v", up, err)
 	}
 }
@@ -158,17 +160,17 @@ func TestParseUpstream(t *testing.T) {
 func TestUpstreamSecret(t *testing.T) {
 	t.Parallel()
 	var asked []Binding
-	lookup := func(_ context.Context, b Binding) (string, error) {
+	lookup := func(_ context.Context, b Binding) (redact.Secret, error) {
 		asked = append(asked, b)
 		if b.Name != UpstreamSecret {
-			return "", errors.New("no such secret")
+			return redact.Secret{}, errors.New("no such secret")
 		}
-		return " s3cret\n", nil
+		return redact.NewSecret(" s3cret\n"), nil
 	}
 	ups, err := newUpstreams(Upstream{HTTPS: "http://alice@proxy.corp:3128", HTTP: "proxy.corp:3128", Secret: UpstreamSecret}, lookup)
 	must(t, err)
-	if ups.https.auth != authOf("alice", "s3cret") || ups.http.auth != "" {
-		t.Errorf("auth: %q, %q", ups.https.auth, ups.http.auth)
+	if ups.https.auth.Reveal() != authOf("alice", "s3cret") || !ups.http.auth.Empty() {
+		t.Errorf("auth: %q, %q", ups.https.auth.Reveal(), ups.http.auth.Reveal())
 	}
 	if len(asked) != 1 || asked[0].Name != UpstreamSecret || asked[0].Kind != KindSecret {
 		t.Errorf("asked %+v", asked)
@@ -180,7 +182,7 @@ func TestUpstreamSecret(t *testing.T) {
 	}{
 		{"no value", "other", lookup},
 		{"no lookup", UpstreamSecret, nil},
-		{"empty", UpstreamSecret, func(context.Context, Binding) (string, error) { return " ", nil }},
+		{"empty", UpstreamSecret, func(context.Context, Binding) (redact.Secret, error) { return redact.NewSecret(" "), nil }},
 	} {
 		if _, err := newUpstreams(Upstream{HTTPS: "http://alice@proxy.corp:3128", Secret: c.secret}, c.lookup); err == nil {
 			t.Errorf("%s: started", c.name)
@@ -200,11 +202,11 @@ func TestLookupRoute(t *testing.T) {
 	t.Parallel()
 	routed := func(up *Upstream, target string) string {
 		var route func(*http.Request) (*url.URL, error)
-		lookup := func(ctx context.Context, b Binding) (string, error) {
+		lookup := func(ctx context.Context, b Binding) (redact.Secret, error) {
 			if b.Kind == KindLogin {
 				route = RouteOf(ctx)
 			}
-			return "pw", nil
+			return redact.NewSecret("pw"), nil
 		}
 		s, err := newServer(Config{VM: "vm", Upstream: up}, IO{Secret: lookup}, quiet(), io.Discard)
 		must(t, err)
@@ -304,7 +306,7 @@ func TestUpstreamTunnel(t *testing.T) {
 		}
 	}()
 	f := newFakeUpstream(t, echo.Addr().String(), http.StatusOK)
-	s := testServer(t, Config{Password: "k3y"}, "allowed.test\n**:5432\n!denied.test\n10.1.2.3\n")
+	s := testServer(t, Config{Password: redact.NewSecret("k3y")}, "allowed.test\n**:5432\n!denied.test\n10.1.2.3\n")
 	useUpstream(t, s, f, "")
 	out := logs(s)
 	addr := listen(t, s)
@@ -544,7 +546,7 @@ func TestConnectFailedReason(t *testing.T) {
 func TestUpstreamPlainHTTP(t *testing.T) {
 	t.Parallel()
 	f := newFakeUpstream(t, "", http.StatusOK)
-	s := testServer(t, Config{Password: "k3y"}, "allowed.test\n")
+	s := testServer(t, Config{Password: redact.NewSecret("k3y")}, "allowed.test\n")
 	useUpstream(t, s, f, "")
 	out := logs(s)
 	addr := listen(t, s)
@@ -629,7 +631,7 @@ func TestUpstreamIntercept(t *testing.T) {
 func TestUpstreamWithPassword(t *testing.T) {
 	t.Parallel()
 	up := Upstream{HTTPS: "http://alice@proxy.corp:3128", HTTP: "proxy.corp:8080", NoProxy: ".corp", Secret: UpstreamSecret}
-	got, err := up.WithPassword("pa55 word")
+	got, err := up.WithPassword(redact.NewSecret("pa55 word"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -639,13 +641,13 @@ func TestUpstreamWithPassword(t *testing.T) {
 	}
 	// A URL's own password stays; no password leaves the user alone.
 	own := Upstream{HTTPS: "http://" + url.UserPassword("bob", "own").String() + "@proxy.corp:3128"}
-	if got, _ := own.WithPassword("other"); got.HTTPS != own.HTTPS {
+	if got, _ := own.WithPassword(redact.NewSecret("other")); got.HTTPS != own.HTTPS {
 		t.Errorf("its own password: %s", got.HTTPS)
 	}
-	if got, _ := up.WithPassword(""); got.HTTPS != "http://alice@proxy.corp:3128" {
+	if got, _ := up.WithPassword(redact.Secret{}); got.HTTPS != "http://alice@proxy.corp:3128" {
 		t.Errorf("no password: %s", got.HTTPS)
 	}
-	if _, err := (Upstream{HTTPS: "socks5://alice:pa55@proxy.corp:1080"}).WithPassword("x"); err == nil || strings.Contains(err.Error(), "pa55") {
+	if _, err := (Upstream{HTTPS: "socks5://alice:pa55@proxy.corp:1080"}).WithPassword(redact.NewSecret("x")); err == nil || strings.Contains(err.Error(), "pa55") {
 		t.Errorf("a socks proxy: %v", err)
 	}
 }
@@ -655,7 +657,7 @@ func TestUpstreamWithPassword(t *testing.T) {
 // and loopback directly.
 func TestUpstreamRoute(t *testing.T) {
 	t.Parallel()
-	with, err := (Upstream{HTTPS: "http://alice@tunnel.corp:3128", HTTP: "plain.corp:8080", NoProxy: ".corp,10.0.0.0/8"}).WithPassword("pw")
+	with, err := (Upstream{HTTPS: "http://alice@tunnel.corp:3128", HTTP: "plain.corp:8080", NoProxy: ".corp,10.0.0.0/8"}).WithPassword(redact.NewSecret("pw"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -704,7 +706,7 @@ func TestUpstreamRouteAuthorizes(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	u, _ := url.Parse(srv.URL)
-	route, err := (Upstream{HTTP: "http://alice@" + u.Host}).WithPassword(upPassword)
+	route, err := (Upstream{HTTP: "http://alice@" + u.Host}).WithPassword(redact.NewSecret(upPassword))
 	if err != nil {
 		t.Fatal(err)
 	}

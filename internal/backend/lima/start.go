@@ -137,16 +137,22 @@ func (l *machines) start(ctx context.Context, vm vmname.VM, w *backend.Want, c b
 	return nil
 }
 
-// redactLog takes proxy passwords out of the VM's hostagent log, once
-// limactl start has ended, started or not. The hostagent logs a proxy
-// variable's value, password and all, as it reads it at its start (the
-// limactl comment says when), and that log is Lima's, outside devvm's run
-// log. Each password becomes as many "*" in place, so the hostagent, which
-// keeps writing to the file at its own offset, goes on where it was.
+// redactLog takes proxy passwords out of the VM's hostagent log and its
+// serial consoles' logs, once limactl start has ended, started or not. The
+// hostagent logs a proxy variable's value, password and all, as it reads
+// it at its start (the limactl comment says when), and Lima's boot scripts
+// trace the commands that write the guest's environment to its console,
+// the proxy URL among them, before the start ends. Those logs are Lima's,
+// outside devvm's run log. Each password becomes as many "*" in place, so
+// the hostagent or QEMU, which keeps writing to the file at its own
+// offset, goes on where it was.
 func (l *machines) redactLog(vm vmname.VM) {
-	path := filepath.Join(l.Dirs.LimaVM(vm), "ha.stderr.log")
-	if err := redact.File(path); err != nil {
-		l.Warn(msg.LimaLogUnredacted(path, err.Error()).Because(err))
+	dir := l.Dirs.LimaVM(vm)
+	serial, _ := filepath.Glob(filepath.Join(dir, "serial*.log"))
+	for _, path := range append([]string{filepath.Join(dir, "ha.stderr.log")}, serial...) {
+		if err := redact.File(path); err != nil {
+			l.Warn(msg.LimaLogUnredacted(path, err.Error()).Because(err))
+		}
 	}
 }
 
@@ -305,7 +311,7 @@ func (l *machines) startSets(cfg *config, c backend.Confinement, sshPort int) (o
 			sets = append(sets, "del(.env)")
 		} else {
 			stand := c
-			stand.ProxyPassword = passwordStandIn
+			stand.ProxyPassword = redact.NewSecret(passwordStandIn)
 			sets = append(sets, ".env = "+yqJSON(l.guestEnv(stand)))
 			fill = c.GuestProxy()
 		}
@@ -388,7 +394,7 @@ func (l *machines) fillPassword(vm vmname.VM, c backend.Confinement) error {
 		return err
 	}
 	stand := c
-	stand.ProxyPassword = passwordStandIn
+	stand.ProxyPassword = redact.NewSecret(passwordStandIn)
 	from, to := l.proxyURL(stand), l.proxyURL(c)
 	// The URL goes into YAML as it is: only characters no YAML scalar
 	// treats specially.

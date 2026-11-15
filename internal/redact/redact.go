@@ -2,7 +2,8 @@
 // password in any URL's user info, such as a company proxy's in the shell's HTTPS_PROXY, with a
 // scheme or without one (user:password@host:port). String takes them out of a line on its way to
 // devvm's run log, and Split says how much of a line still to be ended a writer may write
-// first; File takes them out of a log another program keeps writing (Lima's hostagent's).
+// first; File takes them out of a log another program keeps writing (Lima's hostagent's). Secret
+// (secret.go) is the type of every such value in devvm's own code, which never prints as itself.
 package redact
 
 import (

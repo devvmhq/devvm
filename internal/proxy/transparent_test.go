@@ -22,6 +22,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // transparentServer is a proxy of the test's own with a CA, a policy of rules and its events and
@@ -149,7 +151,7 @@ func TestRawHello(t *testing.T) {
 func TestTransparentTLSAllowed(t *testing.T) {
 	t.Parallel()
 	port, pool := tlsUpstream(t)
-	_, addr, ev := transparentServer(t, Config{Password: "pw"}, fmt.Sprintf("localhost:%d\n127.0.0.1:%d\n", port, port))
+	_, addr, ev := transparentServer(t, Config{Password: redact.NewSecret("pw")}, fmt.Sprintf("localhost:%d\n127.0.0.1:%d\n", port, port))
 	tc := tls.Client(openTransparent(t.Context(), t, addr, "pw", port), &tls.Config{ServerName: "LocalHost", RootCAs: pool})
 	fmt.Fprint(tc, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
 	resp, err := http.ReadResponse(bufio.NewReader(tc), nil)
@@ -396,7 +398,7 @@ func TestTransparentFirstBytes(t *testing.T) {
 // The reserved target needs the VM's password, and a port of its own.
 func TestTransparentTarget(t *testing.T) {
 	t.Parallel()
-	_, addr, _ := transparentServer(t, Config{Password: "pw"}, "")
+	_, addr, _ := transparentServer(t, Config{Password: redact.NewSecret("pw")}, "")
 	if code, _ := roundTrip(t, addr, "CONNECT "+TransparentHost+":443 HTTP/1.0\r\n\r\n"); code != http.StatusProxyAuthRequired {
 		t.Errorf("no password: %d", code)
 	}
@@ -712,7 +714,7 @@ func TestTransparentPorts(t *testing.T) {
 			t.Errorf("%s: %v, %v dropped", c.name, got, dropped)
 		}
 	}
-	s, addr, ev := transparentServer(t, Config{Password: "pw"}, many)
+	s, addr, ev := transparentServer(t, Config{Password: redact.NewSecret("pw")}, many)
 	auth := "Proxy-Authorization: " + authOf(ProxyUser, "pw") + "\r\n"
 	for range 2 {
 		if code, body := roundTrip(t, addr, "GET http://devvm.proxy/transparent/ports HTTP/1.1\r\nHost: devvm.proxy\r\n"+auth+"\r\n"); code != http.StatusOK || !strings.HasPrefix(body, "80\n443\n9000\n") || strings.Count(body, "\n") != 34 {

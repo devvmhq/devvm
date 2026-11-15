@@ -8,6 +8,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -55,7 +56,7 @@ func (e Net) SecretToSave(name string, change secrets.Change) (secrets.Secret, e
 // stdin: a known secret's value, or one of yours with its definition,
 // naming the VMs that use it when its hosts change. Proxies running put
 // the new value in at once.
-func (e Net) SecretSave(ctx context.Context, sec secrets.Secret, given string) error {
+func (e Net) SecretSave(ctx context.Context, sec secrets.Secret, given redact.Secret) error {
 	name := sec.Name
 	v, err := secrets.Token(name, given)
 	if err != nil {
@@ -86,7 +87,7 @@ func (e Net) SecretSave(ctx context.Context, sec secrets.Secret, given string) e
 // and hosts it gained reach a VM only once devvm secret use binds it again
 // (secrets.UsedAs), so a host you add never gets the value from a VM you
 // didn't give it to.
-func (e Net) saveCustom(ctx context.Context, sec secrets.Secret, value string) error {
+func (e Net) saveCustom(ctx context.Context, sec secrets.Secret, value redact.Secret) error {
 	yours := secrets.YoursOf(e.Proxy.Secrets)
 	old, had, err := yours.Lookup(sec.Name)
 	if err != nil {

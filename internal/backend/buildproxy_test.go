@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // A build's proxy starts with its own password, its policy and the
@@ -36,8 +37,8 @@ func TestProxyStarter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Port != 40123 || len(p.Password) != 64 {
-		t.Errorf("port %d, password %q", p.Port, p.Password)
+	if p.Port != 40123 || len(p.Password.Reveal()) != 64 {
+		t.Errorf("port %d, password %q", p.Port, p.Password.Reveal())
 	}
 	config := filepath.Join(dir, "proxy.json")
 	if want := []string{"/devvm", "_proxy", "-config", config}; !slices.Equal(args, want) {
@@ -137,7 +138,7 @@ func TestProxyStarterFails(t *testing.T) {
 	s := ProxyStarter{Self: "/devvm", Tick: time.Millisecond, Spawn: func(daemon.Cmd) (*daemon.Handle, error) {
 		return nil, errors.New("no such program")
 	}}
-	if _, err := s.Start(dir, proxy.Config{VM: "b", Password: "x"}); err == nil {
+	if _, err := s.Start(dir, proxy.Config{VM: "b", Password: redact.NewSecret("x")}); err == nil {
 		t.Error("Start: no error")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "proxy.json")); !errors.Is(err, os.ErrNotExist) {

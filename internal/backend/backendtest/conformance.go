@@ -16,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
@@ -466,8 +467,8 @@ func checkStartShrink(ctx context.Context, s Subject) error {
 func checkProxyURL(_ context.Context, s Subject) error {
 	for _, c := range []backend.Confinement{
 		{Net: backend.NetDirect},
-		{Net: backend.NetInternet, ProxyPort: 3128, ProxyPassword: "pw"},
-		{Net: backend.NetNone, ProxyPort: 3128, ProxyPassword: "pw"},
+		{Net: backend.NetInternet, ProxyPort: 3128, ProxyPassword: redact.NewSecret("pw")},
+		{Net: backend.NetNone, ProxyPort: 3128, ProxyPassword: redact.NewSecret("pw")},
 	} {
 		if u := s.Backend.ProxyURL(c); u != "" {
 			return fmt.Errorf("ProxyURL with network %d: %q", c.Net, u)
@@ -475,7 +476,7 @@ func checkProxyURL(_ context.Context, s Subject) error {
 	}
 	const password = "0123456789abcdef"
 	for _, n := range []backend.Net{backend.NetProxy, backend.NetDirect} {
-		raw := s.Backend.ProxyURL(backend.Confinement{Net: n, ProxyPort: 3128, ProxyPassword: password})
+		raw := s.Backend.ProxyURL(backend.Confinement{Net: n, ProxyPort: 3128, ProxyPassword: redact.NewSecret(password)})
 		u, err := url.Parse(raw)
 		if err != nil || u.Host == "" {
 			return fmt.Errorf("ProxyURL with network %d: %q: %w", n, raw, err)
@@ -613,7 +614,7 @@ func checkConfined(ctx context.Context, s Subject) error {
 	for _, n := range []backend.Net{backend.NetDirect, backend.NetProxy, backend.NetDirect} {
 		c := backend.Confinement{Net: n}
 		if n == backend.NetProxy {
-			c.ProxyPort, c.ProxyPassword = 3128, "0123456789abcdef"
+			c.ProxyPort, c.ProxyPassword = 3128, redact.NewSecret("0123456789abcdef")
 		}
 		r, err := started(ctx, s.Backend, sp.Want, c)
 		if err != nil {
@@ -639,7 +640,7 @@ func checkRestart(ctx context.Context, s Subject) error {
 	if err != nil {
 		return err
 	}
-	c := backend.Confinement{Net: backend.NetProxy, ProxyPort: 3128, ProxyPassword: "0123456789abcdef"}
+	c := backend.Confinement{Net: backend.NetProxy, ProxyPort: 3128, ProxyPassword: redact.NewSecret("0123456789abcdef")}
 	r, err := started(ctx, s.Backend, sp.Want, c)
 	if err != nil {
 		return err

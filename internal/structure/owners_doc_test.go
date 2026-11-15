@@ -60,6 +60,11 @@ func ownerDocs() []ownerDoc {
 			elsewhere: "`internal/proxy`",
 		},
 		{
+			check:     "forbidigo, `redact.Secret`'s `Reveal`; the structure test, a struct that embeds `redact.Secret` and an interface that declares `Reveal() string`",
+			owner:     "`redact.Secret` in `internal/redact/secret.go`, the type of the values that let whoever holds them act as the user or a VM, but for those [Secrets in the code](#secrets-in-the-code) names: a VM's proxy password, a secret's value, a login's keys and tokens once they leave its file, and the company proxy's password and its `Proxy-Authorization`. Every way of printing one shows `<redacted>` or, in an unexported field, an address, and encoding one as JSON or text is an error, never a stand-in, so a file that holds the real value writes it through its own wire type, and a value can't be lost by going somewhere it isn't meant to",
+			elsewhere: "where the value is used, each call to `Reveal` with a `//nolint:forbidigo` that says why: the proxy's password check, its config file and the headers it puts values in; the store's file and Keychain; the VM's proxy URL and its key in `vm.json`; a login's file, its refresh and its claims; and tests. No struct embeds `redact.Secret` and no interface declares `Reveal() string` outside `internal/redact`",
+		},
+		{
 			check:     "forbidigo, `os.WriteFile`, `os.Create` and `os.O_TRUNC`",
 			owner:     "`internal/state`, whose `WriteFile` and `WriteFileMode` write a file whole through a temporary file in its folder, renamed over it, so a reader never sees half of it",
 			elsewhere: "`internal/proxy`, which imports only the standard library and has its own writer, `writeAtomic`; `internal/msg/gen`, which imports no devvm package; `internal/stubtest`; tests; and, with a `nolint` saying why, a file written another way: a log that a process writes as it runs, a download that streams into its file, and `internal/daemon`'s pid and status files, each written in one write that a reader takes as missing until its line ends",

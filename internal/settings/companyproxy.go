@@ -12,6 +12,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // CompanyProxy is the company proxy (HostProxy) for what devvm does on
@@ -27,7 +28,7 @@ type CompanyProxy struct {
 	// Password looks up the secret config.toml's proxy takes its
 	// password from (secrets.Store.ProxyPassword): proxy_password_missing
 	// while it isn't saved. nil finds none.
-	Password func(ctx context.Context, name string) (string, error)
+	Password func(ctx context.Context, name string) (redact.Secret, error)
 
 	once  sync.Once
 	route func(*http.Request) (*url.URL, error)
@@ -37,7 +38,7 @@ type CompanyProxy struct {
 
 // NewCompanyProxy returns the company proxy of devvm's folders d and its
 // environment (getenv), with config.toml's password from password.
-func NewCompanyProxy(d paths.Dirs, getenv func(string) string, password func(ctx context.Context, name string) (string, error)) *CompanyProxy {
+func NewCompanyProxy(d paths.Dirs, getenv func(string) string, password func(ctx context.Context, name string) (redact.Secret, error)) *CompanyProxy {
 	return &CompanyProxy{Dirs: d, Getenv: getenv, Password: password}
 }
 
@@ -51,19 +52,19 @@ func (c *CompanyProxy) Upstream(ctx context.Context) (*proxy.Upstream, error) {
 	return up, err
 }
 
-// upstream is Upstream, and the password of its secret ("" for none).
-func (c *CompanyProxy) upstream(ctx context.Context) (*proxy.Upstream, string, error) {
+// upstream is Upstream, and the password of its secret (empty for none).
+func (c *CompanyProxy) upstream(ctx context.Context) (*proxy.Upstream, redact.Secret, error) {
+	var password redact.Secret
 	host, err := HostProxy(c.Dirs, c.Getenv)
 	if err != nil {
-		return nil, "", err
+		return nil, password, err
 	}
-	password := ""
 	if host.Secret != "" {
 		if c.Password == nil {
-			return nil, "", msg.ProxyPasswordMissing()
+			return nil, password, msg.ProxyPasswordMissing()
 		}
 		if password, err = c.Password(ctx, host.Secret); err != nil {
-			return nil, "", err
+			return nil, redact.Secret{}, err
 		}
 	}
 	up, err := host.Upstream()

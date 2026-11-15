@@ -24,26 +24,27 @@ import (
 
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // piTemplate matches a pi key's $NAME or ${NAME}, once its literal $$ are taken out.
 var piTemplate = regexp.MustCompile(`\$\{?[A-Za-z_]`)
 
-// piKey returns the API key of pi's entry for provider id in m, and whether devvm binds it: an
-// api_key entry of a provider in agents.Providers whose key is a value, not a command or a
-// template.
-func piKey(m map[string]any, id string) (string, bool) {
+// piBound reports whether devvm binds the API key of pi's entry for provider id in m: an api_key
+// entry of a provider in agents.Providers whose key is a value, not a command or a template.
+// The key itself leaves the map only through token.
+func piBound(m map[string]any, id string) bool {
 	e := obj(m, id)
 	k := str(e, "key")
 	_, known := keyProvider(id)
 	value := k != "" && !strings.HasPrefix(k, "!") && !piTemplate.MatchString(strings.ReplaceAll(k, "$$", ""))
-	return k, known && str(e, "type") == "api_key" && value
+	return known && str(e, "type") == "api_key" && value
 }
 
 func piBindings(m map[string]any, salt string) []proxy.Binding {
 	var bs []proxy.Binding
 	for _, id := range sortedKeys(m) {
-		if _, ok := piKey(m, id); ok {
+		if piBound(m, id) {
 			p, _ := keyProvider(id)
 			bs = append(bs, login(agents.Pi, "pi-"+id, p, keyPlaceholder(agents.Pi, id, salt))...)
 		}
@@ -54,8 +55,7 @@ func piBindings(m map[string]any, salt string) []proxy.Binding {
 // piPassed reports whether pi's entry for provider id goes into the VM's copy as it is: an api_key
 // entry of a provider in pass that devvm doesn't bind.
 func piPassed(m map[string]any, id string, pass []string) bool {
-	_, bound := piKey(m, id)
-	return !bound && str(obj(m, id), "type") == "api_key" && slices.Contains(pass, id)
+	return !piBound(m, id) && str(obj(m, id), "type") == "api_key" && slices.Contains(pass, id)
 }
 
 // piVM is the VM's copy of pi's logins m: bound entries as {type, key} with their placeholders,
@@ -83,7 +83,7 @@ func piVM(m map[string]any, salt string, pass []string) map[string]any {
 // that it binds all the same (splitUnbound).
 func piSplit(m map[string]any, pass []string) VMFile {
 	return splitUnbound(m, pass, "api_key",
-		func(id string) bool { _, bound := piKey(m, id); return bound },
+		func(id string) bool { return piBound(m, id) },
 		func(id string) bool { return piPassed(m, id, pass) })
 }
 
@@ -121,13 +121,14 @@ func PiSettings(data []byte) (out []byte, dropped []string, trustsAll bool, err 
 	return out, dropped, str(m, "defaultProjectTrust") == "always", nil
 }
 
-func (f File) piGet(name string) (string, error) {
+func (f File) piGet(name string) (redact.Secret, error) {
 	m, err := readJSON(f.Path)
 	if err != nil {
-		return "", err
+		return redact.Secret{}, err
 	}
-	if k, ok := piKey(m, strings.TrimPrefix(name, "pi-")); ok {
-		return k, nil
+	id := strings.TrimPrefix(name, "pi-")
+	if piBound(m, id) {
+		return token(obj(m, id), "key"), nil
 	}
-	return "", fmt.Errorf("no pi API key %q", name)
+	return redact.Secret{}, fmt.Errorf("no pi API key %q", name)
 }

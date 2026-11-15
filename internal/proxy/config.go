@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
@@ -38,8 +39,8 @@ type Config struct {
 	// VM is the VM's name, for the log.
 	VM vmname.VM `json:"vm"`
 	// Password is the VM's password: every request carries it in Proxy-Authorization, with the
-	// user ProxyUser. Required.
-	Password string `json:"password"`
+	// user ProxyUser. Required. The file holds it (configFile).
+	Password redact.Secret `json:"password"`
 	// BuiltinPolicies are devvm's built-in policies, paths in its own files (IO.FS), in order:
 	// read once as the proxy starts, ahead of Policies. One that's missing, or holds a line that
 	// isn't a rule, is devvm's bug, and the proxy never listens.
@@ -124,12 +125,66 @@ const ConfigVersion = 1
 // configMax bounds the config the proxy reads.
 const configMax = 1 << 20
 
+// configFile is Config as its file has it, the password's value in it: Config's fields, in its
+// order and with its names, but the password a string (TestConfigFile holds the two together).
+// Only Encode and ReadConfig use it.
+type configFile struct {
+	Version            int       `json:"version"`
+	Listen             string    `json:"listen"`
+	VM                 vmname.VM `json:"vm"`
+	Password           string    `json:"password"`
+	BuiltinPolicies    []string  `json:"builtin_policies,omitempty"`
+	Policies           []string  `json:"policies,omitempty"`
+	DenyPolicies       []string  `json:"deny_policies,omitempty"`
+	Open               bool      `json:"open,omitempty"`
+	Log                string    `json:"log,omitempty"`
+	ProxyLog           string    `json:"proxy_log,omitempty"`
+	Lifeline           string    `json:"lifeline,omitempty"`
+	CA                 string    `json:"ca,omitempty"`
+	CAKey              string    `json:"ca_key,omitempty"`
+	CANext             string    `json:"ca_next,omitempty"`
+	CANextKey          string    `json:"ca_next_key,omitempty"`
+	Secrets            string    `json:"secrets,omitempty"`
+	Captures           []Capture `json:"captures,omitempty"`
+	UpstreamCAs        string    `json:"upstream_cas,omitempty"`
+	Upstream           *Upstream `json:"upstream,omitempty"`
+	UpstreamUnresolved bool      `json:"upstream_unresolved,omitempty"`
+	NixCache           string    `json:"nix_cache,omitempty"`
+	NixCacheMax        int64     `json:"nix_cache_max,omitempty"`
+	Links              string    `json:"links,omitempty"`
+	LinkSockets        string    `json:"link_sockets,omitempty"`
+	DevvmSHA256        string    `json:"devvm_sha256,omitempty"`
+	CASHA256           string    `json:"ca_sha256,omitempty"`
+	CANextSHA256       string    `json:"ca_next_sha256,omitempty"`
+}
+
+// file is c as its file has it.
+func (c Config) file() configFile {
+	password := c.Password.Reveal() //nolint:forbidigo // proxy.json holds the password: the proxy reads it from there alone
+	return configFile{
+		c.Version, c.Listen, c.VM, password, c.BuiltinPolicies, c.Policies, c.DenyPolicies, c.Open,
+		c.Log, c.ProxyLog, c.Lifeline, c.CA, c.CAKey, c.CANext, c.CANextKey, c.Secrets, c.Captures,
+		c.UpstreamCAs, c.Upstream, c.UpstreamUnresolved, c.NixCache, c.NixCacheMax, c.Links, c.LinkSockets,
+		c.DevvmSHA256, c.CASHA256, c.CANextSHA256,
+	}
+}
+
+// config is the Config f's file holds.
+func (f configFile) config() Config {
+	return Config{
+		f.Version, f.Listen, f.VM, redact.NewSecret(f.Password), f.BuiltinPolicies, f.Policies, f.DenyPolicies, f.Open,
+		f.Log, f.ProxyLog, f.Lifeline, f.CA, f.CAKey, f.CANext, f.CANextKey, f.Secrets, f.Captures,
+		f.UpstreamCAs, f.Upstream, f.UpstreamUnresolved, f.NixCache, f.NixCacheMax, f.Links, f.LinkSockets,
+		f.DevvmSHA256, f.CASHA256, f.CANextSHA256,
+	}
+}
+
 // Encode is the config as devvm writes it, of ConfigVersion, a line at its end.
 func (c Config) Encode() []byte {
 	c.Version = ConfigVersion
 	// Only strings, numbers and bools: it never fails. The password is meant to be in it: callers
 	// write it mode 600, and ReadConfig refuses one anybody else may read.
-	b, _ := json.MarshalIndent(c, "", "  ") //nolint:gosec // G117: the config is the password's one file
+	b, _ := json.MarshalIndent(c.file(), "", "  ") //nolint:gosec // G117: the config is the password's one file
 	return append(b, '\n')
 }
 
@@ -148,15 +203,16 @@ func ReadConfig(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	var c Config
+	var f configFile
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
-	if err := d.Decode(&c); err != nil {
+	if err := d.Decode(&f); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if d.More() {
 		return Config{}, fmt.Errorf("%s: more than one config", path)
 	}
+	c := f.config()
 	if c.Version != ConfigVersion {
 		return Config{}, fmt.Errorf("%s: version %d, not %d", path, c.Version, ConfigVersion)
 	}
@@ -170,10 +226,10 @@ func ReadConfig(path string) (Config, error) {
 // program on the host could use it, and the VM's secrets with it; an address that isn't
 // loopback's would be reached from other machines.
 func (c Config) check() error {
-	if strings.TrimSpace(c.Password) == "" {
+	if c.Password.TrimSpace().Empty() {
 		return errors.New("no password")
 	}
-	if strings.ContainsAny(c.Password, " \t\r\n") {
+	if strings.ContainsAny(c.Password.Reveal(), " \t\r\n") { //nolint:forbidigo // the password's check: a header can't carry white space
 		return errors.New("a password with spaces")
 	}
 	if ap, err := netip.ParseAddrPort(c.Listen); err != nil || !ap.Addr().IsLoopback() {

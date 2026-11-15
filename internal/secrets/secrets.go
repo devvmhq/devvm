@@ -25,6 +25,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
@@ -222,7 +223,7 @@ func (s *Store) loginsDir(ctx context.Context, kind string) error {
 // SaveKey saves an API key as the agent's login in devvm's store, for
 // opencode and pi as provider's (agentlogin.File.SetKey), the agent's logins
 // folder kept out of backups.
-func (s *Store) SaveKey(ctx context.Context, kind, provider, key string) error {
+func (s *Store) SaveKey(ctx context.Context, kind, provider string, key redact.Secret) error {
 	if err := s.loginsDir(ctx, kind); err != nil {
 		return err
 	}
@@ -352,14 +353,14 @@ func (s *Store) File(name string) string { return filepath.Join(s.Dirs.Secrets()
 // Value returns a known secret's value, or ErrNone. A claude token in
 // devvm's environment (CLAUDE_CODE_OAUTH_TOKEN) wins: the proxy inherits it
 // from the devvm that started it.
-func (s *Store) Value(ctx context.Context, name string) (string, error) {
+func (s *Store) Value(ctx context.Context, name string) (redact.Secret, error) {
 	if _, ok, err := YoursOf(s).Lookup(name); err != nil {
-		return "", err
+		return redact.Secret{}, err
 	} else if !ok {
-		return "", ErrNone
+		return redact.Secret{}, ErrNone
 	}
 	if name == ClaudeToken {
-		if v := ClaudeOf(s).Env(); v != "" {
+		if v := ClaudeOf(s).Env(); !v.Empty() {
 			return v, nil
 		}
 	}
@@ -367,42 +368,43 @@ func (s *Store) Value(ctx context.Context, name string) (string, error) {
 }
 
 // saved returns a known secret's saved value, or ErrNone: from the
-// Keychain, else from its file.
-func (s *Store) saved(ctx context.Context, name string) (string, error) {
+// Keychain, else from its file, whose bytes are the value and a line's
+// end.
+func (s *Store) saved(ctx context.Context, name string) (redact.Secret, error) {
 	var v string
 	if s.Keychain {
 		svc, err := s.Service()
 		if err != nil {
-			return "", err
+			return redact.Secret{}, err
 		}
 		if v, err = s.KeychainGet(ctx, svc, storageKey(name)); errors.Is(err, platform.ErrNoSecret) {
-			return "", ErrNone
+			return redact.Secret{}, ErrNone
 		} else if err != nil {
-			return "", err
+			return redact.Secret{}, err
 		}
 	} else {
 		b, err := os.ReadFile(s.File(name))
 		if errors.Is(err, os.ErrNotExist) {
-			return "", ErrNone
+			return redact.Secret{}, ErrNone
 		} else if err != nil {
-			return "", err
+			return redact.Secret{}, err
 		}
 		v = string(b)
 	}
 	if v = strings.TrimSpace(v); v == "" {
-		return "", ErrNone
+		return redact.Secret{}, ErrNone
 	}
-	return v, nil
+	return redact.NewSecret(v), nil
 }
 
 // ProxyPassword returns the value of name, the secret config.toml's
 // company proxy takes its password from (proxy.UpstreamSecret): its
 // Value, or proxy_password_missing while it isn't saved. It is
 // settings.CompanyProxy's Password.
-func (s *Store) ProxyPassword(ctx context.Context, name string) (string, error) {
+func (s *Store) ProxyPassword(ctx context.Context, name string) (redact.Secret, error) {
 	v, err := s.Value(ctx, name)
 	if errors.Is(err, ErrNone) {
-		return "", msg.ProxyPasswordMissing()
+		return redact.Secret{}, msg.ProxyPasswordMissing()
 	}
 	return v, err
 }
@@ -421,34 +423,38 @@ const ValueMax = 3800
 // VM, it would never be the real value), and for claude anything but a
 // setup-token token. The company proxy's password (proxy.UpstreamSecret)
 // loses only the whitespace around it: a password may hold spaces.
-func Token(name, given string) (string, error) {
-	v := strings.Join(strings.Fields(given), "")
-	lowest := rune(0x21) // a header's value: no space
+func Token(name string, given redact.Secret) (redact.Secret, error) {
+	v := strings.Join(strings.Fields(given.Reveal()), "") //nolint:forbidigo // a token's checks before it's saved
+	lowest := rune(0x21)                                  // a header's value: no space
 	if name == proxy.UpstreamSecret {
-		v, lowest = strings.TrimSpace(given), 0x20
+		v, lowest = strings.TrimSpace(given.Reveal()), 0x20 //nolint:forbidigo // the password's checks before it's saved
 	}
+	var err error
 	switch {
 	case v == "":
-		return "", msg.NoToken()
+		err = msg.NoToken()
 	case strings.ContainsAny(v, `"\`):
-		return "", msg.TokenQuotes()
+		err = msg.TokenQuotes()
 	case strings.ContainsFunc(v, func(r rune) bool { return r < lowest || r > 0x7e }):
-		return "", msg.TokenNotAscii()
+		err = msg.TokenNotAscii()
 	case len(v) > ValueMax:
-		return "", msg.TokenTooLong(strconv.Itoa(ValueMax))
+		err = msg.TokenTooLong(strconv.Itoa(ValueMax))
 	case agentlogin.HasPlaceholder([]byte(v)):
-		return "", msg.TokenIsPlaceholder()
+		err = msg.TokenIsPlaceholder()
 	case name == ClaudeToken && !strings.HasPrefix(v, "sk-ant-oat01-"):
-		return "", msg.NotSetupToken()
+		err = msg.NotSetupToken()
 	}
-	return v, nil
+	if err != nil {
+		return redact.Secret{}, err
+	}
+	return redact.NewSecret(v), nil
 }
 
 // Save saves a known secret's value (one Token returned): in the Keychain,
 // else in a file only the user can read. A Claude Code token takes the
 // Claude Code OAuth login in devvm's store away, as devvm keeps one Claude
 // Code login, the newest. Yours are saved with Yours.Save.
-func (s *Store) Save(ctx context.Context, name, value string) error {
+func (s *Store) Save(ctx context.Context, name string, value redact.Secret) error {
 	if _, ok := Lookup(name); !ok {
 		return msg.NoSecret(name)
 	}
@@ -465,9 +471,11 @@ func (s *Store) Save(ctx context.Context, name, value string) error {
 }
 
 // save saves a secret's value under its storageKey: Save's, alone. One
-// past ValueMax is refused before the saved one is touched.
-func (s *Store) save(ctx context.Context, name, value string) error {
-	if len(value) > ValueMax {
+// past ValueMax is refused before the saved one is touched. Its file is
+// the value and a line's end, as saved reads it.
+func (s *Store) save(ctx context.Context, name string, value redact.Secret) error {
+	v := value.Reveal() //nolint:forbidigo // saved in the Keychain or the user's own file, where it's kept
+	if len(v) > ValueMax {
 		return msg.TokenTooLong(strconv.Itoa(ValueMax))
 	}
 	key := storageKey(name)
@@ -475,13 +483,13 @@ func (s *Store) save(ctx context.Context, name, value string) error {
 		if err := state.PrivateDir(s.Dirs.Secrets()); err != nil {
 			return err
 		}
-		return state.WriteFile(s.File(name), []byte(value+"\n"))
+		return state.WriteFile(s.File(name), []byte(v+"\n"))
 	}
 	svc, err := s.Service()
 	if err != nil {
 		return err
 	}
-	if s.KeychainSet(ctx, svc, key, "devvm "+key, value) != nil {
+	if s.KeychainSet(ctx, svc, key, "devvm "+key, v) != nil {
 		return msg.KeychainSaveFailed(name)
 	}
 	return nil
@@ -530,11 +538,11 @@ func (s *Store) Delete(ctx context.Context, name string) error {
 // the one it had at its launch gets the other once the newest replaced
 // it: the claude secret's, the OAuth login's access token, and the other
 // way round.
-func (s *Store) Get(ctx context.Context, b proxy.Binding) (string, error) {
+func (s *Store) Get(ctx context.Context, b proxy.Binding) (redact.Secret, error) {
 	switch b.Kind {
 	case proxy.KindLogin:
 		if !isLogin(b.Agent) {
-			return "", msg.NoSecret(b.Name)
+			return redact.Secret{}, msg.NoSecret(b.Name)
 		}
 		f := s.login(b.Agent, "")
 		v, err := f.Get(ctx, b.Name)
@@ -542,26 +550,26 @@ func (s *Store) Get(ctx context.Context, b proxy.Binding) (string, error) {
 			if tok, terr := s.Value(ctx, ClaudeToken); terr == nil {
 				return tok, nil
 			}
-			return "", msg.ClaudeNoLogin().Because(err)
+			return redact.Secret{}, msg.ClaudeNoLogin().Because(err)
 		}
 		if err != nil {
-			return "", loginFailed(f.Path, err)
+			return redact.Secret{}, loginFailed(f.Path, err)
 		}
-		return strings.TrimSpace(v), nil
+		return v.TrimSpace(), nil
 	case proxy.KindSecret:
 		if err := fits(s, b); err != nil {
-			return "", err
+			return redact.Secret{}, err
 		}
 		v, err := s.Value(ctx, b.Name)
 		if c := ClaudeOf(s); errors.Is(err, ErrNone) && c.ownSecret(b.Name) {
 			return c.oauthToken(ctx)
 		}
 		if errors.Is(err, ErrNone) {
-			return "", msg.NoSecret(b.Name)
+			return redact.Secret{}, msg.NoSecret(b.Name)
 		}
 		return v, err
 	}
-	return "", msg.NoSecret(b.Name)
+	return redact.Secret{}, msg.NoSecret(b.Name)
 }
 
 // fits checks a secret's binding against the secret as it's saved now,

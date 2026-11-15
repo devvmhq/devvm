@@ -33,9 +33,9 @@ linters:
   settings:
     depguard:
       rules:
-        # The proxy, and the background-process helper, the file reader
-        # and the VM names it uses: the standard library alone, and each
-        # other; and the leak checks, which their tests use.
+        # The proxy, and the background-process helper, the file reader,
+        # the VM names and the secrets' type it uses: the standard library
+        # alone, and each other; and the leak checks, which their tests use.
         proxy:
           list-mode: strict
           files:
@@ -44,6 +44,7 @@ linters:
             - "**/internal/safefile/**"
             - "**/internal/vmname/**"
             - "**/internal/leaktest/**"
+            - "**/internal/redact/**"
           allow:
             - $gostd
             - github.com/devvmhq/devvm/internal/proxy
@@ -51,6 +52,7 @@ linters:
             - github.com/devvmhq/devvm/internal/safefile
             - github.com/devvmhq/devvm/internal/vmname
             - github.com/devvmhq/devvm/internal/leaktest
+            - github.com/devvmhq/devvm/internal/redact
         main:
           list-mode: strict
           files:
@@ -61,6 +63,7 @@ linters:
             - "!**/internal/safefile/**"
             - "!**/internal/vmname/**"
             - "!**/internal/leaktest/**"
+            - "!**/internal/redact/**"
           allow:
             - $gostd
             - github.com/devvmhq/devvm
@@ -87,6 +90,7 @@ linters:
             - "!**/internal/safefile/**"
             - "!**/internal/vmname/**"
             - "!**/internal/leaktest/**"
+            - "!**/internal/redact/**"
           allow:
             - $gostd
             - github.com/devvmhq/devvm
@@ -130,6 +134,8 @@ linters:
           msg: read a file a VM can write through internal/safefile (Read, Open, OpenRoot), which never waits on a FIFO or follows a link it wasn't asked to, and reads only a regular file within its cap; what opens a file to write, or a folder, says why in a nolint.
         - pattern: ^netip\.Addr\.IsPrivate$
           msg: ask proxy.Public whether an address is on the internet, the one table of the ranges that aren't.
+        - pattern: ^redact\.Secret\.Reveal$
+          msg: pass the redact.Secret on; its value is revealed only where it must be used (a header, a file only the user can read, the Keychain), with a //nolint:forbidigo that says why.
     # A value errchkjson proves encodes without fail drops the error; any
     # other checks it, so a field that could fail gets its check back.
     errchkjson:
@@ -243,6 +249,11 @@ linters:
       - path: _test\.go$
         linters: [forbidigo]
         text: internal/safefile
+      # A secret's value is revealed where it's used, each call with a
+      # //nolint:forbidigo that says why. Tests check the values.
+      - path: _test\.go$
+        linters: [forbidigo]
+        text: pass the redact\.Secret on
     paths:
       - ^\.agents/
 

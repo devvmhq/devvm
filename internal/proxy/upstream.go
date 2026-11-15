@@ -25,13 +25,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // upstream is one company proxy: its address and, from the URL's user and password, the
-// Proxy-Authorization it's sent ("" for none).
+// Proxy-Authorization it's sent (empty for none), which holds the password.
 type upstream struct {
 	addr string // host:port
-	auth string
+	auth redact.Secret
 }
 
 // upstreams is a proxy's company proxies (Config.Upstream): set once, as it starts, and only read
@@ -84,8 +86,8 @@ func ParseUpstream(raw string) (*url.URL, error) {
 }
 
 // newUpstream makes an upstream of a proxy URL ("": none). password is the password of a URL that
-// names a user and none of its own (Upstream.Secret's value), "" for none.
-func newUpstream(raw, password string) (*upstream, error) {
+// names a user and none of its own (Upstream.Secret's value), empty for none.
+func newUpstream(raw string, password redact.Secret) (*upstream, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
 	}
@@ -101,9 +103,9 @@ func newUpstream(raw, password string) (*upstream, error) {
 	if u.User != nil {
 		pass, ok := u.User.Password()
 		if !ok {
-			pass = password
+			pass = password.Reveal() //nolint:forbidigo // the company proxy's Proxy-Authorization is made of it
 		}
-		up.auth = "Basic " + base64.StdEncoding.EncodeToString([]byte(u.User.Username()+":"+pass))
+		up.auth = redact.NewSecret("Basic " + base64.StdEncoding.EncodeToString([]byte(u.User.Username()+":"+pass)))
 	}
 	return up, nil
 }
@@ -137,22 +139,22 @@ func newUpstreams(u Upstream, lookup Lookup) (upstreams, error) {
 // upstreamPassword is the value of the secret named name ("": none), from lookup: the company
 // proxy's password, which only Proxy-Authorization ever holds. A secret with no value fails the
 // proxy's start, which would otherwise go through the company proxy without it.
-func upstreamPassword(name string, lookup Lookup) (string, error) {
+func upstreamPassword(name string, lookup Lookup) (redact.Secret, error) {
 	if name == "" {
-		return "", nil
+		return redact.Secret{}, nil
 	}
 	if lookup == nil {
-		return "", errors.New("upstream: no secret lookup")
+		return redact.Secret{}, errors.New("upstream: no secret lookup")
 	}
 	// The proxy's start, which no caller's context bounds.
 	ctx, cancel := context.WithTimeout(context.Background(), lookupTimeout) //nolint:forbidigo // the proxy's own start
 	defer cancel()
 	v, err := lookup(ctx, Binding{Name: name, Kind: KindSecret})
 	if err != nil {
-		return "", fmt.Errorf("upstream: the company proxy's password, secret %s: %w", name, err)
+		return redact.Secret{}, fmt.Errorf("upstream: the company proxy's password, secret %s: %w", name, err)
 	}
-	if v = strings.TrimSpace(v); v == "" {
-		return "", fmt.Errorf("upstream: secret %s is empty", name)
+	if v = v.TrimSpace(); v.Empty() {
+		return redact.Secret{}, fmt.Errorf("upstream: secret %s is empty", name)
 	}
 	return v, nil
 }
@@ -163,7 +165,7 @@ func upstreamPassword(name string, lookup Lookup) (string, error) {
 // and none of its own, and no Secret: the company proxy as devvm's own clients and programs on
 // the host take it (Route, and the variables of a program devvm runs), never a VM. Its URLs then
 // hold the password, so they go into no file, log or process's arguments. Errors never hold a URL.
-func (u Upstream) WithPassword(password string) (Upstream, error) {
+func (u Upstream) WithPassword(password redact.Secret) (Upstream, error) {
 	out := Upstream{NoProxy: u.NoProxy}
 	for _, s := range []struct {
 		name, raw string
@@ -176,9 +178,9 @@ func (u Upstream) WithPassword(password string) (Upstream, error) {
 		if err != nil {
 			return Upstream{}, fmt.Errorf("upstream: %s: %w", s.name, err)
 		}
-		if pu.User != nil && password != "" {
+		if pu.User != nil && !password.Empty() {
 			if _, ok := pu.User.Password(); !ok {
-				pu.User = url.UserPassword(pu.User.Username(), password)
+				pu.User = url.UserPassword(pu.User.Username(), password.Reveal()) //nolint:forbidigo // the URL devvm's own clients and host programs take the company proxy as
 			}
 		}
 		*s.into = pu.String()
@@ -438,8 +440,8 @@ func (u *upstream) connect(ctx context.Context, host string, port int) (net.Conn
 	}
 	target := net.JoinHostPort(host, strconv.Itoa(port))
 	req := "CONNECT " + target + " HTTP/1.1\r\nHost: " + target + "\r\n"
-	if u.auth != "" {
-		req += "Proxy-Authorization: " + u.auth + "\r\n"
+	if !u.auth.Empty() {
+		req += "Proxy-Authorization: " + u.auth.Reveal() + "\r\n" //nolint:forbidigo // the company proxy's credentials, in its CONNECT alone
 	}
 	_ = c.SetDeadline(time.Now().Add(15 * time.Second))
 	stop := context.AfterFunc(ctx, func() { _ = c.SetDeadline(time.Now()) })

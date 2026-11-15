@@ -8,6 +8,7 @@ import (
 	"github.com/devvmhq/devvm/internal/agentlogin"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // A secret of yours has a name of its own: lower case, digits and dashes,
@@ -232,7 +233,7 @@ func TestPlaceholders(t *testing.T) {
 		if ph != want || !agentlogin.HasPlaceholder([]byte(ph)) {
 			t.Errorf("%s's placeholder = %q, want %q", sec.Name, ph, want)
 		}
-		if _, err := Token(sec.Name, ph); msg.NamesOf(err) != "token_is_placeholder" {
+		if _, err := Token(sec.Name, redact.NewSecret(ph)); msg.NamesOf(err) != "token_is_placeholder" {
 			t.Errorf("%s's placeholder taken as its value: %v", sec.Name, msg.NamesOf(err))
 		}
 	}

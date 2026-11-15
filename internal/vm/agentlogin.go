@@ -14,6 +14,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/tools"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -43,7 +44,8 @@ type AgentLoginOptions struct {
 	// which the VM gets as placeholders: the agent's own login never runs.
 	// An agent with neither a login of its own nor a ChatGPT login (pi)
 	// has no other login here.
-	Key, Provider string
+	Key      redact.Secret
+	Provider string
 }
 
 // AgentLogin is devvm agent login: an agent's login in the folder's VM,
@@ -64,7 +66,7 @@ type AgentLogin struct{ *Env }
 // An agent with API keys alone (pi) saves one. Run says what the store
 // saved, and fails when the login saved nothing.
 func (e AgentLogin) Run(ctx context.Context, o AgentLoginOptions) error {
-	if d, _ := agents.Get(o.Agent); d.KeysOnly() && o.Key == "" {
+	if d, _ := agents.Get(o.Agent); d.KeysOnly() && o.Key.Empty() {
 		return msg.AgentLoginKeyOnly(o.Agent)
 	}
 	t, conf, err := readyConf(ctx, e.launcher)
@@ -79,7 +81,7 @@ func (e AgentLogin) Run(ctx context.Context, o AgentLoginOptions) error {
 	if ok, err := e.claude(ctx, t, conf, o); ok {
 		return err
 	}
-	if o.Key != "" {
+	if !o.Key.Empty() {
 		return e.saveKey(ctx, t, store, o)
 	}
 	before := store.LoginSum(o.Agent)

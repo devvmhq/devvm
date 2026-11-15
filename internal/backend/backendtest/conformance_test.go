@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/backend"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -98,7 +99,7 @@ func (wrongProxy) ProxyURL(c backend.Confinement) string {
 	if c.Net != backend.NetProxy {
 		return ""
 	}
-	return backend.ProxyURL("proxy.test", c.ProxyPort, "another")
+	return backend.ProxyURL("proxy.test", c.ProxyPort, redact.NewSecret("another"))
 }
 
 // The suite finds each of these fakes' breaks, in the check named.

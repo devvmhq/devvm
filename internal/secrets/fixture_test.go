@@ -84,11 +84,28 @@ func checkStoreFixture(t *testing.T, f storeFixture) {
 			continue
 		}
 		found = true
-		if v, err := s.Get(t.Context(), b); v != f.value || err != nil {
-			t.Errorf("Get(%+v) = %q, %v", b, v, err)
+		if v, err := s.Get(t.Context(), b); v.Reveal() != f.value || err != nil {
+			t.Errorf("Get(%+v) = %q, %v", b, v.Reveal(), err)
 		}
 	}
 	if !found {
 		t.Fatalf("%s's bindings have no %s: %+v", f.vmHash, f.secret, list.Bindings)
+	}
+	// The secret's file, read and saved again, has the release's bytes.
+	file := filepath.Join(d.Secrets(), f.secret)
+	before, err := os.ReadFile(file) //nolint:gosec // the test's own copy of the fixture
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := s.Value(t.Context(), f.secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(t.Context(), f.secret, v); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(file) //nolint:gosec // the test's own copy of the fixture
+	if string(after) != string(before) {
+		t.Errorf("%s saved again as %q, the release wrote %q", f.secret, after, before)
 	}
 }

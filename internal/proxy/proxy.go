@@ -22,7 +22,8 @@
 //     sockets on the host before any rule, their bytes as they are (see links.go).
 //
 // It exits when the VM's hostagent does (Config.Lifeline). Standard library only, and internal/daemon,
-// which is too: it prints nothing itself, but writes to the streams devvm hands Main.
+// internal/redact, internal/safefile and internal/vmname, which are too: it prints nothing itself,
+// but writes to the streams devvm hands Main.
 //
 // Everything one proxy runs with and keeps between connections is in its server, which Main makes
 // from the config (newServer): the package keeps no state of its own, so each test makes a server
@@ -55,6 +56,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/devvmhq/devvm/internal/daemon"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -71,9 +73,9 @@ func newFlags(path *string) *flag.FlagSet {
 // server is one proxy: what its config gave it, and what it keeps between connections, each part
 // under a lock of its own. newServer makes it from a Config.
 type server struct {
-	vm       vmname.VM   // Config.VM, for the log
-	password string      // the VM's password (Config.Password); empty: no check
-	log      *log.Logger // its own log lines (what it loaded, what failed), not events
+	vm       vmname.VM     // Config.VM, for the log
+	password redact.Secret // the VM's password (Config.Password); empty: no check
+	log      *log.Logger   // its own log lines (what it loaded, what failed), not events
 	events   *events
 	egress   *egress  // where a connection may go: the policy, the floor, the company proxy
 	secrets  *secrets // Config.Secrets: the bindings and their values
@@ -199,7 +201,7 @@ const ProxyUser = "devvm"
 // reaches it: other VMs, other users. Inside an intercepted tunnel there's no proxy header: the
 // CONNECT that opened it was checked.
 func (s *server) authorized(r *http.Request) bool {
-	if s.password == "" {
+	if s.password.Empty() {
 		return true
 	}
 	v := r.Header.Get("Proxy-Authorization")
@@ -207,7 +209,7 @@ func (s *server) authorized(r *http.Request) bool {
 		return false
 	}
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(v[6:]))
-	return err == nil && subtle.ConstantTimeCompare(raw, []byte(ProxyUser+":"+s.password)) == 1
+	return err == nil && subtle.ConstantTimeCompare(raw, []byte(ProxyUser+":"+s.password.Reveal())) == 1 //nolint:forbidigo // the password check itself
 }
 
 // --- events ---

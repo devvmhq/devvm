@@ -14,6 +14,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 const (
@@ -101,7 +102,7 @@ func TestCodexCapture(t *testing.T) {
 	if vm["refresh_token"] != managed || vm["token_type"] != "Bearer" || vm["extra"] != nil {
 		t.Errorf("the VM's reply = %v", vm)
 	}
-	if c := jwtClaims(vm["id_token"].(string)); c["email"] != "a@b" || chatgptAccount(vm["id_token"].(string)) != "acct-1" {
+	if c := jwtClaims(redact.NewSecret(vm["id_token"].(string))); c["email"] != "a@b" || chatgptAccount(redact.NewSecret(vm["id_token"].(string))) != "acct-1" {
 		t.Errorf("the VM's id_token claims = %v", c)
 	}
 
@@ -114,7 +115,7 @@ func TestCodexCapture(t *testing.T) {
 	if q, _ := url.ParseQuery(string(out)); err != nil || q.Get("subject_token") != idToken || q.Get("requested_token") != apiKeyToken {
 		t.Fatalf("the exchange goes out as %q, %v", out, err)
 	}
-	for _, other := range []string{"", "x", openaiPlaceholder(idToken, "another-vm")} {
+	for _, other := range []string{"", "x", openaiPlaceholder(redact.NewSecret(idToken), "another-vm")} {
 		if _, _, err := f.CaptureRequest(formType, exchange(other)); err == nil {
 			t.Errorf("an exchange for %q went out", other)
 		}
@@ -230,7 +231,7 @@ func TestOpencodeCapture(t *testing.T) {
 			ph = b.Placeholder
 		}
 	}
-	if ph == "" || vm["access_token"] != ph || vm["refresh_token"] != managed || chatgptAccount(vm["id_token"].(string)) != "acct-1" {
+	if ph == "" || vm["access_token"] != ph || vm["refresh_token"] != managed || chatgptAccount(redact.NewSecret(vm["id_token"].(string))) != "acct-1" {
 		t.Errorf("the VM's reply %v, the binding's placeholder %q", vm, ph)
 	}
 	// The VM's own refresh, with managed or with its copy's refresh token, the access token's

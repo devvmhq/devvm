@@ -241,12 +241,12 @@ func TestSecret(t *testing.T) {
 	t.Parallel()
 	q := msg.TokenPrompt().AnsweredBy("--stdin").About(msg.GithubTokenHowto())
 	u, out, errOut := testUI(t, "ghp_x\r\nrest")
-	if v, err := u.Secret(q); v != "" || refusal(err) != "token_prompt / no_input answer=--stdin" {
-		t.Errorf("no terminal: %q, %s", v, refusal(err))
+	if v, err := u.Secret(q); !v.Empty() || refusal(err) != "token_prompt / no_input answer=--stdin" {
+		t.Errorf("no terminal: %q, %s", v.Reveal(), refusal(err))
 	}
 	u.SetFlags(Flags{PipedAnswers: true})
-	if v, err := u.Secret(q); v != "ghp_x" || err != nil || errOut.Len() != 0 {
-		t.Errorf("piped: %q, %v, stderr %q", v, err, errOut)
+	if v, err := u.Secret(q); v.Reveal() != "ghp_x" || err != nil || errOut.Len() != 0 {
+		t.Errorf("piped: %q, %v, stderr %q", v.Reveal(), err, errOut)
 	}
 	if v := u.Line(); v != "rest" {
 		t.Errorf("the end of input: %q", v)
@@ -254,13 +254,13 @@ func TestSecret(t *testing.T) {
 	if v := u.Line(); v != "" {
 		t.Errorf("after it: %q", v)
 	}
-	if v, err := u.Secret(q); v != "" || refusal(err) != "token_prompt / no_input answer=--stdin" {
-		t.Errorf("piped, at the end of input: %q, %s", v, refusal(err))
+	if v, err := u.Secret(q); !v.Empty() || refusal(err) != "token_prompt / no_input answer=--stdin" {
+		t.Errorf("piped, at the end of input: %q, %s", v.Reveal(), refusal(err))
 	}
 	u.readPassword = func() (string, error) { return "ghp_y", nil }
 	u.stdinTTY = true
-	if v, err := u.Secret(q); v != "ghp_y" || err != nil || errOut.String() != "github_token_howto\ntoken_prompt \n" || out.Len() != 0 {
-		t.Errorf("terminal: %q, %v, stderr %q", v, err, errOut)
+	if v, err := u.Secret(q); v.Reveal() != "ghp_y" || err != nil || errOut.String() != "github_token_howto\ntoken_prompt \n" || out.Len() != 0 {
+		t.Errorf("terminal: %q, %v, stderr %q", v.Reveal(), err, errOut)
 	}
 	u.readPassword = func() (string, error) { return "", errors.New("closed") }
 	if _, err := u.Secret(q); refusal(err) != " / no_input answer=--stdin" {

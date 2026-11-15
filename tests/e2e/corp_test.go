@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // WriteProxyConfig writes c as devvm _proxy -config's file f, the run's
@@ -73,7 +74,7 @@ func StartCorp(s *S) (*Corp, error) {
 	if err := os.WriteFile(c.Events, nil, 0o600); err != nil {
 		return nil, err
 	}
-	err := WriteProxyConfig(s, cfg, proxy.Config{VM: "e2e-corp", Listen: c.addr, Password: c.pw, Policies: []string{pol}, Log: c.Events})
+	err := WriteProxyConfig(s, cfg, proxy.Config{VM: "e2e-corp", Listen: c.addr, Password: redact.NewSecret(c.pw), Policies: []string{pol}, Log: c.Events})
 	if err != nil {
 		return nil, err
 	}

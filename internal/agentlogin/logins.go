@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -47,6 +48,7 @@ import (
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/fetch"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/state"
 )
@@ -267,10 +269,23 @@ func obj(m map[string]any, k string) map[string]any {
 	return o
 }
 
+// A login's map is its file as the agent writes it, the wire its keys and tokens are kept in, read
+// and written whole so that fields devvm doesn't know stay. A key or token leaves the map as a
+// redact.Secret (token) and goes into it through setToken, so that what devvm does with one, a
+// proxy's lookup, a refresh, a capture, never prints it.
+
+// token is the key or token at m's key k, empty when it isn't a string.
+func token(m map[string]any, k string) redact.Secret { return redact.NewSecret(str(m, k)) }
+
+// setToken puts the key or token v at m's key k.
+func setToken(m map[string]any, k string, v redact.Secret) {
+	m[k] = v.Reveal() //nolint:forbidigo // the login file, in the agent's own format, keeps it
+}
+
 // --- JWTs (never verified: only read for claims, or made up as placeholders) ---
 
-func jwtClaims(tok string) map[string]any {
-	parts := strings.Split(tok, ".")
+func jwtClaims(tok redact.Secret) map[string]any {
+	parts := strings.Split(tok.Reveal(), ".") //nolint:forbidigo // a JWT's claims, its account and expiry, never its signature
 	if len(parts) != 3 {
 		return nil
 	}
@@ -285,7 +300,7 @@ func jwtClaims(tok string) map[string]any {
 	return c
 }
 
-func jwtExp(tok string) (time.Time, bool) {
+func jwtExp(tok redact.Secret) (time.Time, bool) {
 	exp, ok := jwtClaims(tok)["exp"].(float64)
 	return time.Unix(int64(exp), 0), ok
 }
@@ -301,7 +316,7 @@ func fakeJWT(claims map[string]any) string {
 const jwtMark = "devvm-placeholder"
 
 // The account claims Codex and opencode read from tokens, without anything that grants access.
-func accountClaims(tok, salt string) map[string]any {
+func accountClaims(tok redact.Secret, salt string) map[string]any {
 	c := jwtClaims(tok)
 	out := map[string]any{"exp": farFuture, "devvm": salted("placeholder", salt)}
 	if a, ok := c["https://api.openai.com/auth"]; ok {
@@ -317,7 +332,9 @@ func accountClaims(tok, salt string) map[string]any {
 
 // openaiPlaceholder is the VM's in place of an OpenAI token (Codex's and opencode's): a JWT with
 // tok's account claims, ending in salt.
-func openaiPlaceholder(tok, salt string) string { return fakeJWT(accountClaims(tok, salt)) }
+func openaiPlaceholder(tok redact.Secret, salt string) string {
+	return fakeJWT(accountClaims(tok, salt))
+}
 
 // --- Codex ---
 
@@ -346,7 +363,7 @@ func codexBindings(m map[string]any, salt string) []proxy.Binding {
 	}
 	if t := obj(m, "tokens"); str(t, "access_token") != "" {
 		bs = append(bs, login(agents.Codex, codexLogin, authorization("chatgpt.com", "api.openai.com"),
-			openaiPlaceholder(str(t, "access_token"), salt))...)
+			openaiPlaceholder(token(t, "access_token"), salt))...)
 	}
 	return bs
 }
@@ -372,7 +389,7 @@ func codexVM(m map[string]any, salt string) (map[string]any, []string) {
 			out["OPENAI_API_KEY"] = b.Placeholder
 		case codexLogin:
 			// The id token's is the placeholder Codex's API-key exchange sends back (CaptureRequest).
-			t["id_token"] = openaiPlaceholder(str(ht, "id_token"), salt)
+			t["id_token"] = openaiPlaceholder(token(ht, "id_token"), salt)
 			t["access_token"] = b.Placeholder
 			// Just refreshed, as far as the VM's Codex can tell: it never tries.
 			out["last_refresh"] = time.Now().UTC().Format(time.RFC3339)
@@ -381,45 +398,44 @@ func codexVM(m map[string]any, salt string) (map[string]any, []string) {
 	return out, withheld
 }
 
-func (f File) codexGet(ctx context.Context, name string) (string, error) {
+func (f File) codexGet(ctx context.Context, name string) (redact.Secret, error) {
 	unlock, err := lockLogin(f.Path)
 	if err != nil {
-		return "", err
+		return redact.Secret{}, err
 	}
 	defer unlock()
 	m, err := readJSON(f.Path)
 	if err != nil {
-		return "", err
+		return redact.Secret{}, err
 	}
 	switch name {
 	case "codex-key":
-		if k := str(m, "OPENAI_API_KEY"); k != "" {
+		if k := token(m, "OPENAI_API_KEY"); !k.Empty() {
 			return k, nil
 		}
-		return "", ErrCodexNoKey
+		return redact.Secret{}, ErrCodexNoKey
 	case codexLogin:
 		t := obj(m, "tokens")
-		if str(t, "access_token") == "" {
-			return "", ErrCodexNoChatGPT
+		at := token(t, "access_token")
+		if at.Empty() {
+			return redact.Secret{}, ErrCodexNoChatGPT
 		}
-		if exp, ok := jwtExp(str(t, "access_token")); ok && time.Until(exp) > refreshMargin {
-			return str(t, "access_token"), nil
+		if exp, ok := jwtExp(at); ok && time.Until(exp) > refreshMargin {
+			return at, nil
 		}
-		nt, err := f.refresh(ctx, false, map[string]string{
-			"grant_type": "refresh_token", "client_id": openaiClientID, "refresh_token": str(t, "refresh_token"),
-		})
+		nt, err := f.refresh(ctx, false, token(t, "refresh_token"), map[string]string{"client_id": openaiClientID})
 		if err != nil {
-			return "", &RefreshError{Agent: agents.Codex, Err: err}
+			return redact.Secret{}, &RefreshError{Agent: agents.Codex, Err: err}
 		}
 		for _, k := range []string{"id_token", "access_token", "refresh_token"} {
-			if v := str(nt, k); v != "" {
-				t[k] = v
+			if v := token(nt, k); !v.Empty() {
+				setToken(t, k, v)
 			}
 		}
 		m["last_refresh"] = time.Now().UTC().Format(time.RFC3339)
-		return str(t, "access_token"), writeRefreshed(f.Path, m)
+		return token(t, "access_token"), writeRefreshed(f.Path, m)
 	}
-	return "", fmt.Errorf("no Codex login %q", name)
+	return redact.Secret{}, fmt.Errorf("no Codex login %q", name)
 }
 
 // --- opencode ---
@@ -442,7 +458,7 @@ func opencodeBindings(m map[string]any, salt string) []proxy.Binding {
 		}
 		ph := keyPlaceholder(agents.Opencode, id, salt)
 		if id == "openai" && str(e, "type") == "oauth" {
-			ph = openaiPlaceholder(str(e, "access"), salt) // opencode reads the account from it
+			ph = openaiPlaceholder(token(e, "access"), salt) // opencode reads the account from it
 		}
 		bs = append(bs, login(agents.Opencode, "opencode-"+id, p, ph)...)
 	}
@@ -510,48 +526,46 @@ func opencodeSplit(m map[string]any, pass []string) VMFile {
 		func(id string) bool { return opencodePassed(m, id, bound, pass) })
 }
 
-func (f File) opencodeGet(ctx context.Context, name string) (string, error) {
+func (f File) opencodeGet(ctx context.Context, name string) (redact.Secret, error) {
 	unlock, err := lockLogin(f.Path)
 	if err != nil {
-		return "", err
+		return redact.Secret{}, err
 	}
 	defer unlock()
 	m, err := readJSON(f.Path)
 	if err != nil {
-		return "", err
+		return redact.Secret{}, err
 	}
 	id := strings.TrimPrefix(name, "opencode-")
 	e := obj(m, id)
 	switch str(e, "type") {
 	case "api":
-		return str(e, "key"), nil
+		return token(e, "key"), nil
 	case "oauth":
 		if id == "github-copilot" {
-			return str(e, "refresh"), nil // a GitHub token, never refreshed
+			return token(e, "refresh"), nil // a GitHub token, never refreshed
 		}
 		exp, _ := e["expires"].(json.Number)
 		ms, _ := exp.Int64()
-		if str(e, "access") != "" && time.Until(time.UnixMilli(ms)) > refreshMargin {
-			return str(e, "access"), nil
+		if at := token(e, "access"); !at.Empty() && time.Until(time.UnixMilli(ms)) > refreshMargin {
+			return at, nil
 		}
-		nt, err := f.refresh(ctx, true, map[string]string{
-			"grant_type": "refresh_token", "client_id": openaiClientID, "refresh_token": str(e, "refresh"),
-		})
+		nt, err := f.refresh(ctx, true, token(e, "refresh"), map[string]string{"client_id": openaiClientID})
 		if err != nil {
-			return "", &RefreshError{Agent: agents.Opencode, Provider: id, Err: err}
+			return redact.Secret{}, &RefreshError{Agent: agents.Opencode, Provider: id, Err: err}
 		}
-		e["access"] = str(nt, "access_token")
-		if v := str(nt, "refresh_token"); v != "" {
-			e["refresh"] = v
+		setToken(e, "access", token(nt, "access_token"))
+		if v := token(nt, "refresh_token"); !v.Empty() {
+			setToken(e, "refresh", v)
 		}
 		secs := 3600.0
 		if v, ok := nt["expires_in"].(float64); ok {
 			secs = v
 		}
 		e["expires"] = time.Now().Add(time.Duration(secs) * time.Second).UnixMilli()
-		return str(e, "access"), writeRefreshed(f.Path, m)
+		return token(e, "access"), writeRefreshed(f.Path, m)
 	}
-	return "", fmt.Errorf("no opencode login %q", id)
+	return redact.Secret{}, fmt.Errorf("no opencode login %q", id)
 }
 
 // tokenURL is where f's OAuth tokens are refreshed (File.TokenURL): else
@@ -568,11 +582,14 @@ func (f File) tokenURL() string {
 	return OpenAITokenURL
 }
 
-// refresh posts an OAuth refresh request to f.tokenURL(), as JSON (Codex) or a form (opencode),
-// within refreshTimeout. Its caller's end doesn't cancel it: the server may already have rotated
-// the refresh token, and only the reply, written back to the login file, holds the new one.
-func (f File) refresh(ctx context.Context, form bool, fields map[string]string) (map[string]any, error) {
+// refresh posts an OAuth refresh request for the refresh token rt to f.tokenURL(), with fields
+// besides the grant and the token, as JSON (Codex) or a form (opencode), within refreshTimeout.
+// Its caller's end doesn't cancel it: the server may already have rotated the refresh token, and
+// only the reply, written back to the login file, holds the new one.
+func (f File) refresh(ctx context.Context, form bool, rt redact.Secret, extra map[string]string) (map[string]any, error) {
 	u := f.tokenURL()
+	fields := map[string]string{"grant_type": grantRefresh, "refresh_token": rt.Reveal()} //nolint:forbidigo // the refresh request, to the agent's token endpoint
+	maps.Copy(fields, extra)
 	var body []byte
 	ctype := "application/json"
 	if form {
@@ -921,21 +938,21 @@ func claudeVM(m map[string]any, salt string) map[string]any {
 	return m
 }
 
-func (f File) claudeGet(name string) (string, error) {
+func (f File) claudeGet(name string) (redact.Secret, error) {
 	m, err := readJSON(f.Path)
 	if err != nil {
-		return "", err
+		return redact.Secret{}, err
 	}
 	names, servers := claudeServers(m)
 	for _, n := range names {
 		hs := obj(obj(servers, n), "headers")
 		for _, h := range sortedKeys(hs) {
 			if claudeBindingName(n, h) == name {
-				return str(hs, h), nil
+				return token(hs, h), nil
 			}
 		}
 	}
-	return "", fmt.Errorf("no MCP server header %s in %s", name, f.Path)
+	return redact.Secret{}, fmt.Errorf("no MCP server header %s in %s", name, f.Path)
 }
 
 // Bindings returns the login's secret bindings, of proxy.KindLogin with f.Kind their Agent, each
@@ -994,10 +1011,10 @@ func (f File) VMCopy() (VMFile, error) {
 
 // Get returns the value of the binding named name: from the host's file, read each time, refreshing
 // an OAuth token there when it's due, under the file's lock.
-func (f File) Get(ctx context.Context, name string) (string, error) {
+func (f File) Get(ctx context.Context, name string) (redact.Secret, error) {
 	fm, err := f.formatOf()
 	if err != nil {
-		return "", err
+		return redact.Secret{}, err
 	}
 	return fm.get(ctx, f, name)
 }

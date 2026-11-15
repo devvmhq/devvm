@@ -156,7 +156,7 @@ func TestUpNetworkPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, _ := call(f, "Start").Args[2].(backend.Confinement)
-	if c.Net != backend.NetProxy || c.ProxyPassword != get(st, keyProxyKey) ||
+	if c.Net != backend.NetProxy || c.ProxyPassword.Reveal() != get(st, keyProxyKey) ||
 		strconv.Itoa(c.ProxyPort) != get(st, keyProxyPort) || strconv.Itoa(c.SSHPort) != get(st, keySSHPort) {
 		t.Errorf("Start confinement = %+v", c)
 	}

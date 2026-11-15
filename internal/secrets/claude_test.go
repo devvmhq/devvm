@@ -14,6 +14,7 @@ import (
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
 )
 
@@ -88,7 +89,7 @@ func TestOneClaudeLogin(t *testing.T) {
 		t.Error("the saved token stayed")
 	}
 	// devvm secret set claude: the OAuth login goes.
-	if err := s.Save(ctx, "claude", "sk-ant-oat01-pasted"); err != nil || s.HasLogin(agents.ClaudeOAuth) {
+	if err := s.Save(ctx, "claude", redact.NewSecret("sk-ant-oat01-pasted")); err != nil || s.HasLogin(agents.ClaudeOAuth) {
 		t.Errorf("Save: %v, OAuth login kept %v", err, s.HasLogin(agents.ClaudeOAuth))
 	}
 	// The environment's token wins, but the sums are the saved ones'.
@@ -96,7 +97,7 @@ func TestOneClaudeLogin(t *testing.T) {
 	delete(kc, "devvm/claude")
 	env := map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-env"} //nolint:gosec // a test's fake token
 	s.Getenv = func(k string) string { return env[k] }
-	if l, _ := ClaudeOf(s).Login(ctx); l != "token" || ClaudeOf(s).Env() != "sk-ant-oat01-env" {
+	if l, _ := ClaudeOf(s).Login(ctx); l != "token" || ClaudeOf(s).Env().Reveal() != "sk-ant-oat01-env" {
 		t.Errorf("with the environment's token: %q", l)
 	}
 	if o, tk, _ := ClaudeOf(s).Sums(ctx); o == "" || tk != "" {
@@ -142,11 +143,11 @@ func TestClaudeBindings(t *testing.T) {
 		t.Errorf("the OAuth login: %q", got)
 	}
 	for _, b := range []proxy.Binding{secretOf("claude"), loginOf(agents.ClaudeOAuth, agentlogin.ClaudeOAuthName)} {
-		if v, err := s.Get(ctx, b); v != "sk-ant-oat01-oauth" || err != nil {
-			t.Errorf("Get(%s) with the OAuth login = %q, %v", b.Name, v, err)
+		if v, err := s.Get(ctx, b); v.Reveal() != "sk-ant-oat01-oauth" || err != nil {
+			t.Errorf("Get(%s) with the OAuth login = %q, %v", b.Name, v.Reveal(), err)
 		}
 	}
-	if err := s.Save(ctx, "claude", "sk-ant-oat01-token"); err != nil {
+	if err := s.Save(ctx, "claude", redact.NewSecret("sk-ant-oat01-token")); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.WriteFiles(ctx, st, salt); err != nil {
@@ -156,8 +157,8 @@ func TestClaudeBindings(t *testing.T) {
 		t.Errorf("the token: %q", got)
 	}
 	for _, b := range []proxy.Binding{secretOf("claude"), loginOf(agents.ClaudeOAuth, agentlogin.ClaudeOAuthName)} {
-		if v, err := s.Get(ctx, b); v != "sk-ant-oat01-token" || err != nil {
-			t.Errorf("Get(%s) with the token = %q, %v", b.Name, v, err)
+		if v, err := s.Get(ctx, b); v.Reveal() != "sk-ant-oat01-token" || err != nil {
+			t.Errorf("Get(%s) with the token = %q, %v", b.Name, v.Reveal(), err)
 		}
 	}
 	delete(kc, "devvm/claude")

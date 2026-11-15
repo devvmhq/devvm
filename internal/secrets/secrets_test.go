@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -86,9 +87,9 @@ func TestToken(t *testing.T) {
 		{"proxy", `pa55"`, "", "token_quotes"},
 		{"proxy", " \n", "", "no_token"},
 	} {
-		v, err := Token(tc.name, tc.given)
-		if v != tc.want || msg.NamesOf(err) != tc.err {
-			t.Errorf("Token(%s, %q) = %q, %v", tc.name, tc.given, v, msg.NamesOf(err))
+		v, err := Token(tc.name, redact.NewSecret(tc.given))
+		if v.Reveal() != tc.want || msg.NamesOf(err) != tc.err {
+			t.Errorf("Token(%s, %q) = %q, %v", tc.name, tc.given, v.Reveal(), msg.NamesOf(err))
 		}
 	}
 }
@@ -98,11 +99,11 @@ func TestToken(t *testing.T) {
 func TestSaveDelete(t *testing.T) {
 	ctx := t.Context()
 	s, kc := testStore(t, true, map[string]string{"DEVVM_SECRET_SERVICE": "devvm-test"}) //nolint:gosec // a service name
-	if err := s.Save(ctx, "github", "ghp_x"); err != nil || kc["devvm-test/github"] != "ghp_x" {
+	if err := s.Save(ctx, "github", redact.NewSecret("ghp_x")); err != nil || kc["devvm-test/github"] != "ghp_x" {
 		t.Errorf("Save: %v, %q", err, kc)
 	}
-	if v, _ := s.Value(ctx, "github"); v != "ghp_x" {
-		t.Errorf("Value after Save = %q", v)
+	if v, _ := s.Value(ctx, "github"); v.Reveal() != "ghp_x" {
+		t.Errorf("Value after Save = %q", v.Reveal())
 	}
 	if err := s.Delete(ctx, "github"); err != nil || len(kc) != 0 {
 		t.Errorf("Delete: %v, %q", err, kc)
@@ -111,11 +112,11 @@ func TestSaveDelete(t *testing.T) {
 		t.Errorf("Delete again: %v", err)
 	}
 	s.KeychainSet = func(context.Context, string, string, string, string) error { return errors.New("denied") }
-	if err := s.Save(ctx, "claude", "sk-ant-oat01-x"); msg.NamesOf(err) != "keychain_save_failed secret=claude" {
+	if err := s.Save(ctx, "claude", redact.NewSecret("sk-ant-oat01-x")); msg.NamesOf(err) != "keychain_save_failed secret=claude" {
 		t.Errorf("a failed save: %v", msg.NamesOf(err))
 	}
 	for _, name := range []string{"../../x", "nope"} {
-		if err := s.Save(ctx, name, "v"); msg.NamesOf(err) != "no_secret secret="+msg.OneLine(name) {
+		if err := s.Save(ctx, name, redact.NewSecret("v")); msg.NamesOf(err) != "no_secret secret="+msg.OneLine(name) {
 			t.Errorf("Save(%s): %v", name, msg.NamesOf(err))
 		}
 		if err := s.Delete(ctx, name); !errors.Is(err, ErrNone) {
@@ -128,11 +129,11 @@ func TestSaveDelete(t *testing.T) {
 	if err := os.MkdirAll(f.Dirs.Secrets(), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Save(ctx, "github", "ghp_file"); err != nil {
+	if err := f.Save(ctx, "github", redact.NewSecret("ghp_file")); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := f.Value(ctx, "github"); v != "ghp_file" {
-		t.Errorf("file Value = %q", v)
+	if v, _ := f.Value(ctx, "github"); v.Reveal() != "ghp_file" {
+		t.Errorf("file Value = %q", v.Reveal())
 	}
 	for path, want := range map[string]os.FileMode{f.Dirs.Secrets(): 0o700, f.File("github"): 0o600} {
 		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != want {
@@ -202,8 +203,8 @@ func TestValue(t *testing.T) {
 		t.Errorf("no value: %v", err)
 	}
 	kc["devvm/github"] = "ghp_x\n"
-	if v, err := s.Value(ctx, "github"); v != "ghp_x" || err != nil {
-		t.Errorf("Keychain: %q, %v", v, err)
+	if v, err := s.Value(ctx, "github"); v.Reveal() != "ghp_x" || err != nil {
+		t.Errorf("Keychain: %q, %v", v.Reveal(), err)
 	}
 	// DEVVM_SECRET_SERVICE keeps test secrets apart, and is plain.
 	env := map[string]string{}
@@ -220,8 +221,8 @@ func TestValue(t *testing.T) {
 	delete(env, "DEVVM_SECRET_SERVICE")
 	env["CLAUDE_CODE_OAUTH_TOKEN"] = "sk-ant-oat01-env"
 	kc["devvm/claude"] = "sk-ant-oat01-kc"
-	if v, _ := s.Value(ctx, "claude"); v != "sk-ant-oat01-env" {
-		t.Errorf("claude = %q", v)
+	if v, _ := s.Value(ctx, "claude"); v.Reveal() != "sk-ant-oat01-env" {
+		t.Errorf("claude = %q", v.Reveal())
 	}
 	// Without a Keychain, a file only the user reads.
 	f, _ := testStore(t, false, nil)
@@ -231,8 +232,8 @@ func TestValue(t *testing.T) {
 	if err := os.WriteFile(f.File("github"), []byte("ghp_file\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if v, err := f.Value(ctx, "github"); v != "ghp_file" || err != nil {
-		t.Errorf("file: %q, %v", v, err)
+	if v, err := f.Value(ctx, "github"); v.Reveal() != "ghp_file" || err != nil {
+		t.Errorf("file: %q, %v", v.Reveal(), err)
 	}
 	if _, err := f.Value(ctx, "claude"); !errors.Is(err, ErrNone) {
 		t.Errorf("no file: %v", err)
@@ -248,8 +249,8 @@ func TestProxyPassword(t *testing.T) {
 		t.Errorf("none saved: %v", msg.NamesOf(err))
 	}
 	kc["devvm/proxy"] = " pa55 word\n"
-	if v, err := s.ProxyPassword(ctx, proxy.UpstreamSecret); v != "pa55 word" || err != nil {
-		t.Errorf("saved: %q, %v", v, err)
+	if v, err := s.ProxyPassword(ctx, proxy.UpstreamSecret); v.Reveal() != "pa55 word" || err != nil {
+		t.Errorf("saved: %q, %v", v.Reveal(), err)
 	}
 }
 
@@ -274,8 +275,8 @@ func TestGet(t *testing.T) {
 	s, kc := testStore(t, true, nil)
 	kc["devvm/github"] = "ghp_x"
 	ctx := t.Context()
-	if v, err := s.Get(ctx, secretOf("github")); v != "ghp_x" || err != nil {
-		t.Errorf("github = %q, %v", v, err)
+	if v, err := s.Get(ctx, secretOf("github")); v.Reveal() != "ghp_x" || err != nil {
+		t.Errorf("github = %q, %v", v.Reveal(), err)
 	}
 	// A login whose file isn't there fails, naming the file.
 	if _, err := s.Get(ctx, loginOf("codex", "codex-key")); msg.IDOf(err) != "login_read_failed" {
@@ -300,8 +301,8 @@ func TestGet(t *testing.T) {
 		{loginOf("opencode", "opencode-anthropic"), "sk-ant-value"},
 		{mcp[0], "mcp-value"},
 	} {
-		if v, err := s.Get(ctx, tc.b); v != tc.want || err != nil {
-			t.Errorf("Get(%+v) = %q, %v", tc.b, v, err)
+		if v, err := s.Get(ctx, tc.b); v.Reveal() != tc.want || err != nil {
+			t.Errorf("Get(%+v) = %q, %v", tc.b, v.Reveal(), err)
 		}
 	}
 	// Codex's file has no ChatGPT login: the message says to log in again.
@@ -398,7 +399,7 @@ func TestSaveKey(t *testing.T) {
 	if s.LoginSum("codex") != "" {
 		t.Error("a sum without a login")
 	}
-	if err := s.SaveKey(t.Context(), "codex", "", "sk-real"); err != nil {
+	if err := s.SaveKey(t.Context(), "codex", "", redact.NewSecret("sk-real")); err != nil {
 		t.Fatal(err)
 	}
 	sum := s.LoginSum("codex")
@@ -408,13 +409,13 @@ func TestSaveKey(t *testing.T) {
 	if _, ok, err := s.ChatGPT("codex"); ok || err != nil {
 		t.Errorf("an API key as a ChatGPT login: %v, %v", ok, err)
 	}
-	if err := s.SaveKey(t.Context(), "codex", "", "sk-other"); err != nil || s.LoginSum("codex") == sum {
+	if err := s.SaveKey(t.Context(), "codex", "", redact.NewSecret("sk-other")); err != nil || s.LoginSum("codex") == sum {
 		t.Errorf("a new key: %v, the same sum", err)
 	}
 	if !slices.Equal(excluded, []string{s.Dirs.AgentLogins("codex"), s.Dirs.AgentLogins("codex")}) {
 		t.Errorf("kept out of backups: %q", excluded)
 	}
-	if err := s.SaveKey(t.Context(), "aider", "", "k"); msg.NamesOf(err) != "no_secret secret=aider" {
+	if err := s.SaveKey(t.Context(), "aider", "", redact.NewSecret("k")); msg.NamesOf(err) != "no_secret secret=aider" {
 		t.Errorf("another agent: %v", msg.NamesOf(err))
 	}
 }
@@ -658,7 +659,7 @@ func TestSaveAtOnce(t *testing.T) {
 	for i := range 4 {
 		wg.Go(func() {
 			for range 50 {
-				errs <- s.Save(ctx, "github", "ghp_"+strconv.Itoa(i))
+				errs <- s.Save(ctx, "github", redact.NewSecret("ghp_"+strconv.Itoa(i)))
 			}
 		})
 	}
@@ -669,8 +670,8 @@ func TestSaveAtOnce(t *testing.T) {
 			t.Fatalf("Save: %v", err)
 		}
 	}
-	if v, _ := s.Value(ctx, "github"); !slices.Contains([]string{"ghp_0", "ghp_1", "ghp_2", "ghp_3"}, v) {
-		t.Errorf("Value = %q", v)
+	if v, _ := s.Value(ctx, "github"); !slices.Contains([]string{"ghp_0", "ghp_1", "ghp_2", "ghp_3"}, v.Reveal()) {
+		t.Errorf("Value = %q", v.Reveal())
 	}
 	if left := dirNames(t, s.Dirs.Secrets()); !slices.Equal(left, []string{"github"}) {
 		t.Errorf("the secrets folder holds %q", left)

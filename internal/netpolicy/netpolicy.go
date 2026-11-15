@@ -8,12 +8,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"path/filepath"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
@@ -45,11 +47,34 @@ type Learning struct {
 // On reports whether the VM learns.
 func (l Learning) On() bool { return !l.Since.IsZero() }
 
-// NetMade is what devvm made for a VM's network tier.
+// NetMade is what devvm made for a VM's network tier. vm.json holds it as
+// netMade, the key's value in it.
 type NetMade struct {
-	Check     string `json:"check,omitempty"`      // the last self-check's result: CheckOK or CheckUnenforced
-	ProxyKey  string `json:"proxy_key,omitempty"`  // the VM's proxy password (Key)
-	ProxySalt string `json:"proxy_salt,omitempty"` // what ends the VM's placeholders (Salt)
+	Check     string        // the last self-check's result: CheckOK or CheckUnenforced
+	ProxyKey  redact.Secret // the VM's proxy password (Key)
+	ProxySalt string        // what ends the VM's placeholders (Salt)
+}
+
+// netMade is NetMade as vm.json has it: the key a string.
+type netMade struct {
+	Check     string `json:"check,omitempty"`
+	ProxyKey  string `json:"proxy_key,omitempty"`
+	ProxySalt string `json:"proxy_salt,omitempty"`
+}
+
+// MarshalJSON writes m as vm.json has it (netMade).
+func (m NetMade) MarshalJSON() ([]byte, error) {
+	return json.Marshal(netMade{m.Check, m.ProxyKey.Reveal(), m.ProxySalt}) //nolint:forbidigo // vm.json keeps the VM's proxy password
+}
+
+// UnmarshalJSON reads m as vm.json has it (netMade).
+func (m *NetMade) UnmarshalJSON(b []byte) error {
+	var f netMade
+	if err := json.Unmarshal(b, &f); err != nil {
+		return err
+	}
+	*m = NetMade{f.Check, redact.NewSecret(f.ProxyKey), f.ProxySalt}
+	return nil
 }
 
 // Of returns a VM's network policy section. A section without a tier
@@ -101,8 +126,8 @@ func TierOf(st *state.VM) Tier {
 // Key returns the VM's own random key, made the first time it's needed
 // (backend.NewProxyPassword). It's the password for the VM's proxy, so
 // other VMs and programs on the host that reach its port can't use it.
-func Key(ctx context.Context, st *state.VM) (string, error) {
-	return made(ctx, st, func(m *NetMade) *string { return &m.ProxyKey }, backend.NewProxyPassword)
+func Key(ctx context.Context, st *state.VM) (redact.Secret, error) {
+	return made(ctx, st, func(m *NetMade) *redact.Secret { return &m.ProxyKey }, backend.NewProxyPassword)
 }
 
 // Salt returns what ends the VM's placeholders: random, like the key, and
@@ -121,17 +146,18 @@ func Salt(ctx context.Context, st *state.VM) (string, error) {
 // made returns the value of what devvm made for st that field names,
 // made by mk and recorded the first time, unless another devvm recorded
 // one meanwhile.
-func made(ctx context.Context, st *state.VM, field func(*NetMade) *string, mk func() (string, error)) (string, error) {
-	if n, err := Of(st); err != nil || *field(&n.Made) != "" {
+func made[T comparable](ctx context.Context, st *state.VM, field func(*NetMade) *T, mk func() (T, error)) (T, error) {
+	var none T
+	if n, err := Of(st); err != nil || *field(&n.Made) != none {
 		return *field(&n.Made), err
 	}
 	v, err := mk()
 	if err != nil {
-		return "", err
+		return none, err
 	}
 	err = st.Update(ctx, func(st *state.VM) error {
 		n, err := Of(st)
-		if err != nil || *field(&n.Made) != "" {
+		if err != nil || *field(&n.Made) != none {
 			v = *field(&n.Made)
 			return err
 		}

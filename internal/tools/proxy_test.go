@@ -15,6 +15,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // testPassword is the company proxy's password the tests' lookups give;
@@ -22,7 +23,9 @@ import (
 const testPassword = "pa55 word"
 
 // saved is a lookup of the company proxy's password that has it.
-func saved(context.Context, string) (string, error) { return testPassword, nil }
+func saved(context.Context, string) (redact.Secret, error) {
+	return redact.NewSecret(testPassword), nil
+}
 
 // The host's mise is downloaded through config.toml's company proxy, with
 // the user's password from devvm's secrets, when the environment sets

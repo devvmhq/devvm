@@ -2,7 +2,6 @@ package lima
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
@@ -267,7 +267,15 @@ func TestBuildImageHostProxy(t *testing.T) {
 			args := (*spawned)[0]
 			dir := l.Dirs.VM(inst).BuildProxy()
 			var c proxy.Config
-			if len(args) != 5 || args[3] != filepath.Join(dir, "proxy.json") || json.Unmarshal([]byte(args[4]), &c) != nil ||
+			readErr := os.ErrInvalid
+			if len(args) == 5 {
+				saved := filepath.Join(t.TempDir(), "proxy.json")
+				if err := os.WriteFile(saved, []byte(args[4]), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				c, readErr = proxy.ReadConfig(saved)
+			}
+			if len(args) != 5 || args[3] != filepath.Join(dir, "proxy.json") || readErr != nil ||
 				c.Lifeline != l.haPIDFile(inst) || !c.UpstreamUnresolved || c.Upstream == nil || c.Upstream.HTTPS != env["HTTPS_PROXY"] ||
 				c.Upstream.NoProxy != ".corp" || strings.Contains(strings.Join(args[:4], " "), "pa55") {
 				t.Errorf("the build's proxy: %q", args)
@@ -348,9 +356,9 @@ func TestBuildUpstreamConfig(t *testing.T) {
 		t.Errorf("no password saved: %v", err)
 	}
 	var asked []string
-	l.Company = settings.NewCompanyProxy(l.Dirs, none, func(_ context.Context, name string) (string, error) {
+	l.Company = settings.NewCompanyProxy(l.Dirs, none, func(_ context.Context, name string) (redact.Secret, error) {
 		asked = append(asked, name)
-		return "fake-password", nil
+		return redact.NewSecret("fake-password"), nil
 	})
 	host, up, err := buildUpstream(t.Context(), l.Company, backend.NetInternet)
 	if err != nil || host.HTTPS != "http://alice@proxy.corp:3128" || host.NoProxy != "corp.internal" || up == nil || up.Secret != proxy.UpstreamSecret ||

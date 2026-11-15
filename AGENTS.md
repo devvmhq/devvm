@@ -18,7 +18,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 | `internal/fetch/` | every HTTP client |
 | `internal/upgrade/` | devvm upgrade; `upgradetest/` (tests only) |
 | `internal/from/` | `--from`'s references and digests |
-| `internal/redact/` | passwords out of logs |
+| `internal/redact/` | passwords out of logs; `Secret`, the type of every secret's value |
 | `internal/safefile/` | every read of a file a VM can write or swap |
 | `internal/devcontainer/`, `internal/jsonc/` | a project's devcontainer.json; JSON with comments |
 | `internal/tools/` | the shared tools: the lock, host mise, the daily check, tool image builds, the share |
@@ -87,7 +87,8 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 - **Cleanups:** whatever a failure would leave (a build VM, a temp file) registers with the UI's `AddCleanup` and is removed once done; one only for interrupts checks `Interrupted()` and stays once interrupted, as the cleanups run after the command returns. Cleanups get a fresh context.
 - **External commands run with the UI's `LoggedCmd(ctx, step, cmd)`**, a failure after one returned as `backend.Logged(m)` ([CLI conventions](docs/content/docs/contributing/cli.md#cli-conventions)).
 - **OS-specific code goes behind build tags** in `internal/platform` (`*_darwin.go`, `*_linux.go`, `*_other.go`).
-- **Dependencies:** the depguard allowlist (cobra, pflag, cobra/doc, go-i18n, BurntSushi/toml, x/text, x/term, x/sys, x/crypto's `blake2b` only (minisign's prehash); go-internal in tests; cobra/doc's own deps never imported directly). `internal/proxy`, `internal/daemon`, `internal/safefile`, `internal/vmname` and `internal/leaktest` are stdlib only. Adding one: ask.
+- **Dependencies:** the depguard allowlist (cobra, pflag, cobra/doc, go-i18n, BurntSushi/toml, x/text, x/term, x/sys, x/crypto's `blake2b` only (minisign's prehash); go-internal in tests; cobra/doc's own deps never imported directly). `internal/proxy`, `internal/daemon`, `internal/safefile`, `internal/vmname`, `internal/leaktest` and `internal/redact` are stdlib only. Adding one: ask.
+- **A secret's value is a `redact.Secret`:** each `Reveal` with a `//nolint:forbidigo` saying why, and a file that holds one writes it through its own wire type ([Secrets in the code](docs/content/docs/contributing/structure.md#secrets-in-the-code)).
 - **External tools are commands, never linked** (`limactl`, `docker`, `security`, `git`, `chflags`…); prefer the standard library to shelling out. Strings into a shell are quoted with `shell.Quote`.
 - **Test seams are fields** tests set (`Host`, `Exec`, `Runner`, `OS`, `Reporter`…), never package vars (reassign: no package sets another's); `internal/proxy`'s are its `server`'s, which each test makes.
 - **The structure test** holds types to 24 methods, bans `func init`, limits package vars, checks the layers and keeps each concern in its owner (its failure names the owner: extend that); read [The structure test](docs/content/docs/contributing/structure.md#the-structure-test) before raising a limit or listing an exception, and regenerate [the checks on owners](docs/content/docs/contributing/structure.md#the-checks-on-owners) after changing its tables (`go test ./internal/structure -run TestOwnersDoc -update`).

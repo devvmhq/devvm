@@ -31,6 +31,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
@@ -277,17 +278,17 @@ func TestKeyAndSalt(t *testing.T) {
 	kb, _ := Key(t.Context(), b)
 	sa, _ := Salt(t.Context(), a)
 	sb, _ := Salt(t.Context(), b)
-	for v, re := range map[string]string{ka: `^[0-9a-f]{64}$`, kb: `^[0-9a-f]{64}$`, sa: `^[0-9a-f]{32}$`, sb: `^[0-9a-f]{32}$`} {
+	for v, re := range map[string]string{ka.Reveal(): `^[0-9a-f]{64}$`, kb.Reveal(): `^[0-9a-f]{64}$`, sa: `^[0-9a-f]{32}$`, sb: `^[0-9a-f]{32}$`} {
 		if !regexp.MustCompile(re).MatchString(v) {
 			t.Errorf("%q doesn't match %s", v, re)
 		}
 	}
-	if ka == kb || sa == sb || sa == ka {
-		t.Errorf("keys %s %s, salts %s %s: not each its own", ka, kb, sa, sb)
+	if ka.Reveal() == kb.Reveal() || sa == sb || sa == ka.Reveal() {
+		t.Errorf("keys %s %s, salts %s %s: not each its own", ka.Reveal(), kb.Reveal(), sa, sb)
 	}
 	again, _ := state.ReadVM(d, a.Name())
-	if k, _ := Key(t.Context(), again); k != ka {
-		t.Errorf("key not kept: %s, then %s", ka, k)
+	if k, _ := Key(t.Context(), again); k.Reveal() != ka.Reveal() {
+		t.Errorf("key not kept: %s, then %s", ka.Reveal(), k.Reveal())
 	}
 	claude, _ := secrets.Lookup("claude")
 	github, _ := secrets.Lookup("github")
@@ -448,7 +449,7 @@ func TestPrepare(t *testing.T) {
 	}
 	key := netOf(t, st).Made.ProxyKey
 	sp, pp := hostPorts(t, st).SSH, hostPorts(t, st).Proxy
-	if conf.Net != backend.NetProxy || conf.ProxyPassword != key || key == "" ||
+	if conf.Net != backend.NetProxy || conf.ProxyPassword.Reveal() != key.Reveal() || key.Empty() ||
 		conf.ProxyPort != pp || pp == 0 || conf.SSHPort != sp || sp == 0 || sp == pp || conf.Env["NO_PROXY"] != "localhost,127.0.0.1,::1" {
 		t.Errorf("confinement = %+v", conf)
 	}
@@ -737,7 +738,7 @@ func TestPrepareUpstreamConfig(t *testing.T) {
 	if err := prepare(); msg.NamesOf(err) != "proxy_password_missing" {
 		t.Errorf("no password saved: %v", msg.NamesOf(err))
 	}
-	if err := p.Secrets.Save(t.Context(), proxy.UpstreamSecret, "s3cret pa55"); err != nil {
+	if err := p.Secrets.Save(t.Context(), proxy.UpstreamSecret, redact.NewSecret("s3cret pa55")); err != nil {
 		t.Fatal(err)
 	}
 	if err := prepare(); err != nil {
@@ -802,7 +803,7 @@ func TestPrepareOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if conf.Net != backend.NetDirect || conf.ProxyPort == 0 || conf.ProxyPassword == "" || !conf.GuestProxy() {
+	if conf.Net != backend.NetDirect || conf.ProxyPort == 0 || conf.ProxyPassword.Empty() || !conf.GuestProxy() {
 		t.Errorf("open's confinement: %+v", conf)
 	}
 	for _, f := range []string{ca.Cert(), ca.Key(), ca.NextCert(), ca.NextKey(), d.VM(vm).Secrets()} {
@@ -926,7 +927,7 @@ func TestWriteConfigAtOnce(t *testing.T) {
 		wg.Go(func() {
 			for range 50 {
 				errs <- p.writeConfig(st.Name(), proxy.Config{
-					Listen: "127.0.0.1:0", Password: "k3y", UpstreamCAs: strings.Repeat("cas "+strconv.Itoa(i), 1000),
+					Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), UpstreamCAs: strings.Repeat("cas "+strconv.Itoa(i), 1000),
 					Upstream: &proxy.Upstream{HTTPS: "http://up-" + strconv.Itoa(i)},
 				})
 			}
@@ -1157,7 +1158,7 @@ func TestRefreshSecrets(t *testing.T) {
 	if err := p.Secrets.WriteFiles(ctx, st, salt); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.Secrets.Save(ctx, "github", "ghp_testfake"); err != nil {
+	if err := p.Secrets.Save(ctx, "github", redact.NewSecret("ghp_testfake")); err != nil {
 		t.Fatal(err)
 	}
 	// A bindings file whose VM devvm no longer has is left alone.
@@ -1189,7 +1190,7 @@ func TestRefreshSecrets(t *testing.T) {
 	if err := state.WriteFile(d.VM(broken.Name()).Secrets(), []byte("not json\n")); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.Secrets.Save(ctx, "github", "ghp_testfake2"); err != nil {
+	if err := p.Secrets.Save(ctx, "github", redact.NewSecret("ghp_testfake2")); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.WriteFile(d.VM(st.Name()).Secrets(), []byte(`{"version":1,"bindings":[]}`+"\n")); err != nil {

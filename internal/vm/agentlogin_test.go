@@ -13,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
@@ -112,7 +113,7 @@ func TestAgentLoginSaved(t *testing.T) {
 	if err := e.saved(store, "opencode", vm, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SaveKey(t.Context(), "codex", "", "sk-test"); err != nil {
+	if err := store.SaveKey(t.Context(), "codex", "", redact.NewSecret("sk-test")); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.saved(store, "codex", vm, before); !notSaved(err) {

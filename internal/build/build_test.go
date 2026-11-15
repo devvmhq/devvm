@@ -21,6 +21,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/stubtest"
 	"github.com/devvmhq/devvm/internal/tools"
@@ -443,7 +444,7 @@ func TestBuildChecksCompanyProxy(t *testing.T) {
 	if len(f.Calls()) > 0 {
 		t.Errorf("calls = %q", f.Methods())
 	}
-	b.Tools.Proxy.Password = func(context.Context, string) (string, error) { return "pa55", nil }
+	b.Tools.Proxy.Password = func(context.Context, string) (redact.Secret, error) { return redact.NewSecret("pa55"), nil }
 	if err := (Builds{b}).Build(t.Context(), "foo"); err != nil {
 		t.Errorf("saved: %v", msg.NamesOf(err))
 	}

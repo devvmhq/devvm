@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/shell"
 )
 
@@ -48,6 +49,9 @@ type netRun struct {
 	before map[string]string // the home folder's login files
 	// lanServer answers on every address of this machine, for the tiers.
 	lanServer *Proc
+	// keys are the VMs' proxy passwords netNoLeaks has seen, so its last
+	// run checks those of VMs the section has deleted since.
+	keys []string
 }
 
 // The fake Claude Code token devvm's environment holds, which its proxy
@@ -83,6 +87,7 @@ func networkSection(s *S) {
 	netClaudeLogins(n)
 	netSave(n)
 	netGithub(n)
+	netNoLeaks(n, "once the section has used its secrets", false)
 	netMise(n)
 	netSelfChecks(n)
 	if runtime.GOOS == "darwin" {
@@ -96,6 +101,66 @@ func networkSection(s *S) {
 	netOpen(n)
 	netTiers(n)
 	netLearn(n)
+	netNoLeaks(n, "at the section's end", true)
+}
+
+// leakValues are the fake values the network section saves, binds or has
+// captured, which only the store, the Keychain and the VMs' proxies may
+// hold: never a log.
+func leakValues() []string {
+	return []string{
+		"ghp_E2EFAKE", "sk-ant-oat01-e2efake", customValue, basicValue, opencodeLocalKey, piKey, groqKey, piOpenAIKey,
+		googleKey, opencodeGroq, openRouterKey, "rt-e2efake-capture", "sk-e2efake-captured-key", "e2efake-oauth",
+		"e2efake-setup", "e2efake-refreshed",
+	}
+}
+
+// netNoLeaks, when: no VM's proxy password and none of the values the
+// section used is in devvm's run logs, its other logs or any VM's proxy
+// logs (proxy.log, the event log), as they are or in Basic credentials, as
+// Proxy-Authorization carries a VM's password and git a token; and no VM's
+// proxy password is in Lima's logs of any VM (ha.stderr.log, the serial
+// logs). It runs while the section's VMs and their logs are still there,
+// and again at its end (last), for the proxies started since, with every
+// password it has seen, by when the section may have deleted every VM and
+// its logs with it.
+func netNoLeaks(n *netRun, when string, last bool) {
+	s := n.s
+	s.Check(when+", no VM's proxy password, and no token, key or login the section used, is in devvm's run logs, any proxy's logs or Lima's", func() error {
+		if k := n.key(); k != "" && !slices.Contains(n.keys, k) {
+			n.keys = append(n.keys, k)
+		}
+		states, _ := filepath.Glob(filepath.Join(s.Paths.Devvm, "vms", "*", "vm.json"))
+		for _, f := range states {
+			if k := readState(f)["net.made.proxy_key"]; k != "" && !slices.Contains(n.keys, k) {
+				n.keys = append(n.keys, k)
+			}
+		}
+		if len(n.keys) == 0 {
+			return errors.New("no VM's state holds a proxy password")
+		}
+		basic := func(user, pass string) string { return base64.StdEncoding.EncodeToString([]byte(user + ":" + pass)) }
+		values := slices.Clone(n.keys)
+		for _, k := range n.keys {
+			values = append(values, basic(proxy.ProxyUser, k))
+		}
+		for _, v := range leakValues() {
+			values = append(values, v, basic("x-access-token", v))
+		}
+		logs, _ := filepath.Glob(filepath.Join(s.Paths.Devvm, "vms", "*", "logs"))
+		if len(s.Paths.RunLogs()) == 0 || len(logs) == 0 && !last {
+			return errors.New("no run log, or no VM's logs")
+		}
+		if err := NoLeak(values, append([]string{filepath.Join(s.Paths.Devvm, "logs")}, logs...)...); err != nil {
+			return err
+		}
+		lima, _ := filepath.Glob(filepath.Join(s.sb.lima, "*", "ha.stderr.log"))
+		serial, _ := filepath.Glob(filepath.Join(s.sb.lima, "*", "serial*.log"))
+		if len(lima) == 0 && !last {
+			return errors.New("no VM's ha.stderr.log")
+		}
+		return NoLeak(n.keys, append(lima, serial...)...)
+	})
 }
 
 // netLearn: a VM made with --network learn reaches two hosts off the
@@ -543,7 +608,7 @@ func netLoopback(n *netRun) {
 	port := strconv.Itoa(s.Port(18765))
 	f := filepath.Join(s.sb.work, "listener.json")
 	var listener *Proc
-	err := WriteProxyConfig(s, f, proxy.Config{VM: "e2e-listener", Listen: "127.0.0.1:" + port, Password: "listener-key"})
+	err := WriteProxyConfig(s, f, proxy.Config{VM: "e2e-listener", Listen: "127.0.0.1:" + port, Password: redact.NewSecret("listener-key")})
 	if err == nil {
 		listener, err = s.Start(Cmd{Args: []string{s.sb.devvm, "_proxy", "-config", f}})
 	}
@@ -1669,8 +1734,8 @@ func netCursor(n *netRun) {
 		return nil
 	})
 	s.Check("the proxy captures Cursor's login poll, a GET, and passes Cursor's answer for a login that isn't there", func() error {
-		var cfg proxy.Config
-		if err := json.Unmarshal([]byte(readText(n.pxc)), &cfg); err != nil {
+		cfg, err := proxy.ReadConfig(n.pxc)
+		if err != nil {
 			return fmt.Errorf("proxy.json: %w", err)
 		}
 		if !slices.ContainsFunc(cfg.Captures, func(c proxy.Capture) bool {

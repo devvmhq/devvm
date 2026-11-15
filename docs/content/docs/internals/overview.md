@@ -196,7 +196,7 @@ A VM's proxy key and the build proxy's password are written as `devvm:<key>@`. A
 
 With `-v`, the lines devvm shows are the log's own, so a VM's proxy key is hidden in them as it is in the log, and devvm drops the control characters a command prints, so its output can't move the cursor or change your terminal.
 
-Lima keeps a log of its own for each VM, `ha.stderr.log` in the VM's folder in devvm's Lima home, and it writes a proxy password into that log as it starts the VM. Once Lima has started the VM, devvm replaces each password there with as many `*`, so the log keeps its length and Lima goes on writing to it. If devvm can't change the file, it warns you and names it, and you can delete the file, which Lima makes again at the VM's next start.
+Lima keeps a log of its own for each VM, `ha.stderr.log` in the VM's folder in devvm's Lima home, and it writes a proxy password into that log as it starts the VM. Lima also keeps a log of each of the VM's serial consoles there, `serial.log`, `serialp.log` or `serialv.log`, and its boot scripts write the VM's proxy URL, with the VM's proxy password, to the console as they set up the VM's environment. Once Lima has started the VM, devvm replaces each password in those logs with as many `*`, so the log keeps its length and Lima goes on writing to it. If devvm can't change the file, it warns you and names it, and you can delete the file, which Lima makes again at the VM's next start.
 
 ### A VM's folder
 

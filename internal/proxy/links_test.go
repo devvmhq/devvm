@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 const linkVM = "devvm-app-0123456789abcd"
@@ -222,7 +224,7 @@ func TestLinkConnectUntouched(t *testing.T) {
 func TestLinkForward(t *testing.T) {
 	t.Parallel()
 	s, dir, events, addr := linkProxy(t)
-	s.password = "k3y"
+	s.password = redact.NewSecret("k3y")
 	db := serveLink(t, dir, "127.77.0.1", 8080)
 	writeLinkList(t, s.links.file, linkEntry(dir, "127.77.0.1", 8080, "db", "db.devvm.internal"))
 	c, err := new(net.Dialer).DialContext(t.Context(), "tcp", addr)

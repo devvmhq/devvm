@@ -20,6 +20,7 @@ import (
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/ports"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
@@ -219,7 +220,7 @@ func (p *Proxy) secretsReady(ctx context.Context, st *state.VM) error {
 // connections, the company proxy it goes through (upstream), and the
 // shared Nix cache's cap. Every tier's proxy has the VM's CAs and its
 // secrets: an open VM's applies no rules, but still puts its secrets in.
-func (p *Proxy) config(ctx context.Context, st *state.VM, t Tier, key, lifeline string) (proxy.Config, error) {
+func (p *Proxy) config(ctx context.Context, st *state.VM, t Tier, key redact.Secret, lifeline string) (proxy.Config, error) {
 	vm, files := st.Name(), p.Dirs.VM(st.Name())
 	ca := files.CA()
 	set := Policies(p.Dirs, vm, t, image.Name(st.Image), tools.Names(st))

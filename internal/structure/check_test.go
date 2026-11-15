@@ -90,6 +90,9 @@ type rules struct {
 	// end, or detached and why nothing does; nil checks none
 	// (checkGoroutineSites).
 	goroutineSites map[string]string
+	// secretOwner is the package folder of redact.Secret, the type of
+	// every secret's value (checkSecrets); "" checks none.
+	secretOwner string
 }
 
 // A literalOwner is the package whose string literals alone hold a text,
@@ -212,7 +215,7 @@ func check(m *module, r rules) []violation {
 	vs := slices.Concat(checkMethods(m, r), checkInit(m), checkVars(m, r), checkLayers(m, r), checkCommands(m, r),
 		checkExecSites(m, r), checkGuard(m, r), checkEnv(m, r), checkLiterals(m, r), checkNames(m, r), checkSeparators(m, r),
 		checkPaths(m, r), checkCallers(m, r), checkSwitches(m, r), checkEvery(m, r), checkVMNames(m, r), checkHosts(m, r),
-		checkGoroutineSites(m, r))
+		checkGoroutineSites(m, r), checkSecrets(m, r))
 	slices.SortFunc(vs, func(a, b violation) int { return strings.Compare(a.String(), b.String()) })
 	return vs
 }

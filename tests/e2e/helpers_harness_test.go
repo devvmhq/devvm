@@ -246,7 +246,7 @@ func TestHarnessCorp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the proxy wouldn't read its config: %v", err)
 	}
-	if cfg.Password != c.Password() || cfg.Listen != ln.Addr().String() || cfg.Log != c.Events || len(cfg.Policies) != 1 {
+	if cfg.Password.Reveal() != c.Password() || cfg.Listen != ln.Addr().String() || cfg.Log != c.Events || len(cfg.Policies) != 1 {
 		t.Errorf("config: got %+v", cfg)
 	}
 	if b, _ := os.ReadFile(cfg.Policies[0]); string(b) != "**\n" {

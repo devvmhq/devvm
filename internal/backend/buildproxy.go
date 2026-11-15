@@ -9,6 +9,7 @@ import (
 	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
 )
 
@@ -34,7 +35,7 @@ type ProxyStarter struct {
 // password, which a build reaches it with (ProxyURL).
 type BuildProxy struct {
 	Port     int
-	Password string
+	Password redact.Secret
 	proc     *daemon.Handle
 	dir      string
 }

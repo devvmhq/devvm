@@ -14,6 +14,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // Cursor's login: only its poll (a GET's query, as a form, with its uuid and verifier) is a request
@@ -46,15 +47,16 @@ func TestCursorCapture(t *testing.T) {
 	must(t, err)
 	var got map[string]any
 	must(t, json.Unmarshal(vm, &got))
-	ph := cursorPlaceholder(at, salt)
+	ph := cursorPlaceholder(redact.NewSecret(at), salt)
+	phs := redact.NewSecret(ph)
 	if got["accessToken"] != ph || got["refreshToken"] != managed || got["selectedTeamId"] != float64(7) ||
 		strings.Contains(string(vm), "rt-real") || strings.Contains(string(vm), at) {
 		t.Errorf("the VM got %s", vm)
 	}
 	// The placeholder lasts until farFuture, and names the account as the token does (sub), as the
 	// CLI names the repos it indexes by it.
-	if exp, ok := jwtExp(ph); !ok || exp.Unix() != farFuture || str(jwtClaims(ph), "sub") != "auth0|1" || !strings.Contains(str(jwtClaims(ph), "devvm"), salt) {
-		t.Errorf("the placeholder's claims = %v", jwtClaims(ph))
+	if exp, ok := jwtExp(phs); !ok || exp.Unix() != farFuture || str(jwtClaims(phs), "sub") != "auth0|1" || !strings.Contains(str(jwtClaims(phs), "devvm"), salt) {
+		t.Errorf("the placeholder's claims = %v", jwtClaims(phs))
 	}
 	saved, err := readJSON(f.Path)
 	must(t, err)
@@ -118,7 +120,7 @@ func TestCursorCapture(t *testing.T) {
 			t.Errorf("the proxy lets %s through", never)
 		}
 	}
-	if v, err := f.Get(t.Context(), cursorLogin); err != nil || v != at {
+	if v, err := f.Get(t.Context(), cursorLogin); err != nil || v.Reveal() != at {
 		t.Errorf("Get = %q, %v", v, err)
 	}
 	if _, err := (cursorFormat{}).managedReply(nil, salt); err == nil {

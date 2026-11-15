@@ -36,6 +36,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // The kinds of Binding: where its value comes from.
@@ -182,7 +184,7 @@ func InterceptLines(hosts []string) []string {
 }
 
 // Lookup returns a binding's value: IO.Secret, which devvm sets to its secrets' store.
-type Lookup func(ctx context.Context, b Binding) (string, error)
+type Lookup func(ctx context.Context, b Binding) (redact.Secret, error)
 
 // secrets is a proxy's bindings (Config.Secrets) and the values it has looked up for them.
 type secrets struct {
@@ -270,7 +272,7 @@ func (b Binding) match() match { return newMatch(b.Methods, b.Path) }
 // --- values ---
 
 type cached struct {
-	value string
+	value redact.Secret
 	at    time.Time
 }
 
@@ -293,14 +295,14 @@ func ttlOf(b Binding) time.Duration {
 
 // value returns b's value from the lookup, cached (see ttlOf). Lookups go one at a time, so two
 // requests never refresh a login at once.
-func (s *secrets) value(ctx context.Context, b Binding) (string, error) {
+func (s *secrets) value(ctx context.Context, b Binding) (redact.Secret, error) {
 	s.valueMu.Lock()
 	defer s.valueMu.Unlock()
 	if c, ok := s.values[valueKeyOf(b)]; ok && time.Since(c.at) < ttlOf(b) {
 		return c.value, nil
 	}
 	if s.lookup == nil {
-		return "", errors.New("no secret lookup")
+		return redact.Secret{}, errors.New("no secret lookup")
 	}
 	// The value is cached for every request: no one request's end cancels it,
 	// and the lookup reads only s.route and s.roots, set here, never a
@@ -315,10 +317,10 @@ func (s *secrets) value(ctx context.Context, b Binding) (string, error) {
 	}
 	v, err := s.lookup(ctx, b)
 	if err != nil {
-		return "", fmt.Errorf("secret %s: %w", b.Name, err)
+		return redact.Secret{}, fmt.Errorf("secret %s: %w", b.Name, err)
 	}
-	if v = strings.TrimSpace(v); v == "" {
-		return "", fmt.Errorf("secret %s is empty", b.Name)
+	if v = v.TrimSpace(); v.Empty() {
+		return redact.Secret{}, fmt.Errorf("secret %s is empty", b.Name)
 	}
 	s.values[valueKeyOf(b)] = cached{v, time.Now()}
 	return v, nil
@@ -342,7 +344,7 @@ func (s *secrets) inject(ctx context.Context, h http.Header, bs []Binding) (used
 		}
 		out := make([]string, len(vs))
 		for i, v := range vs {
-			out[i] = b.swap(v, val)
+			out[i] = b.swap(v, val.Reveal()) //nolint:forbidigo // the value goes into its binding's header: what the proxy is for
 		}
 		h.Del(b.Header)
 		for _, v := range out {
@@ -899,8 +901,8 @@ func (s *server) forwarder(scheme, target, host string, port int) (fwd http.Hand
 			if up != nil {
 				e.Upstream = up.addr
 				// Only plain HTTP carries them, to the upstream itself; HTTPS's go in the CONNECT.
-				if scheme == "http" && up.auth != "" {
-					pr.Out.Header.Set("Proxy-Authorization", up.auth)
+				if scheme == "http" && !up.auth.Empty() {
+					pr.Out.Header.Set("Proxy-Authorization", up.auth.Reveal()) //nolint:forbidigo // the company proxy's credentials, to it alone
 				}
 			}
 			// A token endpoint's host's replies that guard reads come as they are, or as gzip that

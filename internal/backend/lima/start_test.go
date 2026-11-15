@@ -18,6 +18,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/ports"
+	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
 )
 
@@ -48,7 +49,7 @@ const stoppedVM = `{"name":"v","status":"Stopped","config":{"ssh":{"forwardAgent
 
 func TestStartConfined(t *testing.T) {
 	proxy := backend.Confinement{
-		Net: backend.NetProxy, ProxyPort: 23456, ProxyPassword: "0123456789abcdef0123456789abcdef",
+		Net: backend.NetProxy, ProxyPort: 23456, ProxyPassword: redact.NewSecret("0123456789abcdef0123456789abcdef"),
 		SSHPort: 2222, Env: map[string]string{"NO_PROXY": "localhost"},
 	}
 	open := proxy
@@ -143,7 +144,7 @@ func TestStartConfined(t *testing.T) {
 			// The password is in no command's arguments: devvm writes it into
 			// lima.yaml, which the setup's proxy address matches.
 			for _, c := range f.calls {
-				if strings.Contains(c.line(), proxy.ProxyPassword) {
+				if strings.Contains(c.line(), proxy.ProxyPassword.Reveal()) {
 					t.Errorf("the password is in %q", c.line())
 				}
 			}
@@ -297,7 +298,7 @@ func TestStartSetsChangedEnv(t *testing.T) {
 	l, _, _ := testLima(t, "darwin")
 	conf := func(noProxy string) backend.Confinement {
 		return backend.Confinement{
-			Net: backend.NetProxy, ProxyPort: 20001, ProxyPassword: "pw",
+			Net: backend.NetProxy, ProxyPort: 20001, ProxyPassword: redact.NewSecret("pw"),
 			Env: map[string]string{"NO_PROXY": noProxy, "no_proxy": noProxy},
 		}
 	}
@@ -424,7 +425,7 @@ func TestFillPassword(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(yaml), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	c := backend.Confinement{Net: backend.NetProxy, ProxyPort: 1, ProxyPassword: "pw"}
+	c := backend.Confinement{Net: backend.NetProxy, ProxyPort: 1, ProxyPassword: redact.NewSecret("pw")}
 	for _, tc := range []struct{ name, yaml, password string }{
 		{"no stand-in", "env: {}\n", "pw"},
 		{"an anchor", "env: {HTTP_PROXY: http://devvm:devvm-proxy-password@192.168.5.2:1}\n", "p&w"},
@@ -432,7 +433,7 @@ func TestFillPassword(t *testing.T) {
 		if err := os.WriteFile(yaml, []byte(tc.yaml), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		c.ProxyPassword = tc.password
+		c.ProxyPassword = redact.NewSecret(tc.password)
 		if err := l.fillPassword("v", c); err == nil {
 			t.Errorf("%s: filled", tc.name)
 		}
@@ -446,7 +447,7 @@ func TestFillPassword(t *testing.T) {
 // keys at its next boot.
 func TestStartEditsOnlyWhatDiffers(t *testing.T) {
 	l, f, _ := testLima(t, "linux")
-	c := backend.Confinement{Net: backend.NetProxy, ProxyPort: 23456, ProxyPassword: "pw", SSHPort: 2222}
+	c := backend.Confinement{Net: backend.NetProxy, ProxyPort: 23456, ProxyPassword: redact.NewSecret("pw"), SSHPort: 2222}
 	u := l.proxyURL(c)
 	f.out["limactl list --json"] = `{"name":"v","status":"Stopped","config":{"ssh":{"localPort":2222},"propagateProxyEnv":false,"portForwards":` + yqJSON(noForwards()) + `,` +
 		`"hostResolver":{"enabled":false},"dns":["127.0.0.1"],"env":{"HTTPS_PROXY":"` + u + `","HTTP_PROXY":"` + u + `",` +
@@ -478,7 +479,7 @@ func TestStartEditsOnlyWhatDiffers(t *testing.T) {
 // confinement's: one edit, one set of new host keys.
 func TestStartWantInOneEdit(t *testing.T) {
 	l, f, _ := testLima(t, "linux")
-	c := backend.Confinement{Net: backend.NetProxy, ProxyPort: 23456, ProxyPassword: "pw", SSHPort: 2222}
+	c := backend.Confinement{Net: backend.NetProxy, ProxyPort: 23456, ProxyPassword: redact.NewSecret("pw"), SSHPort: 2222}
 	u := l.proxyURL(c)
 	matching := `"ssh":{"localPort":2222,"forwardAgent":false},"propagateProxyEnv":false,"portForwards":` + yqJSON(noForwards()) + `,` +
 		`"hostResolver":{"enabled":false},"dns":["127.0.0.1"],"env":{"HTTPS_PROXY":"` + u + `","HTTP_PROXY":"` + u + `",` +
@@ -940,7 +941,7 @@ func TestProfileAgent(t *testing.T) {
 		}
 		editWritesYAML(t, l, f)
 		w := backend.Want{AgentForwarding: tc.forwarding}
-		if err := l.Start(t.Context(), "v", w, backend.Confinement{Net: backend.NetProxy, ProxyPort: 1, ProxyPassword: "pw", SSHPort: 2, AgentSocket: tc.socket}); err != nil {
+		if err := l.Start(t.Context(), "v", w, backend.Confinement{Net: backend.NetProxy, ProxyPort: 1, ProxyPassword: redact.NewSecret("pw"), SSHPort: 2, AgentSocket: tc.socket}); err != nil {
 			t.Fatal(err)
 		}
 		b, err := os.ReadFile(l.Dirs.VM("v").Profile())
@@ -1004,14 +1005,19 @@ func TestDegradedStart(t *testing.T) {
 }
 
 // The hostagent logs the shell's proxy password as it starts a VM without
-// network policy: once limactl start ends, started or failed, the password
-// in its log is stars, the file's length kept. A log devvm can't change
-// warns.
+// network policy, and Lima's boot scripts trace the VM's proxy URL to its
+// serial consoles: once limactl start ends, started or failed, each
+// password in those logs is stars, the file's length kept. A log devvm
+// can't change warns.
 func TestStartRedactsTheHostagentLog(t *testing.T) {
 	l, f, warned := testLima(t, "darwin")
 	pass := "e2e-not-a-secret" //nolint:gosec // a fake password
 	log := filepath.Join(l.Dirs.LimaVM("v"), "ha.stderr.log")
 	line := "level=info msg=\"Replacing \\\"HTTPS_PROXY\\\" value `http://alice:" + pass + "@127.0.0.1:3128`\"\n"
+	// The boot scripts' trace of the guest's environment, on each serial console.
+	key := strings.Repeat("0123456789abcdef", 4)
+	serials := []string{filepath.Join(l.Dirs.LimaVM("v"), "serial.log"), filepath.Join(l.Dirs.LimaVM("v"), "serialv.log")}
+	trace := "+ echo HTTPS_PROXY=http://devvm:" + key + "@192.168.5.2:3129\n"
 	f.do = func(c call) {
 		if slices.Contains(c.argv, "start") {
 			if err := os.MkdirAll(filepath.Dir(log), 0o700); err != nil {
@@ -1020,10 +1026,23 @@ func TestStartRedactsTheHostagentLog(t *testing.T) {
 			if err := os.WriteFile(log, []byte(line), 0o600); err != nil {
 				t.Error(err)
 			}
+			for _, s := range serials {
+				if err := os.WriteFile(s, []byte(trace), 0o600); err != nil {
+					t.Error(err)
+				}
+			}
 		}
 	}
 	f.out["limactl list --json"] = `{"name":"v","status":"Stopped"}`
 	want := strings.ReplaceAll(line, pass, strings.Repeat("*", len(pass)))
+	wantTrace := strings.ReplaceAll(trace, key, strings.Repeat("*", len(key)))
+	defer func() {
+		for _, s := range serials {
+			if b, _ := os.ReadFile(s); string(b) != wantTrace { //nolint:gosec // the test's own file
+				t.Errorf("%s: %q, want %q", filepath.Base(s), b, wantTrace)
+			}
+		}
+	}()
 	for _, fail := range []bool{false, true} {
 		f.fail = nil
 		if fail {
@@ -1073,7 +1092,7 @@ func TestRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	editWritesYAML(t, l, f)
-	if err := l.start(t.Context(), "v", nil, backend.Confinement{Net: backend.NetProxy, ProxyPort: 1, ProxyPassword: "pw", SSHPort: 2}); err != nil {
+	if err := l.start(t.Context(), "v", nil, backend.Confinement{Net: backend.NetProxy, ProxyPort: 1, ProxyPassword: redact.NewSecret("pw"), SSHPort: 2}); err != nil {
 		t.Fatal(err)
 	}
 	r, err := l.Running(t.Context(), "v")

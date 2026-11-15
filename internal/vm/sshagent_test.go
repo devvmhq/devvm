@@ -167,7 +167,7 @@ func TestOpenAgentNetworkPolicy(t *testing.T) {
 	if start < 0 {
 		t.Fatalf("%s didn't start: %v", vm, calls)
 	}
-	if c, _ := calls[start].Args[2].(backend.Confinement); c.Net != backend.NetProxy || c.AgentSocket != e.Agent.Socket() || c.ProxyPassword == "" || c.NoAgent {
+	if c, _ := calls[start].Args[2].(backend.Confinement); c.Net != backend.NetProxy || c.AgentSocket != e.Agent.Socket() || c.ProxyPassword.Empty() || c.NoAgent {
 		t.Errorf("started with %+v, want the proxy and agent %q", c, e.Agent.Socket())
 	}
 	// Off: the proxy's confinement says no agent too.
