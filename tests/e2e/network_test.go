@@ -52,6 +52,9 @@ type netRun struct {
 	// keys are the VMs' proxy passwords netNoLeaks has seen, so its last
 	// run checks those of VMs the section has deleted since.
 	keys []string
+	// corps are the passwords of the section's company proxies, which
+	// netNoLeaks looks for too.
+	corps []string
 }
 
 // The fake Claude Code token devvm's environment holds, which its proxy
@@ -115,18 +118,22 @@ func leakValues() []string {
 	}
 }
 
-// netNoLeaks, when: no VM's proxy password and none of the values the
-// section used is in devvm's run logs, its other logs or any VM's proxy
-// logs (proxy.log, the event log), as they are or in Basic credentials, as
-// Proxy-Authorization carries a VM's password and git a token; and no VM's
-// proxy password is in Lima's logs of any VM (ha.stderr.log, the serial
-// logs). It runs while the section's VMs and their logs are still there,
-// and again at its end (last), for the proxies started since, with every
+// netNoLeaks, when: no VM's proxy password, no company proxy's password
+// and none of the values the section used is in devvm's run logs, its
+// other logs or any VM's proxy logs (proxy.log, the event log), as they
+// are or in Basic credentials, as Proxy-Authorization carries a VM's
+// password and a company proxy's, and git a token; and no VM's or company
+// proxy's password, in any of its forms, is in Lima's logs of any VM
+// (ha.stderr.log, the serial logs). A company proxy's password is looked
+// for as it is, as the user:password of a URL, as Basic's base64 and as
+// the whole Proxy-Authorization value. It runs while the section's VMs
+// and their logs are still there, and again at its end (last), for the
+// proxies started since, with every
 // password it has seen, by when the section may have deleted every VM and
 // its logs with it.
 func netNoLeaks(n *netRun, when string, last bool) {
 	s := n.s
-	s.Check(when+", no VM's proxy password, and no token, key or login the section used, is in devvm's run logs, any proxy's logs or Lima's", func() error {
+	s.Check(when+", no VM's or company proxy's password, and no token, key or login the section used, is in devvm's run logs, any VM's proxy's logs or Lima's", func() error {
 		if k := n.key(); k != "" && !slices.Contains(n.keys, k) {
 			n.keys = append(n.keys, k)
 		}
@@ -139,11 +146,22 @@ func netNoLeaks(n *netRun, when string, last bool) {
 		if len(n.keys) == 0 {
 			return errors.New("no VM's state holds a proxy password")
 		}
-		basic := func(user, pass string) string { return base64.StdEncoding.EncodeToString([]byte(user + ":" + pass)) }
-		values := slices.Clone(n.keys)
-		for _, k := range n.keys {
-			values = append(values, basic(proxy.ProxyUser, k))
+		if len(n.corps) == 0 {
+			return errors.New("no company proxy's password: netCorp's company proxy didn't start")
 		}
+		basic := func(user, pass string) string { return base64.StdEncoding.EncodeToString([]byte(user + ":" + pass)) }
+		// pws are the VMs' and company proxies' passwords in each of their forms, which Lima's
+		// logs are searched for too; the company proxies' users are ProxyUser, as their URLs and
+		// config.toml name them.
+		var pws []string
+		for _, k := range n.keys {
+			pws = append(pws, k, basic(proxy.ProxyUser, k))
+		}
+		for _, pw := range n.corps {
+			b := basic(proxy.ProxyUser, pw)
+			pws = append(pws, pw, proxy.ProxyUser+":"+pw, b, "Basic "+b)
+		}
+		values := slices.Clone(pws)
 		for _, v := range leakValues() {
 			values = append(values, v, basic("x-access-token", v))
 		}
@@ -159,7 +177,7 @@ func netNoLeaks(n *netRun, when string, last bool) {
 		if len(lima) == 0 && !last {
 			return errors.New("no VM's ha.stderr.log")
 		}
-		return NoLeak(n.keys, append(lima, serial...)...)
+		return NoLeak(pws, append(lima, serial...)...)
 	})
 }
 
@@ -280,14 +298,25 @@ func netSetup(n *netRun) {
 	}
 	_ = os.WriteFile(filepath.Join(n.nh, ".claude.json"), []byte(n.before["claude"]), 0o600)
 	_ = os.WriteFile(filepath.Join(n.nh, ".codex", "auth.json"), []byte(n.before["codex"]), 0o600)
+	// macOS finds the Keychain through HOME, so the VM's home links the Keychains folder: devvm
+	// secret set and the proxies started with that HOME save and read secrets under the run's
+	// service, and without the link security waits on a Keychain that isn't there.
+	if runtime.GOOS == "darwin" {
+		_ = os.MkdirAll(filepath.Join(n.nh, "Library"), 0o700)
+		_ = os.Symlink(filepath.Join(os.Getenv("HOME"), "Library", "Keychains"), filepath.Join(n.nh, "Library", "Keychains"))
+	}
 	// The sandbox's store of logins, from no login: an earlier run's in the same slot, such as the
 	// opencode key netOpencodeKeys saves, would reach a VM at its first launch.
 	n.logins = filepath.Join(s.Paths.Devvm, "logins")
 	_ = os.RemoveAll(n.logins)
 	madeFile(s.sb, n.logins)
-	s.Defer(func(ctx context.Context) {
-		forgetSecrets(ctx, s, "github", "claude", "custom."+customName, "custom."+basicName)
-	})
+	// The section's secrets, gone before it starts as well as at its end: one a killed run left,
+	// such as the proxy secret, would make netCorp's launch go ahead where it must be refused.
+	forget := func(ctx context.Context) {
+		forgetSecrets(ctx, s, "github", "claude", "custom."+customName, "custom."+basicName, proxy.UpstreamSecret)
+	}
+	forget(s.r.window().ctx)
+	s.Defer(forget)
 }
 
 func netLaunch(n *netRun) {
@@ -643,37 +672,43 @@ func netLoopback(n *netRun) {
 // A company proxy: the VM's next launch with HTTPS_PROXY and HTTP_PROXY
 // in devvm's environment starts its proxy again through it, which sends
 // an allowed host there by name, and refuses one the VM's policy doesn't
-// allow before it gets there. The launch after, without them, starts it
-// again going directly.
+// allow before it gets there. Then config.toml's [proxy] names the same
+// company proxy, with its user alone, and the shell sets none: the launch
+// is refused until the proxy secret holds the password, and once it does,
+// starts the VM's proxy again through it (corpConfig). The launch after,
+// with neither, starts it again going directly.
 func netCorp(n *netRun) {
 	s := n.s
 	corp, cerr := StartCorp(s)
+	if cerr == nil {
+		n.corps = append(n.corps, corp.Password())
+	}
 	s.Check("behind a company proxy, an allowed host goes through it by name, and a blocked one never reaches it", func() error {
 		if cerr != nil {
 			return cerr
 		}
-		return n.corpThrough(corp)
+		r, err := n.dv("exit\n", n.home(append([]string{fakeToken}, corp.Env()...)...))
+		return n.corpThrough(corp, r, err)
 	}, Tail(60))
 	s.Check("the company proxy's password is in no process's arguments, log or VM", func() error {
 		if cerr != nil {
 			return cerr
 		}
-		pw := []string{corp.Password()}
-		if have, err := ProcsHave(s, pw[0]); err != nil || have {
-			return failed("a process's arguments hold it", err)
-		}
-		if err := NoLeak(pw, filepath.Join(s.Paths.Devvm, "logs"), filepath.Join(n.vmd, "logs")); err != nil {
-			return err
-		}
-		if err := GuestHasNone(s, n.vm, pw, "/etc", "/home", "/root"); err != nil {
-			return err
-		}
-		if has, err := vmHas(s, n.vm, true, "env", pw...); err != nil || has {
-			return failed("the guest's environment holds it", err)
-		}
-		return nil
+		return corpNoLeak(n, corp, false)
 	})
-	s.Check("without them, the next launch starts the VM's proxy again, going directly", func() error {
+	s.Check("config.toml's [proxy] with its user alone: the launch is refused until devvm secret set proxy saves the password, then goes through the company proxy with it", func() error {
+		if cerr != nil {
+			return cerr
+		}
+		return corpConfig(n, corp)
+	}, Tail(60))
+	s.Check("... and that password, which the VM's proxy looked up, is in no process's arguments, log, proxy config or VM", func() error {
+		if cerr != nil {
+			return cerr
+		}
+		return corpNoLeak(n, corp, true)
+	})
+	s.Check("without either, the next launch starts the VM's proxy again, going directly", func() error {
 		if cerr != nil {
 			return cerr
 		}
@@ -706,9 +741,82 @@ func (n *netRun) corpUpstream() bool {
 	return proxyRuns(n.s, n.pxc) && Matches(readText(n.pxc), `^  "upstream": \{`)
 }
 
-func (n *netRun) corpThrough(corp *Corp) error {
+// corpNoLeak: the company proxy's password is in no process's arguments,
+// no log of devvm's or the VM's, and nowhere in the guest, its files or
+// its environment; with fromConfig, config.toml's proxy having started the
+// VM's proxy, not in that proxy's config either, which holds the
+// environment's URL, password and all, otherwise.
+func corpNoLeak(n *netRun, corp *Corp, fromConfig bool) error {
 	s := n.s
-	r, err := n.dv("exit\n", n.home(append([]string{fakeToken}, corp.Env()...)...))
+	pw := []string{corp.Password()}
+	if have, err := ProcsHave(s, pw[0]); err != nil || have {
+		return failed("a process's arguments hold it", err)
+	}
+	files := []string{filepath.Join(s.Paths.Devvm, "logs"), filepath.Join(n.vmd, "logs")}
+	if fromConfig {
+		files = append(files, n.pxc)
+	}
+	if err := NoLeak(pw, files...); err != nil {
+		return err
+	}
+	if err := GuestHasNone(s, n.vm, pw, "/etc", "/home", "/root"); err != nil {
+		return err
+	}
+	if has, err := vmHas(s, n.vm, true, "env", pw...); err != nil || has {
+		return failed("the guest's environment holds it", err)
+	}
+	return nil
+}
+
+// corpConfig: config.toml's [proxy] names the company proxy as
+// http://devvm@ADDR, the user alone, and devvm runs with no proxy
+// settings. With no proxy secret saved, the launch is refused
+// (proxy_password_missing); once devvm secret set proxy saves the
+// password, read on its input, the launch starts the VM's proxy again
+// through the company proxy, its config naming the secret and holding no
+// password, and the company proxy, which refuses any request without that
+// password, carries github.com. config.toml is put back and the secret
+// removed after.
+func corpConfig(n *netRun, corp *Corp) error {
+	s := n.s
+	cfg := filepath.Join(s.sb.config(), "devvm", "config.toml")
+	saved, err := os.ReadFile(cfg)
+	if err != nil {
+		return err
+	}
+	// Saved and deleted with the VM's HOME, as netCustomSecret's are: the
+	// proxy, which that HOME's launch starts, reads the Keychain with it.
+	defer func() {
+		_ = os.WriteFile(cfg, saved, 0o600)
+		_, _ = s.Run(devvmCmd(s, "", "", n.home(), "secret", "rm", "--force", proxy.UpstreamSecret))
+	}()
+	u := strconv.Quote("http://" + proxy.ProxyUser + "@" + corp.Addr())
+	if err := os.WriteFile(cfg, append(bytes.Clone(saved), []byte("\n[proxy]\nhttps = "+u+"\nhttp = "+u+"\n")...), 0o600); err != nil {
+		return err
+	}
+	launch := func() (Res, error) {
+		return s.Run(Cmd{Args: unproxied(s.sb.devvm), Dir: n.n, Stdin: "exit\n", Env: n.home(fakeToken, "DEVVM_MESSAGES=names")})
+	}
+	if r, err := launch(); err == nil || !Matches(r.Out, `^devvm: proxy_password_missing`) {
+		return failed("with no proxy secret saved, the launch wasn't refused for it:\n"+tailLines(r.Out, 20), err)
+	}
+	if _, err := s.Run(devvmCmd(s, "", corp.Password()+"\n", n.home(), "secret", "set", proxy.UpstreamSecret, "--stdin")); err != nil {
+		return fmt.Errorf("devvm secret set proxy: %w", err)
+	}
+	r, err := launch()
+	if err == nil && !Matches(readText(n.pxc), `"secret": "`+proxy.UpstreamSecret+`"`) {
+		return errors.New("the VM's proxy config doesn't name the proxy secret\n" + n.corpWhy(corp, r))
+	}
+	return n.corpThrough(corp, r, err)
+}
+
+// corpThrough: the launch r, err started the VM's proxy again through the
+// company proxy, which carries an allowed host by name and never sees a
+// blocked one.
+func (n *netRun) corpThrough(corp *Corp, r Res, err error) error {
+	s := n.s
+	// Only the events from here on: an earlier launch's are there already.
+	corpSaw, vmSaw := eventsFrom(corp.Events), eventsFrom(n.events)
 	what := ""
 	switch {
 	case err != nil:
@@ -717,21 +825,35 @@ func (n *netRun) corpThrough(corp *Corp) error {
 		what = "the VM's proxy doesn't go upstream"
 	case inVM(s, n.vm, "curl -fsS -m 30 -o /dev/null https://github.com") != nil:
 		what = "github.com in the VM"
-	case !corp.Saw(`"event":"tunnel","host":"github.com","port":443`):
+	case !corpSaw(`"event":"tunnel","host":"github.com","port":443`):
 		what = "the company proxy didn't carry github.com"
-	case !Matches(readText(n.events), `"host":"github.com".*"upstream":"`+regexp.QuoteMeta(corp.Addr())+`"`):
+	case !vmSaw(`"host":"github.com".*"upstream":"` + regexp.QuoteMeta(corp.Addr()) + `"`):
 		what = "the VM's events show no upstream for github.com"
 	case !func() bool {
 		o, _ := s.InVM(n.vm, "curl -sS -m 20 -o /dev/null https://example.com")
 		return strings.Contains(o.Out, "403")
 	}():
 		what = "example.com wasn't refused"
-	case corp.Saw(`"host":"example.com"`):
+	case corpSaw(`"host":"example.com"`):
 		what = "example.com reached the company proxy"
 	default:
 		return nil
 	}
 	return errors.New(what + "\n" + n.corpWhy(corp, r))
+}
+
+// eventsFrom is whether the regular expression re matches an event that
+// the event log f got after the call: the bytes past its size then, or
+// all of it once it's smaller, rotated since.
+func eventsFrom(f string) func(re string) bool {
+	n0 := len(readText(f))
+	return func(re string) bool {
+		t := readText(f)
+		if len(t) >= n0 {
+			t = t[n0:]
+		}
+		return Matches(t, re)
+	}
 }
 
 func (n *netRun) corpDirect(corp *Corp) error {
@@ -2105,16 +2227,10 @@ func (n *netRun) apiGot(path, tok string) bool {
 // requests are Claude Code 2.1's, read from its bundle. First claude
 // setup-token's, as curl: the store keeps its token as the claude
 // secret, and the VM gets the secret's placeholder. The proxy saves the
-// token in the Keychain under the run's service, which macOS finds
-// through HOME, so the VM's home links the Keychains folder.
+// token in the Keychain under the run's service, through the VM's home's
+// link to the Keychains folder (netSetup).
 func netClaudeLogins(n *netRun) {
 	s := n.s
-	if runtime.GOOS == "darwin" {
-		_ = os.MkdirAll(filepath.Join(n.nh, "Library"), 0o700)
-		link := filepath.Join(n.nh, "Library", "Keychains")
-		_ = os.Remove(link)
-		_ = os.Symlink(filepath.Join(os.Getenv("HOME"), "Library", "Keychains"), link)
-	}
 	s.Check("claude setup-token's token in the VM is captured: the store keeps it as the claude secret, the VM a placeholder", func() error {
 		if what := n.setupToken(); what != "" {
 			return errors.New(what + "\n" + n.tokenWhy())
@@ -2894,6 +3010,9 @@ a=$(getent ahostsv4 github.com | awk 'NR == 1 { print $1 }') && [ -n "$a" ] && [
 	// through the company proxy, and never the guest or Lima. The password
 	// is in devvm's environment alone, in no command's arguments.
 	corp, cerr := StartCorp(s)
+	if cerr == nil {
+		n.corps = append(n.corps, corp.Password())
+	}
 	s.Check("open behind a company proxy: the guest gets its own proxy, never the shell's settings, its proxy goes through the company proxy, and no log or guest file keeps the password", func() error {
 		if cerr != nil {
 			return cerr
