@@ -1297,7 +1297,7 @@ func TestUnproxied(t *testing.T) {
 	f.Instances[vmV] = backend.Instance{Name: vmV, Status: backend.StatusRunning}
 	var warned msg.Recorder
 	p := &Proxy{Reporter: &msg.Fake{OnWarn: warned.Add}}
-	if err := p.Unproxied(t.Context(), f, vmV, why); msg.NamesOf(err) != "proxy_start_failed log=/log vm="+vmV ||
+	if err := unproxied(t.Context(), p, f, vmV, why); msg.NamesOf(err) != "proxy_start_failed log=/log vm="+vmV ||
 		f.Instances[vmV].Status != backend.StatusStopped {
 		t.Errorf("Unproxied = %v, VM %s", msg.NamesOf(err), f.Instances[vmV].Status)
 	}
@@ -1309,16 +1309,127 @@ func TestUnproxied(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	cs := ctxStopper{Fake: f}
-	if err := p.Unproxied(ctx, &cs, vmV, why); msg.NamesOf(err) != "proxy_start_failed log=/log vm="+vmV || cs.err != nil ||
+	if err := unproxied(ctx, p, &cs, vmV, why); msg.NamesOf(err) != "proxy_start_failed log=/log vm="+vmV || cs.err != nil ||
 		f.Instances[vmV].Status != backend.StatusStopped {
 		t.Errorf("interrupted: %v, stop's context %v, VM %s", msg.NamesOf(err), cs.err, f.Instances[vmV].Status)
 	}
 	stopErr := errors.New("stop failed")
 	f.Errs = map[string]error{"Stop": stopErr}
 	warned.Reset()
-	if err := p.Unproxied(t.Context(), f, vmV, why); !errors.Is(err, stopErr) ||
+	if err := unproxied(t.Context(), p, f, vmV, why); !errors.Is(err, stopErr) ||
 		!slices.Equal(warned.Names(), []string{"proxy_start_failed log=/log vm=" + vmV}) {
 		t.Errorf("a failed stop: %v, warned %q", err, warned.Names())
+	}
+}
+
+// refusedRun is a running VM, its proxy started, whose next readying
+// TestPrepareRunningRefused's rows change.
+type refusedRun struct {
+	p  *Proxy
+	f  *proxies
+	d  paths.Dirs
+	st *state.VM
+}
+
+// noPassword names a user in config.toml's company proxy, whose password
+// isn't saved.
+func (r refusedRun) noPassword(t *testing.T) {
+	must(t, os.WriteFile(r.d.ConfigFile(), []byte("[proxy]\nhttps = \"http://alice@proxy.corp:3128\"\n"), 0o600))
+}
+
+// corp sets a company proxy in devvm's environment, which makes the
+// running proxy's config stale.
+func (r refusedRun) corp() {
+	r.p.Getenv = func(k string) string { return map[string]string{"HTTPS_PROXY": "http://proxy.corp:3128"}[k] }
+}
+
+// A running VM whose proxy can't be readied: what refuses its proxy's
+// start before the proxy is touched (the company proxy's password, the
+// user's CAs, the VM's CA) leaves the VM and its proxy as they were, and
+// says so, while that proxy enforces the VM's tier as its state has it;
+// one with a looser tier fails open, so the VM is stopped. A failure once
+// its proxy was stopped, or tried to be, or while none of its runs,
+// stops the VM. Refusal checks only what refuses every VM's proxy.
+func TestPrepareRunningRefused(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		from       Tier // the tier the proxy started with; "": the VM's
+		change     func(t *testing.T, r refusedRun)
+		want       string // the error's names
+		kept       bool   // the VM and its proxy as they were; else the VM stopped
+		proxyStays bool   // a stopped VM's proxy runs on (it didn't stop)
+		refused    bool   // Refusal refuses too
+	}{
+		{
+			"password missing", "", func(t *testing.T, r refusedRun) { r.noPassword(t) },
+			"proxy_password_missing", true, false, true,
+		},
+		{
+			"CAs refused", "", func(t *testing.T, r refusedRun) { must(t, os.Symlink(t.TempDir(), r.d.TrustedCAs())) },
+			"ca_folder_link dir=CAS", true, false, true,
+		},
+		{"the VM's CA can't be readied", "", func(_ *testing.T, r refusedRun) {
+			r.p.InitCA = func(context.Context, paths.CA) error { return errors.New("no CA") }
+		}, "proxy_ca_failed dir=VMCA", true, false, false},
+		{"password missing, the proxy's tier looser than the state's", TierInternet, func(t *testing.T, r refusedRun) {
+			change(t, r.st, func(st *state.VM) error { return SetTier(st, TierAllowlist, Learning{}) })
+			r.noPassword(t)
+		}, "proxy_password_missing", false, false, true},
+		{"password missing, no proxy running", "", func(t *testing.T, r refusedRun) {
+			r.noPassword(t)
+			r.p.Stop(r.st.Name())
+		}, "proxy_password_missing", false, false, true},
+		{"restarted proxy fails", "", func(_ *testing.T, r refusedRun) {
+			r.corp()
+			r.f.quiet = true
+		}, "proxy_start_failed log=LOG vm=VM", false, false, false},
+		{"its port taken once stopped", "", func(_ *testing.T, r refusedRun) {
+			r.corp()
+			r.p.Listening = func(context.Context, int) bool { return true }
+		}, "proxy_port_taken port=PORT vm=VM", false, false, false},
+		{"the old proxy doesn't stop", "", func(_ *testing.T, r refusedRun) {
+			r.corp()
+			r.p.Signal = func(int, syscall.Signal) error { return nil } // signals that never arrive
+		}, "proxy_stop_failed vm=VM", false, true, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d, st := sandbox(t, "base")
+			must(t, os.MkdirAll(d.Config, 0o700))
+			p, f := testProxy(t, d)
+			vm := st.Name()
+			if c.from != "" {
+				change(t, st, func(st *state.VM) error { return SetTier(st, c.from, Learning{}) })
+			}
+			b := lifelined()
+			b.Instances[vm] = backend.Instance{Name: vm, Status: backend.StatusRunning}
+			if _, err := p.Prepare(t.Context(), b, st, false, ""); err != nil {
+				t.Fatal(msg.NamesOf(err))
+			}
+			before, _ := p.PID(vm)
+			var warned msg.Recorder
+			p.Reporter = &msg.Fake{OnWarn: warned.Add}
+			c.change(t, refusedRun{p: p, f: f, d: d, st: st})
+			want := strings.NewReplacer("VMCA", d.VM(vm).CA().Dir, "CAS", d.TrustedCAs(), "LOG", d.VM(vm).ProxyLog(),
+				"VM", vm.String(), "PORT", strconv.Itoa(hostPorts(t, st).Proxy)).Replace(c.want)
+			if err := p.Refusal(t.Context()); c.refused != (msg.NamesOf(err) == want) || !c.refused && err != nil {
+				t.Errorf("Refusal = %v", msg.NamesOf(err))
+			}
+			_, err := p.PrepareRunning(t.Context(), b, st)
+			if msg.NamesOf(err) != want {
+				t.Errorf("PrepareRunning = %v, want %s", msg.NamesOf(err), want)
+			}
+			after, up := p.PID(vm)
+			running := b.Instances[vm].Status == backend.StatusRunning
+			if !c.kept {
+				if running || up != c.proxyStays || !slices.Equal(warned.Names(), []string{"net_proxy_down_stopped vm=" + vm.String()}) {
+					t.Errorf("VM running %v, proxy %v, warned %q; want it stopped", running, up, warned.Names())
+				}
+				return
+			}
+			if !running || after != before || !slices.Equal(warned.Names(), []string{"net_proxy_kept vm=" + vm.String()}) {
+				t.Errorf("VM running %v, proxy %d (was %d), warned %q; want both as they were", running, after, before, warned.Names())
+			}
+		})
 	}
 }
 

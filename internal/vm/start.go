@@ -218,7 +218,8 @@ func confinementFor(st *state.VM) backend.Confinement {
 // made open while it ran confined included, as it stays on its proxy
 // until it starts again, or its tier is confined; else its backend's own
 // network, with the proxy. A VM whose proxy can't start is stopped
-// (Unproxied): it never runs on without it. Its agent is its proxy's
+// (PrepareRunning): it never runs on without it; one refused before its
+// proxy was touched runs on as it was. Its agent is its proxy's
 // relay of the one its start forwarded, whatever start it is. One whose
 // proxy relays none gets no agent, never the agent's own socket, whether
 // devvm recorded its start as relayed (its proxy's config lost) or didn't
@@ -227,9 +228,9 @@ func confinementFor(st *state.VM) backend.Confinement {
 // it runs with (runningAgent), says.
 func (s starter) runningConfinement(ctx context.Context, b backend.Backend, st *state.VM, mode string) (backend.Confinement, error) {
 	vm := st.Name()
-	c, err := s.Proxy.Prepare(ctx, b, st, true, "")
+	c, err := s.Proxy.PrepareRunning(ctx, b, st)
 	if err != nil {
-		return c, s.Proxy.Unproxied(ctx, b, vm, err)
+		return c, err
 	}
 	if c.AgentSocket == "" {
 		run, err := b.Running(ctx, vm)
@@ -360,7 +361,7 @@ func (s starter) restartForNextStart(ctx context.Context, t *target, mountsLater
 	if !s.restartNow(vm, ask, len(cs), nextStartContext(cs)...) {
 		return mountsLater, nil
 	}
-	if err := t.stop(ctx); err != nil {
+	if err := t.stopToStart(ctx); err != nil {
 		return mountsLater, err
 	}
 	return false, nil

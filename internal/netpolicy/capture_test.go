@@ -33,7 +33,7 @@ func TestCapturer(t *testing.T) {
 	}
 	for _, vm := range []*state.VM{st, newVM(t, d, "devvm-plain-0123456789abc4", "base")} {
 		for _, tier := range []Tier{TierAllowlist, TierInternet, TierNone, TierOpen} {
-			cfg, err := p.config(t.Context(), vm, tier, redact.NewSecret("k3y"), "")
+			cfg, err := p.config(vm, tier, redact.NewSecret("k3y"), "", common{})
 			if err != nil || !reflect.DeepEqual(cfg.Captures, all) {
 				t.Errorf("%s, %s: captures %+v, %v", vm.Name(), tier, cfg.Captures, err)
 			}

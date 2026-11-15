@@ -38,6 +38,45 @@ stdout '"secret": "proxy"'
 ! stdout pa55
 ! stderr upstream_proxy_gone
 
+# The secret deleted while the VM runs: a launch, and a restart, are
+# refused before they touch the VM or its proxy, which run on as they were.
+exec devvm secret rm --force proxy
+exec sh -c 'cat "$CORP_dir/run/proxy.pid" > "$WORK/corp.pid"'
+stub_reset
+! exec devvm
+stderr '^devvm: proxy_password_missing$'
+stderr '^devvm: net_proxy_kept vm=devvm-corp-[0-9a-f]{14}$'
+! stderr net_proxy_down_stopped
+! exec devvm restart
+stderr '^devvm: proxy_password_missing$'
+stderr '^devvm: net_proxy_kept vm=devvm-corp-[0-9a-f]{14}$'
+! stderr net_proxy_down_stopped
+stub_calls
+! stdout 'limactl (stop|start)'
+exec sh -c 'test "$(cat "$CORP_dir/run/proxy.pid")" = "$(cat "$WORK/corp.pid")" && kill -0 "$(cat "$WORK/corp.pid")"'
+exec devvm ls
+stdout '^devvm-corp-[0-9a-f]{14} +Running '
+stdin $WORK/proxy.password
+exec devvm secret set proxy --stdin
+
+# A tier change of the running VM between confined tiers is refused the
+# same way before its state changes, so its state never names a tier its
+# proxy doesn't enforce.
+exec devvm network internet
+exec devvm secret rm --force proxy
+stub_reset
+! exec devvm network allowlist
+stderr '^devvm: proxy_password_missing$'
+! stderr net_proxy_down_stopped
+vm_state $CORP_dir/vm.json
+stdout '^net\.tier=internet$'
+stub_calls
+! stdout 'limactl (stop|start)'
+exec sh -c 'kill -0 "$(cat "$CORP_dir/run/proxy.pid")"'
+stdin $WORK/proxy.password
+exec devvm secret set proxy --stdin
+exec devvm network allowlist
+
 # Without config.toml's proxy, and none in the environment, the next start
 # warns, naming config.toml, and the one after doesn't.
 exec devvm stop

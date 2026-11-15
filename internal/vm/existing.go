@@ -25,7 +25,7 @@ func (e Launch) Restart(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	if err := t.stop(ctx); err != nil {
+	if err := t.stopToStart(ctx); err != nil {
 		return err
 	}
 	return e.open(ctx, o, t)

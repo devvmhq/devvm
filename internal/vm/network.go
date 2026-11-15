@@ -131,7 +131,7 @@ func (e Net) setTier(ctx context.Context, to netpolicy.Tier, learn bool, command
 		return msg.NetLearningLock(vm)
 	}
 	if from != to {
-		if ok, err := e.checkTier(t, from, to, command); !ok {
+		if ok, err := e.checkTier(ctx, t, from, to, command); !ok {
 			return err
 		}
 	}
@@ -180,10 +180,19 @@ func (e *Env) markLearning(vm vmname.VM) {
 
 // checkTier checks that t's VM may go from one tier to another, as
 // command asks: links' tier rule (tierLinked), the widening check for a
-// lower tier, and a backend that can confine it for a confined one.
-func (e Net) checkTier(t *target, from, to netpolicy.Tier, command string) (bool, error) {
+// lower tier, and a backend that can confine it for a confined one. A
+// running VM going between confined tiers, which its proxy applies at
+// once, is checked for what would refuse that proxy's start
+// (netpolicy.Proxy.Refusal) before anything is asked or written: a tier
+// in its state that its proxy doesn't enforce would fail open.
+func (e Net) checkTier(ctx context.Context, t *target, from, to netpolicy.Tier, command string) (bool, error) {
 	if err := tierLinked(e.Dirs, t.st, to); err != nil {
 		return false, err
+	}
+	if t.in.Status == backend.StatusRunning && from.Confined() && to.Confined() {
+		if err := e.Proxy.Refusal(ctx); err != nil {
+			return false, err
+		}
 	}
 	if !to.AtLeast(from) {
 		if ok, err := t.widen(command); !ok {
@@ -213,7 +222,7 @@ func (e Net) applyTier(ctx context.Context, t *target, from, to netpolicy.Tier, 
 	}
 	if from.Confined() && to.Confined() {
 		if running {
-			if _, err := e.Proxy.Prepare(ctx, b, st, true, ""); err != nil {
+			if _, err := e.Proxy.PrepareRunning(ctx, b, st); err != nil {
 				return err
 			}
 			say(msg.SettingApplied(vm))
@@ -274,7 +283,7 @@ func (e Net) Lock(ctx context.Context, o LockOptions) error {
 		return msg.GroupTierFixed(g, vm)
 	}
 	from, to := netpolicy.TierOf(st), netpolicy.TierAllowlist
-	if ok, err := e.checkTier(t, from, to, "devvm network lock"); !ok {
+	if ok, err := e.checkTier(ctx, t, from, to, "devvm network lock"); !ok {
 		return err
 	}
 	was := netpolicy.LearningOf(st)

@@ -771,7 +771,7 @@ func corpNoLeak(n *netRun, corp *Corp, fromConfig bool) error {
 // corpConfig: config.toml's [proxy] names the company proxy as
 // http://devvm@ADDR, the user alone, and devvm runs with no proxy
 // settings. With no proxy secret saved, the launch is refused
-// (proxy_password_missing); once devvm secret set proxy saves the
+// (proxy_password_missing), the VM left running if it ran; once devvm secret set proxy saves the
 // password, read on its input, the launch starts the VM's proxy again
 // through the company proxy, its config naming the secret and holding no
 // password, and the company proxy, which refuses any request without that
@@ -797,8 +797,13 @@ func corpConfig(n *netRun, corp *Corp) error {
 	launch := func() (Res, error) {
 		return s.Run(Cmd{Args: unproxied(s.sb.devvm), Dir: n.n, Stdin: "exit\n", Env: n.home(fakeToken, "DEVVM_MESSAGES=names")})
 	}
+	was := s.Status(n.vm)
 	if r, err := launch(); err == nil || !Matches(r.Out, `^devvm: proxy_password_missing`) {
 		return failed("with no proxy secret saved, the launch wasn't refused for it:\n"+tailLines(r.Out, 20), err)
+	}
+	// Refused before anything stops: a running VM runs on.
+	if now := s.Status(n.vm); now != was {
+		return fmt.Errorf("the refused launch left the VM %s, it was %s", now, was)
 	}
 	if _, err := s.Run(devvmCmd(s, "", corp.Password()+"\n", n.home(), "secret", "set", proxy.UpstreamSecret, "--stdin")); err != nil {
 		return fmt.Errorf("devvm secret set proxy: %w", err)

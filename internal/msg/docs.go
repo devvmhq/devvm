@@ -232,6 +232,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"secret_host_only":               "safety/network#behind-a-company-proxy",
 	"upstream_proxy_gone":            "using/troubleshooting#behind-a-company-proxy",
 	"net_proxy_down_stopped":         "using/troubleshooting#the-proxy-doesnt-start",
+	"net_proxy_kept":                 "using/troubleshooting#the-proxy-doesnt-start",
 	"no_secret":                      "safety/network#saving-and-binding-secrets",
 	"bad_secret_name":                "safety/network#your-own-secrets",
 	"secret_name_taken":              "safety/network#your-own-secrets",

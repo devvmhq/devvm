@@ -162,19 +162,108 @@ func relayedAgent(d paths.Dirs, vm vmname.VM, running bool, agent string) (upstr
 // the SSH agent at agent ("" none): its proxy relays it, and the
 // confinement's AgentSocket is the relay's socket (proxy.Config.Agent). A
 // running VM's proxy relays the agent its start forwarded, whatever agent
-// says (relayedAgent).
+// says (relayedAgent). A running VM's goes through PrepareRunning.
 func (p *Proxy) Prepare(ctx context.Context, b backend.Backend, st *state.VM, running bool, agent string) (backend.Confinement, error) {
-	vm, tier := st.Name(), TierOf(st)
-	// The tier as its state has it now: a command that read the state
-	// before devvm network changed it never starts the proxy with the
-	// tier before.
-	if now, err := state.ReadVM(p.Dirs, vm); err == nil && now.Exists() && now.ID == st.ID {
-		tier = TierOf(now)
+	c, _, err := prepare(ctx, p, b, st, running, agent)
+	return c, err
+}
+
+// PrepareRunning readies a running VM to go on (Prepare). The VM never
+// runs on without its proxy, so a failure once its proxy was stopped, or
+// while none of its runs, stops the VM (unproxied). Whatever refuses the
+// proxy's start before its proxy is touched, such as a company proxy
+// whose password isn't saved, leaves the VM and its proxy as they were,
+// and says so (net_proxy_kept), but only while that proxy enforces what
+// the VM's state asks for now (enforcesNow): one left with a looser tier
+// than the state's would fail open, so the VM is stopped then too.
+func (p *Proxy) PrepareRunning(ctx context.Context, b backend.Backend, st *state.VM) (backend.Confinement, error) {
+	vm := st.Name()
+	c, touched, err := prepare(ctx, p, b, st, true, "")
+	if err == nil {
+		return c, nil
 	}
+	if _, up := p.PID(vm); up && !touched && enforcesNow(p, st) {
+		p.Warn(msg.NetProxyKept(vm))
+		return c, err
+	}
+	return c, unproxied(ctx, p, b, vm, err)
+}
+
+// tierNow is st's VM's tier as its state has it now: a command that read
+// the state before devvm network changed it never starts the proxy with
+// the tier before, nor keeps one that has it.
+func tierNow(p *Proxy, st *state.VM) Tier {
+	if now, err := state.ReadVM(p.Dirs, st.Name()); err == nil && now.Exists() && now.ID == st.ID {
+		return TierOf(now)
+	}
+	return TierOf(st)
+}
+
+// enforcesNow reports whether st's VM's running proxy (p's) enforces what
+// its state asks for now: it started with the policies its tier gives
+// (Policies, tierNow), built-in, files and denies, open or not, from this
+// devvm binary, whose built-in policies' rules it has. A config that
+// can't be read, or a binary that can't, counts as another's.
+func enforcesNow(p *Proxy, st *state.VM) bool {
+	vm, tier := st.Name(), tierNow(p, st)
+	old, err := proxy.ReadConfig(p.Dirs.VM(vm).ProxyConfig())
+	if err != nil {
+		return false
+	}
+	self, err := image.SHA256File(p.Self)
+	if err != nil || old.DevvmSHA256 != self {
+		return false
+	}
+	set := Policies(p.Dirs, vm, tier, image.Name(st.Image), tools.Names(st))
+	return slices.Equal(old.BuiltinPolicies, set.Builtin) && slices.Equal(old.Policies, set.Files) &&
+		slices.Equal(old.DenyPolicies, set.Denies) && old.Open == (tier == TierOpen)
+}
+
+// Refusal is what refuses any VM's proxy start, whatever the VM, known
+// before anything stops (shared): devvm checks it before it stops a
+// running VM to start it again, and before it makes one, so a refused
+// restart leaves the VM running.
+func (p *Proxy) Refusal(ctx context.Context) error {
+	_, err := shared(ctx, p)
+	return err
+}
+
+// common is what every VM's proxy starts with, whatever the VM.
+type common struct {
+	cas      trust.CAs       // the user's CAs
+	upstream *proxy.Upstream // the company proxy; nil: none
+}
+
+// shared is what every VM's proxy (p's) starts with now: the user's CAs
+// (trust.Read) and the company proxy, the environment's, else
+// config.toml's, checked, with config.toml's password saved
+// (settings.CompanyProxy.Upstream).
+func shared(ctx context.Context, p *Proxy) (common, error) {
+	cas, err := trust.Read(p.Dirs.TrustedCAs())
+	if err != nil {
+		return common{}, err
+	}
+	upstream, err := p.Company().Upstream(ctx)
+	if err != nil {
+		return common{}, err
+	}
+	return common{cas: cas, upstream: upstream}, nil
+}
+
+// prepare is p's Prepare, and reports whether it stopped the VM's proxy,
+// or tried to, or started one: what fails before leaves the proxy as it
+// was.
+func prepare(ctx context.Context, p *Proxy, b backend.Backend, st *state.VM, running bool, agent string) (_ backend.Confinement, touched bool, _ error) {
+	vm, tier := st.Name(), tierNow(p, st)
 	none := backend.Confinement{}
+	// What refuses every VM's proxy, first: nothing is written before.
+	sh, err := shared(ctx, p)
+	if err != nil {
+		return none, false, err
+	}
 	run, err := b.Running(ctx, vm)
 	if err != nil {
-		return none, err
+		return none, false, err
 	}
 	net := tier.Net()
 	if running && run.Confined {
@@ -182,34 +271,35 @@ func (p *Proxy) Prepare(ctx context.Context, b backend.Backend, st *state.VM, ru
 	}
 	key, err := Key(ctx, st)
 	if err != nil {
-		return none, err
+		return none, false, err
 	}
 	if err := p.secretsReady(ctx, st); err != nil {
-		return none, err
+		return none, false, err
 	}
 	// A stopped VM's proxy follows the hostagent it started with: a new
 	// start gets a new one. A running VM's proxy starts again, on the same
 	// port, when its config would differ from the one it started with
 	// (stale).
-	cfg, err := p.config(ctx, st, tier, key, run.Lifeline)
+	cfg, err := p.config(st, tier, key, run.Lifeline, sh)
 	if err != nil {
-		return none, err
+		return none, false, err
 	}
 	cfg.Agent, cfg.AgentSocket = relayedAgent(p.Dirs, vm, running, agent)
 	if stale := p.stale(vm, cfg); !running || stale {
 		// Never the old one kept: it would go on with what it started with.
+		touched = true
 		if !p.Stop(vm) {
-			return none, msg.ProxyStopFailed(vm)
+			return none, touched, msg.ProxyStopFailed(vm)
 		}
 	}
 	sp, err := p.Ports().SSH(ctx, st, running)
 	if err != nil {
-		return none, err
+		return none, touched, err
 	}
 	_, up := p.PID(vm)
 	pp, err := p.proxyPort(ctx, st, up, running)
 	if err != nil {
-		return none, err
+		return none, touched, err
 	}
 	conf := backend.Confinement{
 		Net: net, ProxyPort: pp, ProxyPassword: key, Env: Env, SSHPort: sp, AgentSocket: cfg.AgentSocket,
@@ -217,14 +307,14 @@ func (p *Proxy) Prepare(ctx context.Context, b backend.Backend, st *state.VM, ru
 	// The logs hold each VM's requests: the user's alone.
 	for _, d := range []string{p.Dirs.Run(), p.Dirs.VM(vm).Run(), p.Dirs.VM(vm).Logs()} {
 		if err := state.PrivateDir(d); err != nil {
-			return none, err
+			return none, touched, err
 		}
 	}
 	if up {
-		return conf, nil
+		return conf, touched, nil
 	}
 	cfg.Listen = listenOn(pp)
-	return conf, p.start(vm, cfg)
+	return conf, true, p.start(vm, cfg)
 }
 
 // secretsReady readies what a VM's proxy puts its secrets in
@@ -254,24 +344,18 @@ func (p *Proxy) secretsReady(ctx context.Context, st *state.VM) error {
 // upgrade, which may change the built-in policies' rules), the VM's CAs
 // (replaced, so it would mint certificates the VM no longer trusts after
 // its next setup), the user's CAs, which it trusts for its own
-// connections, the company proxy it goes through (upstream), and the
-// shared Nix cache's cap. Every tier's proxy has the VM's CAs and its
-// secrets: an open VM's applies no rules, but still puts its secrets in.
-func (p *Proxy) config(ctx context.Context, st *state.VM, t Tier, key redact.Secret, lifeline string) (proxy.Config, error) {
+// connections, the company proxy it goes through (upstream), both sh's
+// (shared), and the shared Nix cache's cap. Every tier's proxy has the
+// VM's CAs and its secrets: an open VM's applies no rules, but still puts
+// its secrets in.
+func (p *Proxy) config(st *state.VM, t Tier, key redact.Secret, lifeline string, sh common) (proxy.Config, error) {
 	vm, files := st.Name(), p.Dirs.VM(st.Name())
 	ca := files.CA()
 	set := Policies(p.Dirs, vm, t, image.Name(st.Image), tools.Names(st))
 	for _, m := range PolicyWarnings(append(slices.Clone(set.Files), set.Denies...)) {
 		p.Warn(m)
 	}
-	cas, err := trust.Read(p.Dirs.TrustedCAs())
-	if err != nil {
-		return proxy.Config{}, err
-	}
-	upstream, err := p.Upstream(ctx)
-	if err != nil {
-		return proxy.Config{}, err
-	}
+	cas, upstream := sh.cas, sh.upstream
 	pp, err := ports.Of(st)
 	if err != nil {
 		return proxy.Config{}, err
@@ -291,13 +375,6 @@ func (p *Proxy) config(ctx context.Context, st *state.VM, t Tier, key redact.Sec
 	c.CANextSHA256, _ = image.SHA256File(ca.NextCert())
 	c.NixCache, c.NixCacheMax = p.nixCache(st)
 	return c, nil
-}
-
-// Upstream is the company proxy a VM's proxy, or a build's, goes through:
-// the environment's, else config.toml's, checked, with config.toml's
-// password saved (settings.CompanyProxy.Upstream).
-func (p *Proxy) Upstream(ctx context.Context) (*proxy.Upstream, error) {
-	return p.Company().Upstream(ctx)
 }
 
 // Company is the company proxy as devvm's environment and config.toml

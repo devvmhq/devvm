@@ -124,9 +124,9 @@ func (e Launch) makeHeld(ctx context.Context, o Options, t *target) error {
 		unhold()
 		return e.finishRemake(ctx, o, t)
 	case !t.exists:
-		// The company proxy its builds and its proxy go through, checked
-		// before anything is built.
-		if _, err := e.Proxy.Upstream(ctx); err != nil {
+		// The company proxy its builds and its proxy go through, and the
+		// CAs they trust, checked before anything is built.
+		if err := e.Proxy.Refusal(ctx); err != nil {
 			return err
 		}
 		return e.creation.create(ctx, o, t.f, t.b, unhold)

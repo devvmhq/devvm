@@ -2958,6 +2958,11 @@ func NetProxyDownStopped(vm vmname.VM) M {
 	return M{id: "net_proxy_down_stopped", vals: []val{{"vm", string(vm)}}}
 }
 
+// NetProxyKept is [net_proxy_kept]: "devvm left {{.vm}} and its proxy running as they were."
+func NetProxyKept(vm vmname.VM) M {
+	return M{id: "net_proxy_kept", vals: []val{{"vm", string(vm)}}}
+}
+
 // NetProxyUnreachable is [net_proxy_unreachable]: "{{.vm}}'s proxy doesn't answer it, so its tools that use the proxy fail. To start both again, run devvm restart."
 func NetProxyUnreachable(vm vmname.VM) M {
 	return M{id: "net_proxy_unreachable", vals: []val{{"vm", string(vm)}}}
@@ -5910,6 +5915,7 @@ var specs = map[string]spec{
 	"net_open_log":                   {fields: []string{"vm"}},
 	"net_open_policy":                {fields: []string{"vm"}},
 	"net_proxy_down_stopped":         {fields: []string{"vm"}},
+	"net_proxy_kept":                 {fields: []string{"vm"}},
 	"net_proxy_unreachable":          {fields: []string{"vm"}},
 	"net_tier_allowlist":             {},
 	"net_tier_backend":               {fields: []string{"backend", "vm"}},

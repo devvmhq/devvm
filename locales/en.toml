@@ -1999,6 +1999,9 @@ other = "Another program took port {{.port}}, which {{.vm}}'s network goes throu
 [net_proxy_down_stopped]
 other = "{{.vm}}'s proxy couldn't start, so devvm stopped the VM, which doesn't run without it. devvm starts both again at the VM's next launch."
 
+[net_proxy_kept]
+other = "devvm left {{.vm}} and its proxy running as they were."
+
 [proxy_start_failed]
 other = "{{.vm}}'s proxy didn't start. Check {{.log}} for why."
 

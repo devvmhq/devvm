@@ -155,12 +155,12 @@ func Direct(ctx context.Context, b backend.Backend, vm vmname.VM) bool {
 	return b.Exec(ctx, vm, directArgv, backend.ExecOpts{}) == nil
 }
 
-// Unproxied stops a running VM whose proxy couldn't start (err): a VM never
-// runs on without its proxy. It warns that it stopped
-// it and returns err; if the stop fails, the stop's failure, after warning
-// err. The stop isn't cancelled with ctx: an interrupt never leaves the VM
-// running.
-func (p *Proxy) Unproxied(ctx context.Context, b backend.Backend, vm vmname.VM, err error) error {
+// unproxied stops a running VM whose proxy, p's, couldn't start (err): a
+// VM never runs on without its proxy (PrepareRunning). Its proxy, if one
+// still runs, stops too. It warns that it stopped it and returns err; if the stop fails, the stop's failure, after
+// warning err. The stop isn't cancelled with ctx: an interrupt never
+// leaves the VM running.
+func unproxied(ctx context.Context, p *Proxy, b backend.Backend, vm vmname.VM, err error) error {
 	if serr := b.Stop(context.WithoutCancel(ctx), vm); serr != nil {
 		var m msg.M
 		if errors.As(err, &m) {
@@ -168,6 +168,8 @@ func (p *Proxy) Unproxied(ctx context.Context, b backend.Backend, vm vmname.VM, 
 		}
 		return serr
 	}
+	// One still running, which doesn't enforce the VM's tier, goes too.
+	p.Stop(vm)
 	p.Warn(msg.NetProxyDownStopped(vm))
 	return err
 }

@@ -35,7 +35,7 @@ internal/safefile 97.7
 internal/secrets 93.4
 internal/settings 96.4
 internal/shell 100.0
-internal/sshagent 84.9
+internal/sshagent 85.0
 internal/sshconfig 95.0
 internal/state 94.4
 internal/stubtest 83.4
