@@ -14,6 +14,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/daemon"
 )
 
 // RFB's (VNC's) security types and results (RFC 6143).
@@ -49,7 +51,9 @@ type Relay struct {
 // maxConns is the most connections the relay carries at once.
 const maxConns = 8
 
-// Serve carries connections to l until ctx ends or l fails.
+// Serve carries connections to l until ctx ends or l closes. An accept error
+// that leaves l open, such as running out of files, is tried again after a
+// wait (daemon.AcceptRetry).
 func (r *Relay) Serve(ctx context.Context, l net.Listener) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -60,14 +64,21 @@ func (r *Relay) Serve(ctx context.Context, l net.Listener) error {
 	slots := make(chan struct{}, maxConns)
 	var wg sync.WaitGroup
 	defer wg.Wait()
+	var retry daemon.AcceptRetry
 	for {
 		conn, err := l.Accept()
 		if err != nil {
+			// Out of files (EMFILE) in a burst, say: the listener stays open, so the relay tries
+			// again shortly, logging only the first error of a run.
+			if retry.Failed(ctx, err, func(err error) { r.Logf("accepting a viewer: %v", err) }) {
+				continue
+			}
 			if ctx.Err() != nil {
 				return nil
 			}
 			return err
 		}
+		retry.Accepted()
 		select {
 		case slots <- struct{}{}:
 		default:

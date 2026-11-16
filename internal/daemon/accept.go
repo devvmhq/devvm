@@ -16,7 +16,8 @@ const (
 
 // AcceptRetry is an accept loop's state between errors from its listener's Accept, its zero value
 // before any. Each loop has its own. The background processes' loops share it, the port
-// forwarder's, the link session's and the proxy's SSH agent relay, and so does a login's forward.
+// forwarder's, the link session's and the proxy's SSH agent relay, and so do a login's forward and
+// devvm desktop's relay.
 type AcceptRetry struct{ wait time.Duration }
 
 // Failed is what an accept loop does with err, from its listener's Accept: false once the listener

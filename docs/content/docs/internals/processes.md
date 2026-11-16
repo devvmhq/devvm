@@ -141,7 +141,7 @@ The keeper dies with `devvm _qemu exec`, and QEMU with the keeper. `devvm _qemu 
 - **Reads from the VM:** the VM's side of VNC's handshake, which is a version, at most 255 security types and a result, within 15 seconds, and then the VM's screen, which it passes to the viewer as it is.
 - **Writes:** lines to the run log when each viewer connects and disconnects, and for each connection it refuses, and each ssh process's messages.
 - **Bounds:** at most 8 connections at once, counting those still in their handshake, one check of a password at a time, and a second's wait after a wrong one.
-- **Listens:** on `127.0.0.1` alone, on the VM's desktop port ([listeners](#listeners-a-vm-reaches)).
+- **Listens:** on `127.0.0.1` alone, on the VM's desktop port ([listeners](#listeners-a-vm-reaches)). When accepting a connection fails but the port stays open, as when it runs out of open files, it tries again after 5 ms and then twice as long each time, up to a second, and logs only the first failure of a run.
 - **Starts and ends:** it ends when you press Ctrl+C, or when the VM no longer runs, which it checks every 5 seconds, and it waits for each viewer's connection.
 
 ## The SSH agents

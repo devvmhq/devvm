@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -108,6 +110,56 @@ func serve(t *testing.T, r *Relay) string {
 	}()
 	t.Cleanup(func() { cancel(); <-done })
 	return l.Addr().String()
+}
+
+// emfileListener fails its first fails Accepts with EMFILE, as a process out
+// of files does, its listener still open.
+type emfileListener struct {
+	net.Listener
+	fails atomic.Int32
+}
+
+func (l *emfileListener) Accept() (net.Conn, error) {
+	if l.fails.Add(-1) >= 0 {
+		return nil, &net.OpError{Op: "accept", Net: "tcp", Err: os.NewSyscallError("accept", syscall.EMFILE)}
+	}
+	return l.Listener.Accept()
+}
+
+// A listener that runs out of files is tried again, the run of errors logged
+// once, and the relay goes on carrying viewers.
+func TestRelayAcceptRetries(t *testing.T) {
+	leaktest.Check(t)
+	vm := &fakeVM{done: make(chan struct{})}
+	r := newRelay(vm, false)
+	var logged atomic.Int32
+	r.Logf = func(format string, _ ...any) {
+		if strings.HasPrefix(format, "accepting a viewer") {
+			logged.Add(1)
+		}
+	}
+	var lc net.ListenConfig
+	inner, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := &emfileListener{Listener: inner}
+	l.fails.Store(3)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- r.Serve(ctx, l) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Serve: %v", err)
+		}
+	})
+	if _, res, _ := viewer(t, inner.Addr().String(), "RFB 003.008\n", "abcdefgh"); res != resultOK {
+		t.Errorf("after the listener ran out of files: result %d", res)
+	}
+	if n := logged.Load(); n != 1 {
+		t.Errorf("logged the run of errors %d times, want once", n)
+	}
 }
 
 // dial connects to the relay at addr, on this machine's loopback.
