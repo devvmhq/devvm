@@ -109,6 +109,12 @@ description = "Report where a nil value may be dereferenced, and which findings 
 # it exits 3 on a finding the baseline hasn't. Advisory, so not part of lint.
 run = "scripts/nilaway.sh"
 
+[tasks."nilaway:linux"]
+description = "Run nilaway on the code as built for Linux, as CI's job does, from any system; it must pass before a push to main"
+# go list reads GOOS, so a Mac checks the Linux-only files too. Exits 3 on
+# a new finding and 1 on a stale baseline line, as nilaway does.
+run = "GOOS=linux scripts/nilaway.sh"
+
 [tasks.deadcode]
 description = "List functions nothing calls"
 run = "go run golang.org/x/tools/cmd/deadcode@v0.52.0 ./..."

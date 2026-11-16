@@ -55,6 +55,7 @@ Run the tasks with `mise run <task>`:
 | `coverage` | runs the tests, then raises each package's coverage baseline to what they reach (`scripts/test.sh --raise`) |
 | `vuln` | runs govulncheck on the code as built for Linux and as built for macOS |
 | `nilaway` | reports where a nil value may be dereferenced in devvm's own code, not the tests', and the findings that `testdata/nilaway-baseline.txt` hasn't triaged ([Nil checks](#nil-checks)) |
+| `nilaway:linux` | runs `nilaway` on the code as built for Linux, as CI's job does, from any system, and must pass before a push to `main` |
 | `deadcode` | lists functions nothing calls outside the tests: only `backendtest`'s, `stubtest`'s, `upgradetest`'s, `msg.IDOf`, `msg.NamesOf`, `msg.Recorder` and `msg.Fake`, which the tests use, and anything else it lists gets a caller or goes |
 | `cli-docs` | generates the CLI reference |
 | `docs:diagrams` | installs pele with `npm ci` and draws the docs site's diagrams, which every build of the site needs first; it's skipped when no page, the script or pele's pins changed, reinstalls pele only when the lock changed and draws only the diagrams that changed ([diagrams](docs.md#writing-docs)) |
@@ -63,7 +64,7 @@ Run the tasks with `mise run <task>`:
 
 `mise run test` needs a C compiler for the race detector: Xcode Command Line Tools on macOS, gcc on Linux. It gives each package 30 minutes rather than go test's 10, because the CLI tests run the built binary against many stubs and take far longer on a busy machine. Both test tasks run `scripts/test.sh`, which gives the tests a throwaway `HOME`.
 
-Before and after every change, `mise run fmt && mise run lint && mise run test` must pass.
+Before and after every change, `mise run fmt && mise run lint && mise run test` must pass. Before a push to `main`, `mise run nilaway:linux` must pass as well, because CI's `nilaway` job only warns, so a new finding hides in a green run ([Nil checks](#nil-checks)).
 
 CI runs `lint` and `test` on macOS and Linux, and `vuln` and `nilaway` in jobs of their own. Its `nocgo` job runs `internal/landlock`'s and `internal/proxy`'s tests on Linux with `CGO_ENABLED=0`, as devvm ships, because the test tasks turn cgo on for the race detector, and with cgo the proxy's child can't confine every thread of itself (`syscall.AllThreadsSyscall`), so only that job runs a child under Landlock and the seccomp filter. A weekly workflow also scans `main` and the binaries of the latest releases ([Known vulnerabilities](maintaining.md#known-vulnerabilities)). A change that touches only the docs and Markdown files skips them: the Docs workflow runs `lint:docs` and builds the site instead, and on every push to `main` it deploys next.devvm.dev ([the docs sites](maintaining.md#the-docs-sites)).
 
@@ -80,6 +81,8 @@ Its findings include false positives, so the findings already triaged as false p
 The script exits with status 3 when there's a new finding. It exits with status 1 when nilaway can't run, when nilaway's output has a finding the script can't read, and when a baseline line is stale or isn't a group and a key, so a change in nilaway's output can't leave the check comparing nothing. `TestNilawayBaseline` in `internal/structure` checks each of these with a stand-in nilaway.
 
 The task isn't part of `lint`, and it never fails CI: CI's `nilaway` job warns on the run when there's a new finding and lists the new and stale ones, then every finding, in the run's summary. The job fails when the script exits with status 1, and even then it blocks nothing.
+
+A warning in a green run is easy to miss, and a finding's key is its code path, so code that only moved can read as new. So before a push to `main`, `mise run nilaway:linux` must pass: it runs the same script with `GOOS=linux`, so nilaway checks the code as built for Linux, as CI's job does, even on a Mac, and the files that build only for Linux are checked too. A new finding or a stale baseline line fails it, and gets a fix or a baseline change before the push.
 
 Each finding starts with the place a nil value is dereferenced and then traces where it came from, one line for each step. A new finding that is a real bug gets a fix and a test that would have panicked without it. A false positive goes into the baseline as the key the script prints after `new:`, one line for each time it's printed, with one of the baseline's groups in front:
 

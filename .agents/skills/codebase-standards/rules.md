@@ -20,7 +20,7 @@ These rules are written in [AGENTS.md](../../../AGENTS.md) and the [Contributing
 | An `io.ReadAll` outside tests reads through an `io.LimitReader`, but where `unboundedReads` says why | [The structure test](../../../docs/content/docs/contributing/structure.md#the-structure-test) | the structure test's `read-limits` (`unboundedReads`) |
 | Code for one system goes behind build tags in `internal/platform` | [Go conventions](../../../docs/content/docs/contributing/_index.md#go-conventions) | forbidigo for the host's CPUs, memory and free space outside `internal/platform`, and the rest is review only |
 | devvm builds with `CGO_ENABLED=0` | [Go conventions](../../../docs/content/docs/contributing/_index.md#go-conventions) | `mise.toml` and `.goreleaser.yaml` set it, and CI's `nocgo` job runs `internal/landlock`'s and `internal/proxy`'s tests that way |
-| A nil value that may reach a dereference is fixed or triaged | [Nil checks](../../../docs/content/docs/contributing/_index.md#nil-checks) | `mise run nilaway` and CI's `nilaway` job, which warn without failing |
+| A nil value that may reach a dereference is fixed or triaged | [Nil checks](../../../docs/content/docs/contributing/_index.md#nil-checks) | `mise run nilaway` and CI's `nilaway` job, which warn without failing, and `mise run nilaway:linux`, which fails on a new finding or a stale baseline line and must pass before a push to `main` |
 | A dependency with a known vulnerability is updated | [Tools and tasks](../../../docs/content/docs/contributing/_index.md#tools-and-tasks) | `mise run vuln` and CI's `vuln` job |
 
 ## Owners
