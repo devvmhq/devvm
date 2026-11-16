@@ -52,6 +52,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 | `.agents/skills/security-audit/` | the security-audit skill, for backend reviews |
 | `.agents/skills/cli/` | the cli skill: devvm's command line rules, the checklist for adding a command, the tests behind each rule, `judgment.md` for the rest |
 | `.agents/skills/docs-voice/` | the docs-voice skill: the voice of the prose and messages, terms, tropes, `scan.sh` and `facts.sh` |
+| `.agents/skills/codebase-standards/` | the codebase-standards skill: the checklist for a commit and a review from what reviews kept finding, matching the codebase's style, every rule's guard |
 
 ## Tasks
 
@@ -72,11 +73,12 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 - **In-VM scripts are bash 3.2-safe and shellcheck-clean** (`assets/`, `install.sh`): guard empty arrays (`${a[@]+"${a[@]}"}`), no associative arrays. Everything else is Go.
 - **The one exception, the docs build's Node script:** `docs/render-diagrams.mjs` (`mise run docs:diagrams`) draws the site's diagrams with pele, pinned in `docs/package.json` and its lock and installed with `npm ci --ignore-scripts`; no other build script is JavaScript, and no other npm package is installed outside mise's tools.
 - **Docs:** an easy-to-follow guide in full, joined sentences, every fact kept, written with the docs-voice skill; every behavior change updates its page in the same task, and the README stays high level ([Writing docs](docs/content/docs/contributing/docs.md#writing-docs)).
+- **Every code change meets the codebase-standards skill** (`.agents/skills/codebase-standards/`): its checklist before committing, and its review when reviewing one.
 - **Adding or changing a command** follows the cli skill (`.agents/skills/cli/`): its checklist, then its review.
 - **Adding or changing a shared tool** updates its page and follows Contributing's checklist: `using/toolchains.md` for a toolchain ([Adding a toolchain](docs/content/docs/contributing/extending.md#adding-a-toolchain)), `using/coding-agents.md`'s Supported agents for an agent ([Adding a coding agent](docs/content/docs/contributing/extending.md#adding-a-coding-agent)).
 - **Docs by reader:** user pages name no repo paths, Go identifiers or message names; How it works explains mechanisms; Contributing has the paths and identifiers ([Writing docs](docs/content/docs/contributing/docs.md#writing-docs)).
 - **User pages lead with doing:** in `getting-started/`, `using/`, `safety/`, `backends/` and `compared/`, a task shows its command, and prose never runs to back-to-back paragraphs; one explanatory paragraph is fine, and longer mechanism moves to How it works, linked, every fact kept.
-- **Extend the owner, don't copy it:** before adding a helper, parser, path, file reader, message or table, find its owner and extend it; a new owner gets a forbidigo rule or a structure-test check only when a second copy would be a bug ([Contributing](docs/content/docs/contributing/structure.md#one-owner-for-each-concern)).
+- **Extend the owner, don't copy it:** before adding a helper, parser, path, file reader, message or table, find its owner and extend it (code with no owner yet gets one at its third copy, a judge at its second); a new owner gets a forbidigo rule or a structure-test check only when a second copy would be a bug ([Contributing](docs/content/docs/contributing/structure.md#one-owner-for-each-concern)).
 - **Edit files with the editor tools,** not `sed`, `awk`, `python`, heredocs or `cat >`.
 - **Ask first** before anything outward-facing (publishing, releases, repos, pushing) and before deleting anything you didn't create.
 - **A task that turns out wrong or incomplete:** say so and propose the change; don't quietly do something else.

@@ -181,6 +181,7 @@ func commandLineFiles(t *testing.T) []string {
 		"README.md", "AGENTS.md", "CHANGELOG.md", "SECURITY.md", "CONTRIBUTING.md", "install.sh",
 		"docs/content", "locales", "internal", "cmd", "assets", "tests", "testdata/script",
 		"scripts", "packaging", ".github", ".agents/skills/cli", ".agents/skills/docs-voice",
+		".agents/skills/codebase-standards",
 	}
 	var files []string
 	for _, s := range sources {

@@ -41,7 +41,7 @@ Shell scripts that live in Go strings get shellcheck too, since lint's shellchec
 
 ## One owner for each concern
 
-Each concern in devvm has one owner, the package or function that does it, such as `internal/hostgit` for every git command devvm runs on the host, `internal/paths` for every folder and file devvm uses, `internal/settings` for every default (`settings.Read` and `settings.Save`, over `config.toml` and `settings.json`, with each value's parser), and `locales/en.toml` for every message. Before you add a helper, a parser, a path, a file reader, a message or a table, find its owner and extend it. A second copy drifts from the first, and then one of them is wrong. [The packages](#the-packages) says what each package owns, and the failures of the checks below name the owners too.
+Each concern in devvm has one owner, the package or function that does it, such as `internal/hostgit` for every git command devvm runs on the host, `internal/paths` for every folder and file devvm uses, `internal/settings` for every default (`settings.Read` and `settings.Save`, over `config.toml` and `settings.json`, with each value's parser), and `locales/en.toml` for every message. Before you add a helper, a parser, a path, a file reader, a message or a table, find its owner and extend it. A second copy drifts from the first, and then one of them is wrong. Code with no owner yet can have a second copy, because a copy can be cheaper than the wrong shared helper, so extract an owner at the third copy, or at once for a judge such as `proxy.Public` or `NormHost`, whose two copies would disagree on what's allowed. [The packages](#the-packages) says what each package owns, and the failures of the checks below name the owners too.
 
 ### The packages
 

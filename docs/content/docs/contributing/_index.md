@@ -4,7 +4,7 @@ explainer: Build devvm, run its tests and follow its rules
 weight: 100
 ---
 
-The rules for working in the repo, for people and coding agents alike, are in [AGENTS.md](https://github.com/devvmhq/devvm/blob/main/AGENTS.md).
+The rules for working in the repo, for people and coding agents alike, are in [AGENTS.md](https://github.com/devvmhq/devvm/blob/main/AGENTS.md). The [codebase-standards skill](https://github.com/devvmhq/devvm/blob/main/.agents/skills/codebase-standards/SKILL.md) turns what reviews of devvm's code kept finding into a short checklist for a commit and a review, says how new code matches the code already there, and lists what guards each rule.
 
 ## Building from source
 
