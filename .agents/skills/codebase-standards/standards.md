@@ -109,7 +109,7 @@ Before a message names a cause, the code finds that cause. Errors that need diff
 
 The reviews found about 16 swallowed errors and about 17 messages that named the wrong cause. A shared tool that failed to mount was skipped with only a line on standard error, which no page described and nobody had chosen, so mise downloaded it into the VM instead. The proxy's floor, which refuses this machine's addresses, refused none when it read no addresses. A name the host couldn't resolve was blocked with "can't resolve it" whatever the cause, so a lookup cancelled because its client went away looked like a DNS failure.
 
-**Guard:** errorlint, nilerr and nilnesserr catch some of it in the linters, and `TestExecuteShowsEachFailure` checks that a command's failure reaches the user. A dropped error assigned to `_` and a message's cause are review only.
+**Guard:** errorlint, nilerr and nilnesserr catch some of it in the linters, and `TestExecuteShowsEachFailure` checks that a command's failure reaches the user. The structure test's `dropped-errors` rule fails on a `Wait`'s error or a `strconv` parse's assigned to `_` outside tests, unless `droppedErrors` lists its function with why. Any other error assigned to `_`, and a message's cause, are review only.
 
 ## Give every process an owner that ends it
 
