@@ -443,6 +443,57 @@ func TestTrimNixCache(t *testing.T) {
 	}
 }
 
+// The cache's folders are made the user's alone, and a link planted in nar/'s place, to a folder
+// outside the cache or (relative) in it, or a file there, is deleted as itself, never followed, and
+// a folder made in its place: what the link led to keeps its mode and its files.
+func TestMakeNixFoldersPlanted(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "nix-cache")
+	must(t, os.Mkdir(dir, 0o750))
+	must(t, os.Mkdir(filepath.Join(dir, "nar"), 0o750))
+	writeCached(t, dir, "nar/x.nar", 1, time.Now())
+	if replaced, err := makeNixFolders(dir); replaced || err != nil {
+		t.Fatalf("a cache of its own: replaced %v, %v", replaced, err)
+	}
+	for _, d := range []string{dir, filepath.Join(dir, "nar")} {
+		if fi, err := os.Lstat(d); err != nil || !fi.IsDir() || fi.Mode().Perm() != 0o700 {
+			t.Errorf("%s: %v, %v", d, fi.Mode(), err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "nar/x.nar")); err != nil {
+		t.Errorf("a cached file went: %v", err)
+	}
+	for _, kind := range []string{"outside", "inside", "a file"} {
+		planted := filepath.Join(t.TempDir(), "nix-cache")
+		must(t, os.Mkdir(planted, 0o700))
+		target := t.TempDir()
+		switch kind {
+		case "inside":
+			target = filepath.Join(planted, "other")
+			must(t, os.Mkdir(target, 0o750))
+			must(t, os.Symlink("other", filepath.Join(planted, "nar")))
+		case "a file":
+			must(t, os.WriteFile(filepath.Join(planted, "nar"), nil, 0o600))
+		default:
+			must(t, os.Symlink(target, filepath.Join(planted, "nar")))
+		}
+		must(t, os.Chmod(target, 0o750)) //nolint:gosec // a folder of the test's, whose mode must stay
+		must(t, os.WriteFile(filepath.Join(target, "mine"), []byte("mine"), 0o600))
+		if replaced, err := makeNixFolders(planted); !replaced || err != nil {
+			t.Errorf("%s: replaced %v, %v", kind, replaced, err)
+		}
+		if fi, err := os.Lstat(filepath.Join(planted, "nar")); err != nil || !fi.IsDir() || fi.Mode().Perm() != 0o700 {
+			t.Errorf("%s: nar/ made in its place: %v, %v", kind, fi, err)
+		}
+		if fi, err := os.Stat(target); err != nil || fi.Mode().Perm() != 0o750 {
+			t.Errorf("%s: the planted link's target: %v, %v", kind, fi.Mode(), err)
+		}
+		if b, err := os.ReadFile(filepath.Join(target, "mine")); err != nil || string(b) != "mine" { //nolint:gosec // the test's own file
+			t.Errorf("%s: the target's file: %q, %v", kind, b, err)
+		}
+	}
+}
+
 // What a VM's proxy's child could plant in the shared cache leads its trim nowhere: a link in a
 // file's place, or in nar/'s, is deleted, or left, as itself, never what it leads to; a hard link
 // of another file goes as a name alone; a FIFO is never read or waited on; and a lock file that

@@ -625,22 +625,43 @@ func (n *nixCache) open() error {
 	if n.max < 0 {
 		return errors.New("nix_cache_max is below 0")
 	}
-	return makeNixFolders(n.dir)
+	// The broker made them before the child started, and logged a nar/ it replaced.
+	_, err := makeNixFolders(n.dir)
+	return err
 }
 
 // makeNixFolders makes the cache's folders in dir, the user's alone: the broker makes them before
 // its child starts, as a sandbox lets the child make no folder, and the child again, which finds
-// them made.
-func makeNixFolders(dir string) error {
-	for _, d := range []string{dir, filepath.Join(dir, "nar")} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			return err
-		}
-		if err := os.Chmod(d, 0o700); err != nil { //nolint:gosec // a folder: owner-only with search
-			return err
-		}
+// them made. A confined child makes regular files alone in the cache, but one that runs without
+// Landlock or Seatbelt could leave anything there, so nar/ is made and its mode set through
+// descriptors (safefile.Root), never by its path. Whatever isn't a folder at nar/, such as a
+// link, is deleted as itself, never followed, and a folder made in its place, which replaced
+// reports: the cache is devvm's alone, and a link there never leads the chmod to a folder of the
+// user's. dir itself is in devvm's own folder, which no VM writes.
+func makeNixFolders(dir string) (replaced bool, err error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return false, err
 	}
-	return nil
+	root, err := safefile.OpenRoot(dir)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.Chmod(0o700); err != nil {
+		return false, err
+	}
+	if fi, err := root.Lstat("nar"); err == nil && !fi.IsDir() {
+		if err := root.Remove("nar"); err != nil {
+			return false, fmt.Errorf("nar/, which isn't a folder: %w", err)
+		}
+		replaced = true
+	}
+	nar, err := root.MakeDir("nar", 0o700)
+	if err != nil {
+		return replaced, fmt.Errorf("nar/: %w", err)
+	}
+	defer func() { _ = nar.Close() }()
+	return replaced, nar.Chmod(0o700)
 }
 
 // nixLockWait is how long a proxy or devvm gc waits for the cache's lock: a VM's proxy's child

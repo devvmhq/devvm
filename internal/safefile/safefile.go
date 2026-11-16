@@ -184,6 +184,23 @@ func (r *Root) Lstat(name string) (fs.FileInfo, error) { return r.root.Lstat(nam
 // Remove deletes what's at name in the root: a link itself, never what it leads to.
 func (r *Root) Remove(name string) error { return r.root.Remove(name) }
 
+// Chmod sets the mode of the root's own folder, through the descriptor it was opened by
+// (fchmodat on "."), never by its path again.
+func (r *Root) Chmod(mode fs.FileMode) error { return r.root.Chmod(".", mode) }
+
+// MakeDir makes the folder name in the root with perm, when nothing is there, and opens it as
+// OpenDir does: whatever was there already must be a folder, never a link (ErrSwapped). It
+// tries mkdir only when nothing is there, as a sandbox that refuses making folders, such as
+// the proxy's child's, can refuse it even where one is.
+func (r *Root) MakeDir(name string, perm fs.FileMode) (*Root, error) {
+	if _, err := r.root.Lstat(name); errors.Is(err, fs.ErrNotExist) {
+		if err := r.root.Mkdir(name, perm); err != nil && !errors.Is(err, fs.ErrExist) {
+			return nil, err
+		}
+	}
+	return r.OpenDir(name)
+}
+
 // Readlink is the target of the symbolic link at name in the root, as the link has it, which
 // may lead out of it: read, never followed.
 func (r *Root) Readlink(name string) (string, error) { return r.root.Readlink(name) }

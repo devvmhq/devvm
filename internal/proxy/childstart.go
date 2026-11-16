@@ -30,8 +30,12 @@ const (
 func startChild(b *broker, ln net.Listener, configPath string, std IO, exe string, deadline time.Time) (pair, wireReady, Confinement, error) {
 	// The child makes regular files alone, so the Nix cache's folders are made before it starts.
 	if b.cfg.NixCache != "" {
-		if err := makeNixFolders(b.cfg.NixCache); err != nil {
+		replaced, err := makeNixFolders(b.cfg.NixCache)
+		if err != nil {
 			return pair{}, wireReady{}, Confinement{}, fmt.Errorf("the shared Nix cache: %w", err)
+		}
+		if replaced {
+			b.log.Printf("warning: the shared Nix cache's nar/ wasn't a folder: it's deleted, never followed, and a folder made in its place")
 		}
 	}
 	sandbox, spawned := childSandbox(b, std)
