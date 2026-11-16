@@ -26,12 +26,12 @@ func strconvParse(fn string) bool {
 // as 0.
 func dropsError(f srcFile, call *ast.CallExpr) string {
 	if callsMethod(call, "Wait") && len(call.Args) == 0 {
-		return "a Wait's error"
+		return "drops a Wait's error"
 	}
 	name := callName(call)
 	if pkg := importName(f, "strconv"); pkg != "" {
 		if fn, ok := strings.CutPrefix(name, pkg+"."); ok && strconvParse(fn) {
-			return name + "'s error"
+			return "drops " + name + "'s error"
 		}
 	}
 	return ""
@@ -46,15 +46,15 @@ func blankLast(lhs []ast.Expr) bool {
 	return ok && id.Name == "_"
 }
 
-// A drop is where a function first drops an error, and what it drops.
+// A drop is where a function first breaks a siteRule, and how.
 type drop struct {
 	at   ast.Node
 	what string
 }
 
-// droppedErrors are f's functions, by siteName, that assign a Wait's or a
-// strconv parse's error to _, each with its first drop.
-func droppedErrors(f srcFile) map[string]drop {
+// sitesWhere are f's functions, by siteName, with the first node in each
+// that what says breaks a rule (what isn't "").
+func sitesWhere(f srcFile, what func(ast.Node) string) map[string]drop {
 	sites := map[string]drop{}
 	for _, d := range f.ast.Decls {
 		fd, ok := d.(*ast.FuncDecl)
@@ -63,23 +63,9 @@ func droppedErrors(f srcFile) map[string]drop {
 		}
 		site := siteName(f, fd)
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
-			var lhs []ast.Expr
-			var rhs []ast.Expr
-			switch n := n.(type) {
-			case *ast.AssignStmt:
-				lhs, rhs = n.Lhs, n.Rhs
-			case *ast.ValueSpec:
-				for _, id := range n.Names {
-					lhs = append(lhs, id)
-				}
-				rhs = n.Values
-			}
-			if len(rhs) != 1 || !blankLast(lhs) {
-				return true
-			}
-			if call, ok := rhs[0].(*ast.CallExpr); ok {
-				if _, seen := sites[site]; !seen && dropsError(f, call) != "" {
-					sites[site] = drop{n, dropsError(f, call)}
+			if _, seen := sites[site]; !seen && n != nil {
+				if w := what(n); w != "" {
+					sites[site] = drop{n, w}
 				}
 			}
 			return true
@@ -88,33 +74,73 @@ func droppedErrors(f srcFile) map[string]drop {
 	return sites
 }
 
-// checkDroppedErrors: outside tests, no function assigns a Wait's error,
-// or a strconv parse's, to _, but one that droppedErrors lists with why; a
-// listed function that drops none fails. The check reads the source
-// alone, so any method named Wait counts.
-func checkDroppedErrors(m *module, r rules) []violation {
+// droppedErrors are f's functions, by siteName, that assign a Wait's or a
+// strconv parse's error to _, each with its first drop.
+func droppedErrors(f srcFile) map[string]drop {
+	return sitesWhere(f, func(n ast.Node) string {
+		var lhs, rhs []ast.Expr
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			lhs, rhs = n.Lhs, n.Rhs
+		case *ast.ValueSpec:
+			for _, id := range n.Names {
+				lhs = append(lhs, id)
+			}
+			rhs = n.Values
+		}
+		if len(rhs) != 1 || !blankLast(lhs) {
+			return ""
+		}
+		if call, ok := rhs[0].(*ast.CallExpr); ok {
+			return dropsError(f, call)
+		}
+		return ""
+	})
+}
+
+// A siteRule holds calls of one kind outside tests to the functions its
+// table lists, each with why: find finds a file's, by siteName; fix says
+// what to do instead, and none what a listed function that has none
+// lacks, which fails, so the table stays current.
+type siteRule struct {
+	rule, table string
+	listed      map[string]string
+	find        func(srcFile) map[string]drop
+	fix, none   string
+}
+
+// check is s's violations in m.
+func (s siteRule) check(m *module) []violation {
 	var vs []violation
 	seen := map[string]bool{}
 	for _, f := range m.files {
 		if f.test {
 			continue
 		}
-		for site, d := range droppedErrors(f) {
+		for site, d := range s.find(f) {
 			seen[site] = true
-			if _, ok := r.droppedErrors[site]; !ok {
-				vs = append(vs, violation{ruleErrors, m.pos(d.at), "drops " + d.what + ": handle it, or list " + site + " in droppedErrors with why"})
+			if _, ok := s.listed[site]; !ok {
+				vs = append(vs, violation{s.rule, m.pos(d.at), d.what + ": " + s.fix + ", or list " + site + " in " + s.table + " with why"})
 			}
 		}
 	}
-	for _, site := range slices.Sorted(maps.Keys(r.droppedErrors)) {
+	for _, site := range slices.Sorted(maps.Keys(s.listed)) {
 		switch {
 		case !seen[site]:
-			vs = append(vs, violation{ruleErrors, "droppedErrors", site + " drops no such error: take it out"})
-		case strings.TrimSpace(r.droppedErrors[site]) == "":
-			vs = append(vs, violation{ruleErrors, "droppedErrors", site + ": say why it drops the error"})
+			vs = append(vs, violation{s.rule, s.table, site + " has " + s.none + ": take it out"})
+		case strings.TrimSpace(s.listed[site]) == "":
+			vs = append(vs, violation{s.rule, s.table, site + ": say why"})
 		}
 	}
 	return vs
+}
+
+// checkDroppedErrors: outside tests, no function assigns a Wait's error,
+// or a strconv parse's, to _, but one that droppedErrors lists with why; a
+// listed function that drops none fails. The check reads the source
+// alone, so any method named Wait counts.
+func checkDroppedErrors(m *module, r rules) []violation {
+	return siteRule{ruleErrors, "droppedErrors", r.droppedErrors, droppedErrors, "handle it", "no dropped error"}.check(m)
 }
 
 // errorCases break and keep dropped-errors.
@@ -169,7 +195,7 @@ func errorCases() []ruleCase {
 			name:  "a listed function dropping none",
 			files: file("func run(c *exec.Cmd) error { return c.Wait() }\n"),
 			r:     rules{droppedErrors: map[string]string{"a/a.go: run": "its end is read from its output"}},
-			want:  &want{ruleErrors, "a/a.go: run drops no such error: take it out"},
+			want:  &want{ruleErrors, "a/a.go: run has no dropped error: take it out"},
 		},
 		{
 			name:  "a drop in a test",

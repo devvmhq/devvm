@@ -41,7 +41,7 @@ func devvm() rules {
 		// hostgit runs git without fsmonitor, hooks, filters, GIT_* or prompts, ssh only; tests, stubtest.Git (GitEnv).
 		commands:     map[string]string{"git": "internal/hostgit"},
 		testCommands: map[string]string{"git": "internal/stubtest"},
-		execSites:    devvmExecSites(), goroutineSites: devvmGoroutineSites(),
+		execSites:    devvmExecSites(), goroutineSites: devvmGoroutineSites(), unboundedReads: devvmUnboundedReads(),
 		// The registry's backends are behind its guard: only backend.As
 		// finds their other interfaces.
 		guardOwner: "internal/backend/guard.go",
@@ -381,6 +381,18 @@ func devvmGoroutineSites() map[string]string {
 		"internal/vmssh/loopback.go: LoopbackForward.serve": "serve's conns.Wait",
 		"internal/vmssh/relay.go: sshRelay.carry":           detached + "the client's copy to the VM, which ends once the relay closes the client's connection; the AfterFunc that closes it at ctx's end, which the relay's deferred stop ends",
 		"internal/vmssh/relay.go: newGraceTimer":            detached + "the grace's AfterFunc, which cancels the relay once the grace runs out; stopped as the relay ends, it never runs after it",
+	}
+}
+
+// devvmUnboundedReads are the functions that read all of a reader with no
+// limit, each with why its reader ends.
+func devvmUnboundedReads() map[string]string {
+	const stub = "the test stubs' standard input, which devvm under test writes and closes, in a stub run only by the CLI tests"
+	return map[string]string{
+		"internal/ui/status.go: tail":                      "the run's own log, which only this run writes, read from its last size bytes",
+		"internal/stubtest/stub/guest.go: guest.logScript": stub,
+		"internal/stubtest/stub/stub.go: call.copyIn":      stub,
+		"internal/stubtest/stub/control.go: control":       stub,
 	}
 }
 
