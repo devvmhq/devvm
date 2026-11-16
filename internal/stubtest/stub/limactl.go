@@ -30,9 +30,12 @@ import (
 // --cpus=N, --memory=GiB and --disk=GiB set its size (else 4 CPUs, 8 GiB
 // and 100 GiB), and edit's --cpus, --memory and --disk change it. create
 // and clone make the instance's folder, $LIMA_HOME/<name>, and create's
-// template on its input (-) goes to $STUB_DIR/create-template. The
+// template on its input (-) goes to $STUB_DIR/create-template. create
+// and clone refuse a new instance's name that Lima's grammar refuses
+// (limaName), separators in a row included. The
 // TestLimactlStubContract test in internal/backend/lima checks all this
-// against real Lima.
+// against real Lima, but for create's refusal of a name, which it checks
+// for clone alone.
 //
 // start fails on a broken instance whose driver runs (its pids, list
 // --json's hostAgentPID and driverPID, are the state's), as Lima's QEMU
@@ -152,6 +155,12 @@ func (l *lima) vmDir(name string) string { return filepath.Join(l.getenv("LIMA_H
 // command runs the commands that change instances, and shell; done is
 // false for the rest.
 func (l *lima) command() (code int, done bool) {
+	switch l.arg(0) {
+	case "create", "clone":
+		if err := l.checkNew(); err != nil {
+			return l.status(err), true
+		}
+	}
 	switch l.arg(0) {
 	case "create", "clone", "edit":
 		if err := l.update(l.configure); err != nil {
@@ -391,6 +400,26 @@ func setStatus(st *stubstate.State, name, status string) {
 		return
 	}
 	st.Instances[name] = stubstate.NewInstance(status)
+}
+
+// limaName is Lima's grammar of an instance's name (its identifiers
+// package): letters and digits, with one of . _ - between them, never
+// two in a row.
+var limaName = regexp.MustCompile(`^[A-Za-z0-9]+(?:[._-](?:[A-Za-z0-9]+))*$`)
+
+// checkNew fails create or clone, changing nothing, when the instance it
+// makes has a name Lima refuses (limaName).
+func (l *lima) checkNew() error {
+	names := l.names[min(1, len(l.names)):] // clone's target
+	if l.arg(0) == "create" {
+		names = l.names
+	}
+	for _, n := range names {
+		if n != "-" && !isRegular(n) && !limaName.MatchString(n) {
+			return fmt.Errorf("instance name %q is invalid: identifier must match %s", n, limaName)
+		}
+	}
+	return nil
 }
 
 // create lists each name that isn't a file (create's template) as

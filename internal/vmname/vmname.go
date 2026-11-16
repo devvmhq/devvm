@@ -114,14 +114,26 @@ func (v VM) ImageKey() (string, bool) {
 const HashLen = 14
 
 // vm matches a project VM's name. Its folder part is as project.Slug makes
-// it: a-z, 0-9 and dashes, a letter or digit at each end.
-var vm = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefix) + `[a-z0-9]([a-z0-9-]*[a-z0-9])?-[0-9a-f]{` + strconv.Itoa(HashLen) + `}$`)
+// it: a-z and 0-9, with one dash between them, never two in a row, as
+// Lima refuses a name with separators in a row.
+var vm = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefix) + `[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{` + strconv.Itoa(HashLen) + `}$`)
 
 // IsVM reports whether name is a project VM's: devvm-<folder>-<hash>,
 // its folder part as project.Slug makes it, so a name read from a file is
 // safe in a hostname, an ssh config's Host line or a path. Images and
 // build VMs aren't, a folder named img-… included (devvm-img-…-<hash>).
 func IsVM(name string) bool { return vm.MatchString(name) }
+
+// withRuns matches a project VM's name as releases up to 0.1.1-rc.3 made
+// it, a dash for each character of a folder's name but a-z and 0-9.
+var withRuns = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefix) + `[a-z0-9]([a-z0-9-]*[a-z0-9])?-[0-9a-f]{` + strconv.Itoa(HashLen) + `}$`)
+
+// HasRuns reports whether name is one those releases gave a new VM for a
+// folder whose name has separators in a row (withRuns): dashes in a row
+// in its folder part, which IsVM refuses. Lima refused to make a VM by
+// such a name, so a state that records one is of a VM whose creation
+// never finished.
+func HasRuns(name string) bool { return !IsVM(name) && withRuns.MatchString(name) }
 
 // IsProject reports whether v is a project VM's name (IsVM).
 func (v VM) IsProject() bool { return IsVM(string(v)) }

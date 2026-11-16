@@ -97,7 +97,7 @@ Which ports a VM forwards stays in the VM's state alone, and the backend never h
 
 ## VM names
 
-A project VM's name is `devvm-<folder>-<hash>`. The folder part is up to 20 characters of the folder's name, in lowercase, with characters other than letters and digits turned into dashes, and the hash part is 14 hex digits of a hash of the folder's path. devvm takes a name as a project VM's only when it has that form, so a name in a state file or a backend's list whose folder part has any other character, or starts or ends with a dash, isn't a project VM's.
+A project VM's name is `devvm-<folder>-<hash>`. The folder part is up to 20 characters of the folder's name, in lowercase, with each run of characters other than letters and digits turned into one dash, because Lima refuses a name with separators in a row, so `foo (copy)` gives `foo-copy`. The hash part is 14 hex digits of a hash of the folder's path. devvm takes a name as a project VM's only when it has that form, so a name in a state file or a backend's list whose folder part has any other character, starts or ends with a dash, or has two dashes in a row isn't a project VM's. A state file whose name has dashes in a row and no `created` time is from a VM that Lima refused to make, so devvm reads it as no VM's state, and the folder's next VM replaces it.
 
 A backend may need shorter names, and then devvm cuts the folder's part to fit. When fewer than 4 characters of it would fit, devvm refuses (`vm_name_no_room`). On Lima the room for a name depends on the Lima home's path, because Lima keeps each VM's ssh socket under it, so there the fix is a shorter Lima home (`lima_home_too_long`, [limits](../backends/lima.md#limits)).
 

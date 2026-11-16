@@ -21,7 +21,8 @@ func TestIsVM(t *testing.T) {
 		"devvm--0123456789abcd":           false,
 		"devvm-0123456789abcd":            false,
 		"devvm-w\neb-0123456789abcd":      false,
-		"devvm-a--b-0123456789abcd":       true, // project.Slug keeps each dash
+		"devvm-a--b-0123456789abcd":       false, // Lima refuses dashes in a row
+		"devvm-a---b-c-0123456789abcd":    false,
 		"devvm-Web-0123456789abcd":        false,
 		"devvm-w.b-0123456789abcd":        false,
 		"devvm-w b-0123456789abcd":        false,
@@ -44,6 +45,27 @@ func TestIsVM(t *testing.T) {
 		v, err := Parse(name)
 		if (err == nil) != want || want && v.String() != name || VM(name).IsProject() != want {
 			t.Errorf("Parse(%q) = %q, %v", name, v, err)
+		}
+	}
+}
+
+// HasRuns takes a name an older release gave a folder whose name has
+// separators in a row, and no name IsVM takes or no release made.
+func TestHasRuns(t *testing.T) {
+	for name, want := range map[string]bool{
+		"devvm-a--b-0123456789abcd":      true,
+		"devvm-c---stuff-0123456789ab":   false, // a short hash
+		"devvm-c---stuff-0123456789abcd": true,
+		"devvm-a-b-0123456789abcd":       false, // IsVM's
+		"devvm--a-0123456789abcd":        false,
+		"devvm-a--0123456789abcd":        false,
+		"devvm-A--b-0123456789abcd":      false,
+		"devvm-a__b-0123456789abcd":      false,
+		"devvm-img-0123456789ab":         false,
+		"":                               false,
+	} {
+		if got := HasRuns(name); got != want {
+			t.Errorf("HasRuns(%q) = %v, want %v", name, got, want)
 		}
 	}
 }

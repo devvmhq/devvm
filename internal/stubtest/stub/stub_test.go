@@ -310,6 +310,19 @@ func TestLimactlLifecycle(t *testing.T) {
 	s.ok("", "limactl", "list")
 }
 
+// create and clone refuse a new instance's name that Lima refuses, with
+// separators in a row, and make nothing, as Lima does.
+func TestLimactlRefusesNames(t *testing.T) {
+	s := newSandbox(t)
+	s.ok("", "limactl", "create", "--name=a", "--tty=false", "-")
+	s.fails(1, "limactl", "create", "--name=x--y", "--tty=false", "-")
+	s.fails(1, "limactl", "clone", "a", "x._y")
+	s.ok("", "limactl", "clone", "a", "x.y_z-1")
+	if ls := s.list(); len(ls) != 2 || ls[0].Name != "a" || ls[1].Name != "x.y_z-1" {
+		t.Errorf("after refused names: %+v", ls)
+	}
+}
+
 // Each of limactl's switches fails or hangs what it names.
 func TestLimactlSwitches(t *testing.T) {
 	s := newSandbox(t)

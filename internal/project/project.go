@@ -153,15 +153,20 @@ func Nth(dir string, nameMax, n int) (Folder, error) {
 }
 
 // Slug is a folder's name as it goes into its VM's name: lowercase, each
-// character but a-z and 0-9 as a dash, without dashes at either end, at
-// most n characters (root when nothing's left).
+// run of characters but a-z and 0-9 as one dash, as Lima refuses a name
+// with separators in a row, without dashes at either end, at most n
+// characters (root when nothing's left).
 func Slug(base string, n int) string {
 	var b strings.Builder
+	dash := false
 	for _, r := range strings.ToLower(base) {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+		switch {
+		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
 			b.WriteRune(r)
-		} else {
+			dash = false
+		case !dash:
 			b.WriteByte('-')
+			dash = true
 		}
 	}
 	s := strings.Trim(b.String(), "-")

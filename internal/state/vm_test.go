@@ -478,6 +478,39 @@ func TestReadAll(t *testing.T) {
 	}
 }
 
+// The state an older release left for a folder whose name has separators
+// in a row, recording a name with dashes in a row that Lima refused, is
+// no VM's: the folder's VM by the name it gets now reads none, and makes
+// its own. One that says it was made is corrupt, as no backend made it.
+func TestVMWithRuns(t *testing.T) {
+	const old, now vmname.VM = "devvm-x--y-00000000000001", "devvm-x-y-00000000000001"
+	d := testDirs(t)
+	path := filepath.Join(d.VMDir("00000000000001"), "vm.json")
+	write(t, path, vmJSON(old))
+	for _, read := range []func() (*VM, error){
+		func() (*VM, error) { return ReadHash(d, "00000000000001") },
+		func() (*VM, error) { return ReadVM(d, now) },
+	} {
+		if v, err := read(); err != nil || v.Exists() {
+			t.Errorf("an unmade VM's state: exists=%v, %v", v != nil && v.Exists(), err)
+		}
+	}
+	if all, err := ReadAll(d); err != nil || len(all) != 0 {
+		t.Errorf("ReadAll = %+v, %v; want none", all, err)
+	}
+	n, err := New(d, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	create(t, d, n, nil)
+	if v, err := ReadVM(d, now); err != nil || !v.Exists() || v.Name() != now {
+		t.Errorf("the VM made in its place: %+v, %v", v, err)
+	}
+	write(t, path, strings.Replace(vmJSON(old), "}", `, "created": "2026-01-01T00:00:00Z"}`, 1))
+	_, err = ReadHash(d, "00000000000001")
+	wantCorrupt(t, err, path, 0)
+}
+
 // A state file that isn't a JSON object, lacks a core field or has a
 // section of the wrong shape is a CorruptError naming it; VMNames stops
 // at it.

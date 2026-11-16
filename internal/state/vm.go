@@ -177,7 +177,8 @@ func New(d paths.Dirs, name vmname.VM) (*VM, error) {
 
 // ReadHash reads the state in the VM folder named by hash (a project
 // folder's, project.Hash). A folder with no state file has empty state:
-// every field is empty, Name too, and Exists reports false.
+// every field is empty, Name too, and Exists reports false; so does one
+// whose state an older release left for a VM Lima never made (decode).
 func ReadHash(d paths.Dirs, hash string) (*VM, error) {
 	if !vmname.IsHash(hash) {
 		return nil, fmt.Errorf("invalid VM hash %q", hash)
@@ -235,6 +236,13 @@ func (v *VM) decode(data []byte) error {
 		return &CorruptError{Path: path, Reason: err.Error()}
 	}
 	name, nameErr := vmname.Parse(c.Name)
+	if nameErr != nil && vmname.HasRuns(c.Name) && c.Created.IsZero() {
+		// An older release's VM for a folder whose name has separators
+		// in a row, which Lima refused to make: no VM, so the folder's
+		// next VM, by the name it gets now, replaces this state.
+		*v = VM{name: v.name, file: v.file, claims: v.claims}
+		return nil
+	}
 	for f, missing := range map[string]bool{
 		"version": c.Version < 1, "id": c.ID == "", "name": nameErr != nil,
 		"image": c.Image == "", "dir": c.Dir == "", "backend": c.Backend == "",

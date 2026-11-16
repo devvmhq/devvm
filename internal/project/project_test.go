@@ -21,7 +21,8 @@ func TestSlug(t *testing.T) {
 		{"___", "root"},
 		{"/", "root"},
 		{"a-very-long-folder-name-for-a-project", "a-very-long-folder-n"},
-		{"a-very-long-folder-----x", "a-very-long-folder"}, // cut, then no trailing dash
+		{"a-very-long-folders--x", "a-very-long-folders"},    // cut, then no trailing dash
+		{"a-very-long-folder-----x", "a-very-long-folder-x"}, // the run, one dash before the cut
 	} {
 		if got := Slug(tc.base, slugMax); got != tc.want {
 			t.Errorf("Slug(%q) = %q, want %q", tc.base, got, tc.want)
@@ -29,6 +30,29 @@ func TestSlug(t *testing.T) {
 		// vmname's grammar takes every name New makes.
 		if f, err := New("/w/"+tc.base, 0); tc.base != "/" && (err != nil || !f.Name.IsProject()) {
 			t.Errorf("New(%q) = %q, %v: not a VM's name", tc.base, f.Name, err)
+		}
+	}
+}
+
+// TestNamesLimaTakes checks that a folder whose name has characters other
+// than a-z and 0-9 in a row gets a VM name Lima takes: Lima's own grammar
+// of an instance's name (its identifiers package) refuses separators in a
+// row, so each run becomes one dash.
+func TestNamesLimaTakes(t *testing.T) {
+	lima := regexp.MustCompile(`^[A-Za-z0-9]+(?:[._-](?:[A-Za-z0-9]+))*$`)
+	for base, slug := range map[string]string{
+		"x--y":       "x-y",
+		"foo (copy)": "foo-copy",
+		"My  App":    "my-app",
+		"a_-b":       "a-b",
+		"C++ stuff":  "c-stuff",
+	} {
+		if got := Slug(base, slugMax); got != slug {
+			t.Errorf("Slug(%q) = %q, want %q", base, got, slug)
+		}
+		f, err := New("/w/"+base, 0)
+		if err != nil || !lima.MatchString(f.Name.String()) {
+			t.Errorf("New(%q) = %q, %v: not a name Lima takes", base, f.Name, err)
 		}
 	}
 }

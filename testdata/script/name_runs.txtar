@@ -1,0 +1,32 @@
+# A folder whose name has separators in a row gets a VM: each run becomes
+# one dash in its VM's name, as Lima refuses separators in a row.
+project x--y
+exec devvm --network open
+stdout '^==> creating_from image=base vm=devvm-x-y-[0-9a-f]{14}$'
+vm_name XY x-y
+stub_calls
+stdout '^limactl clone --tty=false devvm-img-[0-9a-f]{12} devvm-x-y-[0-9a-f]{14} '
+
+# The state an older release left in the folder's VM folder, of a VM it
+# began making as devvm-x--y-<hash>, which Lima refused: no VM, so devvm
+# makes the folder's VM in its place, by its name now, and ls lists only
+# that one.
+exec devvm rm --force --no-export
+! exists $XY_dir/vm.json
+exec sh $WORK/leftover.sh $WORK/x--y
+exec devvm ls
+! stdout 'devvm-x--y'
+! stderr .
+exec devvm --network open
+stdout '^==> creating_from image=base vm='$XY'$'
+! stderr corrupt
+vm_state $XY_dir/vm.json
+stdout '^name='$XY'$'
+stdout '^alias=devvm-x-y$'
+exec devvm ls
+stdout $XY
+! stdout 'devvm-x--y'
+
+-- leftover.sh --
+mkdir -p "$XY_dir"
+printf '{"version":1,"id":"x","name":"devvm-x--y-%s","alias":"devvm-x--y","image":"base","dir":"%s","backend":"lima","net":{"tier":"open"}}\n' "${XY##*-}" "$1" > "$XY_dir/vm.json"

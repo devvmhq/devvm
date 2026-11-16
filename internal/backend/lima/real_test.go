@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -118,7 +119,8 @@ type step struct {
 
 // scenario is every kind of config devvm gives an instance, step by step,
 // on dummy instances: base from Ubuntu's image and from a --from
-// conversion, a layer, the tools build VM and the conversion's VM, a
+// conversion, a layer, a clone by a name Lima refuses, which makes
+// nothing, the tools build VM and the conversion's VM, a
 // project VM with its mounts, ports, size and environment, the edits each
 // start makes (a build's networks, network policy with the proxy's
 // password and the VM's Want changed in the same edit, none), the project
@@ -165,6 +167,12 @@ func scenario(fx fixture) []step {
 		}},
 		{"a layer", func(ctx context.Context, l *Lima) error {
 			return l.Runner.Run(ctx, msg.M{}, l.limactl(ctx, layerArgs(dummyBase, dummyLayer)...))
+		}},
+		{"a clone by a name with dashes in a row, which Lima refuses", func(ctx context.Context, l *Lima) error {
+			if l.Runner.Run(ctx, msg.M{}, l.limactl(ctx, "clone", "--tty=false", string(dummyLayer), "devvm-x--y-0123456789abcd")) == nil {
+				return errors.New("made")
+			}
+			return nil
 		}},
 		{"the layer's build start", start(dummyLayer, nil, backend.Confinement{Net: backend.NetNone})},
 		{"the tools build VM", func(ctx context.Context, l *Lima) error {
