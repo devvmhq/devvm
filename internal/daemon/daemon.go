@@ -111,9 +111,8 @@ func Spawn(c Cmd) (*Handle, error) {
 		}
 		h.pid, h.proc = cmd.Process.Pid, cmd.Process
 		started <- nil
-		_ = cmd.Wait()
-		h.state = cmd.ProcessState
-		close(h.done)
+		err := cmd.Wait()
+		h.reaped(cmd.ProcessState, err)
 	}()
 	if err := <-started; err != nil {
 		return nil, err
@@ -127,6 +126,21 @@ type Handle struct {
 	proc  *os.Process
 	done  chan struct{}
 	state *os.ProcessState // how it ended, once done is closed
+	// waitErr is why devvm couldn't tell how it ended, once done is
+	// closed with no state: wait4 failed, as when something else reaped it.
+	waitErr error
+}
+
+// reaped records how the process ended, from its Wait, and closes done.
+// A Wait that couldn't reap the process (wait4 failed) leaves no state,
+// so its error is kept for Exit to name instead. Wait's error for a
+// process that ended badly is its state's, which state already holds.
+func (h *Handle) reaped(state *os.ProcessState, err error) {
+	h.state = state
+	if state == nil {
+		h.waitErr = err
+	}
+	close(h.done)
 }
 
 // Kill kills the process, if it runs (SIGKILL).
@@ -137,18 +151,22 @@ func (h *Handle) Kill() {
 }
 
 // Exit is how the process ended, such as "exit status 1" or "signal:
-// killed": "running" while it runs.
+// killed": "running" while it runs, and Wait's error when devvm couldn't
+// reap it.
 func (h *Handle) Exit() string {
 	select {
 	case <-h.done:
+		if h.state == nil {
+			return "not known: " + h.waitErr.Error()
+		}
 		return h.state.String()
 	default:
 		return "running"
 	}
 }
 
-// ExitCode is the process's exit status once it has ended, and -1 while it runs or when a signal
-// ended it.
+// ExitCode is the process's exit status once it has ended, and -1 while it runs, when a signal
+// ended it or when devvm couldn't reap it.
 func (h *Handle) ExitCode() int {
 	select {
 	case <-h.done:
@@ -158,11 +176,14 @@ func (h *Handle) ExitCode() int {
 	}
 }
 
-// ExitSignal is the signal that ended the process, once it has ended; 0 while it runs, or when it
-// exited.
+// ExitSignal is the signal that ended the process, once it has ended; 0 while it runs, when it
+// exited, or when devvm couldn't reap it.
 func (h *Handle) ExitSignal() syscall.Signal {
 	select {
 	case <-h.done:
+		if h.state == nil {
+			return 0
+		}
 		if ws, ok := h.state.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 			return ws.Signal()
 		}

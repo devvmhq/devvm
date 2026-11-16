@@ -82,9 +82,9 @@ func (e Desktop) Open(ctx context.Context, o DesktopOptions) error {
 		return err
 	}
 	addr := l.Addr().String()
+	logf := func(f string, args ...any) { _, _ = fmt.Fprintf(log, "devvm desktop: "+f+"\n", args...) }
 	r := &desktop.Relay{
-		Password: password, Clipboard: o.Clipboard, Dial: e.dial(vm),
-		Logf:    func(f string, args ...any) { _, _ = fmt.Fprintf(log, "devvm desktop: "+f+"\n", args...) },
+		Password: password, Clipboard: o.Clipboard, Dial: e.dial(vm, logf), Logf: logf,
 		Timeout: desktopTimeout, FailDelay: desktopFailDelay,
 	}
 	e.Say(msg.DesktopReady(addr, password, vm))
@@ -176,24 +176,34 @@ func (e Desktop) listener(ctx context.Context, st *state.VM) (net.Listener, erro
 // dial connects to the VM's desktop socket over the VM's ssh, as
 // devvm's ssh config has it (its host key pinned), for as long as ctx
 // lasts: a channel to the socket (ssh -W), with no session, agent or
-// forwarding.
-func (e Desktop) dial(vm vmname.VM) func(ctx context.Context) (io.ReadWriteCloser, error) {
+// forwarding. An ssh that fails goes in the log through logf.
+func (e Desktop) dial(vm vmname.VM, logf func(string, ...any)) func(ctx context.Context) (io.ReadWriteCloser, error) {
 	return func(ctx context.Context) (io.ReadWriteCloser, error) {
 		cmd := exec.CommandContext(ctx, "ssh", desktopSSHArgs(e.Dirs.SSHConfig(), vm)...) //nolint:gosec // devvm's own arguments
 		cmd.Stderr = e.LogWriter()
-		in, err := cmd.StdinPipe()
+		c, err := startChannel(ctx, cmd, logf)
 		if err != nil {
 			return nil, err
 		}
-		out, err := cmd.StdoutPipe()
-		if err != nil {
-			return nil, err
-		}
-		if err := cmd.Start(); err != nil {
-			return nil, err
-		}
-		return &sshChannel{cmd: cmd, in: in, out: out}, nil
+		return c, nil
 	}
+}
+
+// startChannel starts cmd, made with ctx, as a channel: its input and
+// output are the channel's, and a failure goes in the log through logf.
+func startChannel(ctx context.Context, cmd *exec.Cmd, logf func(string, ...any)) (*sshChannel, error) {
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &sshChannel{cmd: cmd, in: in, out: out, logf: logf, cancelled: ctx.Done()}, nil
 }
 
 // desktopSSHArgs are ssh's arguments for a channel to the VM's desktop
@@ -212,10 +222,15 @@ func desktopSSHArgs(config string, vm vmname.VM) []string {
 
 // sshChannel is an ssh -W process as a connection.
 type sshChannel struct {
-	cmd  *exec.Cmd
-	in   io.WriteCloser
-	out  io.ReadCloser
-	once sync.Once
+	cmd *exec.Cmd
+	in  io.WriteCloser
+	out io.ReadCloser
+	// logf gets the line for an ssh that failed, the relay's Logf.
+	logf func(format string, args ...any)
+	// cancelled is closed once the dial's context ends, which kills ssh.
+	cancelled <-chan struct{}
+	once      sync.Once
+	err       error // how ssh failed, once Close has ended it
 }
 
 func (c *sshChannel) Read(p []byte) (int, error)  { return c.out.Read(p) }
@@ -227,21 +242,37 @@ func (c *sshChannel) Write(p []byte) (int, error) { return c.in.Write(p) }
 const channelClose = 2 * time.Second
 
 // Close ends the channel and its ssh, once: its input closed first, so
-// the VM's sshd ends its side, then killed if it hasn't ended.
+// the VM's sshd ends its side, then killed if it hasn't ended. An ssh
+// that ended on its own with a failure, such as 255 for a connection the
+// VM dropped, goes in the log (logf) and is Close's error, each time it's
+// called. One Close killed isn't, as its end is the kill, and nor is any
+// that ends once the dial's context has ended, which kills ssh as devvm
+// desktop ends, so a failure of its own just before then goes unlogged.
 func (c *sshChannel) Close() error {
 	c.once.Do(func() {
 		_ = c.in.Close()
-		done := make(chan struct{})
-		go func() {
-			_ = c.cmd.Wait()
-			close(done)
-		}()
+		done := make(chan error, 1)
+		go func() { done <- c.cmd.Wait() }()
+		killed := false
 		select {
-		case <-done:
+		case c.err = <-done:
 		case <-time.After(channelClose):
 			_ = c.cmd.Process.Kill() //nolint:forbidigo // its own child, not yet waited for, so its pid is still its own
-			<-done
+			killed = true
+			c.err = <-done
+		}
+		select {
+		case <-c.cancelled:
+			killed = true // by the context, as devvm desktop ends
+		default:
+		}
+		// A kill's error ("signal: killed") says nothing of the channel.
+		if killed {
+			c.err = nil
+		}
+		if c.err != nil {
+			c.logf("the VM's ssh channel ended: %v", c.err)
 		}
 	})
-	return nil
+	return c.err
 }

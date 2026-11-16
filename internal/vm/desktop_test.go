@@ -1,10 +1,14 @@
 package vm
 
 import (
+	"context"
+	"fmt"
 	"net"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/desktop"
@@ -89,6 +93,44 @@ func TestDesktopListener(t *testing.T) {
 	defer func() { _ = l4.Close() }()
 	if p := l4.Addr().(*net.TCPAddr).Port; p == p2 || get(st, KeyDesktopPort) != strconv.Itoa(p) {
 		t.Errorf("fourth on %d (kept %q), not off the ssh port %d", p, get(st, KeyDesktopPort), p2)
+	}
+}
+
+// Closing a channel reports an ssh that ended on its own with a failure,
+// in the log once and as Close's error each time, and nothing for one
+// that ended well or that the dial's context ended (killed).
+func TestDesktopChannelClose(t *testing.T) {
+	for _, tc := range []struct {
+		name, script string
+		cancel       bool
+		want         string // in Close's error and the log's one line; "": neither
+	}{
+		{name: "failed", script: "cat >/dev/null; exit 3", want: "exit status 3"},
+		{name: "ended well", script: "cat >/dev/null"},
+		{name: "context ended", script: "exec sleep 30", cancel: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var lines []string
+			logf := func(f string, args ...any) { lines = append(lines, fmt.Sprintf(f, args...)) }
+			c, err := startChannel(ctx, exec.CommandContext(ctx, "/bin/sh", "-c", tc.script), logf) //nolint:gosec // the test's own scripts
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.cancel {
+				cancel()
+			}
+			for range 2 {
+				err := c.Close()
+				if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+					t.Errorf("Close() = %v, want %q", err, tc.want)
+				}
+			}
+			if tc.want == "" && len(lines) != 0 || tc.want != "" && (len(lines) != 1 || !strings.Contains(lines[0], tc.want)) {
+				t.Errorf("logged %q, want one line with %q", lines, tc.want)
+			}
+		})
 	}
 }
 

@@ -182,6 +182,29 @@ func TestHandleStop(t *testing.T) {
 	}
 }
 
+// A process whose Wait couldn't reap it (wait4 failed, so there's no
+// state) has ended, with Wait's error as how, no exit status and no
+// signal, rather than a nil state's "<nil>" or a panic; one reaped has its
+// state's.
+func TestHandleReaped(t *testing.T) {
+	h := &Handle{done: make(chan struct{})}
+	h.reaped(nil, os.NewSyscallError("wait4", syscall.ECHILD))
+	if got := h.Exit(); !strings.Contains(got, "wait4") || !strings.Contains(got, syscall.ECHILD.Error()) {
+		t.Errorf("not reaped: Exit() = %q, want wait4's error", got)
+	}
+	if h.Running() || h.ExitCode() != -1 || h.ExitSignal() != 0 {
+		t.Errorf("not reaped: running %v, code %d, signal %v", h.Running(), h.ExitCode(), h.ExitSignal())
+	}
+	exited, err := Spawn(Cmd{Path: "/bin/sh", Args: []string{"-c", "exit 3"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-exited.Done()
+	if exited.Exit() != "exit status 3" || exited.ExitCode() != 3 || exited.ExitSignal() != 0 {
+		t.Errorf("exited: %q, code %d, signal %v", exited.Exit(), exited.ExitCode(), exited.ExitSignal())
+	}
+}
+
 // Signal and Alive never take a pid below 1, which names a group of
 // processes, or every one.
 func TestSignalRefusesGroups(t *testing.T) {
