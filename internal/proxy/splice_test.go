@@ -429,16 +429,25 @@ func TestSpliceEndsWhenItsClientCloses(t *testing.T) {
 	})
 }
 
-// earlyServer is a tunnel's far end that has answered and closed while its client still sends:
-// every write to it fails, and its answer reads to the end, until splice closes it.
+// earlyServer is a tunnel's far end that answers and closes once the client starts to send: every
+// write to it fails, and its answer reads to the end once the first write has come (heard), until
+// splice closes it. An answer that came before the client's first bytes could end the tunnel
+// before they reach it, and bytes that come to a closed socket reset the connection.
 type earlyServer struct {
 	net.Conn
 	answer *bytes.Reader
+	heard  chan struct{}
+	once   sync.Once
 	mu     sync.Mutex
 	closed bool
 }
 
+func newEarlyServer(answer []byte) *earlyServer {
+	return &earlyServer{answer: bytes.NewReader(answer), heard: make(chan struct{})}
+}
+
 func (s *earlyServer) Read(b []byte) (int, error) {
+	<-s.heard
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -447,7 +456,10 @@ func (s *earlyServer) Read(b []byte) (int, error) {
 	return s.answer.Read(b)
 }
 
-func (s *earlyServer) Write([]byte) (int, error) { return 0, syscall.EPIPE }
+func (s *earlyServer) Write([]byte) (int, error) {
+	s.once.Do(func() { close(s.heard) })
+	return 0, syscall.EPIPE
+}
 
 func (s *earlyServer) Close() error {
 	s.mu.Lock()
@@ -474,7 +486,7 @@ func TestSpliceKeepsAnEarlyAnswer(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		splice(client, &earlyServer{answer: bytes.NewReader(answer)}, nil)
+		splice(client, newEarlyServer(answer), nil)
 	}()
 	// The upload's first bytes, which the server refuses: the client hasn't closed its side, so
 	// it's still sending as far as the tunnel knows. (Bytes splice never read would reset the

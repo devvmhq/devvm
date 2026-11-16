@@ -75,6 +75,10 @@ type IO struct {
 	// test hasn't, as a child in a test's process must leave that process as it was. The child
 	// refuses to start without it.
 	confine func(spawned Confinement, n ChildNeeds, probe string) (Confinement, error)
+	// startWait is how long the broker waits for its child to say it's ready (startWait, when
+	// it's 0): longer in tests, whose children start in a test's process among the package's
+	// other tests, which on a loaded host can take startWait.
+	startWait time.Duration
 }
 
 // Main runs devvm _proxy with args (its flags): the broker, with -config's file, and its child,
@@ -191,7 +195,11 @@ func runBroker(ctx context.Context, c Config, configPath string, std IO, tick ti
 		defer stop()
 		go std.KeepLogs(kctx, c.VMLogs)
 	}
-	p, ready, confined, err := startChild(b, ln, configPath, std, exe, began.Add(startWait))
+	wait := startWait
+	if std.startWait > 0 {
+		wait = std.startWait
+	}
+	p, ready, confined, err := startChild(b, ln, configPath, std, exe, began.Add(wait))
 	_ = ln.Close()
 	if err != nil {
 		return err

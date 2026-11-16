@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -47,12 +48,17 @@ func newSecrets(path string, lookup Lookup, l *log.Logger) *secrets {
 // inProcess is std with a spawn that runs the broker's child in the test's process, on the
 // socket and the listener the broker gives it, as devvm _proxy-child runs it: the test's binary
 // isn't devvm's, so it can't be the child. Its confinement is as the broker started it (noConfine),
-// as confineChild would confine the test's own process on Linux.
+// as confineChild would confine the test's own process on Linux. Its broker waits testStartWait
+// for the child, and the test's executable is hashed once for all its children.
 func inProcess(std IO) IO {
 	if std.confine == nil {
 		std.confine = noConfine
 	}
 	std.dumpable = true
+	if std.startWait == 0 {
+		std.startWait = testStartWait
+	}
+	sum := sync.OnceValues(selfSum)
 	std.spawn = func(c daemon.Cmd) (childProc, error) {
 		conn, err := net.FileConn(c.Files[0])
 		if err != nil {
@@ -63,7 +69,7 @@ func inProcess(std IO) IO {
 			_ = conn.Close()
 			return nil, err
 		}
-		exe, err := selfSum()
+		exe, err := sum()
 		if err != nil {
 			_ = conn.Close()
 			_ = ln.Close()
@@ -78,6 +84,25 @@ func inProcess(std IO) IO {
 		return g, nil
 	}
 	return std
+}
+
+// testStartWait is how long a test's broker waits for its child to say it's ready (IO.startWait),
+// and how long a test waits for a proxy to listen: a child in the test's process starts among the
+// package's other tests, and on a loaded host under the race detector, hashing the test's
+// executable (selfSum) alone can take most of startWait.
+const testStartWait = 30 * time.Second
+
+// retryFor calls try every 20 ms until it returns nil or d has passed, and returns its last error:
+// for a proxy a test started, which listens once its broker and its child have started.
+func retryFor(d time.Duration, try func() error) error {
+	end := time.Now().Add(d)
+	for {
+		err := try()
+		if err == nil || time.Now().After(end) {
+			return err
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // noConfine is a test's child's confinement: as its broker started it, with nothing done in the

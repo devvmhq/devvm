@@ -3,10 +3,12 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -169,7 +171,7 @@ func TestHandshakeChildGone(t *testing.T) {
 		})
 		_ = cfc.close()
 	}()
-	_, err := b.handshake(pair{fc: bfc, child: newEndedChild(-6)}, "e", unconfined(WhyUnsupported), time.Now().Add(startWait))
+	_, err := b.handshake(pair{fc: bfc, child: newEndedChild(-6)}, "e", unconfined(WhyUnsupported), time.Now().Add(testStartWait))
 	if !errors.Is(err, errEndedEarly) {
 		t.Errorf("a child gone with the start unread: %v", err)
 	}
@@ -290,6 +292,59 @@ func TestServeChildCaps(t *testing.T) {
 		close(release)
 		if _, err := cfc.recv(&f); err != nil || f.ID != 1 || f.Value == nil || f.Value.Value != "v" {
 			t.Errorf("the first value: %+v, %v", f, err)
+		}
+		_ = cfc.close()
+		if err := <-served; !errors.Is(err, io.EOF) {
+			t.Errorf("serveChild: %v", err)
+		}
+		synctest.Wait()
+	})
+}
+
+// The broker gives a request's place back as its reply starts to go, so a child that keeps the
+// caps, sending its next value as the last one's reply comes, never gets busy; a reply that waits
+// for the socket holds its place, so a child that doesn't read gets busy past the cap.
+func TestServeChildFreesSlotsAsRepliesGo(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		k, _ := testLookups(t, Binding{Name: "gh", Kind: KindSecret})
+		b := testBroker(t)
+		b.lookups = k
+		// Past what the pipe holds, so a reply waits for the child's reads.
+		big := strings.Repeat("v", 1<<20)
+		k.lookup = func(context.Context, Binding) (redact.Secret, error) { return redact.NewSecret(big), nil }
+		a, c := memnet.Pipe()
+		bfc, cfc := newFrameConn(a), newFrameConn(c)
+		served := make(chan error)
+		go func() { served <- b.serveChild(t.Context(), bfc) }()
+		ask := func(id uint64) {
+			must(t, cfc.send(toBroker{Type: frameValue, ID: id, Value: &wireValueKey{Kind: KindSecret, Name: "gh"}}, nil))
+		}
+		ask(1)
+		// The first reply has begun: the child reads its length, as its reply comes.
+		var hdr [4]byte
+		_, err := io.ReadFull(c, hdr[:])
+		must(t, err)
+		// serveChild takes each request's place as it reads it, in order: the second finds the
+		// first's free, and its reply waits for the socket, holding its place, so a third is past
+		// the cap. (No synctest.Wait here: a reply waiting for the socket waits on a mutex.)
+		ask(2)
+		ask(3)
+		_, err = io.ReadFull(c, make([]byte, binary.BigEndian.Uint32(hdr[:])))
+		must(t, err)
+		got := map[uint64]string{}
+		for range 2 {
+			var f toChild
+			if _, err := cfc.recv(&f); err != nil {
+				t.Fatal(err)
+			}
+			got[f.ID] = f.Error
+			if f.Error == "" && (f.Value == nil || f.Value.Value != big) {
+				t.Errorf("value %d: not the value", f.ID)
+			}
+		}
+		if !maps.Equal(got, map[uint64]string{2: "", 3: codeBusy}) {
+			t.Errorf("the replies' errors: %v", got)
 		}
 		_ = cfc.close()
 		if err := <-served; !errors.Is(err, io.EOF) {

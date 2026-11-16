@@ -243,7 +243,7 @@ func FuzzBrokerFrames(f *testing.F) {
 		if _, ok := requestCaps()[fr.Type]; !ok || !fr.fields() {
 			return // serveChild ends the pair
 		}
-		b.answer(t.Context(), br, fr)
+		b.answer(t.Context(), br, fr, func() {})
 		var reply toChild
 		fd, err := ch.recv(&reply)
 		closeFile(fd)

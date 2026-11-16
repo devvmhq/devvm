@@ -1518,13 +1518,10 @@ func TestMainRuns(t *testing.T) {
 	}
 	var code int
 	var body string
-	for range 100 {
-		if code, body, err = fetch("http://devvm.proxy/blocked"); err == nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if err != nil {
+	if err := retryFor(testStartWait, func() (err error) {
+		code, body, err = fetch("http://devvm.proxy/blocked")
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if code != http.StatusOK || body == "" {

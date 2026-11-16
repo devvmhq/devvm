@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -214,10 +215,7 @@ func (b *broker) serveChild(ctx context.Context, fc *frameConn) error {
 			_ = fc.send(toChild{Type: f.Type, ID: f.ID, Error: codeBusy}, nil)
 			continue
 		}
-		go func() {
-			defer func() { <-slot }()
-			b.answer(ctx, fc, f)
-		}()
+		go b.answer(ctx, fc, f, func() { <-slot })
 	}
 }
 
@@ -230,8 +228,14 @@ func quoteType(t string) string {
 	return "another"
 }
 
-// answer answers f, one of the child's requests, on fc.
-func (b *broker) answer(ctx context.Context, fc *frameConn, f toBroker) {
+// answer answers f, one of the child's requests, on fc, giving its slot back (free) once the reply
+// has the socket to itself, just before it's written: the child gives its own slot back as the
+// reply comes, and may send its next request at once, which then finds the broker's free, so a
+// child that keeps the caps never gets busy. A reply that waits for the socket holds its slot,
+// so a child that doesn't read holds no more of the broker's answers than the caps.
+func (b *broker) answer(ctx context.Context, fc *frameConn, f toBroker, free func()) {
+	free = sync.OnceFunc(free)
+	defer free()
 	reply := toChild{Type: f.Type, ID: f.ID}
 	var fd *os.File
 	var err error
@@ -266,11 +270,11 @@ func (b *broker) answer(ctx context.Context, fc *frameConn, f toBroker) {
 		reply = toChild{Type: f.Type, ID: f.ID, Error: errorCodeOf(err)}
 		fd = nil
 	}
-	serr := fc.send(reply, fd)
+	serr := fc.sendThen(reply, fd, free)
 	if errors.Is(serr, errFrameTooLong) {
 		// A reply too long to send, such as a file the broker read to its cap, is refused, so
 		// the child's request never waits on it.
-		serr = fc.send(toChild{Type: f.Type, ID: f.ID, Error: codeTooLong}, nil)
+		serr = fc.sendThen(toChild{Type: f.Type, ID: f.ID, Error: codeTooLong}, nil, free)
 	}
 	if serr != nil && !errors.Is(serr, net.ErrClosed) {
 		b.log.Printf("the child's %s request: %v", f.Type, serr)

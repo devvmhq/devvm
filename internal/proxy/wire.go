@@ -83,7 +83,11 @@ func newFrameConn(c net.Conn) *frameConn {
 
 // send writes v as one frame, with fd, when it isn't nil, on its first bytes. A frame past
 // wireMax isn't sent.
-func (f *frameConn) send(v any, fd *os.File) error {
+func (f *frameConn) send(v any, fd *os.File) error { return f.sendThen(v, fd, nil) }
+
+// sendThen is send, calling locked, when it isn't nil, once the frame has the connection to
+// itself, just before it's written; a frame that isn't sent never calls it.
+func (f *frameConn) sendThen(v any, fd *os.File, locked func()) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -95,6 +99,9 @@ func (f *frameConn) send(v any, fd *os.File) error {
 	buf = append(buf, b...)
 	f.wmu.Lock()
 	defer f.wmu.Unlock()
+	if locked != nil {
+		locked()
+	}
 	if fd != nil {
 		u, ok := f.c.(*net.UnixConn)
 		if !ok {

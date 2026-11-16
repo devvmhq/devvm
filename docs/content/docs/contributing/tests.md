@@ -43,6 +43,8 @@ Time moves only while each goroutine waits on something inside the bubble: a cha
 
 A stand-in can't show what the real thing does with a kernel's buffers, a real ssh or a real process, so each kind of lifecycle keeps one test that runs the real one, on the real clock: `TestPipeSSHGrace`, `TestPipeSSHGraceSlowClient` and `TestPipeSSHGraceWriteError` run the relay with an ssh stand-in on `PATH`, `TestForwarderEndsStuckRelay` closes a forward whose relay's ssh never ends, `TestLinksBurst` fills a link's real Unix socket, `TestSpliceKeepsAnEarlyAnswer` splices over TCP and `TestProcStop` stops real processes. A new seam keeps the real test of its kind.
 
+The proxy's tests that start a whole proxy, such as `TestMainRuns` and `TestAgentRelay`, run its child in the test's process (`inProcess`), on real sockets, so they can't run in a bubble. Their broker waits `testStartWait`, 30 seconds, for the child to say it's ready, through `IO`'s `startWait` field, where devvm's own proxy waits 4 seconds, and each test waits as long for the proxy to listen (`retryFor`). Under the race detector on a loaded Linux host, those starts took more than 4 seconds, most of it hashing the test's executable, which each broker does as it starts, so the 4 seconds made them fail.
+
 ## CLI tests
 
 CLI tests are [testscript](https://pkg.go.dev/github.com/rogpeppe/go-internal/testscript) scripts in `testdata/script/*.txtar`, run by `internal/cli/script_test.go` against a freshly built `devvm`. Call it with `exec devvm …`:

@@ -113,8 +113,8 @@ func TestChildProfile(t *testing.T) {
 	}
 }
 
-// ProxyChild is sandbox-exec with the child's profile as an argument, and fs.ErrNotExist when
-// sandbox-exec isn't there.
+// ProxyChild is sandbox-exec with the child's profile as an argument, fs.ErrNotExist when
+// sandbox-exec isn't there, and the profile's error when it can't be made.
 func TestProxyChild(t *testing.T) {
 	t.Parallel()
 	exec := filepath.Join(t.TempDir(), "sandbox-exec")
@@ -127,5 +127,9 @@ func TestProxyChild(t *testing.T) {
 	cmd, err := Sandbox{Exec: exec}.ProxyChild(proxy.ChildNeeds{Exe: "/d"})
 	if err != nil || len(cmd) != 3 || cmd[0] != exec || cmd[1] != "-p" || !strings.HasPrefix(cmd[2], "(version 1)") {
 		t.Errorf("%q, %v", cmd, err)
+	}
+	// A profile that can't be made, of a path that isn't absolute: no command.
+	if cmd, err := (Sandbox{Exec: exec}).ProxyChild(proxy.ChildNeeds{Exe: "/d", Folders: []string{"logs"}}); err == nil || cmd != nil {
+		t.Errorf("a relative folder: %q, %v", cmd, err)
 	}
 }

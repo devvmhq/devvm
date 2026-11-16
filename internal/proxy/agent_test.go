@@ -145,14 +145,10 @@ func TestAgentRelay(t *testing.T) {
 		})}, inProcess(IO{Stdout: io.Discard, Stderr: errs}), tick)
 	}()
 	var c net.Conn
-	var err error
-	for range 100 {
-		if c, err = new(net.Dialer).DialContext(t.Context(), "unix", relay); err == nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if err != nil {
+	if err := retryFor(testStartWait, func() (err error) {
+		c, err = new(net.Dialer).DialContext(t.Context(), "unix", relay)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if fi, err := os.Stat(relay); err != nil || fi.Mode().Perm() != 0o600 || fi.Mode()&os.ModeSocket == 0 {
@@ -187,11 +183,13 @@ func TestAgentRelay(t *testing.T) {
 		t.Errorf("stderr = %q", errs.String())
 	}
 	// The relay listens before the broker's child is ready: the hostagent ends once it is.
-	for range 250 {
-		if strings.Contains(errs.String(), "listening on") {
-			break
+	if err := retryFor(testStartWait, func() error {
+		if !strings.Contains(errs.String(), "listening on") {
+			return errors.New("not listening")
 		}
-		time.Sleep(20 * time.Millisecond)
+		return nil
+	}); err != nil {
+		t.Errorf("the proxy: %v: %s", err, errs.String())
 	}
 	_ = sleep.Process.Kill()
 	_ = sleep.Wait()

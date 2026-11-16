@@ -123,7 +123,7 @@ func TestStartChildSandbox(t *testing.T) {
 			ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
 			must(t, err)
 			defer ln.Close()
-			p, _, confined, err := startChild(b, ln, config, std, exe, time.Now().Add(startWait))
+			p, _, confined, err := startChild(b, ln, config, std, exe, time.Now().Add(testStartWait))
 			if (err != nil) != tc.fails {
 				t.Fatalf("start: %v", err)
 			}

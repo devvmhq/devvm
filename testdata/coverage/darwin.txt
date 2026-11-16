@@ -32,7 +32,7 @@ internal/project 98.5
 internal/proxy 93.6
 internal/redact 99.1
 internal/safefile 97.8
-internal/seatbelt 96.2
+internal/seatbelt 98.1
 internal/secrets 93.4
 internal/settings 96.4
 internal/shell 100.0
