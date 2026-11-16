@@ -6,13 +6,14 @@ package proxy
 // wireMax, its type, its id and its fields, decoded refusing a field its type doesn't have. Bytes
 // (a file, a body, a header's value) cross as []byte, which JSON holds in base64, so no byte that
 // isn't UTF-8 changes on the way. A frame may carry one descriptor (SCM_RIGHTS), on its first
-// bytes: a link's connection, from the broker alone. Every read is a recvmsg with room for one
+// bytes: a link's or a dial's connection, from the broker alone. Every read is a recvmsg with room for one
 // descriptor, asking for no more than what's left of its frame, so a descriptor always arrives with
 // the frame it belongs to, and a read whose control data was cut short breaks the rules.
 //
 // The broker sends start first; the child answers ready, or failed. After that only the child
-// asks (value, file, link, token), and the broker answers each with a frame of the same id, in any
-// order. Nothing logs a frame: an error names only its type and the rule it broke. A secret's value
+// asks (value, file, link, token, lookup, dial), and the broker answers each with a frame of the
+// same id, in any order; the child may cancel a lookup or a dial it gave up on (cancel), which
+// gets no answer of its own. Nothing logs a frame: an error names only its type and the rule it broke. A secret's value
 // crosses as a string in a wire struct, which only the encoder fills (Reveal) and the decoder makes
 // a redact.Secret at once (where secret values live, in design.md).
 
@@ -24,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"sync"
 	"syscall"
@@ -47,6 +49,9 @@ const (
 	frameFile   = "file"
 	frameLink   = "link"
 	frameToken  = "token"
+	frameLookup = "lookup"
+	frameDial   = "dial"
+	frameCancel = "cancel"
 )
 
 // errFrameTooLong is send's error for a frame past wireMax, which it never sends.
@@ -227,34 +232,43 @@ func (f *frameConn) close() error { return f.c.Close() }
 // toChild is a frame the broker sends: start, or the reply to the child's request of the same ID
 // and type, with its fields, or Error, which refuses it.
 type toChild struct {
-	Type  string          `json:"type"`
-	ID    uint64          `json:"id"`
-	Start *wireStart      `json:"start,omitempty"`
-	Value *wireValue      `json:"value,omitempty"`
-	File  *wireFile       `json:"file,omitempty"`
-	Link  *wireLink       `json:"link,omitempty"`
-	Token *wireTokenReply `json:"token,omitempty"`
-	Error string          `json:"error,omitempty"`
+	Type   string          `json:"type"`
+	ID     uint64          `json:"id"`
+	Start  *wireStart      `json:"start,omitempty"`
+	Value  *wireValue      `json:"value,omitempty"`
+	File   *wireFile       `json:"file,omitempty"`
+	Link   *wireLink       `json:"link,omitempty"`
+	Token  *wireTokenReply `json:"token,omitempty"`
+	Lookup *wireLookup     `json:"lookup,omitempty"`
+	Dial   *wireDial       `json:"dial,omitempty"`
+	Error  string          `json:"error,omitempty"`
 }
 
-// toBroker is a frame the child sends: ready or failed, then requests, each with an ID of its own.
+// toBroker is a frame the child sends: ready or failed, then requests, each with an ID of its own,
+// and cancel, with the ID of a lookup or a dial it gave up on, and no field.
 type toBroker struct {
-	Type   string        `json:"type"`
-	ID     uint64        `json:"id"`
-	Ready  *wireReady    `json:"ready,omitempty"`
-	Failed *wireFailed   `json:"failed,omitempty"`
-	Value  *wireValueKey `json:"value,omitempty"`
-	File   *wireFileReq  `json:"file,omitempty"`
-	Link   *wireLinkReq  `json:"link,omitempty"`
-	Token  *wireTokenReq `json:"token,omitempty"`
+	Type   string         `json:"type"`
+	ID     uint64         `json:"id"`
+	Ready  *wireReady     `json:"ready,omitempty"`
+	Failed *wireFailed    `json:"failed,omitempty"`
+	Value  *wireValueKey  `json:"value,omitempty"`
+	File   *wireFileReq   `json:"file,omitempty"`
+	Link   *wireLinkReq   `json:"link,omitempty"`
+	Token  *wireTokenReq  `json:"token,omitempty"`
+	Lookup *wireLookupReq `json:"lookup,omitempty"`
+	Dial   *wireDialReq   `json:"dial,omitempty"`
 }
 
 // fields reports whether f has the fields of its type alone: the ones a frame of it must have,
-// and none of another's.
+// and none of another's; a cancel has none.
 func (f toBroker) fields() bool {
 	set := map[string]bool{
 		frameReady: f.Ready != nil, frameFailed: f.Failed != nil, frameValue: f.Value != nil,
 		frameFile: f.File != nil, frameLink: f.Link != nil, frameToken: f.Token != nil,
+		frameLookup: f.Lookup != nil, frameDial: f.Dial != nil,
+	}
+	if f.Type == frameCancel {
+		return onlyField(set, "")
 	}
 	return onlyField(set, f.Type)
 }
@@ -263,7 +277,7 @@ func (f toBroker) fields() bool {
 func (f toChild) fields() bool {
 	set := map[string]bool{
 		frameStart: f.Start != nil, frameValue: f.Value != nil, frameFile: f.File != nil,
-		frameLink: f.Link != nil, frameToken: f.Token != nil,
+		frameLink: f.Link != nil, frameToken: f.Token != nil, frameLookup: f.Lookup != nil, frameDial: f.Dial != nil,
 	}
 	if f.Error != "" {
 		return f.Type != frameStart && onlyField(set, "")
@@ -373,6 +387,28 @@ type wireLinkReq struct {
 
 // wireLink is a link's reply: FD, the frame carries the connection.
 type wireLink struct {
+	FD bool `json:"fd"`
+}
+
+// wireLookupReq asks for the addresses of a host name, absolute, with its one trailing dot.
+type wireLookupReq struct {
+	Name string `json:"name"`
+}
+
+// wireLookup is a lookup's reply: the name's addresses.
+type wireLookup struct {
+	Addrs []netip.Addr `json:"addrs"`
+}
+
+// wireDialReq asks for a TCP connection to an address and a port (Addr), or to one of the
+// company proxies of the broker's config (Proxy: viaHTTPS or viaHTTP), never both.
+type wireDialReq struct {
+	Addr  string `json:"addr,omitempty"`
+	Proxy string `json:"proxy,omitempty"`
+}
+
+// wireDial is a dial's reply: FD, the frame carries the connection.
+type wireDial struct {
 	FD bool `json:"fd"`
 }
 

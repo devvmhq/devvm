@@ -48,40 +48,40 @@ func Self(folders []string) (Result, error) {
 	return r, nil
 }
 
-// check checks that r holds in this process, with its folders: each can be listed, and the
-// resolver's files that are there read; with Landlock, the root folder can't be listed, and from
-// ABI 10 a UDP socket can connect to port 53 and no other; with the seccomp filter, a unix socket
-// can't be made, and a TCP socket can't listen.
+// check checks that r holds in this process, with its folders: each can be listed; with Landlock,
+// the root folder can't be listed, nor /etc/hosts read, when it's there; with the seccomp filter, a
+// unix or an IPv4 socket can't be made, and nothing can connect, listen or send with
+// MSG_FASTOPEN, which the filter refuses before the kernel looks at the descriptor (-1 here).
 func check(r Result, folders []string) error {
 	for _, dir := range folders {
 		if err := canOpen(dir, syscall.O_RDONLY|syscall.O_DIRECTORY); err != nil {
 			return fmt.Errorf("its own folder %s: %w", dir, err)
 		}
 	}
-	for _, f := range resolverFiles() {
-		if err := canOpen(f, syscall.O_RDONLY); err != nil && !errors.Is(err, syscall.ENOENT) {
-			return fmt.Errorf("the resolver's %s: %w", f, err)
-		}
-	}
 	if r.ABI > 0 {
 		if err := refused("listing /", canOpen("/", syscall.O_RDONLY|syscall.O_DIRECTORY), syscall.EACCES); err != nil {
 			return err
 		}
-	}
-	if r.ABI >= abiUDP {
-		if err := udpConnect(dnsPort); err != nil {
-			return fmt.Errorf("a resolver's port: %w", err)
-		}
-		if err := refused("a UDP port but the resolvers'", udpConnect(dnsPort+1), syscall.EACCES); err != nil {
-			return err
+		if err := canOpen("/etc/hosts", syscall.O_RDONLY); !errors.Is(err, syscall.ENOENT) {
+			if err := refused("reading /etc/hosts", err, syscall.EACCES); err != nil {
+				return err
+			}
 		}
 	}
-	if r.Seccomp {
-		if err := refused("a unix socket", socket(syscall.AF_UNIX, syscall.SOCK_STREAM, nil), syscall.EPERM); err != nil {
-			return err
-		}
-		listen := func(fd int) error { return syscall.Listen(fd, 1) }
-		if err := refused("a listen", socket(syscall.AF_INET, syscall.SOCK_STREAM, listen), syscall.EPERM); err != nil {
+	if !r.Seccomp {
+		return nil
+	}
+	for _, c := range []struct {
+		what string
+		err  error
+	}{
+		{"a unix socket", socket(syscall.AF_UNIX, syscall.SOCK_STREAM, nil)},
+		{"an IPv4 socket", socket(syscall.AF_INET, syscall.SOCK_STREAM, nil)},
+		{"a connect", syscall.Connect(-1, &syscall.SockaddrInet4{Port: 1, Addr: [4]byte{127, 0, 0, 1}})},
+		{"a listen", syscall.Listen(-1, 1)},
+		{"a send with MSG_FASTOPEN", syscall.Sendto(-1, nil, msgFastOpen, &syscall.SockaddrInet4{Port: 1, Addr: [4]byte{127, 0, 0, 1}})},
+	} {
+		if err := refused(c.what, c.err, syscall.EPERM); err != nil {
 			return err
 		}
 	}
@@ -119,11 +119,4 @@ func socket(family, typ int, then func(fd int) error) error {
 		return then(fd)
 	}
 	return nil
-}
-
-// udpConnect connects a UDP socket to port on this machine, which sends nothing.
-func udpConnect(port int) error {
-	return socket(syscall.AF_INET, syscall.SOCK_DGRAM, func(fd int) error {
-		return syscall.Connect(fd, &syscall.SockaddrInet4{Port: port, Addr: [4]byte{127, 0, 0, 1}})
-	})
 }

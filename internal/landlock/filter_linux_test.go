@@ -89,11 +89,12 @@ type fcase struct {
 }
 
 // The filter, for each architecture devvm ships for: a call of another architecture, or one of
-// amd64's x32 numbers, kills the process; socket and socketpair for AF_UNIX, whatever the high
-// bits of the family's argument, and every refused call get EPERM, clone3 ENOSYS; clone for a
-// new namespace, or for anything but a thread, gets EPERM, as do utimensat with a path and
-// prlimit64 on another pid; socket for another family, a thread's clone, utimensat on a
-// descriptor (a NULL path), prlimit64 on the child itself (pid 0) and every other call go on.
+// amd64's x32 numbers, kills the process; socket for anything but a netlink route socket,
+// whatever the high bits of its arguments, a send with MSG_FASTOPEN, and every refused call,
+// socketpair and connect among them, get EPERM, clone3 ENOSYS; clone for a new namespace, or for
+// anything but a thread, gets EPERM, as do utimensat with a path and prlimit64 on another pid; a
+// netlink route socket, a send without MSG_FASTOPEN, a thread's clone, utimensat on a descriptor
+// (a NULL path), prlimit64 on the child itself (pid 0) and every other call go on.
 func TestFilter(t *testing.T) {
 	t.Parallel()
 	refuse, nosys, allow, kill := uint32(retErrno|errnoRefused), uint32(retErrno|errnoNoSys), uint32(retAllow), uint32(retKillProcess)
@@ -110,18 +111,28 @@ func TestFilter(t *testing.T) {
 			copy(x.args[:], args)
 			return x
 		}
-		socket, socketpair := a.family[0], a.family[1]
+		socket := a.socket
+		sendto, sendmmsg, sendmsg := a.flags3[0], a.flags3[1], a.flags2
 		cases := []fcase{
 			{"read", c(0), allow},
 			{"seccomp", c(a.seccomp), allow},
 			{"prctl", c(a.prctl), allow},
-			{"socket AF_INET", c(socket, 2, 1), allow},
-			{"socket AF_INET6", c(socket, 10, 1), allow},
-			{"socket AF_NETLINK", c(socket, 16, 3), allow},
-			{"socket AF_UNIX", c(socket, afUnix, 1), refuse},
-			{"socket AF_UNIX, high bits set", c(socket, 1<<32|afUnix, 1), refuse},
-			{"socketpair AF_UNIX", c(socketpair, afUnix, 1), refuse},
-			{"socketpair AF_INET", c(socketpair, 2, 1), allow},
+			{"socket, a netlink route socket", c(socket, afNetlink, 3, netlinkRoute), allow},
+			{"socket, a netlink route socket, high bits set", c(socket, 1<<32|afNetlink, 3, 1<<32|netlinkRoute), allow},
+			{"socket AF_NETLINK, another protocol", c(socket, afNetlink, 3, 4), refuse},
+			{"socket AF_INET", c(socket, 2, 1), refuse},
+			{"socket AF_INET, ICMP", c(socket, 2, 2, 1), refuse},
+			{"socket AF_INET6", c(socket, 10, 1), refuse},
+			{"socket AF_UNIX", c(socket, 1, 1), refuse},
+			{"socket AF_UNIX, high bits set", c(socket, 1<<32|1, 1), refuse},
+			{"socket AF_PACKET", c(socket, 17, 3), refuse},
+			{"socket AF_VSOCK", c(socket, 40, 1), refuse},
+			{"sendto", c(sendto, 3, 0x1234, 1, 0x40, 0, 0), allow},
+			{"sendto with MSG_FASTOPEN", c(sendto, 3, 0x1234, 1, msgFastOpen|0x40, 0x5678, 16), refuse},
+			{"sendmmsg with MSG_FASTOPEN", c(sendmmsg, 3, 0x1234, 1, msgFastOpen), refuse},
+			{"sendmmsg", c(sendmmsg, 3, 0x1234, 1, 0x40), allow},
+			{"sendmsg with MSG_FASTOPEN", c(sendmsg, 3, 0x1234, msgFastOpen), refuse},
+			{"sendmsg", c(sendmsg, 3, 0x1234, 0x4000), allow},
 			{"clone3", c(sysClone3), nosys},
 			{"clone, a Go thread", c(a.clone, goThread), allow},
 			{"clone, a thread in a new user namespace", c(a.clone, goThread|0x10000000), refuse},
@@ -151,7 +162,7 @@ func TestFilter(t *testing.T) {
 		}
 		if a.x32 {
 			cases = append(cases,
-				fcase{"x32 socket", c(x32Bit|socket, afUnix), kill},
+				fcase{"x32 socket", c(x32Bit|socket, afNetlink), kill},
 				fcase{"x32 read", c(x32Bit), kill},
 			)
 		}
@@ -191,10 +202,10 @@ func TestFilterBytes(t *testing.T) {
 		0x06, 0x00, 0, 0, 0x26, 0x00, 0x05, 0x00, // ret ERRNO(ENOSYS)
 		0x06, 0x00, 0, 0, 0x00, 0x00, 0x00, 0x80, // ret KILL_PROCESS
 	}
-	checks := len(a.refused) + len(a.noSys) + len(a.family) + 3
-	// The head, the checks, allow, the family's 3, clone's 4, utimensat's 5, prlimit64's 5, and
-	// the 3 ends.
-	if n != 4+checks+1+3+4+5+5+3 {
+	checks := len(a.refused) + len(a.noSys) + 1 + len(a.flags3) + 1 + 3
+	// The head, the checks, allow, socket's 5, the two flags' 3 each, clone's 4, utimensat's 5,
+	// prlimit64's 5, and the 3 ends.
+	if n != 4+checks+1+5+3+3+4+5+5+3 {
 		t.Fatalf("%d instructions", n)
 	}
 	if string(b[:len(head)]) != string(head) || string(b[len(b)-len(tail):]) != string(tail) {

@@ -6,7 +6,8 @@ package proxy
 // the VM's proxy port, relays the VM's SSH agent, and starts the child with the listener and one
 // end of a socketpair, over which it answers the child's questions (wire.go): a binding's value
 // (IO.Secret), a watched file's bytes, a connection to a link's socket, a login's token exchange
-// (IO.Capture). Each names something in the broker's own config, one VM's, which the broker finds
+// (IO.Capture), a name's addresses and a connection to an address its own floor allows or to the
+// company proxy (dial.go). Each names something in the broker's own config, one VM's, which the broker finds
 // in its own reads, so a child that a VM took over can't reach another VM's binding, any other
 // secret or any file. The two end together, and neither starts the other again.
 
@@ -19,6 +20,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -42,6 +44,12 @@ type hostSide interface {
 	link(ctx context.Context, host string, port int) (net.Conn, error)
 	// token exchanges a captured token request (exchanger.exchange).
 	token(ctx context.Context, r tokenRequest) (tokenReply, error)
+	// lookup is the addresses of name, a host name with its trailing dot (dial.go).
+	lookup(ctx context.Context, name string) ([]netip.Addr, error)
+	// dial is a TCP connection to an address that the broker's own floor allows.
+	dial(ctx context.Context, ap netip.AddrPort) (net.Conn, error)
+	// dialProxy is a TCP connection to the company proxy which names (viaHTTPS, viaHTTP).
+	dialProxy(ctx context.Context, which string) (net.Conn, error)
 }
 
 // broker is the broker's side of a VM's proxy: what its config gave it and what it keeps for the
@@ -53,8 +61,13 @@ type broker struct {
 	links   links // the broker's own read of the links' list; file "": none
 	files   []watchedFile
 	tokens  *exchanger
+	// net is the broker's own egress, which looks up the child's names and opens its connections
+	// (dial.go): its own read of the VM's policy and of the host's addresses.
+	net *egress
 	// start is what the child runs with, but its Exe, which the broker's process sets.
 	start childStart
+	// failed counts the lines of the child's failed lookups and connections (logFailed).
+	failed perMinute
 }
 
 // watchedFiles are c's files that change while the proxy runs, in the order the child names them:
@@ -113,15 +126,18 @@ func newBroker(ctx context.Context, c Config, std IO, l *log.Logger) (*broker, e
 		}
 		b.tokens.roots = b.lookups.roots
 	}
+	var ups upstreams
 	if c.Upstream != nil {
 		if st.upstreamPassword, err = upstreamPassword(ctx, c.Upstream.Secret, std.Secret); err != nil {
 			return nil, err
 		}
-		up, err := newUpstreams(*c.Upstream, st.upstreamPassword)
-		if err != nil {
+		if ups, err = newUpstreams(*c.Upstream, st.upstreamPassword); err != nil {
 			return nil, err
 		}
-		b.lookups.route, b.tokens.route = up.host, up.host
+		b.lookups.route, b.tokens.route = ups.host, ups.host
+	}
+	if b.net, err = newBrokerNet(c, std.FS, ups, l); err != nil {
+		return nil, err
 	}
 	b.start = st
 	return b, nil
@@ -147,6 +163,11 @@ func (b *broker) value(ctx context.Context, key valueKey) (redact.Secret, time.T
 func (b *broker) file(n int) (fileRead, error) {
 	if n < 0 || n >= len(b.files) {
 		return fileRead{}, fmt.Errorf("watched file %d: %w", n, errNotFound)
+	}
+	if k := b.files[n].kind; k == watchPolicy || k == watchDeny {
+		// The broker's own copy, which judges the child's connections, first: never older than
+		// what the child gets, as a policy file that can't be read keeps its last rules.
+		b.net.pol.all()
 	}
 	return b.files[n].read()
 }
@@ -179,7 +200,49 @@ func (b *broker) token(ctx context.Context, r tokenRequest) (tokenReply, error) 
 // on a client's connections. A request past its type's cap gets an error, which a child that
 // keeps the same caps never gets.
 func requestCaps() map[string]int {
-	return map[string]int{frameValue: 1, frameToken: captureReads, frameFile: 4, frameLink: linkConnsMax}
+	return map[string]int{
+		frameValue: 1, frameToken: captureReads, frameFile: 4, frameLink: linkConnsMax,
+		frameLookup: lookupsMax, frameDial: dialsMax,
+	}
+}
+
+// cancellable reports whether a request of type typ ends when the child cancels it: a lookup or a
+// dial, whose answer nothing keeps for a later request.
+func cancellable(typ string) bool { return typ == frameLookup || typ == frameDial }
+
+// running are the child's cancellable requests under way, by their ID: each one's cancel.
+type running struct {
+	mu sync.Mutex
+	m  map[uint64]*context.CancelFunc
+}
+
+// start is ctx for the request id, which the child's cancel of id ends, and done, which forgets
+// it once the request is answered.
+func (r *running) start(ctx context.Context, id uint64) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	c := &cancel
+	r.mu.Lock()
+	r.m[id] = c
+	r.mu.Unlock()
+	return ctx, func() {
+		r.mu.Lock()
+		if r.m[id] == c {
+			delete(r.m, id)
+		}
+		r.mu.Unlock()
+		cancel()
+	}
+}
+
+// cancel ends the request id, if it's under way.
+func (r *running) cancel(id uint64) {
+	r.mu.Lock()
+	c := r.m[id]
+	delete(r.m, id)
+	r.mu.Unlock()
+	if c != nil {
+		(*c)()
+	}
 }
 
 // linkConnsMax is how many link connections the child asks for at once: the link session's cap
@@ -187,14 +250,16 @@ func requestCaps() map[string]int {
 const linkConnsMax = 256
 
 // serveChild answers the child's requests on fc, each in a goroutine of its own, until the child
-// closes its end (io.EOF) or sends a frame that breaks the rules: one that isn't a request, or
-// carries a descriptor. ctx is the broker's life, which a request's lookup or exchange outlives
-// no further than its own timeout.
+// closes its end (io.EOF) or sends a frame that breaks the rules: one that isn't a request or a
+// cancel, or carries a descriptor. ctx is the broker's life, which a request's lookup or exchange
+// outlives no further than its own timeout; a lookup or a dial ends sooner when the child cancels
+// it.
 func (b *broker) serveChild(ctx context.Context, fc *frameConn) error {
 	slots := map[string]chan struct{}{}
 	for t, n := range requestCaps() {
 		slots[t] = make(chan struct{}, n)
 	}
+	under := &running{m: map[uint64]*context.CancelFunc{}}
 	for {
 		var f toBroker
 		fd, err := fc.recv(&f)
@@ -204,6 +269,10 @@ func (b *broker) serveChild(ctx context.Context, fc *frameConn) error {
 		}
 		if err != nil {
 			return err
+		}
+		if f.Type == frameCancel && f.fields() {
+			under.cancel(f.ID)
+			continue
 		}
 		slot, ok := slots[f.Type]
 		if !ok || !f.fields() {
@@ -215,14 +284,21 @@ func (b *broker) serveChild(ctx context.Context, fc *frameConn) error {
 			_ = fc.send(toChild{Type: f.Type, ID: f.ID, Error: codeBusy}, nil)
 			continue
 		}
-		go b.answer(ctx, fc, f, func() { <-slot })
+		rctx, done := ctx, func() {}
+		if cancellable(f.Type) {
+			rctx, done = under.start(ctx, f.ID)
+		}
+		go func() {
+			defer done()
+			b.answer(rctx, fc, f, func() { <-slot })
+		}()
 	}
 }
 
 // quoteType is a frame's type as an error names it: one of the protocol's, or "another".
 func quoteType(t string) string {
 	switch t {
-	case frameStart, frameReady, frameFailed, frameValue, frameFile, frameLink, frameToken:
+	case frameStart, frameReady, frameFailed, frameValue, frameFile, frameLink, frameToken, frameLookup, frameDial, frameCancel:
 		return t
 	}
 	return "another"
@@ -262,11 +338,25 @@ func (b *broker) answer(ctx context.Context, fc *frameConn, f toBroker, free fun
 		if r, err = b.token(ctx, tokenRequestOf(*f.Token)); err == nil {
 			reply.Token = wireTokenReplyOf(r)
 		}
+	case frameLookup:
+		var addrs []netip.Addr
+		if addrs, err = b.lookup(ctx, f.Lookup.Name); err == nil {
+			reply.Lookup = &wireLookup{Addrs: addrs}
+		}
+	case frameDial:
+		fd, err = b.dialFile(ctx, *f.Dial)
+		if err == nil {
+			defer func() { _ = fd.Close() }()
+			reply.Dial = &wireDial{FD: true}
+		}
 	}
 	if err != nil {
 		// The child gets a code alone: the error's text, such as a lookup's or an endpoint's,
-		// stays in the broker's own log.
-		b.log.Printf("the child's %s request: %v", f.Type, err)
+		// stays in the broker's own log, but for a name's lookup that the resolver answered,
+		// which the child logs as it needs, and a request the child cancelled.
+		if dnsCode(err) == "" && ctx.Err() == nil {
+			b.logFailed(f.Type, err)
+		}
 		reply = toChild{Type: f.Type, ID: f.ID, Error: errorCodeOf(err)}
 		fd = nil
 	}
@@ -281,13 +371,40 @@ func (b *broker) answer(ctx context.Context, fc *frameConn, f toBroker, free fun
 	}
 }
 
+// failedLogMax is how many of the child's failed lookups and connections the broker's log names a
+// minute, and failedCapped its line once it stops: the VM drives them, one for each address it
+// asks for, as it drives the lookups it gives up on (abandonedLogMax).
+const (
+	failedLogMax = 20
+	failedCapped = "more of the child's lookups and connections that failed this minute aren't logged"
+)
+
+// logFailed logs err, the failure of the child's request of type typ: a lookup's or a connection's
+// at most failedLogMax a minute (perMinute), and any other's each time.
+func (b *broker) logFailed(typ string, err error) {
+	if typ == frameLookup || typ == frameDial {
+		switch log, capped := b.failed.next(time.Now(), failedLogMax); {
+		case capped:
+			b.log.Printf("%s", failedCapped)
+			return
+		case !log:
+			return
+		}
+	}
+	b.log.Printf("the child's %s request: %v", typ, err)
+}
+
 // The codes of a request the broker refuses, which are all the child learns of why.
 const (
 	codeNotFound = "not_found" // nothing in the broker's config names it
-	codeRefused  = "refused"   // a capture refused the token request or its reply
+	codeRefused  = "refused"   // a capture refused the token request or its reply, or the broker a lookup or a connection
 	codeBusy     = "busy"      // past its type's cap at once
 	codeTooLong  = "too_long"  // the reply wouldn't fit in a frame
 	codeFailed   = "failed"    // anything else: a lookup, a connection, an endpoint
+	// A name's lookup that the resolver answered so: no such host, a timeout, a temporary failure.
+	codeNoSuchHost = "no_such_host"
+	codeTimeout    = "timeout"
+	codeTemporary  = "temporary"
 )
 
 // errNotFound is a request for something the broker's config doesn't name.
@@ -298,8 +415,11 @@ func errorCodeOf(err error) string {
 	switch {
 	case errors.Is(err, errNotFound):
 		return codeNotFound
-	case errors.Is(err, errCaptureRefused):
+	case errors.Is(err, errCaptureRefused), errors.Is(err, errRefused):
 		return codeRefused
+	}
+	if c := dnsCode(err); c != "" {
+		return c
 	}
 	return codeFailed
 }

@@ -4,7 +4,10 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -155,5 +158,37 @@ func TestReadConfined(t *testing.T) {
 	must(t, writeAtomic(ConfinedFile(config), []byte("full \x1b[2J\n"), 0o600))
 	if _, err := ReadConfined(config); err == nil {
 		t.Error("a line of other words: taken")
+	}
+}
+
+// limitedChild, set in the environment, makes TestLimitFiles the process it starts, which
+// lowers its own limit on open files.
+const limitedChild = "DEVVM_LIMIT_FILES_TEST_CHILD"
+
+// The child lowers its limit on open files, soft and hard, to childFilesMax, and can't raise it
+// again; this test's binary, run again, does it, as it would lower the test's own process's.
+func TestLimitFiles(t *testing.T) {
+	if os.Getenv(limitedChild) != "" {
+		must(t, limitFiles(childFilesMax))
+		var l syscall.Rlimit
+		must(t, syscall.Getrlimit(syscall.RLIMIT_NOFILE, &l))
+		if l.Max > childFilesMax || l.Cur > l.Max {
+			t.Fatalf("the limit: %+v", l)
+		}
+		l.Max++
+		if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &l); err == nil {
+			t.Fatal("raised again")
+		}
+		// A limit already lower stays as it is.
+		must(t, limitFiles(childFilesMax))
+		return
+	}
+	t.Parallel()
+	self, err := os.Executable()
+	must(t, err)
+	cmd := exec.CommandContext(t.Context(), self, "-test.run=^TestLimitFiles$", "-test.v") //nolint:gosec // the test binary itself
+	cmd.Env = append(os.Environ(), limitedChild+"=1")
+	if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "--- PASS: TestLimitFiles") {
+		t.Errorf("%v: %s", err, out)
 	}
 }

@@ -51,7 +51,7 @@ func TestLinks(t *testing.T) {
 
 // The child's profile denies by default and allows what it needs: devvm's executable to run and
 // read, its folders to write regular files in, its files to look at, the links on the way to
-// them; and never the Keychain, nor a unix socket but the resolver's.
+// them; and never the Keychain, nor any network out, as the broker opens its connections.
 func TestChildProfile(t *testing.T) {
 	t.Parallel()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
@@ -79,8 +79,6 @@ func TestChildProfile(t *testing.T) {
 		"(deny file-link)",
 		"(allow file-read-metadata (literal " + String(policy) + "))",
 		"(allow file-read-metadata (literal " + String(target) + "))",
-		"(allow network-outbound)\n(deny network-outbound (remote unix-socket))\n" +
-			`(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))`,
 		`(deny sysctl-read (sysctl-name-prefix "kern.proc"))`,
 		"(deny process-info* (target others))\n(deny process-info-listpids)\n",
 		"(deny file-write-flags file-write-acl file-write-owner file-write-setugid file-write-xattr)",
@@ -90,7 +88,7 @@ func TestChildProfile(t *testing.T) {
 			t.Errorf("no %s in\n%s", want, p)
 		}
 	}
-	for _, never := range []string{"SecurityServer", "(allow default)", "process-fork", "network-bind", "network-inbound", "(allow network-outbound (remote unix-socket))"} {
+	for _, never := range []string{"SecurityServer", "(allow default)", "process-fork", "network-bind", "network-inbound", "network-outbound", "mDNSResponder", "resolv.conf"} {
 		if strings.Contains(p, never) {
 			t.Errorf("%s in\n%s", never, p)
 		}

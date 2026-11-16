@@ -4,8 +4,9 @@ package proxy
 // socketpair (broker.go), and which reads the VM's network: every request and tunnel, the rules
 // and the floor, interception, the event log and the shared Nix cache. It never reads the VM's run
 // folder or devvm's config: what it runs with comes in start, the changing files it looks at
-// (stat) and asks the broker for once they change, and each value, link and token exchange it
-// asks the broker for. It ends when the broker's end of the socket does.
+// (stat) and asks the broker for once they change, and each value, link, token exchange, lookup
+// and connection it asks the broker for: it makes no connection of its own (dial.go). It ends
+// when the broker's end of the socket does.
 
 import (
 	"context"
@@ -189,10 +190,10 @@ func newChildServer(st childStart, host hostSide, own fs.FS, l *log.Logger, out 
 	if st.open {
 		l.Printf("open: every host and address, no rules")
 	}
-	s.egress = &egress{
-		pol: pol, own: &hostAddrs{}, up: up, log: l, lookup: net.DefaultResolver.LookupNetIP,
-		connect: (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
-	}
+	s.egress = &egress{pol: pol, own: &hostAddrs{}, up: up, log: l}
+	// Every lookup and connection of the child's goes through the broker, as its sandbox refuses
+	// it any of its own.
+	throughHost(s.egress, host)
 	// The host's addresses are read once the child is confined (confineStarted), or at their
 	// first use (own).
 	maxSize := st.nixCacheMax
@@ -282,7 +283,7 @@ func (c *brokerClient) readReplies() error {
 			closeFile(fd)
 			return broke("a reply to no request")
 		}
-		if fd != nil && (f.Link == nil || !f.Link.FD) {
+		if fd != nil && (f.Link == nil || !f.Link.FD) && (f.Dial == nil || !f.Dial.FD) {
 			closeFile(fd)
 			fd = nil
 		}
@@ -340,7 +341,7 @@ func (c *brokerClient) call(typ string, req toBroker, giveUp <-chan struct{}) (t
 		release()
 		if r.f.Error != "" {
 			closeFile(r.fd)
-			return toChild{}, nil, fmt.Errorf("the broker: %s", r.f.Error)
+			return toChild{}, nil, codeError{r.f.Error}
 		}
 		return r.f, r.fd, nil
 	case <-c.done:
@@ -359,6 +360,11 @@ func (c *brokerClient) call(typ string, req toBroker, giveUp <-chan struct{}) (t
 			c.pending[id] = p
 		}
 		c.mu.Unlock()
+		if waiting && cancellable(typ) {
+			// The broker ends a lookup or a connection that no request waits for any more, and
+			// its answer, an error, gives back the slot.
+			_ = c.fc.send(toBroker{Type: frameCancel, ID: id}, nil)
+		}
 		if !waiting { // its reply came as the caller gave up, or comes as the broker ends
 			select {
 			case r := <-ch:
@@ -370,6 +376,11 @@ func (c *brokerClient) call(typ string, req toBroker, giveUp <-chan struct{}) (t
 		return toChild{}, nil, errGaveUp
 	}
 }
+
+// A codeError is the broker's refusal of a request: one of its codes alone (errorCodeOf).
+type codeError struct{ code string }
+
+func (e codeError) Error() string { return "the broker: " + e.code }
 
 // errGaveUp is a request's error once its caller gave up on it.
 var errGaveUp = errors.New("the request ended before the broker answered")
@@ -400,19 +411,7 @@ func (c *brokerClient) link(ctx context.Context, host string, port int) (net.Con
 	if err != nil {
 		return nil, err
 	}
-	if fd == nil {
-		return nil, errors.New("the broker's link reply carried no connection")
-	}
-	conn, err := net.FileConn(fd)
-	_ = fd.Close()
-	if err != nil {
-		return nil, err
-	}
-	if ctx.Err() != nil {
-		_ = conn.Close()
-		return nil, ctx.Err()
-	}
-	return conn, nil
+	return connOf(ctx, fd)
 }
 
 // token is a token exchange's reply, waited for while ctx lasts: captureToken's, its own 20

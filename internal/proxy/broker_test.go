@@ -83,11 +83,15 @@ func memPair(child childProc) (pair, *frameConn) {
 	return pair{fc: newFrameConn(a), child: child}, newFrameConn(b)
 }
 
-// testBroker is a broker of an empty config, logging to l.
+// testBroker is a broker of an empty config, logging to l, which connects nowhere and looks up
+// nothing.
 func testBroker(t *testing.T) *broker {
 	t.Helper()
 	b, err := newBroker(t.Context(), Config{VM: "devvm-x", Password: redact.NewSecret("pw")}, IO{}, quiet())
 	must(t, err)
+	var d dialRecorder
+	b.net.own, b.net.connect = hostOwn(), d.connect
+	b.net.lookup = func(context.Context, string, string) ([]netip.Addr, error) { return nil, errors.New("no lookups") }
 	return b
 }
 

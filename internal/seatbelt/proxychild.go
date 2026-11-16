@@ -43,18 +43,17 @@ type childProfile struct {
 
 // The child's profile denies everything it doesn't allow: no read of the home folder or of
 // devvm's own folders but its logs and the Nix cache, no Keychain (com.apple.SecurityServer), no
-// unix socket but the system's resolver's, no bind, no fork, no exec but its own start, no signal
-// but to itself, and no look at another process (its arguments, its path or the process table).
+// network out at all, TCP, UDP or a unix socket, as the broker looks up its names and opens its
+// connections and hands them over, no bind, no fork, no exec but its own start, no signal but to
+// itself, and no look at another process (its arguments, its path or the process table).
 // dyld-support.sb is the system's own rules for starting a program (dyld and the system's
 // libraries in their cryptexes). The program's folder's metadata is what CoreFoundation looks at
 // for its main bundle, which Security's trust checks need; the trust checks ask trustd
-// (com.apple.trustd.agent, and the system's com.apple.trustd), and the resolver asks mDNSResponder
-// through its socket. /etc, /var and /tmp are links, which a lookup through them reads. It
-// connects out anywhere over TCP and UDP, this machine's loopback included, which the floor
-// alone guards: Seatbelt lets an allow with a filter win over a later deny with one of the same
-// kind, so the network is allowed unfiltered and the unix sockets denied after. Its folders take
-// regular files alone, and nowhere a hard link, a
-// folder removed, or a file's flags, ACL, owner, set-id bits or extended attributes changed.
+// (com.apple.trustd.agent, and the system's com.apple.trustd). /etc, /var and /tmp are links,
+// which a lookup through them reads. Accepting on its listener and reading and writing the
+// connections it accepted and was handed need no rule. Its folders take regular files alone, and
+// nowhere a hard link, a folder removed, or a file's flags, ACL, owner, set-id bits or extended
+// attributes changed.
 var childTmpl = template.Must(template.New("sb").Funcs(template.FuncMap{"sb": String}).Parse(`(version 1)
 (deny default)
 (import "dyld-support.sb")
@@ -64,15 +63,11 @@ var childTmpl = template.Must(template.New("sb").Funcs(template.FuncMap{"sb": St
 (allow file-read-metadata (literal {{sb .ExeDir}}))
 (allow file-read-metadata (literal "/etc") (literal "/var") (literal "/tmp"))
 (allow file-read* (literal "/private/etc/localtime") (subpath "/private/var/db/timezone") (subpath "/usr/share/zoneinfo"))
-(allow file-read* (literal "/private/etc/hosts") (literal "/private/etc/resolv.conf") (literal "/private/var/run/resolv.conf") (literal "/private/etc/services"))
 (allow sysctl-read)
 (deny sysctl-read (sysctl-name-prefix "kern.proc"))
 (deny process-info* (target others))
 (deny process-info-listpids)
 (allow mach-lookup (global-name "com.apple.trustd") (global-name "com.apple.trustd.agent"))
-(allow network-outbound)
-(deny network-outbound (remote unix-socket))
-(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))
 (allow signal (target self))
 {{- range .Dirs}}
 (allow file-read* file-write* (subpath {{sb .}}))

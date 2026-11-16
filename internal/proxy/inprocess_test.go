@@ -18,7 +18,10 @@ import (
 // newServer is the proxy c describes in the test's process: its broker (newBroker), whose values
 // come from std.Secret and whose logins go to std.Capture, and the child's server, which asks the
 // broker as its hostSide directly, with no socket between them, logging to l and its events to
-// out. Its policy files are read once, as the child reads them once it's ready.
+// out. Its policy files are read once, as the child reads them once it's ready. It looks up its
+// names and connects in the test's process, as the proxy did before its split, so a test of the
+// child's own floor and policy can change them (s.egress) without the broker's; the tests that
+// run the child over a socket (inProcess) and dial_test.go's send them through the broker.
 func newServer(c Config, std IO, l *log.Logger, out io.Writer) (*server, error) {
 	b, err := newBroker(context.Background(), c, std, l) //nolint:forbidigo // the tests' own servers, made where no test's context is passed
 	if err != nil {
@@ -27,6 +30,12 @@ func newServer(c Config, std IO, l *log.Logger, out io.Writer) (*server, error) 
 	s, err := newChildServer(b.start, b, std.FS, l, out)
 	if err != nil {
 		return nil, err
+	}
+	s.egress.lookup, s.egress.connect = net.DefaultResolver.LookupNetIP, (&net.Dialer{Timeout: dialWait}).DialContext
+	for _, u := range []*upstream{s.egress.up.https, s.egress.up.http} {
+		if u != nil {
+			u.dial = nil
+		}
 	}
 	s.egress.pol.all()
 	return s, nil

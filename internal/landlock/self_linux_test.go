@@ -3,7 +3,9 @@ package landlock
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,8 +30,9 @@ func TestArchNumbers(t *testing.T) {
 	if !ok {
 		t.Skip("no filter for " + runtime.GOARCH)
 	}
-	if a.family[0] != syscall.SYS_SOCKET || a.family[1] != syscall.SYS_SOCKETPAIR || a.refused[0] != syscall.SYS_LISTEN ||
-		a.prctl != syscall.SYS_PRCTL || !slices.Contains(a.refused, syscall.SYS_PTRACE) {
+	if a.socket != syscall.SYS_SOCKET || a.refused[0] != syscall.SYS_SOCKETPAIR || a.refused[1] != syscall.SYS_CONNECT ||
+		a.refused[2] != syscall.SYS_LISTEN || a.flags3[0] != syscall.SYS_SENDTO || a.flags3[1] != sysSendmmsg() ||
+		a.flags2 != syscall.SYS_SENDMSG || a.prctl != syscall.SYS_PRCTL || !slices.Contains(a.refused, syscall.SYS_PTRACE) {
 		t.Errorf("%s's numbers: %+v", runtime.GOARCH, a)
 	}
 }
@@ -69,7 +72,7 @@ func TestCheck(t *testing.T) {
 	if err := check(Result{}, []string{filepath.Join(dir, "gone")}); err == nil {
 		t.Error("a folder that isn't there: no error")
 	}
-	for _, r := range []Result{{ABI: 5}, {Seccomp: true}, {ABI: abiUDP}} {
+	for _, r := range []Result{{ABI: 5}, {Seccomp: true}} {
 		if err := check(r, []string{dir}); err == nil {
 			t.Errorf("%v, unconfined: no error", r)
 		}
@@ -100,38 +103,15 @@ func TestRights(t *testing.T) {
 			t.Errorf("ABI %d's folders get %#x, want %#x", tc.abi, got, tc.folder)
 		}
 	}
-	if !containsFolder([]string{"/etc"}, "/etc/x") || !containsFolder([]string{"/etc"}, "/etc") || containsFolder([]string{"/etc"}, "/etcx") || containsFolder([]string{"/etc"}, "/run") {
-		t.Error("containsFolder")
-	}
-	if fs := resolverFolders(homeFolder()); fs[0] != "/etc" {
-		t.Errorf("resolverFolders: %v", fs)
-	}
-	// A resolver's file that links into /, the home folder, a folder that holds it or one in it,
-	// gives the child no folder.
-	for _, tc := range []struct {
-		dir, home string
-		refused   bool
-	}{
-		{"/", "/home/me", true},
-		{"/", "", true},
-		{"/home", "/home/me", true},
-		{"/home/me", "/home/me", true},
-		{"/home/me/.config", "/home/me", true},
-		{"/run/systemd/resolve", "/home/me", false},
-		{"/home/meme", "/home/me", false},
-		{"/home/me/x", "", false},
-	} {
-		if got := refusedFolder(tc.dir, tc.home); got != tc.refused {
-			t.Errorf("refusedFolder(%q, %q): %v", tc.dir, tc.home, got)
-		}
-	}
 }
 
 // A child confined by Self, as the proxy's child is, can still write, rename between its
-// folders and list its own folder, read the resolver's files and use the runtime's threads; and
-// it can't read a file outside its folder, list /, read its own executable, make a folder, a
-// link or a FIFO, connect to a unix socket (such as an ssh master's), make one, listen, bind a
-// TCP port from ABI 4, or signal its parent from ABI 6, as far as this kernel confines it
+// folders and list its own folder, read the host's addresses, write to a connection it held and
+// use the runtime's threads; and it can't read a file outside its folder or /etc/hosts, list /,
+// read its own executable, make a folder, a link or a FIFO, connect to a unix socket (such as an
+// ssh master's), make one, make an IPv4, IPv6 or other netlink socket, connect a socket it held,
+// send with MSG_FASTOPEN, listen, bind a TCP port, or signal its parent from ABI 6, as far as
+// this kernel confines it
 // (expected). It runs only in a build without cgo, whose threads Go can reach; with cgo, Self
 // confines nothing and says so (ErrUnsupported).
 func TestSelf(t *testing.T) {
@@ -155,19 +135,27 @@ func TestSelf(t *testing.T) {
 	ln, err := net.Listen("unix", sock) //nolint:noctx // a listener for the test's life
 	must(t, err)
 	defer func() { _ = ln.Close() }()
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
+	// A server on loopback, which stands in for a dev server of yours.
+	tl, err := net.Listen("tcp", "127.0.0.1:0") //nolint:noctx // a listener for the test's life
+	must(t, err)
+	defer func() { _ = tl.Close() }()
+	for _, l := range []net.Listener{ln, tl} {
+		go func() {
+			for {
+				c, err := l.Accept()
+				if err != nil {
+					return
+				}
+				// Read until the child closes, so its write to a connection it held goes through.
+				go func() { _, _ = io.Copy(io.Discard, c); _ = c.Close() }()
 			}
-			_ = c.Close()
-		}
-	}()
+		}()
+	}
 	self, err := os.Executable()
 	must(t, err)
 	cmd := exec.CommandContext(t.Context(), self, "-test.v", "-test.run=^TestSelf$") //nolint:gosec // the test binary itself
-	cmd.Env = append(os.Environ(), confinedChild+"="+inside, "DEVVM_CONFINE_TEST_OUTSIDE="+outside, "DEVVM_CONFINE_TEST_SOCK="+sock)
+	cmd.Env = append(os.Environ(), confinedChild+"="+inside, "DEVVM_CONFINE_TEST_OUTSIDE="+outside, "DEVVM_CONFINE_TEST_SOCK="+sock,
+		"DEVVM_CONFINE_TEST_TCP="+tl.Addr().String())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%v: %s", err, out)
@@ -184,14 +172,17 @@ func TestSelf(t *testing.T) {
 	}
 	t.Logf("confined: %+v", want)
 	ok := map[string]bool{
-		"write": true, "rename": true, "list": true, "resolver": true, "threads": true, "new threads": true,
+		"write": true, "rename": true, "list": true, "threads": true, "new threads": true,
 		"fchmod": true, "ftruncate": true, "futimens": true, "prlimit self": true,
+		"host addresses": true, "write held": true,
 	}
 	// What the filter alone refuses, with its own errno, whatever Landlock gives.
 	filtered := map[string]syscall.Errno{
 		"chmod": syscall.EPERM, "chown": syscall.EPERM, "setxattr": syscall.EPERM, "utimes": syscall.EPERM,
 		"truncate": syscall.EPERM, "keyring": syscall.EPERM, "unshare": syscall.EPERM, "exec": syscall.EPERM,
 		"clone3": syscall.ENOSYS, "prlimit parent": syscall.EPERM, "setpriority": syscall.EPERM, "inotify": syscall.EPERM,
+		"inet": syscall.EPERM, "inet6": syscall.EPERM, "netlink diag": syscall.EPERM,
+		"connect held": syscall.EPERM, "fastopen": syscall.EPERM,
 	}
 	for k, errno := range filtered {
 		if want.Seccomp && got[k] != errno.Error() {
@@ -200,9 +191,9 @@ func TestSelf(t *testing.T) {
 	}
 	lands := want.ABI > 0
 	refused := map[string]bool{
-		"outside": lands, "root": lands, "exe": lands, "mkdir": lands, "symlink": lands, "fifo": lands,
+		"outside": lands, "hosts": lands, "root": lands, "exe": lands, "mkdir": lands, "symlink": lands, "fifo": lands,
 		"unix": want.Seccomp || want.ABI >= ABIUnix, "socketpair": want.Seccomp, "listen": want.Seccomp,
-		"bind":   want.ABI >= ABIPorts,
+		"bind":   want.Seccomp || want.ABI >= ABIPorts,
 		"signal": want.SignalsScoped,
 	}
 	for k := range ok {
@@ -224,6 +215,23 @@ func TestSelf(t *testing.T) {
 // "ok" or its error.
 func confinedChildRun(t *testing.T, dir string) {
 	t.Helper()
+	// What the child holds before it's confined, as the proxy's child holds its listener and the
+	// connections it got: a connection to the loopback server, a TCP socket not yet connected,
+	// and a listener.
+	server, err := netip.ParseAddrPort(os.Getenv("DEVVM_CONFINE_TEST_TCP"))
+	must(t, err)
+	sa := &syscall.SockaddrInet4{Port: int(server.Port()), Addr: server.Addr().As4()}
+	conn, err := net.Dial("tcp", server.String()) //nolint:noctx,gosec // the test's own server on loopback, from its parent
+	must(t, err)
+	defer func() { _ = conn.Close() }()
+	held, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)
+	must(t, err)
+	defer func() { _ = syscall.Close(held) }()
+	lfd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)
+	must(t, err)
+	defer func() { _ = syscall.Close(lfd) }()
+	must(t, syscall.Bind(lfd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}))
+	must(t, syscall.Listen(lfd, 1))
 	r, err := Self([]string{dir})
 	if err != nil {
 		t.Fatal(err)
@@ -242,10 +250,7 @@ func confinedChildRun(t *testing.T, dir string) {
 	_, err = os.ReadDir(dir)
 	say("list", err)
 	_, err = os.ReadFile("/etc/hosts")
-	if errors.Is(err, os.ErrNotExist) {
-		err = nil
-	}
-	say("resolver", err)
+	say("hosts", err)
 	_, err = os.ReadFile(os.Getenv("DEVVM_CONFINE_TEST_OUTSIDE"))
 	say("outside", err)
 	_, err = os.ReadDir("/")
@@ -271,6 +276,7 @@ func confinedChildRun(t *testing.T, dir string) {
 		return syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}})
 	}))
 	say("signal", syscall.Kill(os.Getppid(), 0)) //nolint:forbidigo // signal 0 to its parent, the test, only to see whether it may
+	confinedChildNetwork(conn, held, lfd, sa, say)
 	// The runtime still runs goroutines on its threads, which preempt one another by signals.
 	var wg sync.WaitGroup
 	for range 4 * runtime.GOMAXPROCS(0) {
@@ -354,6 +360,47 @@ func confinedChildMetadata(dir string, say func(string, error)) {
 		_ = syscall.Close(fd)
 	}
 	say("inotify", errnoOf(err))
+}
+
+// confinedChildNetwork is the confined child's tries at the network, each logged as say does: it
+// still writes to conn, a connection it held before, and reads the host's addresses through a
+// netlink route socket, but makes no IPv4, IPv6 or other netlink socket, connects held, a TCP
+// socket it made before, to the loopback server at sa, and sends with MSG_FASTOPEN from lfd, its
+// listener, once a shutdown has closed it, which would connect it to sa as it sends.
+func confinedChildNetwork(conn net.Conn, held, lfd int, sa syscall.Sockaddr, say func(string, error)) {
+	errnoOf := func(err error) error {
+		var e syscall.Errno
+		if errors.As(err, &e) {
+			return e
+		}
+		return err
+	}
+	_, err := conn.Write([]byte("x"))
+	say("write held", err)
+	addrs, err := net.InterfaceAddrs()
+	if err == nil && len(addrs) == 0 {
+		err = errors.New("no addresses")
+	}
+	say("host addresses", err)
+	say("inet", errnoOf(socket(syscall.AF_INET, syscall.SOCK_STREAM, nil)))
+	say("inet6", errnoOf(socket(syscall.AF_INET6, syscall.SOCK_DGRAM, nil)))
+	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW|syscall.SOCK_CLOEXEC, 4) // NETLINK_SOCK_DIAG, which lists sockets
+	if err == nil {
+		_ = syscall.Close(fd)
+	}
+	say("netlink diag", errnoOf(err))
+	say("connect held", errnoOf(syscall.Connect(held, sa)))
+	_ = syscall.Shutdown(lfd, syscall.SHUT_RDWR)
+	say("fastopen", errnoOf(syscall.Sendto(lfd, []byte("x"), msgFastOpen, sa)))
+}
+
+// sysSendmmsg is sendmmsg's number on this machine, which the syscall package doesn't name on
+// arm64.
+func sysSendmmsg() uint32 {
+	if runtime.GOARCH == "arm64" {
+		return 269
+	}
+	return 307
 }
 
 // prlimitNr is prlimit64's number on this machine.

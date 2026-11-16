@@ -47,9 +47,16 @@ const (
 	dataArg0Hi = 20
 	dataArg1   = 24
 	dataArg1Hi = 28
+	dataArg2   = 32
+	dataArg3   = 40
 	x32Bit     = 0x40000000 // __X32_SYSCALL_BIT: amd64's x32 calls
-	afUnix     = 1          // AF_UNIX, the family socket and socketpair take first
 	insnBytes  = 8          // a struct sock_filter
+	// afNetlink and netlinkRoute are the one socket the child makes: a netlink route socket,
+	// which reads the host's addresses and reaches the kernel alone.
+	afNetlink    = 16
+	netlinkRoute = 0
+	// msgFastOpen is MSG_FASTOPEN, which connects a TCP socket as it sends.
+	msgFastOpen = 0x20000000
 	// cloneThread is CLONE_THREAD, which every clone of Go's runtime has: a thread, never a process.
 	cloneThread = 0x00010000
 	// cloneNamespaces are clone's flags for a new namespace: CLONE_NEWTIME, NEWNS, NEWCGROUP,
@@ -62,8 +69,12 @@ const (
 type arch struct {
 	audit uint32
 	x32   bool
-	// family are the calls refused for AF_UNIX: socket and socketpair.
-	family []uint32
+	// socket is refused for every socket but a netlink route socket (afNetlink, netlinkRoute).
+	socket uint32
+	// flags3 are the calls refused with MSG_FASTOPEN in their fourth argument, sendto and
+	// sendmmsg, and flags2 the one with it in its third, sendmsg.
+	flags3 []uint32
+	flags2 uint32
 	// refused are the calls refused with EPERM whatever their arguments (refusedCalls).
 	refused []uint32
 	// noSys are the calls refused with ENOSYS: clone3, whose flags sit behind a pointer the filter
@@ -92,7 +103,8 @@ const (
 // archOf is the architecture goarch names, as the filter needs it; false: one the child doesn't
 // confine itself on. Its refused calls are, in order:
 //
-//   - listen, and the three io_uring calls, whose operations wouldn't pass the filter;
+//   - socketpair, connect and listen, as the child makes no connection of its own (its broker
+//     opens each), and the three io_uring calls, whose operations wouldn't pass the filter;
 //   - those that reach another process's memory or descriptors: ptrace, process_vm_readv,
 //     process_vm_writev, pidfd_getfd;
 //   - those that change a file by its path, which Landlock doesn't restrict: its mode (chmod,
@@ -118,9 +130,9 @@ func archOf(goarch string) (arch, bool) {
 	case "amd64":
 		return arch{
 			audit: 0xc000003e, x32: true, // AUDIT_ARCH_X86_64
-			family: []uint32{41, 53}, // socket, socketpair
+			socket: 41, flags3: []uint32{44, 307}, flags2: 46, // socket; sendto, sendmmsg; sendmsg
 			refused: []uint32{
-				50, sysIOURingSetup, sysIOURingEnter, sysIOURingRegister,
+				53, 42, 50, sysIOURingSetup, sysIOURingEnter, sysIOURingRegister,
 				101, 310, 311, sysPidfdGetfd,
 				90, 268, sysFchmodat2, 92, 94, 260, 188, 189, 197, 198, sysSetxattrat, sysRemovexattrat, 76, 132, 235, 261,
 				248, 249, 250,
@@ -133,10 +145,10 @@ func archOf(goarch string) (arch, bool) {
 		}, true
 	case "arm64":
 		return arch{
-			audit:  0xc00000b7,         // AUDIT_ARCH_AARCH64
-			family: []uint32{198, 199}, // socket, socketpair
+			audit:  0xc00000b7,                                   // AUDIT_ARCH_AARCH64
+			socket: 198, flags3: []uint32{206, 269}, flags2: 211, // socket; sendto, sendmmsg; sendmsg
 			refused: []uint32{
-				201, sysIOURingSetup, sysIOURingEnter, sysIOURingRegister,
+				199, 203, 201, sysIOURingSetup, sysIOURingEnter, sysIOURingRegister,
 				117, 270, 271, sysPidfdGetfd,
 				53, sysFchmodat2, 54, 5, 6, 14, 15, sysSetxattrat, sysRemovexattrat, 45,
 				217, 218, 219,
@@ -206,7 +218,8 @@ func (a *asm) build() ([]insn, error) {
 //	load the architecture; another than a's: kill
 //	load the call's number; on amd64, one of x32's: kill
 //	one of a's refused calls: EPERM; clone3: ENOSYS
-//	socket or socketpair: load the family; AF_UNIX: EPERM
+//	socket: load the family and the protocol; anything but a netlink route socket: EPERM
+//	sendto, sendmmsg, sendmsg: load the flags; MSG_FASTOPEN: EPERM
 //	clone: load the flags; a new namespace, or not a thread: EPERM
 //	utimensat: load the path; not NULL: EPERM
 //	prlimit64: load the pid; not 0: EPERM
@@ -225,17 +238,31 @@ func filter(a arch) ([]insn, error) {
 	for _, nr := range a.noSys {
 		p.jump(jeqK, nr, "nosys", "")
 	}
-	for _, nr := range a.family {
-		p.jump(jeqK, nr, "family", "")
+	p.jump(jeqK, a.socket, "socket", "")
+	for _, nr := range a.flags3 {
+		p.jump(jeqK, nr, "flags3", "")
 	}
+	p.jump(jeqK, a.flags2, "flags2", "")
 	p.jump(jeqK, a.clone, "clone", "")
 	p.jump(jeqK, a.utimensat, "utimensat", "")
 	p.jump(jeqK, a.prlimit, "prlimit", "")
 	p.op(retK, retAllow)
 	// Each look into a call's arguments ends in an allow of its own, as a jump only goes forward.
-	p.label("family")
+	// The kernel reads socket's family and protocol and the send calls' flags as ints, their
+	// arguments' low halves.
+	p.label("socket")
 	p.op(ldAbs, dataArg0)
-	p.jump(jeqK, afUnix, "refuse", "")
+	p.jump(jeqK, afNetlink, "", "refuse")
+	p.op(ldAbs, dataArg2)
+	p.jump(jeqK, netlinkRoute, "", "refuse")
+	p.op(retK, retAllow)
+	p.label("flags3")
+	p.op(ldAbs, dataArg3)
+	p.jump(jsetK, msgFastOpen, "refuse", "")
+	p.op(retK, retAllow)
+	p.label("flags2")
+	p.op(ldAbs, dataArg2)
+	p.jump(jsetK, msgFastOpen, "refuse", "")
 	p.op(retK, retAllow)
 	p.label("clone")
 	p.op(ldAbs, dataArg0)

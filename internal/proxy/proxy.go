@@ -439,9 +439,7 @@ type egress struct {
 	// replace with one in memory.
 	connect func(ctx context.Context, network, address string) (net.Conn, error)
 
-	abandonMu sync.Mutex
-	abandonAt time.Time // when the minute that abandonN counts began
-	abandonN  int       // the lookups abandoned in it (abandoned)
+	abandons perMinute // the lookups abandoned, abandonedLogMax of them logged a minute (abandoned)
 }
 
 // The reasons the VM gets when a name doesn't resolve or a connection fails. The error itself goes
@@ -469,16 +467,10 @@ const (
 // which can carry data out in the name, so the proxy's own log names it, at most abandonedLogMax a
 // minute.
 func (e *egress) abandoned(host string, port int) {
-	e.abandonMu.Lock()
-	defer e.abandonMu.Unlock()
-	if now := time.Now(); now.Sub(e.abandonAt) > time.Minute {
-		e.abandonAt, e.abandonN = now, 0
-	}
-	e.abandonN++
-	switch {
-	case e.abandonN <= abandonedLogMax:
+	switch log, capped := e.abandons.next(time.Now(), abandonedLogMax); {
+	case log:
 		e.log.Printf("%s:%d: %s", host, port, reasonClientLeft)
-	case e.abandonN == abandonedLogMax+1:
+	case capped:
 		e.log.Printf("%s", abandonedCapped)
 	}
 }
@@ -533,7 +525,7 @@ func (e *egress) resolve(ctx context.Context, host string, port int) ([]netip.Ad
 	}
 	var ok []netip.Addr
 	for _, a := range addrs {
-		if !e.pol.addrDenied(a, port) && (!e.own.internal(a) || e.pol.addrAllowed(a, port)) {
+		if e.addrOK(a, port) {
 			ok = append(ok, a)
 		}
 	}
@@ -541,6 +533,13 @@ func (e *egress) resolve(ctx context.Context, host string, port int) ([]netip.Ad
 		return nil, errFloor
 	}
 	return ok, nil
+}
+
+// addrOK is the floor's check of a, an address to dial on port: no deny names it, and it's
+// neither internal nor this machine's own, or a rule names it (or the VM is open). The child
+// checks each address it resolves with it, and the broker each one it connects to for the child.
+func (e *egress) addrOK(a netip.Addr, port int) bool {
+	return !e.pol.addrDenied(a, port) && (!e.own.internal(a) || e.pol.addrAllowed(a, port))
 }
 
 func (e *egress) dial(ctx context.Context, host string, port int) (net.Conn, error) {

@@ -34,6 +34,9 @@ import (
 type upstream struct {
 	addr string // host:port
 	auth redact.Secret
+	// dial connects to it: the child's asks the broker (throughHost); nil, directly (the broker's,
+	// and a test's).
+	dial func(ctx context.Context) (net.Conn, error)
 }
 
 // upstreams is a proxy's company proxies (Config.Upstream): set once, as it starts, and only read
@@ -414,7 +417,7 @@ func (e *egress) floorUpstream(ctx context.Context, host string, port int) error
 	}
 	for _, a := range ips {
 		a = a.Unmap()
-		if e.pol.addrDenied(a, port) || e.own.internal(a) && !e.pol.addrAllowed(a, port) {
+		if !e.addrOK(a, port) {
 			return errFloor
 		}
 	}
@@ -423,8 +426,14 @@ func (e *egress) floorUpstream(ctx context.Context, host string, port int) error
 
 // dialUpstream connects to the upstream itself.
 func (u *upstream) dialUpstream(ctx context.Context) (net.Conn, error) {
-	d := net.Dialer{Timeout: 15 * time.Second}
-	c, err := d.DialContext(ctx, "tcp", u.addr)
+	dial := u.dial
+	if dial == nil {
+		dial = func(ctx context.Context) (net.Conn, error) {
+			d := net.Dialer{Timeout: dialWait}
+			return d.DialContext(ctx, "tcp", u.addr)
+		}
+	}
+	c, err := dial(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("the upstream proxy %s: %w", u.addr, err)
 	}

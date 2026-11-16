@@ -1,16 +1,12 @@
 package landlock
 
-// Landlock (linux/landlock.h): the files the child may read and write, the TCP ports it may bind,
-// the UDP ports it may send to, and the scope of its signals and abstract unix sockets.
+// Landlock (linux/landlock.h): the files the child may read and write, the TCP and UDP ports it
+// may bind and connect to, which are none, and the scope of its signals and abstract unix sockets.
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"os"
-	"os/user"
-	"path/filepath"
-	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -27,7 +23,6 @@ const (
 	createRulesetVersion = 1 << 0
 	createRulesetErrata  = 1 << 1
 	ruleTypePathBeneath  = 1
-	ruleTypeNetPort      = 2
 	restrictSelfTSYNC    = 1 << 3 // ABI 8: every thread at once, in one domain
 	// erratumSignals is the fix that lets a process's threads signal each other whatever their
 	// domain (erratum 2), which a domain made on each thread in turn needs to scope signals.
@@ -50,15 +45,13 @@ const (
 	fsResolveUnix = 1 << 16   // ABI 9
 
 	netBindTCP        = 1 << 0 // ABI 4
+	netConnectTCP     = 1 << 1 // ABI 4
 	netBindUDP        = 1 << 2 // ABI 10
 	netConnectSendUDP = 1 << 3 // ABI 10
 
 	scopeAbstractUnix = 1 << 0 // ABI 6
 	scopeSignal       = 1 << 1 // ABI 6
 )
-
-// dnsPort is the one UDP port the child sends to, the resolvers'.
-const dnsPort = 53
 
 // oPath is open's O_PATH, on amd64 and arm64, which the syscall package doesn't have: a folder
 // opened for a rule alone.
@@ -121,14 +114,14 @@ type rulesetAttr struct {
 	handledFS, handledNet, scoped uint64
 }
 
-// landlock confines every thread of this process with Landlock at abi to folders, reading the
-// resolver's files (resolverFolders), binding no TCP port (ABI 4), sending UDP only to port 53
-// (ABI 10), and, as scope says, its signals and abstract unix sockets to itself (ABI 6). Every
+// landlock confines every thread of this process with Landlock at abi to folders, binding and
+// connecting no TCP port (ABI 4), binding and sending no UDP (ABI 10), as the broker opens its
+// connections, and, as scope says, its signals and abstract unix sockets to itself (ABI 6). Every
 // thread already has no_new_privs.
 func landlock(abi int, folders []string, scope bool) error {
 	attr := rulesetAttr{handledFS: handledFS(abi)}
 	if abi >= ABIPorts {
-		attr.handledNet = netBindTCP
+		attr.handledNet = netBindTCP | netConnectTCP
 	}
 	if abi >= abiUDP {
 		attr.handledNet |= netBindUDP | netConnectSendUDP
@@ -147,20 +140,6 @@ func landlock(abi int, folders []string, scope bool) error {
 	defer func() { _ = syscall.Close(ruleset) }()
 	for _, dir := range folders {
 		if err := allowBeneath(ruleset, dir, folderRights(abi)); err != nil {
-			return err
-		}
-	}
-	for _, dir := range resolverFolders(homeFolder()) {
-		if err := allowBeneath(ruleset, dir, fsReadFile); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	if abi >= abiUDP {
-		// Port 0 for the bind the kernel makes by itself as a UDP socket first connects.
-		if err := allowPort(ruleset, netConnectSendUDP, dnsPort); err != nil {
-			return err
-		}
-		if err := allowPort(ruleset, netBindUDP, 0); err != nil {
 			return err
 		}
 	}
@@ -190,68 +169,4 @@ func allowBeneath(ruleset int, dir string, rights uint64) error {
 		return fmt.Errorf("landlock_add_rule %s: %w", dir, e)
 	}
 	return nil
-}
-
-// allowPort gives the ruleset the network right on port.
-func allowPort(ruleset int, right, port uint64) error {
-	attr := struct{ allowed, port uint64 }{right, port}                                                                                      // struct landlock_net_port_attr
-	if _, _, e := syscall.Syscall6(sysLandlockAddRule, uintptr(ruleset), ruleTypeNetPort, uintptr(unsafe.Pointer(&attr)), 0, 0, 0); e != 0 { //nolint:gosec // the kernel reads the struct's 16 bytes
-		return fmt.Errorf("landlock_add_rule port %d: %w", port, e)
-	}
-	return nil
-}
-
-// resolverFiles are the files Go's resolver reads again when they change.
-func resolverFiles() []string {
-	return []string{"/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf"}
-}
-
-// resolverFolders are the folders the child reads files below: /etc, and the folder each of the
-// resolver's files links to, such as /run/systemd/resolve for systemd-resolved's resolv.conf, but
-// never / or a folder that holds the home folder or is in it (home: homeFolder's), which would
-// open the child every file of yours. The resolver then can't read such a file, and the child's
-// check fails the start.
-func resolverFolders(home string) []string {
-	out := []string{"/etc"}
-	for _, f := range resolverFiles() {
-		target, err := filepath.EvalSymlinks(f)
-		if err != nil {
-			continue
-		}
-		d := filepath.Dir(target)
-		if refusedFolder(d, home) || containsFolder(out, d) {
-			continue
-		}
-		out = append(out, d)
-	}
-	return out
-}
-
-// refusedFolder reports whether dir is a folder the child is never given: the root, or one that
-// holds home or is in it ("": no home folder known).
-func refusedFolder(dir, home string) bool {
-	if filepath.Clean(dir) == "/" {
-		return true
-	}
-	return home != "" && (containsFolder([]string{dir}, home) || containsFolder([]string{home}, dir))
-}
-
-// homeFolder is this user's home folder as the system's user database says, which the child,
-// whose environment has no HOME, reads before it's confined; "" when it can't say.
-func homeFolder() string {
-	u, err := user.Current()
-	if err != nil {
-		return ""
-	}
-	return filepath.Clean(u.HomeDir)
-}
-
-// containsFolder reports whether dir is one of dirs, or below one.
-func containsFolder(dirs []string, dir string) bool {
-	for _, d := range dirs {
-		if rel, err := filepath.Rel(d, dir); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
-			return true
-		}
-	}
-	return false
 }

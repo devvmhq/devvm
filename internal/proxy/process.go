@@ -172,6 +172,11 @@ func runBroker(ctx context.Context, c Config, configPath string, std IO, tick ti
 	if err != nil {
 		return err
 	}
+	// The broker's floor, which judges every connection the child asks for, refuses none of the
+	// host's addresses without them, so a read that fails or finds none fails the start.
+	if err := b.net.own.check(); err != nil {
+		return err
+	}
 	ln, err := net.Listen("tcp", c.Listen) //nolint:noctx // listens for the proxy's whole life, in the child
 	if err != nil {
 		return err

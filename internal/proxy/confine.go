@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/landlock"
@@ -172,7 +173,31 @@ func ReadConfined(config string) (Confinement, error) {
 // it probe, its broker's config, which it never reads. A confinement that fails, or takes longer,
 // is an error, and the child mustn't start: part of it may be confined.
 func confineChild(spawned Confinement, n ChildNeeds, probe string) (Confinement, error) {
+	if err := limitFiles(childFilesMax); err != nil {
+		return Confinement{}, err
+	}
 	return confineWith(confineSelf, spawned, n, probe)
+}
+
+// childFilesMax is how many files the child holds open at most: four times maxConns, for the
+// VM's connections and those the broker hands it, and room for its logs and the Nix cache. It
+// lowers its hard limit to it, which it can't raise again, so a child that a VM took over can't
+// keep every connection the broker hands it and use up this machine's ports.
+const childFilesMax = 4*maxConns + 256
+
+// limitFiles lowers this process's limit on open files, soft and hard, to n, or to its hard
+// limit when that's lower already.
+func limitFiles(n uint64) error {
+	var l syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &l); err != nil {
+		return fmt.Errorf("the child's limit on open files: %w", err)
+	}
+	l.Max = min(l.Max, n)
+	l.Cur = min(l.Cur, l.Max)
+	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &l); err != nil {
+		return fmt.Errorf("the child's limit on open files: %w", err)
+	}
+	return nil
 }
 
 // confineWith is confineChild with self as the confinement in the process, which tests replace:

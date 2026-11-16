@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -192,6 +193,14 @@ func FuzzBrokerFrames(f *testing.F) {
 		`{"type":"token","id":5,"token":{"host":"auth.test","path":"/oauth/token","method":"POST","body":"Z3Q9eA=="}}`,
 		`{"type":"token","id":5,"token":{"host":"auth.test","path":"/../oauth//token","method":"POST"}}`,
 		`{"type":"start","id":0,"start":{}}`, `{"type":"ready","id":0,"ready":{}}`, `{}`, `[]`, `{"type":"value","id":1}`,
+		`{"type":"lookup","id":6,"lookup":{"name":"example.com."}}`, `{"type":"lookup","id":6,"lookup":{"name":"127.0.0.1."}}`,
+		`{"type":"dial","id":7,"dial":{"addr":"127.0.0.1:5432"}}`, `{"type":"dial","id":7,"dial":{"addr":"[::1]:22"}}`,
+		`{"type":"dial","id":7,"dial":{"addr":"1.1.1.1:443"}}`, `{"type":"dial","id":7,"dial":{"addr":"[::ffff:127.0.0.1]:80"}}`,
+		`{"type":"dial","id":7,"dial":{"addr":"[64:ff9b::a00:1]:80"}}`, `{"type":"dial","id":7,"dial":{"addr":"[2002:7f00:1::1]:80"}}`,
+		`{"type":"dial","id":7,"dial":{"addr":"[::7f00:1]:80"}}`, `{"type":"dial","id":7,"dial":{"addr":"[fe80::1%en0]:80"}}`,
+		`{"type":"dial","id":7,"dial":{"addr":"0.0.0.0:80"}}`, `{"type":"dial","id":7,"dial":{"addr":"` + ownAddr + `:443"}}`,
+		`{"type":"dial","id":7,"dial":{"proxy":"https"}}`, `{"type":"dial","id":7,"dial":{"addr":"1.1.1.1:443","proxy":"http"}}`,
+		`{"type":"cancel","id":7}`,
 	} {
 		f.Add([]byte(s))
 	}
@@ -224,6 +233,13 @@ func FuzzBrokerFrames(f *testing.F) {
 			}, quiet())
 		if err != nil {
 			t.Fatal(err)
+		}
+		var d dialRecorder
+		var asked []string
+		b.net.own, b.net.connect = hostOwn(), d.connect
+		b.net.lookup = func(_ context.Context, _, name string) ([]netip.Addr, error) {
+			asked = append(asked, name)
+			return nil, &net.DNSError{Err: "no such host", Name: name, IsNotFound: true}
 		}
 		br, ch := pairOf(t)
 		// Written as the broker reads it, so a frame larger than the socket's buffer is read too.
@@ -263,6 +279,19 @@ func FuzzBrokerFrames(f *testing.F) {
 		if fr.Type == frameLink && reply.Error == "" {
 			t.Fatalf("a link the broker's config has none of: %+v", reply)
 		}
+		for _, name := range asked {
+			if !lookupable(name) {
+				t.Fatalf("looked up %q", name)
+			}
+		}
+		// No rule of the policy names an address, so the broker connects only to a public one
+		// that isn't this machine's.
+		for _, x := range d.got() {
+			ap, err := netip.ParseAddrPort(strings.TrimPrefix(x, "tcp "))
+			if err != nil || !Public(ap.Addr()) || ap.Addr().Unmap().String() == ownAddr || ap.Port() == 0 {
+				t.Fatalf("connected to %q", x)
+			}
+		}
 		if fr.Type == frameFile && reply.Error == "" && reply.File != nil && !reply.File.Missing &&
 			string(reply.File.Data) != "example.com\n" && !bytes.Contains(reply.File.Data, []byte(`"gh"`)) {
 			t.Fatalf("a file outside the broker's list: %q", reply.File.Data)
@@ -291,7 +320,12 @@ func FuzzFrameStreams(f *testing.F) {
 	f.Add(framesOf(`{"type":"value","id":1,"value":{"value":"v","at":"2026-01-01T00:00:00Z"}}`), false)
 	f.Add(framesOf(`{"type":"start","id":0,"start":{}}`, `{"type":"file","id":9,"error":"failed"}`), false)
 	f.Add([]byte{0, 0, 0, 2, '{', '}', 0xff}, true)
-	codes := map[string]bool{"": true, codeNotFound: true, codeRefused: true, codeBusy: true, codeTooLong: true, codeFailed: true}
+	f.Add(framesOf(`{"type":"dial","id":1,"dial":{"addr":"1.1.1.1:443"}}`, `{"type":"cancel","id":1}`, `{"type":"lookup","id":2,"lookup":{"name":"a.test."}}`, `{"type":"cancel","id":9}`), true)
+	f.Add(framesOf(`{"type":"cancel","id":1,"dial":{"addr":"1.1.1.1:443"}}`), true)
+	codes := map[string]bool{
+		"": true, codeNotFound: true, codeRefused: true, codeBusy: true, codeTooLong: true, codeFailed: true,
+		codeNoSuchHost: true, codeTimeout: true, codeTemporary: true,
+	}
 	f.Fuzz(func(t *testing.T, stream []byte, toBrokerSide bool) {
 		a, b := pairOf(t)
 		wrote := make(chan struct{})
@@ -328,6 +362,9 @@ func FuzzFrameStreams(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		var d dialRecorder
+		br.net.own, br.net.connect = hostOwn(), d.connect
+		br.net.lookup = func(context.Context, string, string) ([]netip.Addr, error) { return nil, errors.New("no lookups") }
 		if err := br.serveChild(t.Context(), a); err != nil && !isRuleError(err) && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 			t.Fatalf("serveChild: %v", err)
 		}

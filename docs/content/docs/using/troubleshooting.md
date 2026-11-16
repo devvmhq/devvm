@@ -159,7 +159,7 @@ A confined VM runs only with its proxy, so when the proxy doesn't start, devvm s
 
 ## The proxy runs without a sandbox
 
-The part of a VM's proxy that reads the VM's network runs in a sandbox, which keeps it from your files, your unix sockets and the rest of this machine if a VM ever took it over: macOS's on macOS, and Landlock and a seccomp filter on Linux. When the sandbox can't start, or the kernel has only part of it, the proxy runs with what there is, so the VM keeps its network, and devvm doctor warns for each running VM:
+The part of a VM's proxy that reads the VM's network runs in a sandbox, which keeps it from your files, your unix sockets, this machine's services on `localhost` and the rest of this machine if a VM ever took it over: macOS's on macOS, and Landlock and a seccomp filter on Linux. When the sandbox can't start, or the kernel has only part of it, the proxy runs with what there is, so the VM keeps its network, and devvm doctor warns for each running VM:
 
 ```sh
 devvm doctor                                            # names each VM whose proxy runs without a sandbox

@@ -2,12 +2,14 @@ package proxy
 
 // What the proxy holds for a VM at once, past what each connection holds: its connections (conns,
 // maxConns) and its requests upstream (requests, maxRequests), each logged at most once a minute
-// when it's reached (everyMinute).
+// when it's reached (everyMinute), and the lines a VM's failures drive, a number of them a minute
+// (perMinute).
 
 import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -43,6 +45,27 @@ func (e *everyMinute) allow(now time.Time) bool {
 			return true
 		}
 	}
+}
+
+// perMinute lets up to a number of lines of one kind through each minute, and then one that says
+// the rest that minute aren't logged: a line for each failure that a VM drives, such as a lookup it
+// gave up on or a connection that failed, so a VM that keeps causing them can't fill the log.
+type perMinute struct {
+	mu sync.Mutex
+	at time.Time // when the minute that n counts began
+	n  int
+}
+
+// next counts a line at now: whether it goes to the log (log), and whether it's the first past
+// limit, which logs that the rest that minute aren't (capped).
+func (p *perMinute) next(now time.Time, limit int) (log, capped bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if now.Sub(p.at) > time.Minute {
+		p.at, p.n = now, 0
+	}
+	p.n++
+	return p.n <= limit, p.n == limit+1
 }
 
 // requests are the slots of a VM's requests upstream (maxRequests).

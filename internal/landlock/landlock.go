@@ -1,8 +1,8 @@
 // Package landlock confines a process on Linux to the folders it needs, as a VM's proxy's child
 // confines itself (Self) once it has opened its logs and the Nix cache, before it reads a byte of
-// the VM's: no_new_privs on every thread, Landlock on the files it may read and write, and a
-// seccomp filter on the system calls that would reach a unix socket, another process or around
-// the filter. Where the kernel lacks Landlock or seccomp, it leaves that part out, and its Result
+// the VM's: no_new_privs on every thread, Landlock on the files it may read and write and on TCP
+// and UDP, and a seccomp filter on the system calls that would make a connection of its own (its
+// broker opens each one), reach a unix socket, another process or around the filter. Where the kernel lacks Landlock or seccomp, it leaves that part out, and its Result
 // says what it got, which the proxy turns into its confinement's report (proxy.Confinement).
 //
 // The proxy imports this package, so it's the standard library alone. Its code is Linux's alone,
@@ -14,7 +14,7 @@ package landlock
 // Nix cache rename a file from its top folder into nar/. A kernel below it confines no files.
 const Floor = 2
 
-// The Landlock ABIs from which a kernel refuses more: a TCP port's bind (ABI 4), a signal to a
+// The Landlock ABIs from which a kernel refuses more: a TCP port's bind and connect (ABI 4), a signal to a
 // process outside the child and an abstract unix socket not its own (ABI 6), and a named unix
 // socket, by Landlock itself (ABI 9).
 const (
