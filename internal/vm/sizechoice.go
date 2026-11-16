@@ -52,7 +52,16 @@ func (c SizeChoice) Set(s Size) error {
 	if err != nil {
 		return err
 	}
-	c.Info(msg.SizeDefaults(SizeText(defaultSize(def).Backend())))
+	return c.sayDefaults(defaultSize(def))
+}
+
+// sayDefaults says the size new VMs get, s.
+func (c SizeChoice) sayDefaults(s Size) error {
+	b, err := s.Backend()
+	if err != nil {
+		return err
+	}
+	c.Info(msg.SizeDefaults(SizeText(b)))
 	return nil
 }
 
@@ -95,8 +104,7 @@ func (c SizeChoice) Ask() error {
 			return err
 		}
 	}
-	c.Info(msg.SizeDefaults(SizeText(typed.Or(shown).Backend())))
-	return nil
+	return c.sayDefaults(typed.Or(shown))
 }
 
 // typedCPUs and typedMemory are the CPUs and the memory typed at a size

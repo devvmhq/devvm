@@ -166,6 +166,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"unsafe_folder_used":              "using/settings#project-folders-devvm-refuses",
 	"cpus_not_number":                 "using/ports-size#size-and-ports",
 	"size_not_gib":                    "using/ports-size#size-and-ports",
+	"size_stored_invalid":             "using/ports-size#size",
 	"too_many_cpus":                   "using/ports-size#size-and-ports",
 	"too_much_memory":                 "using/ports-size#size-and-ports",
 	"port_invalid":                    "using/ports-size#size-and-ports",

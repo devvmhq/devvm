@@ -186,7 +186,7 @@ func newestNeed(t *testing.T, path string) string {
 			if p := strings.SplitN(v, ".", 3); len(p) >= 2 {
 				v = p[0] + "." + p[1]
 			}
-			if image.ValidGlibc(v) && (best == "" || image.GlibcOlder(best, v)) {
+			if older, _ := image.GlibcOlder(best, v); image.ValidGlibc(v) && (best == "" || older) {
 				best = v
 			}
 		}

@@ -150,14 +150,12 @@ func listConfig(ctx context.Context, dir, scope string) ([]configRec, error) {
 	return recs, nil
 }
 
-// gitBool is whether v is a boolean's true as git reads it.
+// gitBool is whether v is a boolean's true as git reads it (hostgit.Bool).
+// A value that isn't a boolean, which git refuses, is false: what it
+// turns on is never copied.
 func gitBool(v string) bool {
-	switch strings.ToLower(v) {
-	case "true", "yes", "on":
-		return true
-	}
-	n, err := strconv.Atoi(v)
-	return err == nil && n != 0
+	b, ok := hostgit.Bool(v)
+	return ok && b
 }
 
 // readRemotes adds the URLs of the remotes recs name (remoteURLs), but

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/devvmhq/devvm/internal/backend/registry"
@@ -63,13 +64,31 @@ type ReleaseOverrides struct {
 }
 
 // readOverrides reads a test build's overrides with getenv; a release's
-// are empty.
-func readOverrides(getenv func(string) string) Overrides {
+// are empty. A number that isn't one fails, naming its variable, rather
+// than reading as 0, which would leave the test on devvm's own value.
+func readOverrides(getenv func(string) string) (Overrides, error) {
 	if !testbuild.On() {
-		return Overrides{}
+		return Overrides{}, nil
 	}
-	historyMax, _ := strconv.Atoi(getenv("DEVVM_HISTORY_MAX"))
-	pasteWait, _ := strconv.Atoi(getenv("DEVVM_PASTE_WAIT"))
+	number := func(name string) (int, error) {
+		v := getenv(name)
+		if v == "" {
+			return 0, nil
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", name, err)
+		}
+		return n, nil
+	}
+	historyMax, err := number("DEVVM_HISTORY_MAX")
+	if err != nil {
+		return Overrides{}, err
+	}
+	pasteWait, err := number("DEVVM_PASTE_WAIT")
+	if err != nil {
+		return Overrides{}, err
+	}
 	return Overrides{
 		Overrides: registry.Overrides{
 			Host: platform.Overrides{
@@ -95,5 +114,5 @@ func readOverrides(getenv func(string) string) Overrides {
 		ClipTools:  getenv("DEVVM_CLIP_TOOLS"),
 		PasteWait:  pasteWait,
 		LockOrder:  true,
-	}
+	}, nil
 }

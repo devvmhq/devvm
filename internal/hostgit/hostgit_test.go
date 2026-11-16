@@ -401,6 +401,21 @@ func TestDiffFilesNoSubmodules(t *testing.T) {
 	}
 }
 
+// Bool reads a boolean as git's documentation gives them, which
+// strconv.ParseBool reads otherwise ("yes", "on"), and says when a value
+// isn't one.
+func TestBool(t *testing.T) {
+	for v, want := range map[string][2]bool{
+		"true": {true, true}, "Yes": {true, true}, "ON": {true, true}, "1": {true, true}, "2": {true, true}, "-1": {true, true},
+		"false": {false, true}, "No": {false, true}, "off": {false, true}, "0": {false, true}, "": {false, true},
+		"maybe": {false, false}, "0x1": {false, false}, "1.5": {false, false},
+	} {
+		if b, ok := Bool(v); b != want[0] || ok != want[1] {
+			t.Errorf("Bool(%q) = %v, %v, want %v", v, b, ok, want)
+		}
+	}
+}
+
 // The user's config files the environment names: only an absolute path to
 // a file that's there, else unset; GIT_CONFIG_NOSYSTEM as git reads it.
 func TestUserFilesOf(t *testing.T) {
@@ -413,6 +428,13 @@ func TestUserFilesOf(t *testing.T) {
 		{f, f, "1"}:                        {Global: f, System: f, NoSystem: true},
 		{"gitconfig", d, "no"}:             {},
 		{filepath.Join(d, "none"), "", ""}: {},
+		// git's booleans, which strconv.ParseBool reads otherwise.
+		{"", "", "yes"}:   {NoSystem: true},
+		{"", "", "On"}:    {NoSystem: true},
+		{"", "", "2"}:     {NoSystem: true},
+		{"", "", "off"}:   {},
+		{"", "", "0"}:     {},
+		{"", "", "maybe"}: {NoSystem: true}, // git refuses to run with it
 	} {
 		got := UserFilesOf(func(k string) string {
 			return map[string]string{"GIT_CONFIG_GLOBAL": env[0], "GIT_CONFIG_SYSTEM": env[1], "GIT_CONFIG_NOSYSTEM": env[2]}[k]

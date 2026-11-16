@@ -4593,6 +4593,11 @@ func SizeQuestion(haveCpus string, haveMemory string) M {
 	return M{id: "size_question", vals: []val{{"have_cpus", haveCpus}, {"have_memory", haveMemory}}}
 }
 
+// SizeStoredInvalid is [size_stored_invalid]: "{{.vm}}'s state file sets its {{.key}} to {{.value}}, which isn't a size devvm can use. Set it again with devvm size --{{.key}}."
+func SizeStoredInvalid(key string, value string, vm vmname.VM) M {
+	return M{id: "size_stored_invalid", vals: []val{{"key", key}, {"value", value}, {"vm", string(vm)}}}
+}
+
 // SpaceBackendUnknown is [space_backend_unknown]: "The {{.backend}} backend didn't answer, so its VMs and images aren't counted."
 func SpaceBackendUnknown(backend string) M {
 	return M{id: "space_backend_unknown", vals: []val{{"backend", backend}}}
@@ -6297,6 +6302,7 @@ var specs = map[string]spec{
 	"size_pending":                    {fields: []string{"size", "vm"}},
 	"size_pending_running":            {fields: []string{"size", "vm"}},
 	"size_question":                   {fields: []string{"have_cpus", "have_memory"}},
+	"size_stored_invalid":             {fields: []string{"key", "value", "vm"}},
 	"space_backend_unknown":           {fields: []string{"backend"}},
 	"space_caches_note":               {},
 	"space_failed":                    {fields: []string{"reason"}},

@@ -53,8 +53,13 @@ func (t *target) stop(ctx context.Context) error {
 // stopToStart stops the VM to start it again (a restart), once what
 // refuses any VM's proxy start, known before (netpolicy.Proxy.Refusal),
 // doesn't: a refused restart leaves the VM running as it was, and says
-// so when it runs (net_proxy_kept), as a refused launch does.
+// so when it runs (net_proxy_kept), as a refused launch does. A size its
+// state can't hold (storedSize), which the start would refuse, leaves it
+// running too.
 func (t *target) stopToStart(ctx context.Context) error {
+	if _, err := storedSize(t.st); err != nil {
+		return err
+	}
 	if err := t.e.Proxy.Refusal(ctx); err != nil {
 		if t.in.Status == backend.StatusRunning {
 			t.e.Warn(msg.NetProxyKept(t.f.Name))

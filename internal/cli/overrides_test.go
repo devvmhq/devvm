@@ -20,8 +20,8 @@ func TestReleaseReadsNoOverrides(t *testing.T) {
 	if testbuild.On() {
 		t.Skip("a test build")
 	}
-	if o := readOverrides(func(string) string { return "/x" }); o != (Overrides{}) {
-		t.Errorf("readOverrides = %+v", o)
+	if o, err := readOverrides(func(string) string { return "/x" }); o != (Overrides{}) || err != nil {
+		t.Errorf("readOverrides = %+v, %v", o, err)
 	}
 	for _, k := range []string{
 		"DEVVM_HOST_MISE", "DEVVM_KVM", "DEVVM_UBUNTU_URL", "DEVVM_UNREVIEWED",

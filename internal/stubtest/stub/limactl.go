@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -178,14 +179,28 @@ func (l *lima) command() (code int, done bool) {
 	return 0, false
 }
 
-// gib is GiB in bytes, rounded as printf's %.0f does.
-func gib(s string) int64 {
+// gib is GiB in bytes, rounded as printf's %.0f does; a size that isn't
+// one, or too big for bytes in an int64, fails, as limactl refuses it.
+func gib(s string) (int64, error) {
 	g, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return 0
+		return 0, fmt.Errorf("invalid size %q: %w", s, err)
 	}
-	n, _ := strconv.ParseInt(strconv.FormatFloat(g*(1<<30), 'f', 0, 64), 10, 64)
-	return n
+	n, err := strconv.ParseInt(strconv.FormatFloat(g*(1<<30), 'f', 0, 64), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid size %q: %w", s, err)
+	}
+	return n, nil
+}
+
+// cpuCount is a --cpus value, which fails unless it's a number, as
+// limactl refuses it.
+func cpuCount(s string) (int, error) {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid --cpus %q: %w", s, err)
+	}
+	return n, nil
 }
 
 // configure is create's, clone's and edit's part in the config: a
@@ -209,18 +224,20 @@ func (l *lima) configure(st *stubstate.State) error {
 		delete(in.Config, "mounts")
 	}
 	cpus, mem, disk := stubstate.DefaultCPUs, int64(stubstate.DefaultMemory), int64(stubstate.DefaultDisk)
+	var err error
 	for i, a := range l.args {
 		switch {
 		case a == "--set":
-			if err := l.set(in, target, l.arg(i+1)); err != nil {
-				return err
-			}
+			err = l.set(in, target, l.arg(i+1))
 		case strings.HasPrefix(a, "--cpus="):
-			cpus, _ = strconv.Atoi(strings.TrimPrefix(a, "--cpus="))
+			cpus, err = cpuCount(strings.TrimPrefix(a, "--cpus="))
 		case strings.HasPrefix(a, "--memory="):
-			mem = gib(strings.TrimPrefix(a, "--memory="))
+			mem, err = gib(strings.TrimPrefix(a, "--memory="))
 		case strings.HasPrefix(a, "--disk="):
-			disk = gib(strings.TrimPrefix(a, "--disk="))
+			disk, err = gib(strings.TrimPrefix(a, "--disk="))
+		}
+		if err != nil {
+			return err
 		}
 	}
 	if l.arg(0) == "create" {
@@ -503,13 +520,17 @@ func (l *lima) resize(st *stubstate.State) error {
 	}
 	for i := 0; i+1 < len(l.args); i++ {
 		v := l.args[i+1]
+		var err error
 		switch l.args[i] {
 		case "--cpus":
-			in.CPUs, _ = strconv.Atoi(v)
+			in.CPUs, err = cpuCount(v)
 		case "--memory":
-			in.Memory = gib(v)
+			in.Memory, err = gib(v)
 		case "--disk":
-			in.Disk = gib(v)
+			in.Disk, err = gib(v)
+		}
+		if err != nil {
+			return err
 		}
 	}
 	return nil

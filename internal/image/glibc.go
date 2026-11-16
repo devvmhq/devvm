@@ -14,17 +14,23 @@ var glibcPattern = regexp.MustCompile(`^[0-9]{1,3}\.[0-9]{1,3}$`)
 // --from base's (2.36) and the newest a tool image needs.
 func ValidGlibc(s string) bool { return glibcPattern.MatchString(s) }
 
-// GlibcOlder reports whether glibc version a is older than b, both
-// ValidGlibc: 2.9 is older than 2.28.
-func GlibcOlder(a, b string) bool {
-	am, an := glibcParts(a)
-	bm, bn := glibcParts(b)
-	return am < bm || am == bm && an < bn
+// GlibcOlder reports whether glibc version a is older than b: 2.9 is
+// older than 2.28. ok is false, and older with it, unless both are
+// ValidGlibc, so a version that isn't one is never read as 0.
+func GlibcOlder(a, b string) (older, ok bool) {
+	am, an, aok := glibcParts(a)
+	bm, bn, bok := glibcParts(b)
+	if !aok || !bok {
+		return false, false
+	}
+	return am < bm || am == bm && an < bn, true
 }
 
-func glibcParts(v string) (major, minor int) {
+// glibcParts is a ValidGlibc version's major and minor numbers; ok is
+// false for one that isn't.
+func glibcParts(v string) (major, minor int, ok bool) {
 	a, b, _ := strings.Cut(v, ".")
-	major, _ = strconv.Atoi(a)
-	minor, _ = strconv.Atoi(b)
-	return major, minor
+	major, errMajor := strconv.Atoi(a)
+	minor, errMinor := strconv.Atoi(b)
+	return major, minor, errMajor == nil && errMinor == nil && ValidGlibc(v)
 }

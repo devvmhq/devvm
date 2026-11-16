@@ -175,8 +175,28 @@ func UserFilesOf(getenv func(string) string) UserFiles {
 		}
 		return p
 	}
-	no, _ := strconv.ParseBool(getenv("GIT_CONFIG_NOSYSTEM"))
-	return UserFiles{Global: file("GIT_CONFIG_GLOBAL"), System: file("GIT_CONFIG_SYSTEM"), NoSystem: no}
+	// git refuses to run at all with a value that isn't a boolean, so none of the system's
+	// config applies then.
+	no, ok := Bool(getenv("GIT_CONFIG_NOSYSTEM"))
+	return UserFiles{Global: file("GIT_CONFIG_GLOBAL"), System: file("GIT_CONFIG_SYSTEM"), NoSystem: no || !ok}
+}
+
+// Bool is a boolean as git reads one, in its config or its environment:
+// true, yes and on in any case, or a whole number other than 0, are true;
+// false, no, off, 0 and "" are false. ok is false for any other value,
+// which git refuses, so each caller decides what that means for it.
+func Bool(v string) (b, ok bool) {
+	switch strings.ToLower(v) {
+	case "true", "yes", "on":
+		return true, true
+	case "", "false", "no", "off":
+		return false, true
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return false, false
+	}
+	return n != 0, true
 }
 
 // UserConfig returns key's value in the user's global config, else in the

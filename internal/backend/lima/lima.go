@@ -253,7 +253,10 @@ func (l *images) originOf(steps []image.Step, f *backend.From) (origin, error) {
 		case s.Name == originUbuntu && len(s.Args) == 1:
 			pin = s.Args[0]
 		case s.Name == originDisk && len(s.Args) == 1:
-			o.diskGiB, _ = strconv.ParseFloat(s.Args[0], 64)
+			// Read as Origin wrote it (gibString), with the check every size in GiB has.
+			if o.diskGiB, err = settings.GiB(originDisk, s.Args[0]); err != nil {
+				return origin{}, fmt.Errorf("lima: base's recipe has the disk size %q: %w", s.Args[0], err)
+			}
 		case s.Name == originConfig:
 			o.yaml = s.Data
 		case strings.HasPrefix(s.Name, "oci/"):

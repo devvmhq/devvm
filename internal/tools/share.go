@@ -351,7 +351,8 @@ func (t Share) Runs(files []string, tg Target) error {
 		if err != nil {
 			return err
 		}
-		if image.ValidGlibc(rec.Glibc) && image.GlibcOlder(tg.Glibc, rec.Glibc) {
+		// A record without a glibc version that's one (musl's) isn't checked.
+		if older, ok := image.GlibcOlder(tg.Glibc, rec.Glibc); ok && older {
 			tool, v, _ := image.ParseToolFile(f)
 			return msg.ToolNeedsGlibc(tg.Glibc, rec.Glibc, tool, v)
 		}

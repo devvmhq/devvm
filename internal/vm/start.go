@@ -63,6 +63,10 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 	if err := refuseUnfinished(vm, st); err != nil {
 		return backend.Confinement{}, err
 	}
+	// A size its state can't hold, refused before anything runs (startOnce reads it again).
+	if _, err := storedSize(st); err != nil {
+		return backend.Confinement{}, err
+	}
 	if err := s.instance(ctx, t, o); err != nil {
 		return backend.Confinement{}, err
 	}
@@ -297,7 +301,8 @@ func folderChanged(st *state.VM) bool {
 func nextStartChanges(st *state.VM, in backend.Instance, mountsLater, confined bool) []msg.M {
 	vm := st.Name()
 	var cs []msg.M
-	if pendingSize(st, in.Size) != (backend.Size{}) {
+	// A size the state can't hold is no change: the next start refuses it, naming it (storedSize).
+	if p, err := pendingSize(st, in.Size); err == nil && p != (backend.Size{}) {
 		cs = append(cs, msg.NextStartSize(vm))
 	}
 	if in.AgentForwarding != sshagent.Forwards(sshagent.Mode(st)) {
@@ -570,6 +575,11 @@ func (s starter) start(ctx context.Context, t *target, conf backend.Confinement)
 // check the project folder's cache mode once the VM runs.
 func (s starter) startOnce(ctx context.Context, t *target, conf backend.Confinement, checkCache bool) (backend.Confinement, error) {
 	vm, st, b := t.f.Name, t.st, t.b
+	// The size its state asks for, refused before anything starts when it isn't one.
+	size, err := storedSize(st)
+	if err != nil {
+		return conf, err
+	}
 	if err := vmssh.ForgetHostKeys(s.Dirs, vm); err != nil {
 		return conf, err
 	}
@@ -588,7 +598,7 @@ func (s starter) startOnce(ctx context.Context, t *target, conf backend.Confinem
 		}
 	}
 	conf.AgentSocket = s.agentSocket(mode)
-	conf, err := s.confine(ctx, b, st, conf)
+	conf, err = s.confine(ctx, b, st, conf)
 	if err != nil {
 		return conf, err
 	}
@@ -612,7 +622,7 @@ func (s starter) startOnce(ctx context.Context, t *target, conf backend.Confinem
 	// agent forwarding.
 	agentDirs, _ := agentMounts(s.Dirs, tools.Names(st))
 	want := backend.Want{
-		Size: sectionOf[Size](st, sizeSection).Backend(), Project: projectMount(st), ProjectCache: cacheOf(st), CheckCache: checkCache,
+		Size: size, Project: projectMount(st), ProjectCache: cacheOf(st), CheckCache: checkCache,
 		AgentDirs: agentDirs, AgentForwarding: sshagent.Forwards(mode),
 	}
 	if want.Project != "" {

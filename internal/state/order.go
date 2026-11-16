@@ -115,6 +115,10 @@ func goroutine() int64 {
 	if i := bytes.IndexByte(b, ' '); i >= 0 {
 		b = b[:i]
 	}
-	n, _ := strconv.ParseInt(string(b), 10, 64) // runtime.Stack's own format
+	n, err := strconv.ParseInt(string(b), 10, 64)
+	if err != nil {
+		// A format runtime.Stack doesn't print today: as 0, every goroutine would share one order.
+		panic(fmt.Sprintf("state: runtime.Stack's goroutine number %q: %v", b, err))
+	}
 	return n
 }

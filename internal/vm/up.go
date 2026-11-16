@@ -332,10 +332,10 @@ func (e creation) create(ctx context.Context, o Options, f project.Folder, b bac
 // that later (an emulation once it's reviewed), made ready for it,
 // otherwise fixed as it's made. Its ssh port is set as it's made
 // (makeMachine), and its ports are forwarded as it starts.
-func (e creation) machineSpec(b backend.Backend, f project.Folder, names []string, agent bool, size Size, clone bool) backend.VMSpec {
+func (e creation) machineSpec(b backend.Backend, f project.Folder, names []string, agent bool, size backend.Size, clone bool) backend.VMSpec {
 	spec := backend.VMSpec{
 		Name: f.Name, Project: f.Dir, AgentDirs: e.AgentMounts(names), Tools: e.Dirs.Tools(), ToolsAt: tools.ShareAt,
-		AgentForwarding: agent, Size: size.Backend(),
+		AgentForwarding: agent, Size: size,
 		Env: trust.GuestEnv(nil),
 	}
 	if clone {
@@ -469,7 +469,12 @@ func (e creation) plan(ctx context.Context, o Options, f project.Folder, b backe
 	n.img, n.tools = parts.image(), parts.tools()
 	n.dcGave = fileParts(o, f.Dir, n.dc, def, parts)
 	n.cache = e.newCache(b)
-	n.spec = e.machineSpec(b, f, n.tools, o.SSHAgent, n.size, o.Clone)
+	// The size as choose left it: the customizing questions can change it.
+	machine, err := n.size.Backend()
+	if err != nil {
+		return newVM{}, err
+	}
+	n.spec = e.machineSpec(b, f, n.tools, o.SSHAgent, machine, o.Clone)
 	n.spec.ProjectCache = n.cache
 	if o.SSHAgent {
 		n.agent = sshagent.On

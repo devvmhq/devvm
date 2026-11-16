@@ -501,6 +501,12 @@ func TestOriginOfRefuses(t *testing.T) {
 		steps[1].Args = slices.Clone(steps[1].Args)
 		return fn(steps)
 	}
+	disk := func(size string) []image.Step {
+		return change(func(s []image.Step) []image.Step {
+			s[len(s)-2] = image.Step{Name: originDisk, Args: []string{size}}
+			return s
+		})
+	}
 	for name, c := range map[string]struct {
 		steps []image.Step
 		from  *backend.From
@@ -514,6 +520,10 @@ func TestOriginOfRefuses(t *testing.T) {
 			s[len(s)-2] = image.Step{Name: originDisk, Args: []string{"big"}}
 			return s
 		}), f},
+		// Sizes ParseFloat reads without an error, or as infinity: never a disk.
+		"a disk of NaN":             {disk("NaN"), f},
+		"a disk of Inf":             {disk("Inf"), f},
+		"a disk past floats":        {disk("1e400"), f},
 		"a conversion without one":  {good, nil},
 		"no conversion with --from": {ubuntuOnly, f},
 		"another digest":            {change(func(s []image.Step) []image.Step { s[1].Args[0] = "debian@sha256:bbbb"; return s }), f},

@@ -23,8 +23,14 @@ func TestGlibc(t *testing.T) {
 		{"2.99", "3.0", true},
 		{"3.0", "2.99", false},
 	} {
-		if got := GlibcOlder(c.a, c.b); got != c.older {
-			t.Errorf("GlibcOlder(%s, %s) = %v", c.a, c.b, got)
+		if got, ok := GlibcOlder(c.a, c.b); got != c.older || !ok {
+			t.Errorf("GlibcOlder(%s, %s) = %v, %v", c.a, c.b, got, ok)
+		}
+	}
+	// A version that isn't one is never read as 0, older than any.
+	for _, c := range [][2]string{{"x", "2.36"}, {"2.36", ""}, {"", "2.9"}, {"2.x", "3.0"}} {
+		if older, ok := GlibcOlder(c[0], c[1]); older || ok {
+			t.Errorf("GlibcOlder(%q, %q) = %v, %v", c[0], c[1], older, ok)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -99,7 +100,10 @@ func ThisHost(h platform.Host) (Host, error) {
 // minDisk GiB (the image's, which can't shrink; 0 for no limit). vm names
 // the VM for the disk's refusal.
 func (s Size) Check(h Host, minDisk float64, vm vmname.VM) error {
-	b := s.Backend()
+	b, err := s.Backend()
+	if err != nil {
+		return err
+	}
 	if b.CPUs > h.CPUs {
 		return msg.TooManyCpus(strconv.Itoa(h.CPUs), s.CPUs)
 	}
@@ -112,20 +116,52 @@ func (s Size) Check(h Host, minDisk float64, vm vmname.VM) error {
 	return nil
 }
 
-// Backend returns a parsed size as the backend has it.
-func (s Size) Backend() backend.Size {
+// Backend returns a size as the backend has it, 0 for what's unset. Each
+// part is read with the check that took it (settings.CPUCount,
+// settings.GiB), so a value that isn't one, such as a state file edited
+// by hand can hold, is refused, named by its key (KeyCPUs, KeyMemory,
+// KeyDisk), rather than read as 0, the image's.
+func (s Size) Backend() (backend.Size, error) {
 	var b backend.Size
-	b.CPUs, _ = strconv.Atoi(s.CPUs)
-	b.MemoryGiB, _ = strconv.ParseFloat(s.Memory, 64)
-	b.DiskGiB, _ = strconv.ParseFloat(s.Disk, 64)
-	return b
+	var err error
+	if s.CPUs != "" {
+		if b.CPUs, err = settings.CPUCount(KeyCPUs, s.CPUs); err != nil {
+			return backend.Size{}, err
+		}
+	}
+	if s.Memory != "" {
+		if b.MemoryGiB, err = settings.GiB(KeyMemory, s.Memory); err != nil {
+			return backend.Size{}, err
+		}
+	}
+	if s.Disk != "" {
+		if b.DiskGiB, err = settings.GiB(KeyDisk, s.Disk); err != nil {
+			return backend.Size{}, err
+		}
+	}
+	return b, nil
+}
+
+// storedSize is the size st asks for its VM, as the backend has it. A
+// value there that isn't a size (a state file edited by hand) is
+// size_stored_invalid, naming it and the VM, so a bad entry never
+// becomes the image's size.
+func storedSize(st *state.VM) (backend.Size, error) {
+	b, err := sectionOf[Size](st, sizeSection).Backend()
+	if bad, ok := errors.AsType[msg.M](err); ok {
+		return backend.Size{}, msg.SizeStoredInvalid(bad.Value("flag"), bad.Value("value"), st.Name()).Because(err)
+	}
+	return b, err
 }
 
 // pendingSize returns what of the size st asks for the VM, which has has,
 // lacks: zero where it matches. Disks only grow, so a smaller one asked
 // for is had.
-func pendingSize(st *state.VM, has backend.Size) backend.Size {
-	want := sectionOf[Size](st, sizeSection).Backend()
+func pendingSize(st *state.VM, has backend.Size) (backend.Size, error) {
+	want, err := storedSize(st)
+	if err != nil {
+		return backend.Size{}, err
+	}
 	var p backend.Size
 	if want.CPUs != 0 && want.CPUs != has.CPUs {
 		p.CPUs = want.CPUs
@@ -136,7 +172,7 @@ func pendingSize(st *state.VM, has backend.Size) backend.Size {
 	if want.DiskGiB > has.DiskGiB {
 		p.DiskGiB = want.DiskGiB
 	}
-	return p
+	return p, nil
 }
 
 // SizeText returns a size as devvm size shows it, without what's unset:
@@ -206,7 +242,11 @@ func (e Settings) ShowSize(ctx context.Context, global bool) (SizeShown, error) 
 		if err != nil {
 			return SizeShown{}, err
 		}
-		s := SizeShown{Size: defaultSize(def).Backend(), Global: true, Sources: map[string]string{}, Labels: map[string]string{}}
+		size, err := defaultSize(def).Backend()
+		if err != nil {
+			return SizeShown{}, err
+		}
+		s := SizeShown{Size: size, Global: true, Sources: map[string]string{}, Labels: map[string]string{}}
 		for k, v := range map[string]settings.Value{KeyCPUs: def.CPUs, KeyMemory: def.Memory, KeyDisk: def.Disk} {
 			s.Sources[k], s.Labels[k] = string(v.Source), v.Source.Label(e.Dirs)
 		}
@@ -216,7 +256,11 @@ func (e Settings) ShowSize(ctx context.Context, global bool) (SizeShown, error) 
 	if err != nil {
 		return SizeShown{}, err
 	}
-	s := SizeShown{Size: t.in.Size, Pending: pendingSize(t.st, t.in.Size)}
+	pending, err := pendingSize(t.st, t.in.Size)
+	if err != nil {
+		return SizeShown{}, err
+	}
+	s := SizeShown{Size: t.in.Size, Pending: pending}
 	switch {
 	case s.Pending == (backend.Size{}):
 	case t.in.Status == backend.StatusRunning:
@@ -248,7 +292,11 @@ func (e Settings) SetSize(ctx context.Context, s Size, global bool) error {
 		return err
 	}
 	vm, st, b := t.f.Name, t.st, t.b
-	if err := e.Registry.Require(b, vm, s.Backend().Features()...); err != nil {
+	size, err := s.Backend()
+	if err != nil {
+		return err
+	}
+	if err := e.Registry.Require(b, vm, size.Features()...); err != nil {
 		return err
 	}
 	in := t.in
@@ -263,7 +311,10 @@ func (e Settings) SetSize(ctx context.Context, s Size, global bool) error {
 	if err != nil {
 		return err
 	}
-	pending := pendingSize(st, in.Size)
+	pending, err := pendingSize(st, in.Size)
+	if err != nil {
+		return err
+	}
 	switch {
 	case pending == (backend.Size{}):
 		e.Info(msg.VMSize(SizeText(in.Size), vm))

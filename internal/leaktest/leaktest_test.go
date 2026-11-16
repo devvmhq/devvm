@@ -75,6 +75,28 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// A goroutine's number, or its parent's, that parse can't read panics,
+// rather than reading as 0, which would cost a goroutine its parent; a
+// "created by" line without a parent's number is no parent.
+func TestParseUnknownFormat(t *testing.T) {
+	if gs := parse([]byte("goroutine 4 [running]:\nmain.f()\ncreated by main.g\n")); len(gs) != 1 || gs[0].parent != 0 {
+		t.Errorf("no parent's number: %+v", gs)
+	}
+	for _, dump := range []string{
+		"goroutine x [running]:\nmain.f()\n",
+		"goroutine 4 [running]:\nmain.f()\ncreated by main.g in goroutine one\n",
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("parse(%q): no panic", dump)
+				}
+			}()
+			parse([]byte(dump))
+		}()
+	}
+}
+
 // A test's goroutines are those it started, theirs through those still
 // running, and those started while it ran by one that has ended; not
 // those running before it, theirs, the allowed ones, or another test's.

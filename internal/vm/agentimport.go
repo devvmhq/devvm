@@ -221,7 +221,10 @@ func (im AgentImport) opencodeMajor(ctx context.Context) int {
 		return 0
 	}
 	major, _, _ := strings.Cut(strings.TrimPrefix(f[len(f)-1], "v"), ".")
-	n, _ := strconv.Atoi(major)
+	n, err := strconv.Atoi(major)
+	if err != nil {
+		return 0 // something else, as above
+	}
 	return n
 }
 

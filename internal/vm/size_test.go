@@ -69,8 +69,72 @@ func TestSizeCheck(t *testing.T) {
 			t.Errorf("Check(memory %s on %d GiB) = %v, want %q", tc.mem, tc.host, msg.NamesOf(err), tc.err)
 		}
 	}
-	if b := (Size{CPUs: "2", Memory: "1.5", Disk: "120"}).Backend(); b != (backend.Size{CPUs: 2, MemoryGiB: 1.5, DiskGiB: 120}) {
-		t.Errorf("Backend = %+v", b)
+}
+
+// Backend reads each part set as a number, and refuses one that isn't a
+// size, naming its key and value, rather than reading it as 0 (the
+// image's) or as infinity.
+func TestSizeBackend(t *testing.T) {
+	if b, err := (Size{CPUs: "2", Memory: "1.5", Disk: "120"}).Backend(); err != nil || b != (backend.Size{CPUs: 2, MemoryGiB: 1.5, DiskGiB: 120}) {
+		t.Errorf("Backend = %+v, %v", b, err)
+	}
+	if b, err := (Size{}).Backend(); err != nil || b != (backend.Size{}) {
+		t.Errorf("Backend of none = %+v, %v", b, err)
+	}
+	huge := "1" + strings.Repeat("0", 400)
+	for s, want := range map[Size]string{
+		{CPUs: "four"}:                 `cpus_not_number flag=cpus value="four"`,
+		{CPUs: "99999999999999999999"}: `cpus_not_number flag=cpus value="99999999999999999999"`,
+		{Memory: "8GB"}:                `size_not_gib flag=memory value="8GB"`,
+		{Memory: huge}:                 `size_not_gib flag=memory value="` + huge + `"`,
+		{CPUs: "2", Disk: "NaN"}:       `size_not_gib flag=disk value="NaN"`,
+		{Disk: "-50"}:                  `size_not_gib flag=disk value="-50"`,
+	} {
+		if b, err := s.Backend(); b != (backend.Size{}) || msg.NamesOf(err) != want {
+			t.Errorf("Backend(%+v) = %+v, %v, want %s", s, b, msg.NamesOf(err), want)
+		}
+	}
+}
+
+// A size in a VM's state that isn't one (a state file edited by hand) is
+// refused, naming the VM, the key and the value: devvm size shows and
+// sets nothing else, and the VM doesn't start; devvm size --cpus sets it
+// again.
+func TestStoredSizeInvalid(t *testing.T) {
+	e, f, _ := upEnv(t, allNative())
+	st := existingVM(t, e, Options{Network: "open"})
+	vm := st.Name()
+	change(t, st, func(st *state.VM) error { return state.SetSection(st, sizeSection, Size{CPUs: "four", Memory: "8"}) })
+	want := `size_stored_invalid key=cpus value="four" vm=` + vm.String()
+	// Running: a restart refuses before it stops the VM, which keeps running.
+	before := len(f.Calls())
+	if err := (Launch{e}).Restart(t.Context(), Options{}); msg.NamesOf(err) != want {
+		t.Errorf("Restart: %s, want %s", msg.NamesOf(err), want)
+	}
+	if ms := f.Methods()[before:]; slices.Contains(ms, "Stop") || slices.Contains(ms, "Start") || f.Instances[vm].Status != backend.StatusRunning {
+		t.Errorf("restart refused: calls %q, status %s", ms, f.Instances[vm].Status)
+	}
+	if err := f.Stop(t.Context(), vm); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Settings{e}).ShowSize(t.Context(), false); msg.NamesOf(err) != want {
+		t.Errorf("ShowSize: %s, want %s", msg.NamesOf(err), want)
+	}
+	before = len(f.Calls())
+	if err := (Launch{e}).Up(t.Context(), Options{}); msg.NamesOf(err) != want {
+		t.Errorf("Up: %s, want %s", msg.NamesOf(err), want)
+	}
+	if ms := f.Methods()[before:]; slices.Contains(ms, "Start") {
+		t.Errorf("started: %q", ms)
+	}
+	if err := (Settings{e}).SetSize(t.Context(), Size{CPUs: "2"}, false); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	if err := (Launch{e}).Up(t.Context(), Options{}); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	if c := call(f, "Start"); c.Args[1].(backend.Want).Size != (backend.Size{CPUs: 2, MemoryGiB: 8}) {
+		t.Errorf("started wanting %+v", c.Args[1])
 	}
 }
 
@@ -117,8 +181,8 @@ func TestSetSize(t *testing.T) {
 		t.Errorf("state cpus=%q memory=%q", get(st, KeyCPUs), get(st, KeyMemory))
 	}
 	st, _ = state.ReadVM(e.Dirs, vm)
-	if p := pendingSize(st, f.Instances[vm].Size); p != (backend.Size{CPUs: 2}) {
-		t.Errorf("pending = %+v", p)
+	if p, err := pendingSize(st, f.Instances[vm].Size); err != nil || p != (backend.Size{CPUs: 2}) {
+		t.Errorf("pending = %+v, %v", p, err)
 	}
 
 	if err := s.SetSize(t.Context(), Size{Disk: "50"}, false); msg.NamesOf(err) != "disk_shrink have=100 vm="+vm.String()+" want=50" {

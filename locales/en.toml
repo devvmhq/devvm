@@ -1248,6 +1248,10 @@ other = "{{.flag}} takes a whole number of CPUs, not {{.value}}."
 description = "flag is --memory or --disk, or config.toml's memory or disk; value is quoted, as given"
 other = "{{.flag}} takes a size in GiB, such as 16, 16G or 16GiB, not {{.value}}."
 
+[size_stored_invalid]
+description = "vm is the VM's name; key is cpus, memory or disk; value is quoted, as the VM's state file has it"
+other = "{{.vm}}'s state file sets its {{.key}} to {{.value}}, which isn't a size devvm can use. Set it again with devvm size --{{.key}}."
+
 [too_many_cpus]
 other = "This machine has {{.have}} CPUs, fewer than --cpus {{.want}} asks for."
 

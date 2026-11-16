@@ -49,6 +49,17 @@ type goroutine struct {
 	stack  string
 }
 
+// stackNumber is a goroutine's number as runtime.Stack prints it. One it
+// can't read is a format it doesn't know, which panics: read as 0, a
+// goroutine would lose its parent and a leak could pass.
+func stackNumber(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		panic(fmt.Sprintf("leaktest: runtime.Stack's goroutine number %q: %v", s, err))
+	}
+	return n
+}
+
 // parse reads runtime.Stack's goroutines.
 func parse(dump []byte) []goroutine {
 	var gs []goroutine
@@ -58,8 +69,7 @@ func parse(dump []byte) []goroutine {
 		if !ok {
 			continue
 		}
-		id, _ := strconv.Atoi(strings.Fields(head)[0])
-		g := goroutine{id: id, stack: block}
+		g := goroutine{id: stackNumber(strings.Fields(head)[0]), stack: block}
 		for _, l := range lines[1:] {
 			if strings.HasPrefix(l, "\t") || strings.HasPrefix(l, "...") {
 				continue
@@ -67,7 +77,9 @@ func parse(dump []byte) []goroutine {
 			if by, ok := strings.CutPrefix(l, "created by "); ok {
 				fn, in, _ := strings.Cut(by, " in goroutine ")
 				g.funcs = append(g.funcs, fn)
-				g.parent, _ = strconv.Atoi(in)
+				if in != "" {
+					g.parent = stackNumber(in)
+				}
 				continue
 			}
 			if i := strings.LastIndex(l, "("); i > 0 {

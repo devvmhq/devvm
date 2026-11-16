@@ -422,7 +422,10 @@ func (e remaking) check(t *target, p remakeInVM) error {
 	if err := (build.Names{Env: e.Builder(b, fromOf(t, p))}).Check(img); err != nil {
 		return err
 	}
-	spec := e.spec(t, p)
+	spec, err := e.spec(t, p)
+	if err != nil {
+		return err
+	}
 	cur, err := ports.Of(t.st)
 	if err != nil {
 		return err
@@ -446,16 +449,21 @@ func (e remaking) check(t *target, p remakeInVM) error {
 // (creation.machineSpec, as up makes a new VM's): its shared tools, SSH
 // agent, size and cache mode, in the clone mode p makes it in
 // (wantsClone). devvm clone off mounts the folder anew, so with no mode
-// chosen it's none (switchCache).
-func (e remaking) spec(t *target, p remakeInVM) backend.VMSpec {
+// chosen it's none (switchCache). A size its state can't hold is refused
+// (storedSize).
+func (e remaking) spec(t *target, p remakeInVM) (backend.VMSpec, error) {
 	st := t.st
+	size, err := storedSize(st)
+	if err != nil {
+		return backend.VMSpec{}, err
+	}
 	spec := e.creation.machineSpec(t.b, t.f, tools.Names(st), sshagent.Forwards(sshagent.Mode(st)),
-		sectionOf[Size](st, sizeSection), wantsClone(st, p))
+		size, wantsClone(st, p))
 	spec.ProjectCache = cacheOf(st)
 	if p.Clone == CloneOff {
 		spec.ProjectCache = e.switchCache(t)
 	}
-	return spec
+	return spec, nil
 }
 
 // switchCache is the cache mode of the folder that devvm clone off mounts
@@ -604,7 +612,11 @@ func (e remaking) finish(ctx context.Context, t *target, p remakeInVM, c chainOf
 	vm, st, b := t.f.Name, t.st, t.b
 	e.Info(msg.CreatingFrom(p.Image, vm))
 	e.LogNote()
-	if err := e.creation.makeMachine(ctx, b, st, c.key, e.spec(t, p)); err != nil {
+	spec, err := e.spec(t, p)
+	if err != nil {
+		return err
+	}
+	if err := e.creation.makeMachine(ctx, b, st, c.key, spec); err != nil {
 		return err
 	}
 	t.exists = true
@@ -618,7 +630,7 @@ func (e remaking) finish(ctx context.Context, t *target, p remakeInVM, c chainOf
 	if p.Clone == CloneOff {
 		git, cache = e.Protector(t.f.Dir).NewSection(false), e.switchCache(t)
 	}
-	err := st.Update(ctx, func(st *state.VM) error {
+	err = st.Update(ctx, func(st *state.VM) error {
 		if err := madeWith(st, p); err != nil {
 			return err
 		}

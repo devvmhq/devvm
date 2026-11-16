@@ -65,9 +65,14 @@ func (m *made[T]) get(mk func() (T, error)) (T, error) {
 func (a *app) dirs() (paths.Dirs, error) { return a.folders.get(paths.FromEnv) }
 
 // testOverrides is this build's overrides, read from the environment
-// (readOverrides): a release's are empty.
+// (readOverrides): a release's are empty. A test build's that can't be
+// read panics: the test that set it is wrong, and a release never gets
+// here with one.
 func (a *app) testOverrides() Overrides {
-	o, _ := a.overrides.get(func() (Overrides, error) { return readOverrides(os.Getenv), nil })
+	o, err := a.overrides.get(func() (Overrides, error) { return readOverrides(os.Getenv) })
+	if err != nil {
+		panic("devvm: a test build's override: " + err.Error())
+	}
 	return o
 }
 
