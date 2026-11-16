@@ -35,6 +35,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/safefile"
 )
 
 // NixCacheDefault is the shared Nix cache's cap when no setting gives one: 10 GiB.
@@ -438,12 +440,15 @@ func (n *nixCache) serveNar(w http.ResponseWriter, r *http.Request, p string, e 
 // serveCachedNar serves the cache's copy of a NAR, if it has one. When a narinfo this proxy checked
 // names it, a copy of another size isn't that NAR, so it goes.
 func serveCachedNar(w http.ResponseWriter, r *http.Request, file string, m narMeta, ok bool) bool {
-	f, err := os.Open(file) //nolint:gosec // a name nixPath checked, in the cache's folder
+	f, err := safefile.Open(file, safefile.Opts{}) // never through a link, nor waiting on a FIFO
+	if errors.Is(err, safefile.ErrNotRegular) {
+		_ = os.Remove(file) //nolint:gosec // a name nixPath checked, in the cache's folder: the link itself goes
+	}
 	if err != nil {
 		return false
 	}
 	defer func() { _ = f.Close() }()
-	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() || (ok && fi.Size() != m.fileSize) {
+	if ok && f.Info.Size() != m.fileSize {
 		_ = os.Remove(file) //nolint:gosec // a name nixPath checked, in the cache's folder
 		return false
 	}
@@ -584,8 +589,10 @@ func (n *nixCache) keepBytes(file string, data []byte) error {
 	})
 }
 
+// readUpTo reads at most limit bytes of the cache's file, a regular file opened never through a
+// link (another VM's proxy writes the cache too) and without waiting on a FIFO.
 func readUpTo(file string, limit int64) ([]byte, error) {
-	f, err := os.Open(file) //nolint:gosec // a name nixPath checked, in the cache's folder
+	f, err := safefile.Open(file, safefile.Opts{})
 	if err != nil {
 		return nil, err
 	}
@@ -620,14 +627,37 @@ func (n *nixCache) open() error {
 	return nil
 }
 
-// lockNix holds the cache's lock, which every proxy and devvm gc take to change what's in it.
-func lockNix(dir string) (func(), error) {
-	f, err := os.OpenFile(filepath.Join(dir, ".lock"), os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // the cache's own lock
+// nixLockWait is how long a proxy or devvm gc waits for the cache's lock: a VM's proxy's child
+// that a VM took over could hold it for ever, which would otherwise hang every other VM's /nix/
+// requests and devvm gc's trim.
+const nixLockWait = 5 * time.Second
+
+// ErrNixLocked is the error of a change to the shared Nix cache whose lock another process held
+// for nixLockWait: a request answers 404, and devvm gc skips its trim and says so.
+var ErrNixLocked = errors.New("another process holds the shared Nix cache's lock")
+
+// lockNix holds the cache's lock, which every proxy and devvm gc take to change what's in it:
+// tried without blocking until nixLockWait has passed (ErrNixLocked), its file opened never
+// through a link and taken only when it's a regular file with one link.
+func lockNix(dir string) (func(), error) { return lockNixWithin(dir, nixLockWait) }
+
+// lockNixWithin is lockNix, waiting at most wait.
+func lockNixWithin(dir string, wait time.Duration) (func(), error) {
+	f, err := os.OpenFile(filepath.Join(dir, ".lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600) //nolint:gosec // the cache's own lock, checked once open
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, fmt.Errorf("the shared Nix cache's lock: %w", safefile.ErrNotRegular)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if _, err := safefile.Checked(f, safefile.Opts{OneLink: true}); err != nil {
+		return nil, err
+	}
+	if err := flockWithin(int(f.Fd()), syscall.LOCK_EX, wait); err != nil {
 		_ = f.Close()
+		if errors.Is(err, errLocked) {
+			return nil, ErrNixLocked
+		}
 		return nil, err
 	}
 	return func() { _ = f.Close() }, nil
@@ -637,7 +667,7 @@ func lockNix(dir string) (func(), error) {
 func sizeFile(dir string) string { return filepath.Join(dir, ".size") }
 
 func readSize(dir string) (int64, bool) {
-	b, err := os.ReadFile(sizeFile(dir))
+	b, err := safefile.Read(sizeFile(dir), 64, safefile.Opts{})
 	if err != nil {
 		return 0, false
 	}
@@ -695,8 +725,8 @@ func addSize(dir string, n int64) {
 
 // nixFile is one file in the cache.
 type nixFile struct {
-	path    string
-	size    int64 // its size or the disk it takes, whichever is more
+	name    string // its path in the cache's folder: NAME or nar/NAME
+	size    int64  // its size or the disk it takes, whichever is more
 	used    time.Time
 	writing bool // a fetch's file, being written
 }
@@ -713,15 +743,29 @@ func diskSize(fi fs.FileInfo) int64 {
 	return fi.Size()
 }
 
-// cacheFiles lists the cache's narinfos, NARs and the files fetches are writing, deleting those
-// that dead proxies left.
-func cacheFiles(dir string) ([]nixFile, error) {
+// cacheFiles lists the cache's narinfos, NARs and the files fetches are writing, in root, the
+// cache's folder, deleting those that dead proxies left. A VM's proxy's child writes the folder,
+// so what's there is listed and deleted beneath it alone: nar/ only when it's a folder, never a
+// link, and only regular files, a link's own name deleted, never what it leads to.
+func cacheFiles(root *safefile.Root) ([]nixFile, error) {
 	var out []nixFile
-	for _, d := range []string{dir, filepath.Join(dir, "nar")} {
-		entries, err := os.ReadDir(d)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		} else if err != nil {
+	for _, sub := range []string{"", "nar"} {
+		r := root
+		if sub != "" {
+			// A link, or anything else but a folder, in nar/'s place is no part of the cache.
+			if fi, err := root.Lstat(sub); err != nil || !fi.IsDir() {
+				continue
+			}
+			var err error
+			if r, err = root.OpenDir(sub); errors.Is(err, fs.ErrNotExist) || errors.Is(err, safefile.ErrSwapped) {
+				continue
+			} else if err != nil {
+				return nil, err
+			}
+			defer func() { _ = r.Close() }()
+		}
+		entries, err := r.ReadDir()
+		if err != nil {
 			return nil, err
 		}
 		for _, e := range entries {
@@ -729,25 +773,39 @@ func cacheFiles(dir string) ([]nixFile, error) {
 			if err != nil || !fi.Mode().IsRegular() {
 				continue
 			}
-			p, writing := filepath.Join(d, e.Name()), strings.HasPrefix(e.Name(), ".tmp-")
+			name, writing := filepath.Join(sub, e.Name()), strings.HasPrefix(e.Name(), ".tmp-")
 			if writing && time.Since(fi.ModTime()) > nixTmpAge {
-				_ = os.Remove(p)
+				_ = root.Remove(name)
 				continue
 			}
 			if !writing && strings.HasPrefix(e.Name(), ".") {
 				continue
 			}
-			out = append(out, nixFile{p, diskSize(fi), fi.ModTime(), writing})
+			out = append(out, nixFile{name, diskSize(fi), fi.ModTime(), writing})
 		}
 	}
 	return out, nil
 }
 
-// trim counts what the cache takes, the files being fetched included, and when that's over
-// limit, deletes the least recently used of the rest until it takes at most target. It returns
-// what the cache takes then, and how many files it deleted and what they took.
+// openCache is the cache's folder dir as a root (cacheFiles), nil when there's none.
+func openCache(dir string) (*safefile.Root, error) {
+	r, err := safefile.OpenRoot(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return r, err
+}
+
+// trim counts what the cache in dir takes, the files being fetched included, and when that's
+// over limit, deletes the least recently used of the rest until it takes at most target. It
+// returns what the cache takes then, and how many files it deleted and what they took.
 func trim(dir string, limit, target int64) (int64, int, int64, error) {
-	files, err := cacheFiles(dir)
+	root, err := openCache(dir)
+	if err != nil || root == nil {
+		return 0, 0, 0, err
+	}
+	defer func() { _ = root.Close() }()
+	files, err := cacheFiles(root)
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -767,7 +825,7 @@ func trim(dir string, limit, target int64) (int64, int, int64, error) {
 		if f.writing {
 			continue
 		}
-		if err := os.Remove(f.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := root.Remove(f.name); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return total, n, freed, err
 		}
 		total, freed = total-f.size, freed+f.size
@@ -779,7 +837,12 @@ func trim(dir string, limit, target int64) (int64, int, int64, error) {
 // NixCacheUsage is how many files the shared Nix cache in dir holds and the disk they take,
 // as its cap counts it.
 func NixCacheUsage(dir string) (int, int64, error) {
-	files, err := cacheFiles(dir)
+	root, err := openCache(dir)
+	if err != nil || root == nil {
+		return 0, 0, err
+	}
+	defer func() { _ = root.Close() }()
+	files, err := cacheFiles(root)
 	n, size := 0, int64(0)
 	for _, f := range files {
 		if !f.writing {
@@ -791,7 +854,8 @@ func NixCacheUsage(dir string) (int, int64, error) {
 
 // TrimNixCache deletes the least recently used files of the shared Nix cache in dir until it takes
 // at most limit (0: all of them, but those being fetched), under the lock the proxies take, and
-// returns how many files it deleted and the disk they took.
+// returns how many files it deleted and the disk they took. A lock another process holds past
+// nixLockWait skips the trim: ErrNixLocked.
 func TrimNixCache(dir string, limit int64) (int, int64, error) {
 	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
 		return 0, 0, nil

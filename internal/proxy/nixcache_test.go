@@ -16,8 +16,11 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/devvmhq/devvm/internal/safefile"
 )
 
 // The fixtures are cache.nixos.org's own: Nix 2.35.4 for aarch64-linux, and its NAR.
@@ -437,6 +440,58 @@ func TestTrimNixCache(t *testing.T) {
 	}
 	if n, _, err := TrimNixCache(filepath.Join(dir, "none"), 0); n != 0 || err != nil {
 		t.Errorf("no cache: %d %v", n, err)
+	}
+}
+
+// What a VM's proxy's child could plant in the shared cache leads its trim nowhere: a link in a
+// file's place, or in nar/'s, is deleted, or left, as itself, never what it leads to; a hard link
+// of another file goes as a name alone; a FIFO is never read or waited on; and a lock file that
+// isn't a regular file is refused.
+func TestTrimNixCachePlanted(t *testing.T) {
+	t.Parallel()
+	dir, mine := t.TempDir(), t.TempDir()
+	keep := filepath.Join(mine, "keep")
+	must(t, os.WriteFile(keep, []byte("mine"), 0o600))
+	must(t, os.Mkdir(filepath.Join(mine, "nar"), 0o700))
+	writeCached(t, mine, "nar/x.nar", 64<<10, time.Now().Add(-time.Hour))
+	must(t, os.Symlink(keep, filepath.Join(dir, "a.narinfo")))
+	must(t, os.Symlink(filepath.Join(mine, "nar"), filepath.Join(dir, "nar")))
+	must(t, os.Link(keep, filepath.Join(dir, "b.narinfo")))
+	must(t, syscall.Mkfifo(filepath.Join(dir, "c.narinfo"), 0o600))
+	if n, _, err := NixCacheUsage(dir); err != nil || n != 1 {
+		t.Errorf("usage: %d, %v (the hard link's name alone)", n, err)
+	}
+	if _, _, err := TrimNixCache(dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(keep); err != nil || string(b) != "mine" { //nolint:gosec // the test's own file
+		t.Errorf("the planted links' target: %q, %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(mine, "nar", "x.nar")); err != nil {
+		t.Errorf("a file through the planted nar/ went: %v", err)
+	}
+	// A lock file that's a FIFO: refused, never waited on.
+	other := t.TempDir()
+	must(t, syscall.Mkfifo(filepath.Join(other, ".lock"), 0o600))
+	if _, _, err := TrimNixCache(other, 0); !errors.Is(err, safefile.ErrNotRegular) {
+		t.Errorf("a FIFO for a lock: %v", err)
+	}
+}
+
+// A lock another process holds is waited for no longer than its wait: ErrNixLocked, which devvm
+// gc reports as a skipped trim.
+func TestNixLockWaits(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	unlock, err := lockNix(dir)
+	must(t, err)
+	defer unlock()
+	start := time.Now()
+	if _, err := lockNixWithin(dir, 200*time.Millisecond); !errors.Is(err, ErrNixLocked) {
+		t.Errorf("a held lock: %v", err)
+	}
+	if took := time.Since(start); took < 200*time.Millisecond || took > 2*time.Second {
+		t.Errorf("waited %v", took)
 	}
 }
 

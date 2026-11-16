@@ -78,6 +78,62 @@ func TestDetach(t *testing.T) {
 	}
 }
 
+// A process its caller chooses everything of, as a proxy's broker starts its child: its error
+// output apart from its output, the descriptors it inherits from 3 on, and an environment of
+// the caller's alone, its status file's added. Kill ends it, and Exit says how; WritePID writes
+// its pid as Start would.
+func TestSpawnChosen(t *testing.T) {
+	t.Setenv("DEVVM_E2E_LEAK", "x")
+	dir := t.TempDir()
+	out, err := os.Create(filepath.Join(dir, "out")) //nolint:gosec // the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = out.Close() }()
+	errOut, err := os.Create(filepath.Join(dir, "err")) //nolint:gosec // the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = errOut.Close() }()
+	extra := filepath.Join(dir, "extra")
+	if err := os.WriteFile(extra, []byte("third"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(extra) //nolint:gosec // the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	script := `echo "env=$(env | sort | tr '\n' ' ')"; echo oops >&2; cat <&3; echo; exec sleep 30`
+	h, err := Spawn(Cmd{
+		Path: "/bin/sh", Args: []string{"-c", script}, Out: out, Err: errOut, Files: []*os.File{f},
+		Env: []string{"A=1"}, Status: "/s", DieWithThread: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := output(t, out.Name(), "third")
+	if !strings.Contains(got, "A=1") || strings.Contains(got, "DEVVM_E2E_LEAK") || !strings.Contains(got, StatusEnv+"=/s") || !strings.Contains(got, "third") {
+		t.Errorf("output %q", got)
+	}
+	if e := output(t, errOut.Name(), "oops"); e != "oops\n" {
+		t.Errorf("error output %q", e)
+	}
+	if h.Exit() != "running" {
+		t.Errorf("Exit while it runs: %q", h.Exit())
+	}
+	pidFile := filepath.Join(dir, "pid")
+	if err := WritePID(pidFile, h.PID()); err != nil || output(t, pidFile, "\n") != strconv.Itoa(h.PID())+"\n" {
+		t.Errorf("WritePID: %v", err)
+	}
+	h.Kill()
+	<-h.Done()
+	if h.Exit() != "signal: killed" {
+		t.Errorf("Exit = %q", h.Exit())
+	}
+	h.Kill() // ended: nothing
+}
+
 // A Handle stops its process with SIGTERM, or SIGKILL when that doesn't
 // end it; one that has ended gets no signal; a nil one is none.
 func TestHandleStop(t *testing.T) {

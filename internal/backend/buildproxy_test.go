@@ -47,10 +47,9 @@ func TestProxyStarter(t *testing.T) {
 	c, err := proxy.ReadConfig(config)
 	if want := (proxy.Config{
 		Version: proxy.ConfigVersion, Listen: "127.0.0.1:0", VM: "devvm-img-x", Password: p.Password,
-		Policies: []string{filepath.Join(dir, "policy")}, Log: filepath.Join(dir, "events.jsonl"), Lifeline: "/run/ha.pid",
+		Policies: []string{filepath.Join(dir, "policy")}, Log: filepath.Join(dir, "logs", "events.jsonl"),
 		// Its own log, held to its limit as a VM's proxy holds its own.
-		ProxyLog: filepath.Join(dir, "proxy.log"),
-		Upstream: up, UpstreamUnresolved: true,
+		ProxyLog: filepath.Join(dir, "logs", "proxy.log"), Lifeline: "/run/ha.pid", Upstream: up, UpstreamUnresolved: true,
 	}); err != nil || !reflect.DeepEqual(c, want) {
 		t.Errorf("config = %+v, %v; want %+v", c, err, want)
 	}
@@ -72,8 +71,9 @@ func TestProxyStarter(t *testing.T) {
 	if _, err := os.Stat(config); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("its config stayed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "proxy.log")); err != nil {
-		t.Errorf("the log went: %v", err)
+	// The logs, in a folder of their own, which the child writes.
+	if fi, err := os.Stat(filepath.Join(dir, "logs", "proxy.log")); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("the log went: %v %v", fi, err)
 	}
 
 	// Without a company proxy, none in its config.
@@ -123,7 +123,7 @@ func TestProxyStarterFails(t *testing.T) {
 			return h, daemon.WriteStatus(c.Status, h.PID(), "127.0.0.1:40123")
 		}}
 		_, err := s.Start(dir, proxy.Config{VM: "b", Lifeline: "/l"})
-		if msg.NamesOf(err) != "proxy_start_failed log="+filepath.Join(dir, "proxy.log")+" vm=b" {
+		if msg.NamesOf(err) != "proxy_start_failed log="+filepath.Join(dir, "logs", "proxy.log")+" vm=b" {
 			t.Errorf("%q: Start = %v", say, err)
 		}
 		select {

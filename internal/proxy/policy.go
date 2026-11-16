@@ -339,13 +339,18 @@ func ReadPolicy(path string) ([]byte, error) {
 // newPolicy is the policy of builtin, files and denies, whose denies alone apply, logging to l,
 // the proxy's own log, what was read and what was skipped.
 func newPolicy(builtin []rule, files, denies []string, l *log.Logger) *policy {
+	return newPolicyOf(builtin, localSources(watchPolicy, files), localSources(watchPolicy, denies), l)
+}
+
+// newPolicyOf is newPolicy, its files read as each source reads it: by the broker, for the child.
+func newPolicyOf(builtin []rule, files, denies []watchSource, l *log.Logger) *policy {
 	p := &policy{builtin: builtin}
-	add := func(f string, deniesOnly bool) {
+	add := func(f watchSource, deniesOnly bool) {
 		p.files = append(p.files, &watched[policyFile]{
 			// A FIFO or a device there (a link to /dev/zero) is refused, not read (ReadPolicy).
-			path: f, follow: true, keep: true,
-			read:   ReadPolicy,
-			parse:  func(b []byte) (policyFile, error) { return loadPolicy(f, string(b), deniesOnly, l), nil },
+			path: f.path, follow: true, keep: true,
+			read:   f.read,
+			parse:  func(b []byte) (policyFile, error) { return loadPolicy(f.path, string(b), deniesOnly, l), nil },
 			onFail: func(err error) { l.Printf("policy %v; its last rules kept", err) },
 		})
 	}

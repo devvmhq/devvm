@@ -40,19 +40,22 @@ type BuildProxy struct {
 	dir      string
 }
 
-// Start starts the proxy of a build (c.VM), its files in dir, made again
-// and the user's alone: its config (proxy.json), its policy, its log
-// (proxy.log) and its event log (events.jsonl). c has what the build
-// chose: its lifeline, the company proxy it goes through and whether names
-// the host can't resolve go there; Start sets the rest. It listens on a
-// loopback port of its own and ends when the process its lifeline's pid
-// file names does, or at Stop. It returns once the proxy says it listens,
-// in its status file (status), and still runs.
+// Start starts the proxy of a build (c.VM), its broker and its child, its
+// files in dir, made again and the user's alone: its config (proxy.json),
+// its policy and its status file, and in a folder of their own, logs/,
+// which the child writes, its log (proxy.log) and its event log
+// (events.jsonl). c has what the build chose: its lifeline, the company
+// proxy it goes through and whether names the host can't resolve go
+// there; Start sets the rest. It listens on a loopback port of its own
+// and ends when the process its lifeline's pid file names does, or at
+// Stop. It returns once the proxy says it listens, in its status file
+// (status), and still runs.
 func (s ProxyStarter) Start(dir string, c proxy.Config) (*BuildProxy, error) {
 	if err := os.RemoveAll(dir); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	logs := filepath.Join(dir, "logs")
+	if err := os.MkdirAll(logs, 0o700); err != nil {
 		return nil, err
 	}
 	pw, err := NewProxyPassword()
@@ -60,20 +63,21 @@ func (s ProxyStarter) Start(dir string, c proxy.Config) (*BuildProxy, error) {
 		return nil, err
 	}
 	p := &BuildProxy{Password: pw, dir: dir}
-	policy, logPath := filepath.Join(dir, "policy"), filepath.Join(dir, "proxy.log")
+	policy, logPath := filepath.Join(dir, "policy"), filepath.Join(logs, "proxy.log")
 	if err := state.WriteFile(policy, []byte("# a build: any host, not this machine's own or internal addresses\n**\n")); err != nil {
 		return nil, err
 	}
 	// Its own log is its output, which it holds to its limit as a VM's
 	// proxy does (proxy.Config.ProxyLog).
-	c.Listen, c.Password, c.Policies, c.Log, c.ProxyLog = "127.0.0.1:0", pw, []string{policy}, filepath.Join(dir, "events.jsonl"), logPath
+	c.Listen, c.Password, c.Policies = "127.0.0.1:0", pw, []string{policy}
+	c.Log, c.ProxyLog = filepath.Join(logs, "events.jsonl"), logPath
 	// The password and the company proxy's credentials go in the config,
 	// the user's alone: a process's arguments are visible to other users.
 	config := filepath.Join(dir, configFile)
 	if err := state.WriteFile(config, c.Encode()); err != nil {
 		return nil, err
 	}
-	out, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // devvm's own log
+	out, err := proxy.OpenLog(logPath)
 	if err != nil {
 		return nil, err
 	}
@@ -94,9 +98,9 @@ func (s ProxyStarter) Start(dir string, c proxy.Config) (*BuildProxy, error) {
 
 // Stop stops the proxy, through the process Start started (daemon.Handle),
 // so the signal reaches it alone, never another process given its pid
-// since: SIGTERM, then after two seconds SIGKILL. It deletes its config,
-// which holds its password and the company proxy's, leaving its logs. A
-// nil one is none.
+// since: SIGTERM, which has the broker stop its child, then after two
+// seconds SIGKILL. It deletes its config, which holds its password and
+// the company proxy's, leaving its logs. A nil one is none.
 func (p *BuildProxy) Stop() {
 	if p == nil {
 		return

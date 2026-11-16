@@ -394,6 +394,18 @@ func (f *proxies) start(t *testing.T) daemon.Starter {
 			go func() { _ = cmd.Wait(); close(done) }()
 			f.reaped[pid] = done
 			t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
+			// Its child, as the broker starts it and writes its pid file.
+			child := exec.CommandContext(t.Context(), "sleep", "30")
+			if err := child.Start(); err != nil {
+				return 0, err
+			}
+			childDone := make(chan struct{})
+			go func() { _ = child.Wait(); close(childDone) }()
+			t.Cleanup(func() { _ = child.Process.Kill(); <-childDone })
+			f.args[child.Process.Pid] = []string{path, proxy.ChildCommand, "-for", args[2]}
+			if err := daemon.WritePID(proxy.ChildPIDFile(args[2]), child.Process.Pid); err != nil {
+				return 0, err
+			}
 			if err := daemon.WriteStatus(c.Status, pid, cfg.Listen); err != nil {
 				return 0, err
 			}
@@ -1191,7 +1203,14 @@ func TestPID(t *testing.T) {
 	}
 	// Stopping it signals nothing: the pid is another program's now.
 	var signalled []int
-	p.Signal = func(pid int, _ syscall.Signal) error { signalled = append(signalled, pid); return nil }
+	// Its child, which still runs as the VM's proxy's child, is stopped as it is.
+	p.Signal = func(got int, sig syscall.Signal) error {
+		if got != pid {
+			return daemon.Signal(got, sig)
+		}
+		signalled = append(signalled, got)
+		return nil
+	}
 	if !p.Stop(st.Name()) || len(signalled) != 0 {
 		t.Errorf("Stop of another program's pid: signalled %v", signalled)
 	}
@@ -1220,6 +1239,62 @@ func TestStopKeepsFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(d.VM(st.Name()).ProxyConfig()); err != nil {
 		t.Errorf("its files: %v", err)
+	}
+}
+
+// Stop stops a child that outlived its broker, found by its pid file and
+// its arguments, and removes what the broker said of it; a pid file that
+// names another program signals nothing.
+func TestStopEndsAnOrphanedChild(t *testing.T) {
+	d, st := sandbox(t, "base")
+	p, f := testProxy(t, d)
+	files := d.VM(st.Name())
+	if err := os.MkdirAll(files.Run(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	child := exec.CommandContext(t.Context(), "sleep", "30")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = child.Wait(); close(done) }()
+	t.Cleanup(func() { _ = child.Process.Kill(); <-done })
+	pid := child.Process.Pid
+	f.mu.Lock()
+	f.args[pid] = []string{"/bin/sh", "_proxy-child", "-for", d.VM("devvm-other-0123456789abc9").ProxyConfig()}
+	f.mu.Unlock()
+	confined := proxy.ConfinedFile(files.ProxyConfig())
+	for _, file := range []string{proxy.ChildPIDFile(files.ProxyConfig()), confined} {
+		if err := daemon.WritePID(file, pid); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var signalled []int
+	p.Signal = func(pid int, sig syscall.Signal) error {
+		signalled = append(signalled, pid)
+		return daemon.Signal(pid, sig)
+	}
+	if !p.Stop(st.Name()) || len(signalled) != 0 {
+		t.Errorf("another VM's child: signalled %v", signalled)
+	}
+	if err := daemon.WritePID(proxy.ChildPIDFile(files.ProxyConfig()), pid); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.args[pid] = []string{"/bin/sh", "_proxy-child", "-for", files.ProxyConfig()}
+	f.mu.Unlock()
+	if !p.Stop(st.Name()) || !slices.Equal(signalled, []int{pid}) {
+		t.Errorf("the VM's child: signalled %v", signalled)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the child still runs")
+	}
+	for _, file := range []string{proxy.ChildPIDFile(files.ProxyConfig()), confined} {
+		if _, err := os.Stat(file); !os.IsNotExist(err) {
+			t.Errorf("%s: %v", filepath.Base(file), err)
+		}
 	}
 }
 

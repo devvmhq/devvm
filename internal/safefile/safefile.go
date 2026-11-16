@@ -181,6 +181,9 @@ func (r *Root) Read(name string, limit int64, o Opts) ([]byte, error) {
 // Lstat is what's at name in the root, a link's own, never what it leads to.
 func (r *Root) Lstat(name string) (fs.FileInfo, error) { return r.root.Lstat(name) }
 
+// Remove deletes what's at name in the root: a link itself, never what it leads to.
+func (r *Root) Remove(name string) error { return r.root.Remove(name) }
+
 // Readlink is the target of the symbolic link at name in the root, as the link has it, which
 // may lead out of it: read, never followed.
 func (r *Root) Readlink(name string) (string, error) { return r.root.Readlink(name) }

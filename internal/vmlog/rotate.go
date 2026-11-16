@@ -33,10 +33,11 @@ const (
 const KeepEvery = time.Second
 
 // openLog opens the log at path to redact and empty it in place: a
-// regular file, not one a symbolic link at its path leads to, and never
-// waiting on a FIFO (safefile).
+// regular file, not one a symbolic link at its path leads to, with no
+// other hard link, and never waiting on a FIFO (safefile), as a VM's
+// proxy's child can write the folder of a VM's links.log and ports.log.
 func openLog(path string) (*safefile.File, error) {
-	return safefile.Open(path, safefile.Opts{Write: true})
+	return safefile.Open(path, safefile.Opts{Write: true, OneLink: true})
 }
 
 // dataStart is where f's data starts, at most size: the later of where
@@ -275,7 +276,7 @@ func NewCapped(w io.Writer, path string, limit int64) *Capped {
 func (c *Capped) Write(p []byte) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if fi, err := os.Stat(c.path); err == nil && fi.Size() > 0 && fi.Size()+int64(len(p)) > c.limit {
+	if fi, err := os.Lstat(c.path); err == nil && fi.Size() > 0 && fi.Size()+int64(len(p)) > c.limit {
 		_ = Rotate(c.path, c.limit)
 	}
 	return c.w.Write(p)

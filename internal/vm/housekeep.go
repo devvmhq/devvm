@@ -411,7 +411,16 @@ func (p GCPlan) Apply(ctx context.Context) (GCDone, error) {
 	}
 	var err error
 	done.NixFiles, done.NixFreed, err = proxy.TrimNixCache(p.Nix.Dir, p.Nix.Limit)
-	return done, err
+	return done, nixLocked(err)
+}
+
+// nixLocked is err, a trim of the shared Nix cache's, as devvm says it: nix_cache_locked when a
+// VM's proxy held its lock past its wait, so the trim was skipped.
+func nixLocked(err error) error {
+	if errors.Is(err, proxy.ErrNixLocked) {
+		return msg.NixCacheLocked().Because(err)
+	}
+	return err
 }
 
 func (p GCPlan) applyOrphans(ctx context.Context, done *GCDone) error {
@@ -506,7 +515,7 @@ func (h Housekeeping) Retain(ctx context.Context, b *build.Env, r settings.Reten
 	}
 	done.Exports = n
 	if done.NixFiles, _, err = proxy.TrimNixCache(b.Dirs.NixCache(), r.NixCacheCap()); err != nil {
-		return done, err
+		return done, nixLocked(err)
 	}
 	if r.ToolsAge > 0 {
 		if done.Tools, err = h.retainTools(ctx, b, r.ToolsAge, now); err != nil {

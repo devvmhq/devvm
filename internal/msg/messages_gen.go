@@ -3223,6 +3223,11 @@ func NextStartSize(vm vmname.VM) M {
 	return M{id: "next_start_size", vals: []val{{"vm", string(vm)}}}
 }
 
+// NixCacheLocked is [nix_cache_locked]: "A VM's proxy held the shared Nix cache's lock too long, so devvm didn't trim it this time."
+func NixCacheLocked() M {
+	return M{id: "nix_cache_locked"}
+}
+
 // NoClaudeToken is [no_claude_token]: "{{.vm}} has no Claude Code login. Run devvm agent login claude in its folder."
 func NoClaudeToken(vm vmname.VM) M {
 	return M{id: "no_claude_token", vals: []val{{"vm", string(vm)}}}
@@ -5968,6 +5973,7 @@ var specs = map[string]spec{
 	"next_start_mounts":              {fields: []string{"vm"}},
 	"next_start_net_off":             {fields: []string{"vm"}},
 	"next_start_size":                {fields: []string{"vm"}},
+	"nix_cache_locked":               {},
 	"no_claude_token":                {fields: []string{"vm"}},
 	"no_code_command":                {fields: []string{"host"}},
 	"no_command":                     {fields: []string{"word"}},

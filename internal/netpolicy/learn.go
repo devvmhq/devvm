@@ -123,7 +123,7 @@ const countMax = 2 << 20
 func (l *Log) Countable() bool {
 	var n int64
 	for _, p := range []string{l.Path, l.Old()} {
-		if fi, err := os.Stat(p); err == nil {
+		if fi, err := os.Lstat(p); err == nil { // a link the VM's proxy's child left counts as itself
 			n += fi.Size()
 		}
 	}

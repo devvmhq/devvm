@@ -80,6 +80,7 @@ func networkSection(s *S) {
 	netCAs(n)
 	netTokens(n)
 	netCapture(n)
+	netBroker(n)
 	netCodexLogin(n)
 	netOpencodeLogin(n)
 	netOpencodeHistory(n)
@@ -2622,7 +2623,7 @@ func netSelfChecks(n *netRun) {
 		if _, err := n.dv("", n.home(), "stop"); err != nil {
 			return err
 		}
-		if s.Status(vm) != "Stopped" || proxyRuns(s, n.pxc) {
+		if s.Status(vm) != "Stopped" || proxyLeft(s, n.pxc) {
 			return errors.New("the VM or its proxy still runs")
 		}
 		if _, err := n.dv("exit\n", n.home()); err != nil {
@@ -2859,7 +2860,7 @@ func netUnenforced(n *netRun) {
 			return fmt.Errorf("devvm exited %d, not 130:\n%s", rc, tailLines(out, 10))
 		case !HasLine(out, "==> interrupted_start vm="+vm):
 			return errors.New("devvm didn't say it stopped the start")
-		case s.Status(vm) != "Stopped" || proxyRuns(s, n.pxc):
+		case s.Status(vm) != "Stopped" || proxyLeft(s, n.pxc):
 			return errors.New("the VM or its proxy runs")
 		case !Matches(ls(), lsRe("Stopped", "allowlist")):
 			return errors.New("devvm ls doesn't show it stopped, its policy on")
@@ -3150,7 +3151,7 @@ func netTiers(n *netRun) {
 			return err
 		}
 		r, _ := s.Limactl("list", "-q")
-		if r.Has(vm) || Exists(n.vmd) || proxyRuns(s, n.pxc) {
+		if r.Has(vm) || Exists(n.vmd) || proxyLeft(s, n.pxc) {
 			return errors.New("the VM, its folder or its proxy is still there")
 		}
 		return nil

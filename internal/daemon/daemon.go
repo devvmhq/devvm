@@ -15,6 +15,7 @@ package daemon
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -28,6 +29,21 @@ type Cmd struct {
 	Args   []string
 	Out    *os.File
 	Status string
+	// Err is the file its error output goes to, when it isn't Out's.
+	Err *os.File
+	// Files are descriptors it inherits besides its input and output,
+	// its 3 and on, in order: a proxy's child gets its socket to its
+	// broker and its listener.
+	Files []*os.File
+	// Env, when it isn't nil, is its whole environment, which its caller
+	// chose, Status's variable added; nil: devvm's own, without its
+	// status file's or its SSH agent's.
+	Env []string
+	// DieWithThread, on Linux, kills it (SIGKILL) once the thread that
+	// started it ends: Spawn starts it from a goroutine that holds its
+	// thread until it's reaped, so it ends with devvm too, even killed.
+	// Elsewhere it does nothing.
+	DieWithThread bool
 }
 
 // A Starter starts a background process and returns its pid: Detach, or a
@@ -54,34 +70,78 @@ func Spawn(c Cmd) (*Handle, error) {
 	if c.Out != nil {
 		cmd.Stdout, cmd.Stderr = c.Out, c.Out
 	}
+	if c.Err != nil {
+		cmd.Stderr = c.Err
+	}
+	cmd.ExtraFiles = c.Files
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	// Only its own status file: never one devvm itself was given. No SSH
-	// agent: none of devvm's background processes uses one (devvm's own
-	// ssh says IdentityAgent=none), and a VM's agent is only for its own
-	// connections, never a process that outlives the run.
-	env := make([]string, 0, len(os.Environ())+1)
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, StatusEnv+"=") && !strings.HasPrefix(kv, "SSH_AUTH_SOCK=") {
-			env = append(env, kv)
+	if c.DieWithThread {
+		dieWithThread(cmd.SysProcAttr)
+	}
+	cmd.Env = c.Env
+	if cmd.Env == nil {
+		// Only its own status file: never one devvm itself was given. No SSH
+		// agent: none of devvm's background processes uses one (devvm's own
+		// ssh says IdentityAgent=none), and a VM's agent is only for its own
+		// connections, never a process that outlives the run.
+		cmd.Env = make([]string, 0, len(os.Environ())+1)
+		for _, kv := range os.Environ() {
+			if !strings.HasPrefix(kv, StatusEnv+"=") && !strings.HasPrefix(kv, "SSH_AUTH_SOCK=") {
+				cmd.Env = append(cmd.Env, kv)
+			}
 		}
 	}
 	if c.Status != "" {
-		env = append(env, StatusEnv+"="+c.Status)
+		cmd.Env = append(cmd.Env, StatusEnv+"="+c.Status)
 	}
-	cmd.Env = env
-	if err := cmd.Start(); err != nil {
+	h := &Handle{done: make(chan struct{})}
+	started := make(chan error, 1)
+	// One goroutine starts it and reaps it, holding its thread throughout
+	// and never letting it go: Linux ties DieWithThread's signal to the
+	// thread that started the process, which then ends with the goroutine,
+	// once the process is reaped.
+	go func() {
+		runtime.LockOSThread()
+		if err := cmd.Start(); err != nil {
+			started <- err
+			return
+		}
+		h.pid, h.proc = cmd.Process.Pid, cmd.Process
+		started <- nil
+		_ = cmd.Wait()
+		h.state = cmd.ProcessState
+		close(h.done)
+	}()
+	if err := <-started; err != nil {
 		return nil, err
 	}
-	h := &Handle{pid: cmd.Process.Pid, proc: cmd.Process, done: make(chan struct{})}
-	go func() { _ = cmd.Wait(); close(h.done) }()
 	return h, nil
 }
 
 // A Handle is a process Spawn started, which devvm reaps once it ends.
 type Handle struct {
-	pid  int
-	proc *os.Process
-	done chan struct{}
+	pid   int
+	proc  *os.Process
+	done  chan struct{}
+	state *os.ProcessState // how it ended, once done is closed
+}
+
+// Kill kills the process, if it runs (SIGKILL).
+func (h *Handle) Kill() {
+	if h.Running() {
+		_ = h.proc.Kill()
+	}
+}
+
+// Exit is how the process ended, such as "exit status 1" or "signal:
+// killed": "running" while it runs.
+func (h *Handle) Exit() string {
+	select {
+	case <-h.done:
+		return h.state.String()
+	default:
+		return "running"
+	}
 }
 
 // PID is the process's pid.

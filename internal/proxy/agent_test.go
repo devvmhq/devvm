@@ -139,10 +139,10 @@ func TestAgentRelay(t *testing.T) {
 	errs := &syncBuffer{}
 	done := make(chan error)
 	go func() {
-		done <- run([]string{"-config", writeConfig(t, Config{
+		done <- run(t.Context(), []string{"-config", writeConfig(t, Config{
 			Listen: "127.0.0.1:0", VM: "devvm-x", Password: redact.NewSecret("k3y"), Lifeline: pidFile,
 			Agent: agent.sock, AgentSocket: relay,
-		})}, IO{Stdout: io.Discard, Stderr: errs}, tick)
+		})}, inProcess(IO{Stdout: io.Discard, Stderr: errs}), tick)
 	}()
 	var c net.Conn
 	var err error
@@ -185,6 +185,13 @@ func TestAgentRelay(t *testing.T) {
 	}
 	if !strings.Contains(errs.String(), "ssh agent: refused a request of type 19") {
 		t.Errorf("stderr = %q", errs.String())
+	}
+	// The relay listens before the broker's child is ready: the hostagent ends once it is.
+	for range 250 {
+		if strings.Contains(errs.String(), "listening on") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	_ = sleep.Process.Kill()
 	_ = sleep.Wait()

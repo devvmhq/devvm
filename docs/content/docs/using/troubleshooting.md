@@ -150,7 +150,12 @@ If you press Ctrl+C while devvm starts a confined VM, devvm stops the VM and its
 
 ## The proxy doesn't start
 
-A confined VM runs only with its proxy, so when the proxy doesn't start, devvm stops the VM, and the next `devvm` starts both again. When devvm refuses before it stops the proxy, such as when your company proxy's password isn't saved, the VM and its proxy run on while that proxy still enforces the VM's tier, and otherwise devvm stops the VM. When devvm says the proxy didn't start, read the log it names for why. When it says another program took the proxy's port, devvm picks another port the next time it starts the VM, so run `devvm restart`. When the proxy doesn't stop for new settings, run `devvm stop`, then `devvm` ([the proxy](../internals/network.md#the-proxy)). An open VM runs on when its proxy doesn't answer it, and devvm warns you, because its tools that use the proxy fail, so run `devvm restart`, which starts both again.
+A confined VM runs only with its proxy, so when the proxy doesn't start, devvm stops the VM, and the next `devvm` starts both again. When devvm refuses before it stops the proxy, such as when your company proxy's password isn't saved, the VM and its proxy run on while that proxy still enforces the VM's tier, and otherwise devvm stops the VM.
+
+- **The proxy didn't start:** read the log devvm names for why. A VM's is `proxy.log` in its logs folder, where the proxy's two processes, its broker and its child, each write their own lines, and a build's is `proxy.log` in the build proxy's `logs/` folder.
+- **Another program took the proxy's port:** devvm picks another port the next time it starts the VM, so run `devvm restart`.
+- **The proxy doesn't stop for new settings:** run `devvm stop`, then `devvm` ([the proxy](../internals/network.md#the-proxy)).
+- **An open VM's proxy doesn't answer it:** the VM runs on, and devvm warns you, because its tools that use the proxy fail, so run `devvm restart`, which starts both again.
 
 ## A request is blocked
 

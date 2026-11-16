@@ -167,6 +167,16 @@ func (u *UI) Stdout() io.Writer { return lockedWriter{u, u.stdout} }
 // of a process devvm runs as itself in the background (devvm _proxy).
 func (u *UI) Stderr() io.Writer { return lockedWriter{u, u.stderr} }
 
+// Files are stdout and stderr as the files they are, nil for one that
+// isn't a file: what a process devvm runs as itself in the background
+// gives the process it starts as its own (devvm _proxy's child), and
+// rotates its log through.
+func Files(u *UI) (stdout, stderr *os.File) {
+	stdout, _ = u.stdout.(*os.File)
+	stderr, _ = u.stderr.(*os.File)
+	return stdout, stderr
+}
+
 type lockedWriter struct {
 	u *UI
 	w io.Writer

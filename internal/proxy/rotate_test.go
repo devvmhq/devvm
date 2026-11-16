@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func readLog(t *testing.T, path string) string {
@@ -181,12 +183,12 @@ func TestRotateCopies(t *testing.T) {
 	if err := os.WriteFile(path, []byte("started 0123\n"), 0o644); err != nil { //nolint:gosec // a log left open to others
 		t.Fatal(err)
 	}
-	stderr, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // the test's own file
+	stderr, err := os.OpenFile(path, os.O_APPEND|os.O_RDWR, 0o600) //nolint:gosec // the test's own file
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer stderr.Close()
-	r, err := copyRotating(path, stderr, 20)
+	r, err := copyRotating(stderr, path, stderr, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,5 +216,167 @@ func TestRotateCopies(t *testing.T) {
 	}
 	if a, b := readLog(t, path+".1"), readLog(t, path); a != "failed upstream\ndevvm: the last error\n" || b != "x\n" {
 		t.Errorf("after stderr: .1 %q, log %q", a, b)
+	}
+}
+
+// The broker and its child both write the proxy's log, through the descriptor devvm gave them:
+// past the limit, they rotate it once between them, each line whole in one of the two files.
+func TestRotateCopiesWithTwoWriters(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "proxy.log")
+	fd, err := OpenLog(path)
+	must(t, err)
+	defer fd.Close()
+	broker, err := copyRotating(fd, path, fd, 200)
+	must(t, err)
+	child, err := copyRotating(fd, path, fd, 200)
+	must(t, err)
+	defer broker.Close()
+	defer child.Close()
+	var wg sync.WaitGroup
+	for i, w := range []*rotating{broker, child} {
+		wg.Go(func() {
+			for j := range 10 {
+				_, _ = fmt.Fprintf(w, "writer %d line %02d\n", i, j)
+			}
+		})
+	}
+	wg.Wait()
+	lines := strings.Count(readLog(t, path+".1"), "\n") + strings.Count(readLog(t, path), "\n")
+	if lines != 20 || len(readLog(t, path)) > 200 {
+		t.Errorf("%d lines kept, the log %d bytes", lines, len(readLog(t, path)))
+	}
+}
+
+// A child that a VM took over can hold the log's lock for ever, from a description of its own: a
+// line still goes in, within logLockWait or so, and the rotation is skipped rather than waited
+// for; and the event log's rotation is skipped the same way.
+func TestRotateLockHeld(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "proxy.log")
+	fd, err := OpenLog(path)
+	must(t, err)
+	defer fd.Close()
+	_, err = fd.WriteString(strings.Repeat("x", 30) + "\n")
+	must(t, err)
+	r, err := copyRotating(fd, path, fd, 20)
+	must(t, err)
+	defer r.Close()
+	child, err := os.Open(path) //nolint:gosec // the test's own file
+	must(t, err)
+	defer child.Close()
+	must(t, syscall.Flock(int(child.Fd()), syscall.LOCK_EX))
+	start := time.Now()
+	_, err = r.Write([]byte("a line\n"))
+	if took := time.Since(start); err != nil || took > 5*logLockWait {
+		t.Errorf("a line with the lock held: %v after %v", err, took)
+	}
+	if got := readLog(t, path); !strings.HasSuffix(got, "a line\n") || !strings.HasPrefix(got, "xxx") {
+		t.Errorf("the log: %q (the line in it, no rotation)", got)
+	}
+	if _, err := os.Stat(path + ".1"); !os.IsNotExist(err) {
+		t.Errorf("rotated under a held lock: %v", err)
+	}
+	// The event log.
+	events := filepath.Join(dir, "network.jsonl")
+	ev, err := openRotating(events, 20)
+	must(t, err)
+	defer ev.Close()
+	_, err = ev.Write([]byte(strings.Repeat("y", 30) + "\n"))
+	must(t, err)
+	held, err := os.Open(events) //nolint:gosec // the test's own file
+	must(t, err)
+	defer held.Close()
+	must(t, syscall.Flock(int(held.Fd()), syscall.LOCK_EX))
+	start = time.Now()
+	if _, err := ev.Write([]byte("z\n")); err != nil || time.Since(start) > 5*logLockWait {
+		t.Errorf("the event log with its lock held: %v after %v", err, time.Since(start))
+	}
+}
+
+// A copied log far past its limit, such as a sparse file a child made huge, is copied no further
+// back than twice its limit, from a line's start, and emptied.
+func TestRotateCopiesAHugeLog(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "proxy.log")
+	fd, err := OpenLog(path)
+	must(t, err)
+	defer fd.Close()
+	must(t, fd.Truncate(1<<40)) // a terabyte, sparse
+	_, err = fd.WriteString("\nthe end of a line\nthe last line\n")
+	must(t, err)
+	r, err := copyRotating(fd, path, fd, 20)
+	must(t, err)
+	defer r.Close()
+	_, err = r.Write([]byte("next\n"))
+	must(t, err)
+	if a, b := readLog(t, path+".1"), readLog(t, path); a != "the end of a line\nthe last line\n" || b != "next\n" {
+		t.Errorf(".1 %q, log %q", a, b)
+	}
+}
+
+// A copied log whose path isn't its file any more is locked through its descriptor, and still
+// rotated once past its limit; a folder in a log's place is never taken, nor removed.
+func TestRotateCopiesWithoutItsPath(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "proxy.log")
+	fd, err := OpenLog(path)
+	must(t, err)
+	defer fd.Close()
+	must(t, os.Rename(path, path+".moved"))
+	r, err := copyRotating(fd, path, fd, 20)
+	must(t, err)
+	defer r.Close()
+	if r.lock != nil {
+		t.Error("a lock on another file than the log's")
+	}
+	for _, l := range []string{"0123456789\n", "0123456789\n"} {
+		_, err := r.Write([]byte(l))
+		must(t, err)
+	}
+	if got := readLog(t, path+".moved"); got != "0123456789\n" {
+		t.Errorf("the log after its rotation: %q", got)
+	}
+	must(t, os.Mkdir(filepath.Join(dir, "folder.log"), 0o700))
+	must(t, os.WriteFile(filepath.Join(dir, "folder.log", "x"), nil, 0o600))
+	if _, err := OpenLog(filepath.Join(dir, "folder.log")); err == nil {
+		t.Error("a folder taken as a log")
+	}
+	if _, err := OpenEventLog(filepath.Join(dir, "folder.log")); err == nil {
+		t.Error("a folder taken as the event log")
+	}
+}
+
+// What a VM's proxy's child could leave in a log's place goes, its name alone, and a new log
+// starts there: a link to a file of yours, which stays as it was, a FIFO, never waited on, and a
+// hard link of another file.
+func TestOpenLogReplacesWhatIsPlanted(t *testing.T) {
+	t.Parallel()
+	dir, mine := t.TempDir(), t.TempDir()
+	keep := filepath.Join(mine, "keep")
+	must(t, os.WriteFile(keep, []byte("mine"), 0o600))
+	plant := map[string]func(string) error{
+		"link":      func(p string) error { return os.Symlink(keep, p) },
+		"fifo":      func(p string) error { return syscall.Mkfifo(p, 0o600) },
+		"hard link": func(p string) error { return os.Link(keep, p) },
+	}
+	for name, fn := range plant {
+		p := filepath.Join(dir, strings.ReplaceAll(name, " ", "-")+".log")
+		must(t, fn(p))
+		f, err := OpenLog(p)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		_, _ = f.WriteString("a line\n")
+		_ = f.Close()
+		if fi, err := os.Lstat(p); err != nil || !fi.Mode().IsRegular() || readLog(t, p) != "a line\n" {
+			t.Errorf("%s: not a log of its own: %v", name, err)
+		}
+	}
+	if readLog(t, keep) != "mine" {
+		t.Errorf("the planted links' target: %q", readLog(t, keep))
 	}
 }

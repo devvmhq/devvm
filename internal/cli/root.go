@@ -10,6 +10,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/ui"
 )
@@ -47,7 +48,10 @@ func NewRoot(u *ui.UI) *cobra.Command {
 			if wantsJSON(cmd) {
 				u.DataOnly() // stdout is the JSON's alone
 			}
-			makePrivate(a)
+			// A proxy's child reads none of devvm's folders: it gets what it needs from its broker.
+			if cmd.Name() != proxy.ChildCommand {
+				makePrivate(a)
+			}
 			if !skipsLayout(cmd) {
 				if err := checkLayout(cmd.Context(), a); err != nil {
 					return ranError{err}
@@ -70,7 +74,7 @@ func NewRoot(u *ui.UI) *cobra.Command {
 	addUpFlags(root, a, uf)
 	addVersion(root)
 	root.AddCommand(newBuildCmd(a), newRebuildCmd(a), newImagesCmd(a), newGCCmd(a), newSpaceCmd(a), newLayerCmd(a), newSetupCmd(a), newAgentCmd(a), newMsgCmd(u),
-		newRestartCmd(a), newStopCmd(a), newUpdateCmd(a), newToolsCmd(a), newAdoptCmd(a), newHistoryCmd(a), newRmCmd(a), newLsCmd(a), newNetworkCmd(a), newHostCmd(a), newCodeCmd(a), newCursorCmd(a), newDesktopCmd(a), newSSHAgentCmd(a), newGitProtectCmd(a), newCloneCmd(a), newPortsCmd(a), newSizeCmd(a), newMountCacheCmd(a), newDoctorCmd(a), newLimactlCmd(a), newQEMUCmd(u), newProxyCmd(a), newForwarderCmd(a), newRefreshToolsCmd(a), newSecretCmd(a),
+		newRestartCmd(a), newStopCmd(a), newUpdateCmd(a), newToolsCmd(a), newAdoptCmd(a), newHistoryCmd(a), newRmCmd(a), newLsCmd(a), newNetworkCmd(a), newHostCmd(a), newCodeCmd(a), newCursorCmd(a), newDesktopCmd(a), newSSHAgentCmd(a), newGitProtectCmd(a), newCloneCmd(a), newPortsCmd(a), newSizeCmd(a), newMountCacheCmd(a), newDoctorCmd(a), newLimactlCmd(a), newQEMUCmd(u), newProxyCmd(a), newProxyChildCmd(a), newForwarderCmd(a), newRefreshToolsCmd(a), newSecretCmd(a),
 		newLinkCmd(a), newGroupCmd(a), newLinksCmd(a), newRetentionCmd(a), newVersionCmd(u), newCompletionCmd(u), newUpgradeCmd(a), newPasteCmd(a))
 	addCompletions(root, a)
 	checkCommands(root)

@@ -21,6 +21,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -37,6 +38,18 @@ func NewLog(d paths.Dirs, vm vmname.VM) *Log {
 	return &Log{Path: d.VM(vm).EventLog(), Tick: 250 * time.Millisecond}
 }
 
+// openLog opens the event log at path to read, as a file a VM can swap:
+// its proxy's child writes the folder it's in, so it's opened never
+// through a link and without waiting on a FIFO, and only a regular file
+// with one link (safefile).
+func openLog(path string) (*os.File, error) {
+	f, err := safefile.Open(path, safefile.Opts{OneLink: true})
+	if err != nil {
+		return nil, err
+	}
+	return f.File, nil
+}
+
 // Old is the log's previous file, which the proxy renamed it to when it
 // rotated it: its older events.
 func (l *Log) Old() string { return l.Path + ".1" }
@@ -46,7 +59,7 @@ func (l *Log) Old() string { return l.Path + ".1" }
 // one, until ctx ends, and goes on in the new log when the proxy rotates
 // it. Lines that aren't events are skipped.
 func (l *Log) Write(ctx context.Context, w io.Writer, n int, follow bool) error {
-	f, err := os.Open(l.Path)
+	f, err := openLog(l.Path)
 	if err != nil {
 		return err
 	}
@@ -120,7 +133,7 @@ func (l *Log) Events(n int) ([]Event, error) {
 // each calls line for each line of the log, the previous file's (Old)
 // first, and for what follows its last newline.
 func (l *Log) each(line func(string)) error {
-	f, err := os.Open(l.Path)
+	f, err := openLog(l.Path)
 	if err != nil {
 		return err
 	}
@@ -140,7 +153,7 @@ func (l *Log) each(line func(string)) error {
 // readOld calls line for each line of Old, unless it's cur, the log
 // already open.
 func (l *Log) readOld(cur *os.File, line func(string)) error {
-	old, err := os.Open(l.Old())
+	old, err := openLog(l.Old())
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	} else if err != nil {
@@ -207,7 +220,7 @@ func (fl *follower) rotated() *os.File {
 	if err != nil {
 		return nil
 	}
-	nf, err := os.Open(fl.l.Path)
+	nf, err := openLog(fl.l.Path)
 	if err != nil {
 		return nil
 	}

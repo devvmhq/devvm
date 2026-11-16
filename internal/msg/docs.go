@@ -7,6 +7,7 @@ package msg
 // TestDocLinks checks every entry.
 var docs = map[string]string{ //nolint:gosec // message IDs and pages, not credentials
 	"backend_lacks":                  "backends#when-a-backend-lacks-something",
+	"nix_cache_locked":               "internals/network#the-shared-nix-cache",
 	"backend_unreviewed":             "backends#when-a-backend-lacks-something",
 	"backend_unreviewed_used":        "contributing/testing#unreviewed-emulations",
 	"backend_unknown_vm":             "backends#a-vms-backend",

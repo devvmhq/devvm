@@ -38,6 +38,12 @@ stderr '^devvm: proxy_failed reason=flag provided but not defined: -login$'
 ! exec devvm _proxy -redact json
 stderr '^devvm: proxy_failed reason=flag provided but not defined: -redact$'
 
+# Its child, devvm _proxy-child, run by hand without the broker's socket and
+# listener as its descriptors 3 and 4, refuses before it touches either.
+! exec devvm _proxy-child -for proxy.json
+stderr '^devvm: proxy_failed reason=descriptor 3, the socket to the broker: .*; only devvm _proxy starts devvm _proxy-child$'
+! stderr 'fatal error|goroutine'
+
 -- open.json --
 {"version": 1, "listen": "127.0.0.1:0", "password": "k3y"}
 -- nopw.json --

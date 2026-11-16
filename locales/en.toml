@@ -963,6 +963,9 @@ other = "The shared Nix cache takes {{.size}}, more than its cap of {{.cap}}, so
 one = "The shared Nix cache holds {{.count}} file ({{.size}}), which VMs download again when they need it."
 other = "The shared Nix cache holds {{.count}} files ({{.size}}), which VMs download again when they need them."
 
+[nix_cache_locked]
+other = "A VM's proxy held the shared Nix cache's lock too long, so devvm didn't trim it this time."
+
 [deleted_nix_cache]
 one = "deleted {{.count}} file of the shared Nix cache ({{.size}})"
 other = "deleted {{.count}} files of the shared Nix cache ({{.size}})"

@@ -96,7 +96,7 @@ func (f *fakeUpstream) requests() []string {
 func useUpstream(t *testing.T, s *server, f *fakeUpstream, noProxyList string) {
 	t.Helper()
 	u := "http://corp-user:" + upPassword + "@" + f.ln.Addr().String()
-	ups, err := newUpstreams(Upstream{HTTPS: u, HTTP: u, NoProxy: noProxyList}, nil)
+	ups, err := newUpstreams(Upstream{HTTPS: u, HTTP: u, NoProxy: noProxyList}, redact.Secret{})
 	must(t, err)
 	s.egress.up = ups
 }
@@ -171,7 +171,9 @@ func TestUpstreamSecret(t *testing.T) {
 		}
 		return redact.NewSecret(" s3cret\n"), nil
 	}
-	ups, err := newUpstreams(Upstream{HTTPS: "http://alice@proxy.corp:3128", HTTP: "proxy.corp:3128", Secret: UpstreamSecret}, lookup)
+	pw, err := upstreamPassword(t.Context(), UpstreamSecret, lookup)
+	must(t, err)
+	ups, err := newUpstreams(Upstream{HTTPS: "http://alice@proxy.corp:3128", HTTP: "proxy.corp:3128", Secret: UpstreamSecret}, pw)
 	must(t, err)
 	if ups.https.auth.Reveal() != authOf("alice", "s3cret") || !ups.http.auth.Empty() {
 		t.Errorf("auth: %q, %q", ups.https.auth.Reveal(), ups.http.auth.Reveal())
@@ -188,13 +190,13 @@ func TestUpstreamSecret(t *testing.T) {
 		{"no lookup", UpstreamSecret, nil},
 		{"empty", UpstreamSecret, func(context.Context, Binding) (redact.Secret, error) { return redact.NewSecret(" "), nil }},
 	} {
-		if _, err := newUpstreams(Upstream{HTTPS: "http://alice@proxy.corp:3128", Secret: c.secret}, c.lookup); err == nil {
+		if _, err := upstreamPassword(t.Context(), c.secret, c.lookup); err == nil {
 			t.Errorf("%s: started", c.name)
 		}
 	}
 	// Without a Secret, nothing is looked up.
 	asked = nil
-	if _, err := newUpstreams(Upstream{HTTPS: "http://alice@proxy.corp:3128"}, lookup); err != nil || asked != nil {
+	if v, err := upstreamPassword(t.Context(), "", lookup); err != nil || !v.Empty() || asked != nil {
 		t.Errorf("no secret: %v, asked %+v", err, asked)
 	}
 }
@@ -212,7 +214,7 @@ func TestLookupRoute(t *testing.T) {
 			}
 			return redact.NewSecret("pw"), nil
 		}
-		s, err := newServer(Config{VM: "vm", Upstream: up}, IO{Secret: lookup}, quiet(), io.Discard)
+		s, err := newServer(Config{VM: "vm", Upstream: up, Secrets: codexBindings(t)}, IO{Secret: lookup}, quiet(), io.Discard)
 		must(t, err)
 		if _, err := s.secrets.value(t.Context(), Binding{Name: "codex", Kind: KindLogin, Agent: "codex"}); err != nil {
 			t.Fatal(err)

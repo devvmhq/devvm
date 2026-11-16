@@ -138,6 +138,25 @@ func TestTrimNothing(t *testing.T) {
 	if _, err := os.Stat(dir + ".1"); !os.IsNotExist(err) {
 		t.Errorf("a folder's copy: %v", err)
 	}
+	// A log that's a link, or another file's hard link, as a VM's proxy's child could leave one
+	// in the VM's logs folder: never emptied, nor is what it leads to.
+	mine := filepath.Join(t.TempDir(), "mine")
+	if err := os.WriteFile(mine, []byte(strings.Repeat("x", 100)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, plant := range []func(string) error{func(p string) error { return os.Symlink(mine, p) }, func(p string) error { return os.Link(mine, p) }} {
+		p := filepath.Join(dir, "planted.log")
+		_ = os.Remove(p)
+		if err := plant(p); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Trim(p, 1); err == nil {
+			t.Error("a planted log trimmed")
+		}
+	}
+	if b, _ := os.ReadFile(mine); len(b) != 100 { //nolint:gosec // the test's own file
+		t.Errorf("the planted logs' target: %d bytes", len(b))
+	}
 }
 
 // Keep looks at its logs until ctx ends, rotating each past its cap.

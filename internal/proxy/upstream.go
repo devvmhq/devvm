@@ -111,14 +111,11 @@ func newUpstream(raw string, password redact.Secret) (*upstream, error) {
 }
 
 // newUpstreams takes the config's company proxy (Config.Upstream): the host's HTTPS_PROXY,
-// HTTP_PROXY and NO_PROXY, or config.toml's, with Secret's value, from lookup, as the password of
-// a URL that names a user and none of its own.
-func newUpstreams(u Upstream, lookup Lookup) (upstreams, error) {
+// HTTP_PROXY and NO_PROXY, or config.toml's, with password, Secret's value, which the broker
+// looked up (upstreamPassword), as the password of a URL that names a user and none of its own.
+func newUpstreams(u Upstream, password redact.Secret) (upstreams, error) {
 	var ups upstreams
-	password, err := upstreamPassword(u.Secret, lookup)
-	if err != nil {
-		return upstreams{}, err
-	}
+	var err error
 	if ups.https, err = newUpstream(u.HTTPS, password); err != nil {
 		return upstreams{}, fmt.Errorf("upstream: HTTPS_PROXY: %w", err)
 	}
@@ -139,15 +136,14 @@ func newUpstreams(u Upstream, lookup Lookup) (upstreams, error) {
 // upstreamPassword is the value of the secret named name ("": none), from lookup: the company
 // proxy's password, which only Proxy-Authorization ever holds. A secret with no value fails the
 // proxy's start, which would otherwise go through the company proxy without it.
-func upstreamPassword(name string, lookup Lookup) (redact.Secret, error) {
+func upstreamPassword(ctx context.Context, name string, lookup Lookup) (redact.Secret, error) {
 	if name == "" {
 		return redact.Secret{}, nil
 	}
 	if lookup == nil {
 		return redact.Secret{}, errors.New("upstream: no secret lookup")
 	}
-	// The proxy's start, which no caller's context bounds.
-	ctx, cancel := context.WithTimeout(context.Background(), lookupTimeout) //nolint:forbidigo // the proxy's own start
+	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 	v, err := lookup(ctx, Binding{Name: name, Kind: KindSecret})
 	if err != nil {

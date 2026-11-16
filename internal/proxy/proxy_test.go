@@ -1398,9 +1398,10 @@ func TestHTTPServerLogs(t *testing.T) {
 // (the CA, agents' logins, redaction) isn't reachable from its arguments.
 func TestMainRefuses(t *testing.T) {
 	t.Parallel()
-	var out, errs bytes.Buffer
-	std := IO{Stdout: &out, Stderr: &errs}
-	if err := Main([]string{"--help"}, std); err != nil || strings.Count("\n"+out.String(), "\n  -") != 1 || !strings.Contains(out.String(), "-config") {
+	var out bytes.Buffer
+	errs := &syncBuffer{}
+	std := inProcess(IO{Stdout: &out, Stderr: errs})
+	if err := Main(t.Context(), []string{"--help"}, std); err != nil || strings.Count("\n"+out.String(), "\n  -") != 1 || !strings.Contains(out.String(), "-config") {
 		t.Errorf("--help: %v, %q", err, out.String())
 	}
 	for _, args := range [][]string{
@@ -1421,19 +1422,32 @@ func TestMainRefuses(t *testing.T) {
 		// The VM's logs without IO.KeepLogs: nothing would hold them to their cap.
 		{"-config", writeConfig(t, Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), VMLogs: []string{filepath.Join(t.TempDir(), "serial.log")}})},
 	} {
-		if err := Main(args, std); err == nil {
+		if err := Main(t.Context(), args, std); err == nil {
 			t.Errorf("%q: no error", args)
 		}
 	}
 	// Token endpoints without IO.Capture: no login could be saved, nor the VM given placeholders.
-	if err := Main([]string{"-config", writeConfig(t, withCA(Capture{Agent: "codex", Host: "auth.openai.com", Path: "/oauth/token"}))}, std); err == nil ||
+	if err := Main(t.Context(), []string{"-config", writeConfig(t, withCA(Capture{Agent: "codex", Host: "auth.openai.com", Path: "/oauth/token"}))}, std); err == nil ||
 		!strings.Contains(err.Error(), "captures without a capturer") {
 		t.Errorf("captures without IO.Capture: %v", err)
 	}
+	// A port another program holds, and an agent's relay that can't listen: no child starts.
+	taken, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	must(t, err)
+	defer taken.Close()
+	for _, c := range []Config{
+		{Listen: taken.Addr().String(), Password: redact.NewSecret("k3y")},
+		{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), Agent: "/none/agent.sock", AgentSocket: filepath.Join(t.TempDir(), "none", "relay.sock")},
+	} {
+		if err := Main(t.Context(), []string{"-config", writeConfig(t, c)}, std); err == nil {
+			t.Errorf("%+v: started", c)
+		}
+	}
 	// A built-in policy devvm's files lack: a devvm bug, so the proxy never listens.
 	std.FS = fstest.MapFS{"layers/base.policy": {Data: []byte("base.test\n")}}
+	std = inProcess(std) // the child gets the files too
 	c := Config{Listen: "127.0.0.1:0", Password: redact.NewSecret("k3y"), BuiltinPolicies: []string{"layers/base.policy", "layers/gone.policy"}}
-	if err := Main([]string{"-config", writeConfig(t, c)}, std); err == nil || !strings.Contains(err.Error(), "built-in policy layers/gone.policy") {
+	if err := Main(t.Context(), []string{"-config", writeConfig(t, c)}, std); err == nil || !strings.Contains(err.Error(), "built-in policy layers/gone.policy") {
 		t.Errorf("a missing built-in: %v", err)
 	}
 	if strings.Contains(errs.String(), "listening on") {
@@ -1467,7 +1481,7 @@ func TestMainRuns(t *testing.T) {
 
 	errs := &syncBuffer{}
 	done := make(chan error)
-	// The VM's logs are kept for as long as the proxy runs.
+	// The VM's logs are kept by the broker for as long as it runs.
 	kept, keptEnd := make(chan []string, 1), make(chan struct{})
 	keep := func(ctx context.Context, paths []string) {
 		kept <- paths
@@ -1475,12 +1489,17 @@ func TestMainRuns(t *testing.T) {
 		close(keptEnd)
 	}
 	serial := filepath.Join(dir, "serial.log")
+	// The proxy's own log, which both processes rotate through the file devvm gave them.
+	proxyLog := filepath.Join(dir, "proxy.log")
+	logOut, err := OpenLog(proxyLog)
+	must(t, err)
+	defer logOut.Close()
 	go func() {
-		done <- run([]string{"--config", writeConfig(t, Config{
-			Listen: addr, VM: "devvm-x", Password: redact.NewSecret("k3y"), Lifeline: pidFile, Log: logFile,
+		done <- run(t.Context(), []string{"--config", writeConfig(t, Config{
+			Listen: addr, VM: "devvm-x", Password: redact.NewSecret("k3y"), Lifeline: pidFile, Log: logFile, ProxyLog: proxyLog,
 			Policies: []string{filepath.Join(dir, "missing")}, Links: filepath.Join(dir, "devvm-x.links.json"),
 			BuiltinPolicies: []string{"layers/base.policy"}, VMLogs: []string{serial},
-		})}, IO{Stdout: io.Discard, Stderr: errs, FS: fstest.MapFS{"layers/base.policy": {Data: []byte("base.test:8443\n")}}, KeepLogs: keep}, tick)
+		})}, inProcess(IO{Stdout: io.Discard, Stderr: errs, ErrFile: logOut, FS: fstest.MapFS{"layers/base.policy": {Data: []byte("base.test:8443\n")}}, KeepLogs: keep}), tick)
 	}()
 	if got := <-kept; !slices.Equal(got, []string{serial}) {
 		t.Errorf("kept %q", got)

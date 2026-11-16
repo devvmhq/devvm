@@ -21,6 +21,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/ports"
+	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -377,16 +378,18 @@ func (f Forwards) run(vm vmname.VM, s spec) error {
 			return err
 		}
 	}
+	// The VM's proxy's child writes the logs' folder: the log is opened
+	// never through a link, and what the child left in its place goes.
+	out, err := proxy.OpenLog(f.Log(vm))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = out.Close() }()
 	// The forwarder holds its log to its cap as it runs (Main); one an
 	// earlier one left past it is rotated first.
 	if _, err := vmlog.Trim(f.Log(vm), vmlog.OwnMax); err != nil {
 		return err
 	}
-	out, err := os.OpenFile(f.Log(vm), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = out.Close() }()
 	var reserve []string
 	for _, p := range s.Reserve {
 		if p > 0 {

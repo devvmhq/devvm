@@ -303,15 +303,26 @@ var ErrNotPrivate = errors.New("another user may read or change it")
 // owned by this process's user, with none of deny's permission bits (0o022: only its owner may
 // write it; 0o077: nobody else may read it either): ErrNotPrivate.
 func readPrivate(path string, limit int64, deny os.FileMode) ([]byte, error) {
-	f, err := safefile.Open(path, safefile.Opts{})
+	f, err := openPrivate(path, deny)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
+	return f.ReadAll(limit)
+}
+
+// openPrivate opens a file devvm writes for the proxy alone, as readPrivate reads it, for its
+// caller to read and close.
+func openPrivate(path string, deny os.FileMode) (*safefile.File, error) {
+	f, err := safefile.Open(path, safefile.Opts{})
+	if err != nil {
+		return nil, err
+	}
 	if f.Info.Mode().Perm()&deny != 0 || !ownedByMe(f.Info) {
+		_ = f.Close()
 		return nil, fmt.Errorf("%s: %w", path, ErrNotPrivate)
 	}
-	return f.ReadAll(limit)
+	return f, nil
 }
 
 // ReadPrivate is readPrivate for a file of devvm's that decides where the

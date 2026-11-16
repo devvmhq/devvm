@@ -27,7 +27,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 | `internal/trust/` | your CAs, and each VM's own CA |
 | `internal/agents/` | the coding agents' registry: one `Def` each, which every list of the agents derives from |
 | `internal/agentlogin/` | agents' login and settings files on the host, and their placeholders |
-| `internal/proxy/` | the proxy, run as `devvm _proxy`; see its `README.md`; every host's one form (`NormHost`); the VM's SSH agent relay, the only way a VM reaches an agent |
+| `internal/proxy/` | the proxy: its broker, `devvm _proxy`, and the child that reads the VM's network, `devvm _proxy-child`; see its `README.md`; every host's one form (`NormHost`); the VM's SSH agent relay, the only way a VM reaches an agent |
 | `internal/daemon/` | devvm's background processes; the only place a process is signalled by pid |
 | `internal/desktop/` | devvm desktop's relay on the host |
 | `internal/backend/` | `Backend`, its roles, `Caps`, the registry and its guard; `backendtest/`, `registry/`, `lima/` |
@@ -121,7 +121,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 - **Linux hosts:** `LIMA_HOME=~/.lt-linux-go`, VM `linuxhost`, set up as [Linux hosts](docs/content/docs/contributing/testing.md#linux-hosts) says, apart from any Lima home of your own.
 - **Unreviewed emulations** are checked through `DEVVM_UNREVIEWED=backend:feature`, in test builds only ([Unreviewed emulations](docs/content/docs/contributing/testing.md#unreviewed-emulations)).
 - **Delete test VMs and temp files afterwards.** Long builds run in the background. Tests that `chflags` real files unlock them (`chflags -R nouchg`), only in their own temp folders.
-- **The testscript runner stops the sandbox's proxies** (`pkill -f` on `_proxy -config` in the sandbox): the stub hostagent is gone before they look, so they'd wait 15 minutes. It also stops the sandbox's port forwarders, link sessions and stub ssh masters.
+- **The testscript runner stops the sandbox's proxies** (`pkill -f` on `_proxy -config` in the sandbox, then `_proxy-child -for`): the stub hostagent is gone before they look, so they'd wait 15 minutes. It also stops the sandbox's port forwarders, link sessions and stub ssh masters.
 - **`limactl shell` reads stdin:** give it none unless the input is meant for it.
 - **Boot problems:** read `<devvm's Lima home>/<vm>/serialv.log` (and its `.1`, past 10 MiB) before restarting; every start overwrites it.
 

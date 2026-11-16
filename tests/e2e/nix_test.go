@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/devvmhq/devvm/internal/backend"
 )
@@ -31,7 +33,43 @@ func nixSection(s *S) {
 	nixLaunchChecks(s, vm)
 	nixCacheChecks(s, x, vm)
 	nixShellChecks(s, x, vm)
+	nixPlanted(s)
 	_, _ = s.Limactl("stop", vm)
+}
+
+// nixPlanted plants what a VM's proxy's child could leave in the shared cache, a link to a file of
+// the run's, a FIFO and a hard link of another, and checks devvm reads the cache's size through
+// none of them, hangs on none, and leaves both files as they were.
+func nixPlanted(s *S) {
+	s.Check("a link, a FIFO and a hard link planted in the shared Nix cache lead devvm space nowhere, and hang it not", func() error {
+		cache := nixCache(s)
+		mine, other := filepath.Join(s.sb.work, "nix-mine"), filepath.Join(s.sb.work, "nix-other")
+		for _, f := range []string{mine, other} {
+			if err := os.WriteFile(f, []byte("mine\n"), 0o600); err != nil {
+				return err
+			}
+		}
+		planted := []string{filepath.Join(cache, "zz-link.narinfo"), filepath.Join(cache, "nar", "zz-fifo.nar"), filepath.Join(cache, "nar", "zz-hard.nar")}
+		defer func() {
+			for _, p := range planted {
+				_ = os.Remove(p)
+			}
+		}()
+		if err := errors.Join(os.Symlink(mine, planted[0]), syscall.Mkfifo(planted[1], 0o600), os.Link(other, planted[2])); err != nil {
+			return err
+		}
+		start := time.Now()
+		if _, err := s.Devvm("", "space"); err != nil {
+			return err
+		}
+		switch {
+		case time.Since(start) > time.Minute:
+			return errors.New("devvm space took a minute: it waited on the FIFO")
+		case readText(mine) != "mine\n" || readText(other) != "mine\n":
+			return errors.New("a planted link's target changed")
+		}
+		return nil
+	})
 }
 
 // Behind a company proxy, the layer's script (as a layer of the run's own,

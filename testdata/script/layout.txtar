@@ -138,6 +138,8 @@ vms/APP/run/ports.lock
 vms/APP/run/ports.pid
 vms/APP/run/ports.ssh-hold
 vms/APP/run/ports.status
+vms/APP/run/proxy-child.pid
+vms/APP/run/proxy.confined
 vms/APP/run/proxy.json
 vms/APP/run/proxy.pid
 vms/APP/run/proxy.status
@@ -165,6 +167,8 @@ vms/DB/run/ports.lock
 vms/DB/run/ports.pid
 vms/DB/run/ports.ssh-hold
 vms/DB/run/ports.status
+vms/DB/run/proxy-child.pid
+vms/DB/run/proxy.confined
 vms/DB/run/proxy.json
 vms/DB/run/proxy.pid
 vms/DB/run/proxy.status
@@ -231,6 +235,8 @@ vms/APP/run/ports.lock
 vms/APP/run/ports.pid
 vms/APP/run/ports.ssh-hold
 vms/APP/run/ports.status
+vms/APP/run/proxy-child.pid
+vms/APP/run/proxy.confined
 vms/APP/run/proxy.json
 vms/APP/run/proxy.pid
 vms/APP/run/proxy.status
@@ -257,6 +263,8 @@ vms/DB/run/ports.lock
 vms/DB/run/ports.pid
 vms/DB/run/ports.ssh-hold
 vms/DB/run/ports.status
+vms/DB/run/proxy-child.pid
+vms/DB/run/proxy.confined
 vms/DB/run/proxy.json
 vms/DB/run/proxy.pid
 vms/DB/run/proxy.status

@@ -76,6 +76,12 @@ stdout '^-rw-------\S* '
 exec sh -c 'ps -axww -o command= | grep "[_]proxy -config $NET_dir/run/proxy.json"'
 stdout '_proxy -config \S*/run/proxy\.json$'
 ! stdout '[0-9a-f]{64}'
+# Its child reads the VM's network, devvm _proxy-child -for the same config,
+# its pid in the run folder beside how it's confined.
+exec sh -c 'ps -ww -o command= -p "$(cat $NET_dir/run/proxy-child.pid)"'
+stdout '_proxy-child -for \S*/run/proxy\.json$'
+exec cat $NET_dir/run/proxy.confined
+stdout '^none$'
 # devvm-why with nothing blocked points at a tool that skipped the proxy.
 exec sh -c 'pp=$(sed -n "s/^ *\"proxy\": \([0-9]*\).*/\1/p" "$NET_dir/vm.json"); key=$(sed -n "s/^ *\"proxy_key\": \"\(.*\)\".*/\1/p" "$NET_dir/vm.json"); /usr/bin/curl -sS -m 5 --proxy "http://devvm:$key@127.0.0.1:$pp" http://devvm.proxy/blocked'
 stdout '^devvm: nothing blocked recently$'

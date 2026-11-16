@@ -449,6 +449,10 @@ func fromCorp(s *S) {
 		if m, _ := filepath.Glob(filepath.Join(s.Paths.Devvm, "run", "builds", "*", "run", "build-proxy")); len(m) > 0 {
 			return errors.New("left: " + strings.Join(m, " "))
 		}
+		// The builds went through a broker and its child, the build proxy, and neither is left.
+		if ps, err := psAll(s.r.window().ctx); err != nil || Matches(string(ps), `_proxy(-child)? -(config|for) \S*/build-proxy/proxy\.json`) {
+			return errors.Join(errors.New("a build proxy's broker or child still runs"), err)
+		}
 		return ociTempsGone()
 	})
 	if corp != nil {

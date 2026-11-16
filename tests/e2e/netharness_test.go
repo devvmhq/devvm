@@ -225,8 +225,19 @@ func pids(s *S, pattern string) []string {
 	return strings.Fields(r.Stdout)
 }
 
-// proxyRuns is whether the VM's proxy, devvm _proxy -config pxc, runs.
-func proxyRuns(s *S, pxc string) bool { return len(pids(s, "[_]proxy -config "+pxc)) > 0 }
+// proxyRuns is whether the VM's proxy runs: its broker, devvm _proxy -config pxc, and its child,
+// devvm _proxy-child -for pxc.
+func proxyRuns(s *S, pxc string) bool {
+	b, c := brokerPair(s, pxc)
+	return b != "" && c != ""
+}
+
+// proxyLeft is whether anything of the VM's proxy runs: its broker or its child, which a check
+// that it's gone looks for both.
+func proxyLeft(s *S, pxc string) bool {
+	b, c := brokerPair(s, pxc)
+	return b != "" || c != ""
+}
 
 // devvmSecret is the saved secret name: from the run's Keychain service on
 // macOS, else from its file.

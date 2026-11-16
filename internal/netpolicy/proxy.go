@@ -118,15 +118,31 @@ func otherBinary(p *Proxy, vm vmname.VM) bool {
 	return err != nil || c.DevvmSHA256 != self
 }
 
-// Stop stops the VM's proxy, if it runs: SIGTERM, then after two seconds
-// SIGKILL, waiting up to two more for it to end. It reports whether no
-// proxy of the VM's runs then, and then deletes the socket the proxy
-// relayed the VM's SSH agent on, which a signal leaves behind.
+// childProc is p's VM vm's proxy's child as a background process: its
+// pid file, which its broker writes once it's ready, and devvm
+// _proxy-child -for with the VM's config in its arguments.
+func childProc(p *Proxy, vm vmname.VM) daemon.Proc {
+	config := p.Dirs.VM(vm).ProxyConfig()
+	return daemon.Proc{
+		PIDFile: proxy.ChildPIDFile(config), Args: p.Args, Signal: p.Signal,
+		Is: func(args []string) bool { return proxy.IsChild(args, config) },
+	}
+}
+
+// Stop stops the VM's proxy, if it runs: its broker, SIGTERM, then after
+// two seconds SIGKILL, waiting up to two more for it to end, which stops
+// its child; then a child that outlived its broker, the same way. It
+// reports whether neither runs then, and then deletes the socket the
+// proxy relayed the VM's SSH agent on, which a signal leaves behind, and
+// what the broker said of its child.
 func (p *Proxy) Stop(vm vmname.VM) bool {
-	if !p.proc(vm).Stop(4 * p.Tick) {
+	if !p.proc(vm).Stop(4*p.Tick) || !childProc(p, vm).Stop(4*p.Tick) {
 		return false
 	}
 	_ = os.Remove(p.Dirs.AgentRelay(vm))
+	config := p.Dirs.VM(vm).ProxyConfig()
+	_ = os.Remove(proxy.ChildPIDFile(config))
+	_ = os.Remove(proxy.ConfinedFile(config))
 	return true
 }
 
@@ -182,7 +198,9 @@ func (p *Proxy) PrepareRunning(ctx context.Context, b backend.Backend, st *state
 	if err == nil {
 		return c, nil
 	}
-	if _, up := p.PID(vm); up && !touched && enforcesNow(p, st) {
+	// Kept only while both of its proxy's processes run: a broker whose child
+	// has ended is ending too.
+	if _, up := p.PID(vm); up && childProc(p, vm).Running() && !touched && enforcesNow(p, st) {
 		p.Warn(msg.NetProxyKept(vm))
 		return c, err
 	}
@@ -486,7 +504,9 @@ func (p *Proxy) start(vm vmname.VM, cfg proxy.Config) error {
 	if err := p.writeConfig(vm, cfg); err != nil {
 		return err
 	}
-	out, err := os.OpenFile(cfg.ProxyLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	// The child writes the logs' folder: the log is opened never through a
+	// link, and to read too, as the proxy rotates it through this file.
+	out, err := proxy.OpenLog(cfg.ProxyLog)
 	if err != nil {
 		return err
 	}

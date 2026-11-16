@@ -2,10 +2,17 @@ package proxy
 
 import (
 	"bytes"
+	"context"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/devvmhq/devvm/internal/redact"
 )
 
 // Every proxy.json devvm 0.1.0 wrote, on each system, reads today, and Encode writes it again
@@ -37,6 +44,78 @@ func TestV010ProxyConfigs(t *testing.T) {
 		}
 		if got := c.Encode(); !bytes.Equal(got, b) {
 			t.Errorf("%s: written again as\n%s\nwant\n%s", path, got, b)
+		}
+	}
+}
+
+// A broker and its child start on every proxy.json devvm 0.1.0 wrote, its paths moved into the
+// test's own folder with the files the fixture has (its CAs, bindings and links' list) and its
+// port any free one: the child says it's ready, and ends once its broker's end of the socket does.
+func TestV010ProxyConfigsStart(t *testing.T) {
+	t.Parallel()
+	found, err := filepath.Glob(filepath.Join("..", "..", "testdata", "v0.1.0", "*", "data", "devvm", "vms", "*", "run", "proxy.json"))
+	if err != nil || len(found) < 8 {
+		t.Fatalf("0.1.0's proxy configs: %q, %v", found, err)
+	}
+	for _, path := range found {
+		b, err := os.ReadFile(path) //nolint:gosec // the repo's own fixture
+		must(t, err)
+		own := filepath.Join(t.TempDir(), "proxy.json")
+		must(t, os.WriteFile(own, b, 0o600))
+		c, err := ReadConfig(own)
+		must(t, err)
+		fixture, _, _ := strings.Cut(path, "/data/devvm/vms/") // testdata/v0.1.0/GOOS
+		oldRoot, _, ok := strings.Cut(c.ProxyLog, "/data/devvm/vms/")
+		if !ok {
+			t.Fatalf("%s: a proxy log outside a VM's folder: %s", path, c.ProxyLog)
+		}
+		root := shortAgentDir(t)
+		move := func(p string) string {
+			if p == "" {
+				return ""
+			}
+			to := filepath.Join(root, strings.TrimPrefix(p, oldRoot))
+			must(t, os.MkdirAll(filepath.Dir(to), 0o700))
+			if b, err := os.ReadFile(filepath.Join(fixture, strings.TrimPrefix(p, oldRoot))); err == nil { //nolint:gosec // the repo's own fixture
+				must(t, os.WriteFile(to, b, 0o600))
+			}
+			return to
+		}
+		c.Listen, c.Lifeline = "127.0.0.1:0", ""
+		c.Log, c.ProxyLog, c.Secrets, c.Links = move(c.Log), move(c.ProxyLog), move(c.Secrets), move(c.Links)
+		c.CA, c.CAKey, c.CANext, c.CANextKey = move(c.CA), move(c.CAKey), move(c.CANext), move(c.CANextKey)
+		c.LinkSockets = root
+		for i := range c.Policies {
+			c.Policies[i] = move(c.Policies[i])
+		}
+		for i := range c.DenyPolicies {
+			c.DenyPolicies[i] = move(c.DenyPolicies[i])
+		}
+		std := inProcess(IO{
+			Stdout: io.Discard, Stderr: io.Discard, FS: os.DirFS(filepath.Join("..", "..", "assets")), // devvm's own files, as the binary has them
+			Secret:  func(context.Context, Binding) (redact.Secret, error) { return redact.NewSecret("v"), nil },
+			Capture: capturerFunc(func(Exchange) ([]byte, []byte, error) { return nil, nil, nil }),
+		})
+		b2, err := newBroker(t.Context(), c, std, quiet())
+		if err != nil {
+			t.Errorf("%s: the broker: %v", path, err)
+			continue
+		}
+		ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", c.Listen)
+		must(t, err)
+		p, err := spawnChild(ln, own, std)
+		_ = ln.Close()
+		must(t, err)
+		exe, err := selfSum()
+		must(t, err)
+		if ready, err := b2.handshake(p, exe, time.Now().Add(startWait)); err != nil || ready.Addr == "" {
+			t.Errorf("%s: the child: %v", path, err)
+		}
+		_ = p.fc.close()
+		select {
+		case <-p.child.Done():
+		case <-time.After(10 * time.Second):
+			t.Errorf("%s: the child outlived its broker's end", path)
 		}
 	}
 }

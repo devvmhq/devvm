@@ -89,6 +89,10 @@ func (e *tokenEndpoint) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.Contains(string(b), "text"):
 		w.Header().Set("Content-Type", "text/plain")
 		reply = "refresh_token=real-rt"
+	case strings.Contains(string(b), "longfail"):
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":"invalid_grant","pad":"`+strings.Repeat("x", captureReplyMax)+`"}`)
+		return
 	case strings.Contains(string(b), "fail"):
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = fmt.Fprintf(w, `{"error":"invalid_grant","error_description":"got %s"}`, b)
@@ -123,7 +127,7 @@ func captureSetup(t *testing.T) (*server, int, *fakeCapturer, *tokenEndpoint, *h
 	s, port, file, c := interceptSetup(t, te.serve)
 	writeBindings(t, file)
 	fc := &fakeCapturer{}
-	s.captures = newCaptures([]Capture{{Agent: "codex", Host: "localhost", Path: "/oauth/token"}, {Agent: "opencode", Host: "localhost", Path: "/oauth/token"}}, fc)
+	s.captures = testCaptures(s, []Capture{{Agent: "codex", Host: "localhost", Path: "/oauth/token"}, {Agent: "opencode", Host: "localhost", Path: "/oauth/token"}}, fc, port)
 	return s, port, fc, te, c, logs(s)
 }
 
@@ -294,6 +298,7 @@ func TestCaptureRefuses(t *testing.T) {
 		{"a request too long", strings.Repeat("x", captureRequestMax+1), nil, nil, false},
 		{"a request refused", "grant_type=client_credentials", errors.New("a grant devvm doesn't capture"), nil, false},
 		{"a reply too long", "long", nil, nil, true},
+		{"an error reply too long", "longfail", nil, nil, true},
 		{"an encoded reply", "br", nil, nil, true},
 		{"a reply refused", "grant_type=authorization_code", nil, errors.New("no login in it"), true},
 	} {
@@ -365,9 +370,9 @@ func TestCaptureGet(t *testing.T) {
 	s, port, file, c := interceptSetup(t, h.serve)
 	writeBindings(t, file)
 	fc := &fakeCapturer{}
-	s.captures = newCaptures([]Capture{{
+	s.captures = testCaptures(s, []Capture{{
 		Agent: "cursor", Host: "localhost", Path: "/auth/poll", Method: http.MethodGet, Guard: "/auth/", TokenKeys: []string{"accessToken"},
-	}}, fc)
+	}}, fc, port)
 	u := fmt.Sprintf("https://localhost:%d", port)
 	if code, body := post(t, c, http.MethodGet, u+"/Auth//poll?verifier=v%2Bw&uuid=u-1", ""); code != http.StatusOK || body != `{"access_token":"VM-PH"}` {
 		t.Fatalf("the login: %d %q", code, body)

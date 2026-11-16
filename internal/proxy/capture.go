@@ -1,32 +1,38 @@
 package proxy
 
 // Capturing logins: an agent's OAuth token endpoint (Config.Captures) is intercepted on :443 as a
-// host with a bound secret is, whatever the VM's tier. A request of its method (POST, or GET) to
-// its path is read whole (at most captureRequestMax) and handed to IO.Capture, devvm's store of
-// agents' logins in this process, which may put a login's real value in place of the VM's
-// placeholder of it (Codex's API-key exchange sends its id_token). A POST goes on without its
-// query; a GET, whose request is its query, goes on with the query IO.Capture saw, canonical, and
-// no body. The endpoint's reply, when it's a success, is read whole too (at
-// most captureReplyMax) and never passed on: IO.Capture saves the tokens in it on the host, in the
-// agent's own login file, and gives the reply the VM gets, with placeholders in their place and no
-// refresh token, and only headers that can't hold a credential (keepHeaders). A reply it can't
-// read is refused (502), and so is one that's too long or encoded. An error reply holds no tokens
-// and passes as it is, except to a request IO.Capture put a real value in, which gets only its
-// error code. Any other successful JSON reply from a token endpoint's host is refused when it
-// holds a login's tokens (guard), so no other path there hands the VM a login; on a host that
-// serves an API beside the endpoint, only the paths below the endpoint's Guard. Neither the bodies
-// nor anything in them is logged: the event log gets a "login" event naming the agent, the proxy's
-// own log only why a capture failed.
+// host with a bound secret is, whatever the VM's tier. The child judges a request of its method
+// (POST, or GET) to its path by the VM's rules as any other, reads it whole (at most
+// captureRequestMax) and hands it to the broker (captureToken), which does the rest itself
+// (exchanger), so a login's real tokens never enter the child: it hands the request to IO.Capture,
+// devvm's store of agents' logins, which may put a login's real value in place of the VM's
+// placeholder of it (Codex's API-key exchange sends its id_token), and sends it to the endpoint's
+// host from its own config, on port 443. A POST goes on without its query; a GET, whose request is
+// its query, goes on with the query IO.Capture saw, canonical, and no body. The endpoint's reply,
+// when it's a success, is read whole too (at most captureReplyMax) and never passed on: IO.Capture
+// saves the tokens in it on the host, in the agent's own login file, and gives the reply the VM
+// gets, with placeholders in their place and no refresh token, and only headers that can't hold a
+// credential (keepHeaders). A reply it can't read is refused (502), and so is one that's too long
+// or encoded. An error reply holds no tokens and passes as it is, up to captureReplyMax, except to
+// a request IO.Capture put a real value in, which gets only its error code. Any other successful
+// JSON reply from a token endpoint's host is refused when it holds a login's tokens (guard), so no
+// other path there hands the VM a login; on a host that serves an API beside the endpoint, only
+// the paths below the endpoint's Guard. Neither the bodies nor anything in them is logged: the
+// event log gets a "login" event naming the agent, the proxy's own log only why a capture failed.
 
 import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -34,6 +40,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/devvmhq/devvm/internal/vmname"
 )
@@ -80,7 +87,7 @@ type Exchange struct {
 	Query       string
 }
 
-// Capturer is IO.Capture: devvm's store of agents' logins, in this process.
+// Capturer is IO.Capture: devvm's store of agents' logins, in the broker's process.
 type Capturer interface {
 	// Request returns the token request's body as it goes to the endpoint, or answer, the reply
 	// the VM gets with the request going nowhere, or an error that refuses it.
@@ -91,8 +98,8 @@ type Capturer interface {
 	Response(ctx context.Context, x Exchange, reply []byte) (vm []byte, agent string, err error)
 }
 
-// What of a token request and of its reply the proxy reads: a request is a few fields, a reply a
-// few tokens (agentlogin reads at most as much of a refresh's).
+// What of a token request and of its reply the proxy reads: a request is a few fields and
+// headers, a reply a few tokens (agentlogin reads at most as much of a refresh's).
 const (
 	captureRequestMax = 64 << 10
 	captureReplyMax   = 1 << 20
@@ -101,32 +108,43 @@ const (
 // errCaptureRefused is a capture's error that reaches the VM as a 502, logged as a refused block.
 var errCaptureRefused = errors.New("devvm refused the login's reply")
 
-// captureReads is how many requests and replies to and from token endpoints' hosts the proxy reads
-// whole at once, each at most captureReplyMax: a login takes three.
+// captureReads is how many requests and replies to and from token endpoints' hosts the child
+// reads whole at once, each at most captureReplyMax, and how many token exchanges the broker runs
+// at once: a login takes three.
 const captureReads = 8
 
-// captures is a proxy's token endpoints (Config.Captures), its Capturer (IO.Capture), and a slot
-// for each read whole at once (captureReads).
+// captures is the child's token endpoints (Config.Captures), a slot for each read whole at once
+// (captureReads), which a token exchange holds throughout, and token, which exchanges a captured
+// request at the broker.
 type captures struct {
 	list  []Capture
-	c     Capturer
 	reads chan struct{}
+	token func(ctx context.Context, r tokenRequest) (tokenReply, error)
 }
 
-func newCaptures(list []Capture, c Capturer) *captures {
-	return &captures{list: list, c: c, reads: make(chan struct{}, captureReads)}
+func newCaptures(list []Capture, token func(ctx context.Context, r tokenRequest) (tokenReply, error)) *captures {
+	return &captures{list: list, reads: make(chan struct{}, captureReads), token: token}
 }
 
 // read reads r whole, at most limit, in one of the reads' slots, waiting for one at most until ctx
 // ends.
 func (cs *captures) read(ctx context.Context, r io.Reader, limit int64) ([]byte, error) {
+	release, err := cs.slot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return readMax(r, limit)
+}
+
+// slot takes one of the reads' slots, waiting for one at most until ctx ends.
+func (cs *captures) slot(ctx context.Context) (func(), error) {
 	select {
 	case cs.reads <- struct{}{}:
-		defer func() { <-cs.reads }()
+		return func() { <-cs.reads }, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	return readMax(r, limit)
 }
 
 // has reports whether host has a token endpoint: the proxy intercepts it.
@@ -179,29 +197,26 @@ func cleanPath(p string) string {
 	return path.Clean("/" + strings.Join(segs, "/"))
 }
 
-// agents returns the agents whose token endpoint r, a request for host, is: its method to its
-// path, compared once cleaned (cleanPath) and in any case, so another spelling of the path
-// (/oauth//token, /OAuth/Token/, /oauth/token;x) never passes uncaptured, and the endpoint's own
-// path, which the request goes to. None: it isn't one.
+// agents returns the agents whose token endpoint r, a request for host, is (endpointAgents), and
+// the endpoint's own path, which the request goes to. None: it isn't one.
 func (cs *captures) agents(host string, r *http.Request) ([]string, string) {
-	p := cleanPath(r.URL.Path)
+	return endpointAgents(cs.list, host, r.Method, r.URL.Path)
+}
+
+// endpointAgents returns the agents whose token endpoint in list a request of method for host's
+// path p is: its method to its path, compared once cleaned (cleanPath) and in any case, so another
+// spelling of the path (/oauth//token, /OAuth/Token/, /oauth/token;x) never passes uncaptured, and
+// the endpoint's own path. None: it isn't one.
+func endpointAgents(list []Capture, host, method, p string) ([]string, string) {
+	p = cleanPath(p)
 	var out []string
 	var at string
-	for _, c := range cs.list {
-		if c.Host == host && r.Method == c.method() && strings.EqualFold(p, c.Path) && !slices.Contains(out, c.Agent) {
+	for _, c := range list {
+		if c.Host == host && method == c.method() && strings.EqualFold(p, c.Path) && !slices.Contains(out, c.Agent) {
 			out, at = append(out, c.Agent), c.Path
 		}
 	}
 	return out, at
-}
-
-// capturing is a captured request as its reply needs it: its Exchange, the endpoint's path it
-// goes to, whatever the VM's spelling, and whether IO.Capture changed its body, putting a real
-// value in.
-type capturing struct {
-	x         Exchange
-	path      string
-	rewritten bool
 }
 
 // captureQuery is a captured GET's query as it goes on, canonical (url.Values' encoding: its
@@ -220,9 +235,9 @@ func captureQuery(raw string) (string, error) {
 	return v.Encode(), nil
 }
 
-// no1xx is a captured request's ResponseWriter: it drops the informational replies (1xx) that
-// ReverseProxy passes on before ModifyResponse sees the reply, as their headers could hold a
-// credential (103's Set-Cookie).
+// no1xx is the ResponseWriter of a request to a token endpoint's host: it drops the informational
+// replies (1xx) that ReverseProxy passes on before ModifyResponse sees the reply, as their headers
+// could hold a credential (103's Set-Cookie).
 type no1xx struct{ http.ResponseWriter }
 
 func (w no1xx) WriteHeader(code int) {
@@ -234,22 +249,21 @@ func (w no1xx) WriteHeader(code int) {
 
 func (w no1xx) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// captureKey is the context key of a captured request's capturing.
-type captureKey struct{}
-
-// captured is the capturing of a request the proxy captures the reply to, or nil.
-func captured(ctx context.Context) *capturing {
-	c, _ := ctx.Value(captureKey{}).(*capturing)
-	return c
-}
+// keptHeaderMax bounds each header keepHeaders keeps: its first value, at most 1 KiB, as no
+// endpoint's Content-Type or Date is longer, so a captured reply always fits in the broker's
+// frame to the child.
+const keptHeaderMax = 1 << 10
 
 // keepHeaders drops every header of h, a captured reply's, but the few that can't hold a
-// credential, as Set-Cookie could.
+// credential, as Set-Cookie could, each its first value, dropped past keptHeaderMax.
 func keepHeaders(h http.Header) {
 	keep := []string{"Content-Type", "Cache-Control", "Pragma", "Date"}
-	for k := range h {
-		if !slices.Contains(keep, k) {
+	for k, vs := range h {
+		switch {
+		case !slices.Contains(keep, k), len(vs) == 0, len(vs[0]) > keptHeaderMax:
 			h.Del(k)
+		default:
+			h[k] = vs[:1]
 		}
 	}
 }
@@ -283,67 +297,102 @@ func readMax(r io.Reader, limit int64) ([]byte, error) {
 	return b, nil
 }
 
-// captureRequest reads r, a token request for agents' endpoint at path, and returns it as it goes
-// on: its body as IO.Capture gives it, a GET's query canonical (captureQuery), its capturing in
-// its context. It refuses one that's too long, a GET with a body or a query captureQuery refuses,
-// and one that IO.Capture refuses, or whose GET it gives a body, and answers one that IO.Capture
-// answers, writing w itself, and reports whether r goes on.
-func (s *server) captureRequest(w http.ResponseWriter, r *http.Request, host string, port int, agents []string, at string) (*http.Request, bool) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), lookupTimeout)
-	defer cancel()
-	body, err := s.captures.read(ctx, r.Body, captureRequestMax)
-	_ = r.Body.Close()
-	x := &Exchange{VM: s.vm, Agents: agents, Method: r.Method, UserAgent: r.UserAgent(), ContentType: r.Header.Get("Content-Type"), Body: body}
-	get := r.Method == http.MethodGet
-	switch {
-	case err == nil && get && len(body) > 0:
-		err = errors.New("a GET token request with a body")
-	case err == nil && get:
-		x.Query, err = captureQuery(r.URL.RawQuery)
-	}
-	var answer []byte
-	if err == nil {
-		body, answer, err = s.captures.c.Request(ctx, *x)
-	}
-	if err == nil && get && len(body) > 0 {
-		err = errors.New("a GET token request given a body")
-	}
-	switch {
-	case err != nil:
-		s.refuseCapture(w, r, host, port, err)
-		return nil, false
-	case answer != nil:
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(answer)
-		return nil, false
-	}
-	c := &capturing{x: *x, path: at, rewritten: !bytes.Equal(body, x.Body)}
-	r = r.WithContext(context.WithValue(r.Context(), captureKey{}, c))
-	r.Body, r.ContentLength, r.TransferEncoding = io.NopCloser(bytes.NewReader(body)), int64(len(body)), nil
-	r.Header.Del("Content-Length")
-	return r, true
+// --- the child's side ---
+
+// tokenRequest is a captured token request as the child hands it to the broker: its host, its
+// endpoint's clean path, its method, its query as the VM sent it, its headers and its body.
+type tokenRequest struct {
+	host, path, method, query string
+	header                    http.Header
+	body                      []byte
 }
 
-// captureResponse is the forwarder's ModifyResponse for a reply from host: a captured request's,
-// or any reply from a token endpoint's host (guard). Its error refuses the reply
+// tokenReply is what the VM gets for a captured token request: its status, its few headers and
+// its body, and the agent whose login the broker saved ("" for none). sent: the request went to
+// the endpoint, rather than IO.Capture answering it.
+type tokenReply struct {
+	status int
+	header http.Header
+	body   []byte
+	agent  string
+	sent   bool
+}
+
+// headerSize is how many bytes h's names and values take.
+func headerSize(h http.Header) int {
+	n := 0
+	for k, vs := range h {
+		for _, v := range vs {
+			n += len(k) + len(v)
+		}
+	}
+	return n
+}
+
+// captureToken reads r, a token request for the endpoint at at on host, whole (at most
+// captureRequestMax, its headers as much) and has the broker exchange it (captures.token), in one
+// of the reads' slots throughout, so the child runs at most captureReads at once, as the broker
+// allows. It answers with the broker's reply, logging the request as forwarded when it went to the
+// endpoint and the login when one was saved, or refuses it (refuseCapture).
+func (s *server) captureToken(w http.ResponseWriter, r *http.Request, host string, port int, at string) {
+	// No one request's end cancels an exchange: its 20 seconds run whatever happens to the VM's
+	// request, as the broker's do.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), lookupTimeout)
+	defer cancel()
+	release, err := s.captures.slot(ctx)
+	if err != nil {
+		s.refuseCapture(w, r, host, port, err)
+		return
+	}
+	defer release()
+	body, err := readMax(r.Body, captureRequestMax)
+	_ = r.Body.Close()
+	if err == nil && headerSize(r.Header) > captureRequestMax {
+		err = errors.New("the token request's headers are too long")
+	}
+	var reply tokenReply
+	if err == nil {
+		reply, err = s.captures.token(ctx, tokenRequest{
+			host: host, path: at, method: r.Method, query: r.URL.RawQuery, header: r.Header, body: body,
+		})
+	}
+	if err != nil {
+		s.refuseCapture(w, r, host, port, err)
+		return
+	}
+	if reply.sent {
+		e := Event{
+			Event: "forward", Host: host, Port: port, Method: r.Method, Path: r.URL.Path, Agent: r.UserAgent(),
+			Rule: ruleOf(r.Context()), Via: viaOf(r.Context()),
+		}
+		if up := s.egress.up.route(host, port, false); up != nil {
+			e.Upstream = up.addr
+		}
+		s.events.record(e)
+	}
+	for k, vs := range reply.header {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(reply.body)))
+	w.WriteHeader(reply.status)
+	_, _ = w.Write(reply.body)
+	if reply.agent != "" {
+		s.events.record(Event{Event: "login", Host: host, Port: port, Method: r.Method, Path: r.URL.Path, Login: reply.agent})
+	}
+}
+
+// captureResponse is the forwarder's ModifyResponse for a reply from host: any reply from a token
+// endpoint's host (guard), or one of Cursor's (cursorReply). Its error refuses the reply
 // (errCaptureRefused).
-func (s *server) captureResponse(host string, port int) func(*http.Response) error {
+func (s *server) captureResponse(host string, _ int) func(*http.Response) error {
 	return func(resp *http.Response) error {
-		c := captured(resp.Request.Context())
 		switch {
-		case (c != nil || s.captures.has(host) || cursorHost(host)) && resp.StatusCode == http.StatusSwitchingProtocols:
+		case (s.captures.has(host) || cursorHost(host)) && resp.StatusCode == http.StatusSwitchingProtocols:
 			// An upgrade would splice the host's bytes to the VM unread, on any of its paths.
 			_ = resp.Body.Close()
 			return fmt.Errorf("%w: an upgrade from a token endpoint's host", errCaptureRefused)
-		case c != nil && resp.StatusCode >= 200 && resp.StatusCode <= 299:
-			return s.captureReply(resp, c, host, port)
-		case c != nil && c.rewritten:
-			// An error to a request that carried a real value: only its error code, in case the
-			// endpoint's message quotes the request.
-			return s.errorReply(resp)
-		case c != nil:
-			keepHeaders(resp.Header)
 		case s.captures.guards(host, resp.Request):
 			return s.guard(resp, host)
 		case cursorHost(host):
@@ -353,51 +402,169 @@ func (s *server) captureResponse(host string, port int) func(*http.Response) err
 	}
 }
 
-// captureReply reads a captured request's successful reply whole, has IO.Capture save it and
-// replaces it with what IO.Capture gives the VM, with keepHeaders' headers alone, and logs the
-// login.
-func (s *server) captureReply(resp *http.Response, c *capturing, host string, port int) error {
-	defer func() { _ = resp.Body.Close() }()
-	if encoded(resp) {
-		return fmt.Errorf("%w: it's encoded (%s)", errCaptureRefused, strconv.Quote(resp.Header.Get("Content-Encoding")))
+// --- the broker's side ---
+
+// exchanger is the broker's side of captures: its VM's token endpoints (Config.Captures), its
+// Capturer (IO.Capture), and the client it sends token requests with, to an endpoint's host from
+// its own config on port 443, through the company proxy when there is one (route), trusting the
+// system's roots and the user's CAs (roots), as an OAuth refresh does.
+type exchanger struct {
+	vm   vmname.VM
+	list []Capture
+	c    Capturer
+	log  *log.Logger
+	// route is the company proxy (upstreams.host); nil: direct.
+	route func(*http.Request) (*url.URL, error)
+	roots *x509.CertPool
+	// dial connects to an address: a net.Dialer's, which tests replace to reach an endpoint of
+	// their own.
+	dial func(ctx context.Context, network, address string) (net.Conn, error)
+}
+
+// exchange runs a captured token request r: it finds the endpoints in the broker's own list that
+// its host, its path and its method match, refusing one that matches none, has IO.Capture read it
+// (with the VM's name itself), sends it to the endpoint and returns what the VM gets, or an
+// error, which refuses it (502).
+func (x *exchanger) exchange(ctx context.Context, r tokenRequest) (tokenReply, error) {
+	agents, at := endpointAgents(x.list, r.host, r.method, r.path)
+	if len(agents) == 0 || len(r.body) > captureRequestMax || headerSize(r.header) > captureRequestMax {
+		return tokenReply{}, fmt.Errorf("not one of the VM's token endpoints: %w", errNotFound)
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(resp.Request.Context()), lookupTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lookupTimeout)
 	defer cancel()
-	reply, err := s.captures.read(ctx, resp.Body, captureReplyMax)
-	if err != nil {
-		return fmt.Errorf("%w: %w", errCaptureRefused, err)
+	ex := Exchange{
+		VM: x.vm, Agents: agents, Method: r.method, UserAgent: r.header.Get("User-Agent"),
+		ContentType: r.header.Get("Content-Type"), Body: r.body,
 	}
-	out, agent, err := s.captures.c.Response(ctx, c.x, reply)
+	get := r.method == http.MethodGet
+	var err error
 	switch {
-	case err != nil && out == nil:
-		return fmt.Errorf("%w: %w", errCaptureRefused, err)
-	case err != nil: // saved, but the VM's bindings weren't written: they are at its next launch
-		s.log.Printf("%s:%d: login: %v", host, port, err)
+	case get && len(r.body) > 0:
+		err = errors.New("a GET token request with a body")
+	case get:
+		ex.Query, err = captureQuery(r.query)
+	}
+	var out, answer []byte
+	if err == nil {
+		out, answer, err = x.c.Request(ctx, ex)
+	}
+	if err == nil && get && len(out) > 0 {
+		err = errors.New("a GET token request given a body")
+	}
+	switch {
+	case err != nil:
+		return tokenReply{}, err
+	case answer != nil:
+		return tokenReply{status: http.StatusOK, header: http.Header{"Content-Type": {"application/json"}, "Cache-Control": {"no-store"}}, body: answer}, nil
+	}
+	resp, err := x.send(ctx, r, at, ex.Query, out)
+	if err != nil {
+		return tokenReply{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	reply, err := x.reply(ctx, resp, ex, !bytes.Equal(out, r.body))
+	reply.sent = true
+	return reply, err
+}
+
+// send sends a token request to the endpoint at at on r's host, port 443, its query a GET's
+// alone, its body out, with the VM's headers but the hop's own, following no
+// redirect.
+func (x *exchanger) send(ctx context.Context, r tokenRequest, at, query string, out []byte) (*http.Response, error) {
+	u := &url.URL{Scheme: "https", Host: r.host, Path: at, RawQuery: query}
+	req, err := http.NewRequestWithContext(ctx, r.method, u.String(), bytes.NewReader(out))
+	if err != nil {
+		return nil, err
+	}
+	req.Header = r.header.Clone()
+	for _, k := range req.Header.Values("Connection") {
+		for f := range strings.SplitSeq(k, ",") {
+			req.Header.Del(strings.TrimSpace(f))
+		}
+	}
+	// The headers of one hop alone, which a token request never takes on, with
+	// Proxy-Authorization, the VM's password, and Accept-Encoding, so Go's transport asks for gzip
+	// and undoes it.
+	for _, k := range []string{
+		"Connection", "Keep-Alive", "Proxy-Connection", "Proxy-Authenticate", "Proxy-Authorization",
+		"Te", "Trailer", "Transfer-Encoding", "Upgrade", "Accept-Encoding", "Content-Length", "Host",
+	} {
+		req.Header.Del(k)
+	}
+	dial := x.dial
+	if dial == nil {
+		dial = (&net.Dialer{Timeout: 15 * time.Second}).DialContext
+	}
+	tr := &http.Transport{
+		Proxy: x.route, DialContext: dial, TLSClientConfig: &tls.Config{RootCAs: x.roots},
+		ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second,
+	}
+	defer tr.CloseIdleConnections()
+	client := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		x.log.Printf("%s: login: %v", r.host, err)
+		return nil, errors.New("the token endpoint couldn't be reached")
+	}
+	return resp, nil
+}
+
+// reply is what the VM gets for resp, the endpoint's reply to ex: a success read whole, saved by
+// IO.Capture and replaced with what it gives the VM; an error reply as it is, or, to a request
+// IO.Capture put a real value in (rewritten), its OAuth error code alone (errorReply); each with
+// keepHeaders' headers alone. An upgrade, an encoded success and one past captureReplyMax are
+// refused.
+func (x *exchanger) reply(ctx context.Context, resp *http.Response, ex Exchange, rewritten bool) (tokenReply, error) {
+	switch {
+	case resp.StatusCode < 200:
+		return tokenReply{}, fmt.Errorf("%w: an upgrade from a token endpoint's host", errCaptureRefused)
+	case resp.StatusCode <= 299:
+		if encoded(resp) {
+			return tokenReply{}, fmt.Errorf("%w: it's encoded (%s)", errCaptureRefused, strconv.Quote(resp.Header.Get("Content-Encoding")))
+		}
+		b, err := readMax(resp.Body, captureReplyMax)
+		if err != nil {
+			return tokenReply{}, fmt.Errorf("%w: %w", errCaptureRefused, err)
+		}
+		out, agent, err := x.c.Response(ctx, ex, b)
+		switch {
+		case err != nil && out == nil:
+			return tokenReply{}, fmt.Errorf("%w: %w", errCaptureRefused, err)
+		case err != nil: // saved, but the VM's bindings weren't written: they are at its next launch
+			x.log.Printf("%s: login: %v", resp.Request.URL.Host, err)
+		}
+		keepHeaders(resp.Header)
+		return tokenReply{status: resp.StatusCode, header: resp.Header, body: out, agent: agent}, nil
+	case rewritten:
+		// An error to a request that carried a real value: only its error code, in case the
+		// endpoint's message quotes the request.
+		b, err := readMax(resp.Body, captureReplyMax)
+		keepHeaders(resp.Header)
+		resp.Header.Set("Content-Type", "application/json")
+		return tokenReply{status: resp.StatusCode, header: resp.Header, body: errorReply(b, err == nil && !encoded(resp))}, nil
+	}
+	b, err := readMax(resp.Body, captureReplyMax)
+	if err != nil {
+		return tokenReply{}, fmt.Errorf("%w: an error reply: %w", errCaptureRefused, err)
 	}
 	keepHeaders(resp.Header)
-	setBody(resp, out)
-	s.events.record(Event{Event: "login", Host: host, Port: port, Method: resp.Request.Method, Path: resp.Request.URL.Path, Login: agent})
-	return nil
+	return tokenReply{status: resp.StatusCode, header: resp.Header, body: b}, nil
 }
 
 // errorCode is an OAuth error's code as the VM may see it.
 var errorCode = regexp.MustCompile(`^[a-z_]{1,64}$`)
 
-// errorReply replaces an error reply's body with its OAuth error code alone, {"error":"..."},
-// or devvm_refused when it has none devvm reads, and keeps keepHeaders' headers alone.
-func (s *server) errorReply(resp *http.Response) error {
-	defer func() { _ = resp.Body.Close() }()
+// errorReply is an error reply's body b as the VM gets it, {"error":"..."}: its OAuth error code
+// alone, or devvm_refused when it has none devvm reads (read: b is the whole body, unencoded).
+func errorReply(b []byte, read bool) []byte {
 	var e struct {
 		Error string `json:"error"`
 	}
-	if b, err := s.captures.read(resp.Request.Context(), resp.Body, captureReplyMax); encoded(resp) || err != nil || json.Unmarshal(b, &e) != nil || !errorCode.MatchString(e.Error) {
+	if !read || json.Unmarshal(b, &e) != nil || !errorCode.MatchString(e.Error) {
 		e.Error = "devvm_refused"
 	}
-	b, _ := json.Marshal(e)
-	keepHeaders(resp.Header)
-	resp.Header.Set("Content-Type", "application/json")
-	setBody(resp, b)
-	return nil
+	out, _ := json.Marshal(e)
+	return out
 }
 
 // page reports whether a reply's Content-Type is a web page's or its parts' (HTML, CSS,

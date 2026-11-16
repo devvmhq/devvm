@@ -8,6 +8,7 @@ package proxy
 // anywhere.
 
 import (
+	"bytes"
 	"container/list"
 	"context"
 	"crypto/ecdsa"
@@ -21,6 +22,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"net"
@@ -186,19 +188,17 @@ func InterceptLines(hosts []string) []string {
 // Lookup returns a binding's value: IO.Secret, which devvm sets to its secrets' store.
 type Lookup func(ctx context.Context, b Binding) (redact.Secret, error)
 
-// secrets is a proxy's bindings (Config.Secrets) and the values it has looked up for them.
+// valueSource gives a binding's value and when it was looked up: the broker's (hostSide.value),
+// which looks it up in its own read of the bindings file.
+type valueSource func(ctx context.Context, b Binding) (redact.Secret, time.Time, error)
+
+// secrets is the child's bindings (Config.Secrets) and the values it has been given for them.
 type secrets struct {
 	// file is Config.Secrets, the bindings file (no values), re-read on change; nil: none. Its
 	// lock is taken before valueMu, never after.
 	file   *watched[[]Binding]
-	lookup Lookup // IO.Secret: each binding's value
-	// route is the company proxy each lookup's own requests go through (WithRoute), the one the
-	// VM's requests go through: set as the proxy starts. nil: net/http's own.
-	route func(*http.Request) (*url.URL, error)
-	// roots is what each lookup's own TLS connections trust (WithRoots), the proxy's own: the
-	// system roots and the user's CAs. nil: the system roots.
-	roots *x509.CertPool
-	log   *log.Logger
+	source valueSource // the broker: each binding's value
+	log    *log.Logger
 	// valueMu holds the values, by binding (valueKeyOf), and is held through a lookup, so lookups
 	// go one at a time.
 	valueMu sync.Mutex
@@ -211,26 +211,32 @@ type valueKey struct{ kind, agent, name string }
 
 func valueKeyOf(b Binding) valueKey { return valueKey{b.Kind, b.Agent, b.Name} }
 
-func newSecrets(path string, lookup Lookup, l *log.Logger) *secrets {
-	s := &secrets{lookup: lookup, log: l, values: map[valueKey]cached{}}
-	if path != "" {
-		s.file = &watched[[]Binding]{
-			path: path, read: readBindingsFile,
-			parse: func(b []byte) ([]Binding, error) {
-				bl, err := parseBindings(path, b)
-				if err == nil {
-					l.Printf("secrets %s: %d bindings", path, len(bl.Bindings))
-				}
-				return bl.Bindings, err
-			},
-			onFail: func(err error) { l.Printf("secrets: %v", err) },
-			// devvm rewrites the file when a value is set or removed: look values up afresh.
-			changed: func() {
-				s.valueMu.Lock()
-				s.values = map[valueKey]cached{}
-				s.valueMu.Unlock()
-			},
-		}
+// bindingsFile is the bindings file at src, logging to l, which runs changed whenever it changes.
+func bindingsFile(src watchSource, l *log.Logger, changed func()) *watched[[]Binding] {
+	return &watched[[]Binding]{
+		path: src.path, read: src.read,
+		parse: func(b []byte) ([]Binding, error) {
+			bl, err := parseBindings(src.path, b)
+			if err == nil {
+				l.Printf("secrets %s: %d bindings", src.path, len(bl.Bindings))
+			}
+			return bl.Bindings, err
+		},
+		onFail:  func(err error) { l.Printf("secrets: %v", err) },
+		changed: changed,
+	}
+}
+
+// newSecretsOf is the bindings in src (src.path "": none), their values from source.
+func newSecretsOf(src watchSource, source valueSource, l *log.Logger) *secrets {
+	s := &secrets{source: source, log: l, values: map[valueKey]cached{}}
+	if src.path != "" {
+		// devvm rewrites the file when a value is set or removed: look values up afresh.
+		s.file = bindingsFile(src, l, func() {
+			s.valueMu.Lock()
+			s.values = map[valueKey]cached{}
+			s.valueMu.Unlock()
+		})
 	}
 	return s
 }
@@ -293,36 +299,134 @@ func ttlOf(b Binding) time.Duration {
 	return valueTTL
 }
 
-// value returns b's value from the lookup, cached (see ttlOf). Lookups go one at a time, so two
-// requests never refresh a login at once.
+// value returns b's value from the broker, kept until the broker's lookup is as old as ttlOf
+// says, so no value is kept longer than a lookup's. Lookups go one at a time, so two requests
+// never refresh a login at once.
 func (s *secrets) value(ctx context.Context, b Binding) (redact.Secret, error) {
 	s.valueMu.Lock()
 	defer s.valueMu.Unlock()
 	if c, ok := s.values[valueKeyOf(b)]; ok && time.Since(c.at) < ttlOf(b) {
 		return c.value, nil
 	}
-	if s.lookup == nil {
+	if s.source == nil {
 		return redact.Secret{}, errors.New("no secret lookup")
 	}
-	// The value is cached for every request: no one request's end cancels it,
-	// and the lookup reads only s.route and s.roots, set here, never a
-	// request's own values, as the cache key holds none of them.
+	v, at, err := s.source(ctx, b)
+	if err != nil {
+		return redact.Secret{}, err
+	}
+	s.values[valueKeyOf(b)] = cached{v, at}
+	return v, nil
+}
+
+// failedTTL is how long the broker keeps a failed lookup: a child can't make it run security, or
+// try a refresh, back to back. A change to the bindings file, as devvm secret set makes, drops it.
+const failedTTL = 5 * time.Second
+
+// lookups are the broker's values: each binding's, looked up (IO.Secret) by its key in the
+// broker's own read of the bindings file, never the child's binding, and kept as long as the
+// proxy keeps it (ttlOf), a failure for failedTTL. The broker looks at the file at each request,
+// whatever the child asks, so a binding devvm takes away is gone for the next one, and a change
+// drops every value and failure.
+type lookups struct {
+	file   *watched[[]Binding] // Config.Secrets, read by the broker; nil: none
+	lookup Lookup              // IO.Secret
+	// route is the company proxy each lookup's own requests go through (WithRoute), the one the
+	// VM's requests go through: set as the broker starts. nil: net/http's own.
+	route func(*http.Request) (*url.URL, error)
+	// roots is what each lookup's own TLS connections trust (WithRoots), the proxy's own: the
+	// system roots and the user's CAs. nil: the system roots.
+	roots *x509.CertPool
+	// mu holds the values and the failures, and is held through a lookup, so lookups go one at a
+	// time. It's taken after the file's lock, never before.
+	mu     sync.Mutex
+	values map[valueKey]cached
+	failed map[valueKey]failure
+}
+
+// failure is a failed lookup, kept for failedTTL.
+type failure struct {
+	err error
+	at  time.Time
+}
+
+// newLookups are the values of the bindings in path ("": none), looked up with lookup, logging
+// the file's reads to l.
+func newLookups(path string, lookup Lookup, l *log.Logger) *lookups {
+	k := &lookups{lookup: lookup, values: map[valueKey]cached{}, failed: map[valueKey]failure{}}
+	if path != "" {
+		k.file = bindingsFile(watchedFile{watchBindings, path}.local(), l, func() {
+			k.mu.Lock()
+			k.values, k.failed = map[valueKey]cached{}, map[valueKey]failure{}
+			k.mu.Unlock()
+		})
+	}
+	return k
+}
+
+// binding is the binding of key in the bindings file as it is now.
+func (k *lookups) binding(key valueKey) (Binding, bool) {
+	if k.file == nil {
+		return Binding{}, false
+	}
+	for _, b := range k.file.get() {
+		if valueKeyOf(b) == key {
+			return b, true
+		}
+	}
+	return Binding{}, false
+}
+
+// value is the value of the binding of key, and when it was looked up: kept (ttlOf), or looked
+// up now, with the broker's own copy of the binding. A key the file doesn't hold now is refused,
+// the company proxy's secret's included, as no binding names it.
+func (k *lookups) value(ctx context.Context, key valueKey) (redact.Secret, time.Time, error) {
+	b, ok := k.binding(key)
+	if !ok {
+		return redact.Secret{}, time.Time{}, fmt.Errorf("secret %s: not one of the VM's bindings: %w", key.name, errNotFound)
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	now := time.Now()
+	if c, ok := k.values[key]; ok && now.Sub(c.at) < ttlOf(b) {
+		return c.value, c.at, nil
+	}
+	if f, ok := k.failed[key]; ok && now.Sub(f.at) < failedTTL {
+		return redact.Secret{}, time.Time{}, f.err
+	}
+	v, err := k.look(ctx, b)
+	if err != nil {
+		k.failed[key] = failure{err, time.Now()}
+		return redact.Secret{}, time.Time{}, err
+	}
+	at := time.Now()
+	k.values[key] = cached{v, at}
+	return v, at, nil
+}
+
+// look looks b's value up, through the company proxy and with the proxy's roots, for at most
+// lookupTimeout.
+func (k *lookups) look(ctx context.Context, b Binding) (redact.Secret, error) {
+	if k.lookup == nil {
+		return redact.Secret{}, errors.New("no secret lookup")
+	}
+	// The value is kept for every request: no one request's end cancels it, and the lookup reads
+	// only k.route and k.roots, set here, never a request's own values, as the key holds none.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lookupTimeout)
 	defer cancel()
-	if s.route != nil {
-		ctx = WithRoute(ctx, s.route)
+	if k.route != nil {
+		ctx = WithRoute(ctx, k.route)
 	}
-	if s.roots != nil {
-		ctx = WithRoots(ctx, s.roots)
+	if k.roots != nil {
+		ctx = WithRoots(ctx, k.roots)
 	}
-	v, err := s.lookup(ctx, b)
+	v, err := k.lookup(ctx, b)
 	if err != nil {
 		return redact.Secret{}, fmt.Errorf("secret %s: %w", b.Name, err)
 	}
 	if v = v.TrimSpace(); v.Empty() {
 		return redact.Secret{}, fmt.Errorf("secret %s is empty", b.Name)
 	}
-	s.values[valueKeyOf(b)] = cached{v, time.Now()}
 	return v, nil
 }
 
@@ -547,12 +651,18 @@ func (c *ca) signer(now time.Time) *ca {
 // library, so not devvm's state.WriteFile): the Nix cache's files and the
 // rotated log.
 func writeAtomic(path string, data []byte, mode os.FileMode) error {
+	return copyAtomic(path, bytes.NewReader(data), mode)
+}
+
+// copyAtomic is writeAtomic of what r holds, streamed into the temporary file, never held in
+// memory whole: a rotated log's copy.
+func copyAtomic(path string, r io.Reader, mode os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
+	if _, err := io.Copy(tmp, r); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -569,19 +679,25 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 // caFileMax bounds a CA's certificate and key files.
 const caFileMax = 64 << 10
 
-// loadCA reads a CA's certificate and key files (Config.CA and Config.CAKey, or Config.CANext and
+// readCA reads a CA's certificate and key files (Config.CA and Config.CAKey, or Config.CANext and
 // Config.CANextKey), neither a symbolic link: the certificate only its owner may write, the key
-// only its owner may read or write (readPrivate).
-func loadCA(certPath, keyPath string) (*ca, error) {
+// only its owner may read or write (readPrivate). The broker reads them for the child, which
+// parses them (parseCA).
+func readCA(certPath, keyPath string) ([]byte, redact.Secret, error) {
 	certPEM, err := readPrivate(certPath, caFileMax, 0o022)
 	if err != nil {
-		return nil, err
+		return nil, redact.Secret{}, err
 	}
 	keyPEM, err := readPrivate(keyPath, caFileMax, 0o077)
 	if err != nil {
-		return nil, err
+		return nil, redact.Secret{}, err
 	}
-	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	return certPEM, redact.NewSecret(string(keyPEM)), nil
+}
+
+// parseCA is the CA whose certificate and key are certPEM and keyPEM.
+func parseCA(certPEM []byte, keyPEM redact.Secret) (*ca, error) {
+	pair, err := tls.X509KeyPair(certPEM, []byte(keyPEM.Reveal())) //nolint:forbidigo // the CA's key, which signs the leaves the proxy intercepts with
 	if err != nil {
 		return nil, err
 	}
@@ -924,12 +1040,6 @@ func (s *server) forwarder(scheme, target, host string, port int) (fwd http.Hand
 			if cursorHost(host) {
 				cursorUnencoded(pr.Out.Header)
 			}
-			// A captured request goes to the endpoint's own path, never the VM's spelling of it,
-			// which another handler there could read apart, with a GET's query as IO.Capture saw
-			// it, and a POST's never.
-			if c := captured(pr.In.Context()); c != nil {
-				pr.Out.URL.Path, pr.Out.URL.RawPath, pr.Out.URL.RawQuery = c.path, "", c.x.Query
-			}
 			// Secrets only ever go over TLS, to :443, each for the method and the path that go out.
 			if scheme == "https" && s.interceptPorts[port] {
 				if bs := s.secrets.forRequest(host, pr.Out); len(bs) > 0 {
@@ -963,11 +1073,11 @@ func (s *server) forwarder(scheme, target, host string, port int) (fwd http.Hand
 		if s.captures.has(host) || cursorHost(host) {
 			w = no1xx{w}
 		}
+		// A login at the endpoint goes to the broker, which sends it and saves what it gets
+		// (captureToken): its tokens never reach this process.
 		if agents, at := s.captures.agents(host, r); len(agents) > 0 && s.interceptPorts[port] {
-			var ok bool
-			if r, ok = s.captureRequest(w, r, host, port, agents, at); !ok {
-				return
-			}
+			s.captureToken(w, r, host, port, at)
+			return
 		}
 		rp.ServeHTTP(w, r)
 	}), tr.CloseIdleConnections

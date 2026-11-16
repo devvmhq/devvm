@@ -156,6 +156,11 @@ func (p Proc) starting(pid int) bool {
 	return err != nil || p.Is(args) || slices.Equal(args, os.Args)
 }
 
+// WritePID writes pid as the pid file path's one line, as Start does for
+// the process it starts: for one that another started, such as a proxy's
+// child, which its broker starts.
+func WritePID(path string, pid int) error { return writeLine(path, strconv.Itoa(pid)) }
+
 // writeLine writes s as a file's one line, mode 600, in a single write:
 // a reader that finds no line end yet (readLine, readStatus) has caught it
 // part-way, and takes it as not written yet, as it takes no file. daemon

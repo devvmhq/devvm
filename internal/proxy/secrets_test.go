@@ -85,9 +85,9 @@ func fakeSecret(s *secrets, value string) *[]Binding {
 	var asked []Binding
 	s.valueMu.Lock()
 	defer s.valueMu.Unlock()
-	s.lookup = func(_ context.Context, b Binding) (redact.Secret, error) {
+	s.source = func(_ context.Context, b Binding) (redact.Secret, time.Time, error) {
 		asked = append(asked, b)
-		return redact.NewSecret(value), nil
+		return redact.NewSecret(value), time.Now(), nil
 	}
 	s.values = map[valueKey]cached{}
 	return &asked
@@ -430,6 +430,7 @@ func TestLookupRoots(t *testing.T) {
 			roots = RootsOf(ctx)
 			return redact.NewSecret("v"), nil
 		}
+		c.Secrets = codexBindings(t)
 		s, err := newServer(c, IO{Secret: lookup}, quiet(), io.Discard)
 		must(t, err)
 		_, err = s.secrets.value(t.Context(), Binding{Name: "codex", Kind: KindLogin, Agent: "codex"})
@@ -630,60 +631,106 @@ func TestLoginValuesCacheBriefly(t *testing.T) {
 	}
 }
 
-// A value is looked up in this process, with the binding the file has, once, then cached until its
-// time is up; a lookup that fails, or gives nothing, isn't cached, and puts nothing in.
-func TestSecretValueLooksUpInProcess(t *testing.T) {
+// codexBindings is a bindings file of the test's own with codex's login alone.
+func codexBindings(t *testing.T) string {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "bindings.json")
+	writeBindings(t, file, Binding{Name: "codex", Kind: KindLogin, Agent: "codex", Hosts: []string{"chatgpt.com"}, Header: "Authorization", Placeholder: "PH"})
+	return file
+}
+
+// testLookups is a broker's lookups of the bindings bs, written to a file of their own, the
+// lookups' Lookup unset, and the file.
+func testLookups(t *testing.T, bs ...Binding) (*lookups, string) {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "bindings.json")
+	writeBindings(t, file, bs...)
+	return newLookups(file, nil, quiet()), file
+}
+
+// The broker looks a value up with the binding its own file has, once, then keeps it until its
+// time is up; a key the file doesn't hold is refused, looked up never; a lookup that fails, or
+// gives nothing, is kept as a failure, and puts nothing in. The child keeps a value no longer
+// than the broker's lookup is old.
+func TestLookupsValue(t *testing.T) {
 	t.Parallel()
-	s := newSecrets("", nil, quiet())
-	asked := fakeSecret(s, " real\n")
-	b := Binding{Name: "codex", Kind: KindLogin, Agent: "codex"}
+	b := Binding{Name: "codex", Kind: KindLogin, Agent: "codex", Hosts: []string{"x.test"}, Header: "Authorization", Placeholder: "PH"}
+	k, _ := testLookups(t, b)
+	var asked []Binding
+	k.lookup = func(_ context.Context, got Binding) (redact.Secret, error) {
+		asked = append(asked, got)
+		return redact.NewSecret(" real\n"), nil
+	}
 	for range 2 {
-		if v, err := s.value(t.Context(), b); v.Reveal() != "real" || err != nil {
+		if v, _, err := k.value(t.Context(), valueKeyOf(b)); v.Reveal() != "real" || err != nil {
 			t.Fatalf("value = %q, %v", v.Reveal(), err)
 		}
 	}
-	if len(*asked) != 1 || !reflect.DeepEqual((*asked)[0], b) {
-		t.Errorf("looked up %+v, want %+v once", *asked, b)
+	if len(asked) != 1 || !reflect.DeepEqual(asked[0], b) {
+		t.Errorf("looked up %+v, want %+v once", asked, b)
 	}
-	s.values[valueKeyOf(b)] = cached{redact.NewSecret("real"), time.Now().Add(-loginTTL)}
-	if _, err := s.value(t.Context(), b); err != nil || len(*asked) != 2 {
-		t.Errorf("an expired value: %v, %d lookups", err, len(*asked))
+	if _, _, err := k.value(t.Context(), valueKey{KindSecret, "", "codex"}); err == nil || len(asked) != 1 {
+		t.Errorf("a key the file doesn't hold: %v, %d lookups", err, len(asked))
 	}
-	s.values = map[valueKey]cached{}
-	s.lookup = func(context.Context, Binding) (redact.Secret, error) { return redact.Secret{}, errors.New("locked") }
-	if _, err := s.value(t.Context(), b); err == nil || !strings.Contains(err.Error(), "codex: locked") {
+	k.values[valueKeyOf(b)] = cached{redact.NewSecret("real"), time.Now().Add(-loginTTL)}
+	if _, _, err := k.value(t.Context(), valueKeyOf(b)); err != nil || len(asked) != 2 {
+		t.Errorf("an expired value: %v, %d lookups", err, len(asked))
+	}
+	k.values = map[valueKey]cached{}
+	k.lookup = func(context.Context, Binding) (redact.Secret, error) { return redact.Secret{}, errors.New("locked") }
+	if _, _, err := k.value(t.Context(), valueKeyOf(b)); err == nil || !strings.Contains(err.Error(), "codex: locked") {
 		t.Errorf("a failed lookup: %v", err)
 	}
-	s.lookup = func(context.Context, Binding) (redact.Secret, error) { return redact.NewSecret(" "), nil }
-	if _, err := s.value(t.Context(), b); err == nil {
+	k.failed = map[valueKey]failure{}
+	k.lookup = func(context.Context, Binding) (redact.Secret, error) { return redact.NewSecret(" "), nil }
+	if _, _, err := k.value(t.Context(), valueKeyOf(b)); err == nil {
 		t.Error("an empty value was taken")
 	}
-	if _, ok := s.values[valueKeyOf(b)]; ok {
-		t.Error("a failed lookup was cached")
+	if _, ok := k.values[valueKeyOf(b)]; ok {
+		t.Error("a failed lookup was kept as a value")
 	}
-	s.lookup = nil
-	if _, err := s.value(t.Context(), b); err == nil {
+	k.failed = map[valueKey]failure{}
+	k.lookup = nil
+	if _, _, err := k.value(t.Context(), valueKeyOf(b)); err == nil {
 		t.Error("a value without a lookup")
+	}
+	// The child: no value, nothing put in.
+	s := newSecrets("", nil, quiet())
+	s.source = func(ctx context.Context, b Binding) (redact.Secret, time.Time, error) {
+		return k.value(ctx, valueKeyOf(b))
 	}
 	h := http.Header{}
 	h.Set("Authorization", "Bearer PH")
-	if used := s.inject(t.Context(), h, []Binding{{Name: "codex", Kind: KindLogin, Header: "Authorization", Placeholder: "PH"}}); used != nil || h.Get("Authorization") != "Bearer PH" {
+	if used := s.inject(t.Context(), h, []Binding{b}); used != nil || h.Get("Authorization") != "Bearer PH" {
 		t.Errorf("without a value: used %v, %q", used, h.Get("Authorization"))
+	}
+	// The child keeps a value until the broker's lookup is as old as its time.
+	at := time.Now().Add(-loginTTL + time.Minute/2)
+	s.source = func(context.Context, Binding) (redact.Secret, time.Time, error) {
+		return redact.NewSecret("v"), at, nil
+	}
+	if _, err := s.value(t.Context(), b); err != nil {
+		t.Fatal(err)
+	}
+	if c := s.values[valueKeyOf(b)]; !c.at.Equal(at) {
+		t.Errorf("the child keeps a value from %v, the broker's lookup was at %v", c.at, at)
 	}
 }
 
-// A lookup that fails is never cached, however it fails: one that hangs is cut at lookupTimeout,
-// to the moment on the bubble's clock, one cancelled or failed gives its error, and the next
-// request looks up again each time. The request's own end doesn't cancel a lookup under way, and a
-// value that's looked up is cached until its time is up, to the moment, then looked up again.
-func TestSecretLookupFailuresNeverCached(t *testing.T) {
+// A failed lookup is kept for failedTTL, however it fails: one that hangs is cut at lookupTimeout,
+// to the moment on the bubble's clock, one cancelled or failed gives its error, and requests within
+// failedTTL get that error without a lookup, so a child can't make the broker run security back to
+// back; past it, or once the bindings file changes, the next request looks up again. The
+// request's own end doesn't cancel a lookup under way, and a value that's looked up is kept until
+// its time is up, to the moment, then looked up again.
+func TestLookupFailuresKept(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-		s := newSecrets("", nil, quiet())
 		b := Binding{Name: "codex", Kind: KindLogin, Agent: "codex"}
+		k, file := testLookups(t, b)
 		var lookups int
 		var answer func(ctx context.Context) (string, error)
-		s.lookup = func(ctx context.Context, _ Binding) (redact.Secret, error) {
+		k.lookup = func(ctx context.Context, _ Binding) (redact.Secret, error) {
 			lookups++
 			v, err := answer(ctx)
 			return redact.NewSecret(v), err
@@ -701,56 +748,72 @@ func TestSecretLookupFailuresNeverCached(t *testing.T) {
 		} {
 			answer = tc.answer
 			before, start := lookups, time.Now()
-			if v, err := s.value(t.Context(), b); err == nil || !v.Empty() {
+			if v, _, err := k.value(t.Context(), valueKeyOf(b)); err == nil || !v.Empty() {
 				t.Errorf("%s: %q, %v", tc.name, v.Reveal(), err)
 			}
 			if took := time.Since(start); took != tc.took {
 				t.Errorf("%s: took %v, want %v", tc.name, took, tc.took)
 			}
-			if _, ok := s.values[valueKeyOf(b)]; ok || lookups != before+1 {
-				t.Errorf("%s: cached %v, %d lookups", tc.name, ok, lookups-before)
+			if _, ok := k.values[valueKeyOf(b)]; ok || lookups != before+1 {
+				t.Errorf("%s: kept %v, %d lookups", tc.name, ok, lookups-before)
 			}
+			time.Sleep(failedTTL - time.Nanosecond)
+			if _, _, err := k.value(t.Context(), valueKeyOf(b)); err == nil || lookups != before+1 {
+				t.Errorf("%s: within failedTTL: %v, %d lookups", tc.name, err, lookups-before)
+			}
+			time.Sleep(time.Nanosecond)
 		}
+		// A change to the bindings file drops the failure: the next request looks up again.
+		answer = func(context.Context) (string, error) { return "", errors.New("locked") }
+		_, _, _ = k.value(t.Context(), valueKeyOf(b))
+		time.Sleep(time.Second) // a new mtime
+		writeBindings(t, file, b, Binding{Name: "other", Kind: KindSecret})
+		answer = func(context.Context) (string, error) { return "set", nil }
+		before := lookups
+		if v, _, err := k.value(t.Context(), valueKeyOf(b)); v.Reveal() != "set" || err != nil || lookups != before+1 {
+			t.Errorf("after the file changed: %q, %v, %d lookups", v.Reveal(), err, lookups-before)
+		}
+		k.values = map[valueKey]cached{}
 		// A request that ends while its lookup is under way: the lookup goes on, and its value is
-		// cached for the requests after it.
+		// kept for the requests after it.
 		ctx, cancel := context.WithCancel(t.Context())
 		answer = func(ctx context.Context) (string, error) {
 			cancel()
 			time.Sleep(time.Second)
 			return "real", ctx.Err()
 		}
-		if v, err := s.value(ctx, b); v.Reveal() != "real" || err != nil {
+		if v, _, err := k.value(ctx, valueKeyOf(b)); v.Reveal() != "real" || err != nil {
 			t.Errorf("a lookup whose request ended: %q, %v", v.Reveal(), err)
 		}
 		answer = hang
-		before := lookups
+		before = lookups
 		time.Sleep(loginTTL - time.Nanosecond)
-		if v, err := s.value(t.Context(), b); v.Reveal() != "real" || err != nil || lookups != before {
+		if v, _, err := k.value(t.Context(), valueKeyOf(b)); v.Reveal() != "real" || err != nil || lookups != before {
 			t.Errorf("within its time: %q, %v, %d lookups", v.Reveal(), err, lookups-before)
 		}
 		time.Sleep(time.Nanosecond)
 		answer = func(context.Context) (string, error) { return "new", nil }
-		if v, err := s.value(t.Context(), b); v.Reveal() != "new" || err != nil || lookups != before+1 {
+		if v, _, err := k.value(t.Context(), valueKeyOf(b)); v.Reveal() != "new" || err != nil || lookups != before+1 {
 			t.Errorf("once its time is up: %q, %v, %d lookups", v.Reveal(), err, lookups-before)
 		}
 	})
 }
 
-// A secret of yours and an agent's login that share a name are cached apart: neither binding's
+// A secret of yours and an agent's login that share a name are kept apart: neither binding's
 // host ever gets the other's value.
 func TestValuesCachedByBinding(t *testing.T) {
 	t.Parallel()
-	s := newSecrets("", nil, quiet())
-	s.lookup = func(_ context.Context, b Binding) (redact.Secret, error) {
-		return redact.NewSecret(b.Kind + "-value"), nil
-	}
 	login := Binding{Name: "pi-openai", Kind: KindLogin, Agent: "pi"}
 	secret := Binding{Name: "pi-openai", Kind: KindSecret}
+	k, _ := testLookups(t, login, secret)
+	k.lookup = func(_ context.Context, b Binding) (redact.Secret, error) {
+		return redact.NewSecret(b.Kind + "-value"), nil
+	}
 	for _, tc := range []struct {
 		b    Binding
 		want string
 	}{{login, "login-value"}, {secret, "secret-value"}, {login, "login-value"}} {
-		if v, err := s.value(t.Context(), tc.b); v.Reveal() != tc.want || err != nil {
+		if v, _, err := k.value(t.Context(), valueKeyOf(tc.b)); v.Reveal() != tc.want || err != nil {
 			t.Errorf("value(%+v) = %q, %v, want %q", tc.b, v.Reveal(), err, tc.want)
 		}
 	}
@@ -1321,13 +1384,13 @@ func FuzzInject(f *testing.F) {
 			}
 		}
 		s := newSecrets(file, nil, quiet())
-		s.lookup = func(_ context.Context, b Binding) (redact.Secret, error) {
+		s.source = func(_ context.Context, b Binding) (redact.Secret, time.Time, error) {
 			for _, fb := range bound {
 				if fb.b.Name == b.Name {
-					return redact.NewSecret(fb.value), nil
+					return redact.NewSecret(fb.value), time.Now(), nil
 				}
 			}
-			return redact.Secret{}, errors.New("no such binding")
+			return redact.Secret{}, time.Time{}, errors.New("no such binding")
 		}
 		r := &http.Request{Method: method, URL: &url.URL{Path: p}, Header: in.Clone()}
 		used := s.inject(t.Context(), r.Header, s.forRequest(host, r))

@@ -121,8 +121,13 @@ These changes are on `main` and go out in the next release.
 
 ### After you upgrade
 
+- A VM's proxy that runs as you upgrade keeps running as one process until the VM's next launch, which starts its two processes, as it starts a proxy again for every new devvm.
 - Each existing VM's ssh moves to one of the 17 ports that browsers refuse at the VM's next start, in the one change devvm makes to its Lima config, which gives the VM new ssh host keys, as any change to its Lima config does. A VM that runs as you upgrade keeps its old port until then, and devvm warns of it at each launch, so stop it with `devvm stop` in its folder, and its next start moves it ([too many VMs at once](https://next.devvm.dev/docs/using/troubleshooting/#too-many-vms-at-once)).
 - A VM that forwards an SSH agent and runs as you upgrade keeps the agent as it was, so it can still remove, lock or add keys, until its next start. Run `devvm restart` in its folder to give it the relay at once ([agent forwarding](https://next.devvm.dev/docs/using/ssh/#agent-forwarding)).
+
+### Changed
+
+- **Each VM's proxy runs as two processes:** `devvm _proxy` alone reads your Keychain, your agents' login files and your other files, and `devvm _proxy-child` reads the VM's network and asks `devvm _proxy` for a link's connection, for a login's token exchange, and for each value bound to the VM as a request needs it. So the code that reads every byte a VM sends holds only the values that the VM's own bindings name, and only for a few minutes. A new login's tokens, its refresh token among them, never reach the process that reads the VM's requests, and an error reply from an agent's token endpoint reaches the VM as it is up to 1 MiB, and gets `502` past that. A build's proxy writes its logs to a `logs/` folder of their own in its folder ([a VM's proxy](https://next.devvm.dev/docs/internals/processes/#a-vms-proxy)).
 
 ### Fixed
 

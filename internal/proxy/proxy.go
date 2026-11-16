@@ -42,7 +42,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -55,7 +54,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
@@ -126,86 +124,6 @@ func (s *server) closeConns() {
 // (npm's 15 sockets, uv's 50 downloads), so several builds and installs at once fit, while a VM that opens tunnels without end can't take every descriptor
 // the proxy has (two each).
 const maxConnects = 1024
-
-// newServer makes the server c describes, logging to l and its events to out: it reads its CA,
-// the company proxy's settings, the built-in policies (from std.FS) and the user's policy files,
-// and opens the Nix cache. Values come from std.Secret.
-func newServer(c Config, std IO, l *log.Logger, out io.Writer) (*server, error) {
-	ev := &events{vm: c.VM, out: out}
-	s := &server{
-		vm: c.VM, password: c.Password, log: l, events: ev,
-		secrets:        newSecrets(c.Secrets, std.Secret, l),
-		captures:       newCaptures(c.Captures, std.Capture),
-		interceptPorts: map[int]bool{443: true},
-		links:          newLinks(c.Links, c.LinkSockets, c.VM, l, ev),
-		connects:       make(chan struct{}, maxConnects),
-		helloWait:      helloTimeout,
-		goneWait:       goneWait,
-	}
-	s.transparent = &transparent{s: s}
-	s.requests = newRequests(maxRequests, l)
-	s.conns.max, s.conns.waitMax = maxConns, maxWaiting
-	var fullSaid everyMinute
-	s.conns.full = func(n int) {
-		if fullSaid.allow(time.Now()) {
-			l.Printf("%d connections open at once, the VM's limit: refusing more until one ends", n)
-		}
-	}
-	var err error
-	if c.CA != "" {
-		if s.ca, err = loadCA(c.CA, c.CAKey); err != nil {
-			return nil, err
-		}
-	}
-	if c.CANext != "" {
-		if s.ca.next, err = loadCA(c.CANext, c.CANextKey); err != nil {
-			return nil, err
-		}
-	}
-	if c.UpstreamCAs != "" {
-		if s.upstreamCAs, err = upstreamPool([]byte(c.UpstreamCAs)); err != nil {
-			return nil, err
-		}
-		s.secrets.roots = s.upstreamCAs
-	}
-	var up upstreams
-	if c.Upstream != nil {
-		if up, err = newUpstreams(*c.Upstream, std.Secret); err != nil {
-			return nil, err
-		}
-		l.Printf("%s", up.names())
-	}
-	up.unresolved = c.UpstreamUnresolved
-	s.secrets.route = up.host
-	if s.secrets.route == nil {
-		s.secrets.route = direct
-	}
-	rs, err := readBuiltins(std.FS, c.BuiltinPolicies, l)
-	if err != nil {
-		return nil, err
-	}
-	own := &hostAddrs{}
-	own.load()
-	pol := newPolicy(rs, c.Policies, c.DenyPolicies, l)
-	pol.open = c.Open
-	if c.Open {
-		l.Printf("open: every host and address, no rules")
-	}
-	s.egress = &egress{
-		pol: pol, own: own, up: up, log: l, lookup: net.DefaultResolver.LookupNetIP,
-		connect: (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
-	}
-	s.egress.pol.all()
-	maxSize := c.NixCacheMax
-	if maxSize == 0 {
-		maxSize = NixCacheDefault
-	}
-	s.nix = newNixCache(c.NixCache, maxSize, s.egress, ev, l, s.upstreamCAs)
-	if err := s.nix.open(); err != nil {
-		return nil, err
-	}
-	return s, nil
-}
 
 // --- who may use the proxy ---
 
@@ -369,15 +287,22 @@ func newBlocks(rs []numbered, count int, after string) string {
 // --- destinations ---
 
 // hostAddrs is the host's own addresses, read again every 30 seconds: they change (a new network,
-// IPv6 temporary addresses).
+// IPv6 temporary addresses). A read that fails, or finds none, keeps the last good one, as the
+// floor refuses none of the host's addresses without them.
 type hostAddrs struct {
 	mu    sync.Mutex
 	addrs map[netip.Addr]bool
 	at    time.Time
+	// read reads the host's addresses: net.InterfaceAddrs, which tests replace.
+	read func() ([]net.Addr, error)
 }
 
 func (h *hostAddrs) load() {
-	addrs, _ := net.InterfaceAddrs()
+	read := h.read
+	if read == nil {
+		read = net.InterfaceAddrs
+	}
+	addrs, err := read()
 	own := map[netip.Addr]bool{}
 	for _, a := range addrs {
 		if p, err := netip.ParsePrefix(a.String()); err == nil {
@@ -385,8 +310,11 @@ func (h *hostAddrs) load() {
 		}
 	}
 	h.mu.Lock()
-	h.addrs, h.at = own, time.Now()
-	h.mu.Unlock()
+	defer h.mu.Unlock()
+	h.at = time.Now()
+	if err == nil && len(own) > 0 || h.addrs == nil {
+		h.addrs = own
+	}
 }
 
 // own is the host's addresses, read again when they're older than 30 seconds. load replaces the map
@@ -1182,43 +1110,7 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
 	s.handleHTTP(w, r)
 }
 
-// lifelineTick: how often the proxy looks at its VM's lifeline.
-const lifelineTick = 3 * time.Second
-
-// lifelineWait bounds how long the proxy waits for its VM's lifeline: it starts before the VM does.
-const lifelineWait = 15 * time.Minute
-
-// watchLifeline returns once the VM's lifeline (daemon.Lifeline) no longer holds, or never names a
-// process that runs, looking every tick. It follows the start it first sees running, not later
-// ones: a restarted VM gets a new proxy. A lifeline a start writes whose process is already gone
-// (the VM stopped between two looks) ends it too; what the file held when the proxy started is an
-// earlier start's, and waited past.
-func watchLifeline(path string, tick time.Duration) {
-	if l, ok := daemon.FollowLifeline(path, lifelineWait, tick); ok {
-		l.Wait(tick)
-	}
-}
-
-// IO is what devvm _proxy reads and writes: devvm's own streams.
-type IO struct {
-	// Stdout gets data: the event log without Config.Log, and what -help prints.
-	Stdout io.Writer
-	// Stderr gets the proxy's own log lines.
-	Stderr io.Writer
-	// FS is devvm's own files (its assets), which Config.BuiltinPolicies names paths in.
-	FS fs.FS
-	// Secret looks a binding's value up, in this process (devvm's secrets' store), for
-	// Config.Secrets' bindings: required with them.
-	Secret Lookup
-	// Capture saves the logins in Config.Captures' replies, in this process (devvm's store of
-	// agents' logins): required with them.
-	Capture Capturer
-	// KeepLogs holds Config.VMLogs to their cap until ctx ends, in this process (devvm's
-	// vmlog.KeepVM, which rotates them): required with them.
-	KeepLogs func(ctx context.Context, paths []string)
-}
-
-// httpServer is the HTTP server that serves s, its handlers counted by its conns, as run serves it
+// httpServer is the HTTP server that serves s, its handlers counted by its conns, as the child serves it
 // and the tests do: a request's headers get 30 seconds and maxHeaderBytes, and a connection
 // idleTimeout between requests. Nothing bounds a request's whole time, so an upload, a download or
 // a stream takes as long as it does. Its errors, a handler's panic among them, go to s's own log,
@@ -1235,114 +1127,7 @@ func httpServer(s *server) *http.Server {
 	}
 }
 
-// Main runs devvm _proxy with args (its flags): the proxy itself, with -config's file, until the
-// VM's hostagent is gone. -help prints the flags to std.Stdout. Errors are returned, not printed.
-func Main(args []string, std IO) error { return run(args, std, lifelineTick) }
-
-// run is Main, looking at the VM's lifeline every tick.
-func run(args []string, std IO, tick time.Duration) error {
-	var configPath string
-	fs := newFlags(&configPath)
-	fs.SetOutput(io.Discard)
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			fs.SetOutput(std.Stdout)
-			fs.PrintDefaults()
-			return nil
-		}
-		return err
-	}
-	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected argument %q", fs.Arg(0))
-	}
-	// Without a config, and the password in it, any program on the host could use the proxy, and
-	// the VM's tokens with it.
-	if configPath == "" {
-		return errors.New("-config is required")
-	}
-	c, err := ReadConfig(configPath)
-	if err != nil {
-		return err
-	}
-	if (c.Secrets != "" || c.Upstream != nil && c.Upstream.Secret != "") && std.Secret == nil {
-		return errors.New("secrets without a lookup")
-	}
-	if len(c.Captures) > 0 && std.Capture == nil {
-		return errors.New("captures without a capturer")
-	}
-	if len(c.VMLogs) > 0 && std.KeepLogs == nil {
-		return errors.New("the VM's logs without a keeper")
-	}
-	return serve(c, std, tick)
-}
-
 // idleTimeout is how long a connection to the proxy, or an intercepted tunnel's or a transparent
 // connection's HTTP, waits for its next request before it's closed: longer than any client keeps
 // one idle (Chrome's 5 minutes).
 const idleTimeout = 10 * time.Minute
-
-// serve runs the proxy with c until the VM's hostagent is gone (c.Lifeline).
-func serve(c Config, std IO, tick time.Duration) error {
-	l := log.New(std.Stderr, "devvm proxy: ", log.LstdFlags)
-	if c.ProxyLog != "" {
-		f, err := copyRotating(c.ProxyLog, std.Stderr, LogLimit)
-		if err != nil {
-			return err
-		}
-		l.SetOutput(f)
-	}
-	out := std.Stdout
-	if c.Log != "" {
-		f, err := OpenEventLog(c.Log)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = f.Close() }()
-		out = f
-	}
-	s, err := newServer(c, std, l, out)
-	if err != nil {
-		return err
-	}
-	if len(c.VMLogs) > 0 && std.KeepLogs != nil {
-		ctx, stop := context.WithCancel(context.Background()) //nolint:forbidigo // the proxy's process has no caller: the VM's logs are kept until it ends
-		defer stop()
-		go std.KeepLogs(ctx, c.VMLogs)
-	}
-	ln, err := net.Listen("tcp", c.Listen) //nolint:noctx // listens for the proxy's whole life
-	if err != nil {
-		return err
-	}
-	srv := httpServer(s)
-	// The VM's agent's relay listens before the proxy says it's ready: the VM's backend forwards
-	// its socket from the VM's start.
-	if c.AgentSocket != "" {
-		ctx, cancel := context.WithCancel(context.Background()) //nolint:forbidigo // the relay runs for the proxy's whole life, and Main has no caller's ctx
-		defer cancel()
-		agent, err := listenAgent(ctx, c.AgentSocket, c.Agent, l)
-		if err != nil {
-			_ = ln.Close()
-			return err
-		}
-		defer agent.close()
-		go agent.serve(ctx)
-	}
-	l.Printf("listening on %s for %s", ln.Addr(), s.vm)
-	// What devvm waits for as it starts the proxy: the address it listens on.
-	if err := daemon.Ready(ln.Addr().String()); err != nil {
-		l.Printf("%v", err)
-	}
-	if c.Lifeline != "" {
-		go func() {
-			watchLifeline(c.Lifeline, tick)
-			l.Printf("the VM's hostagent is gone; exiting")
-			_ = srv.Close()
-		}()
-	}
-	err = srv.Serve(s.conns.track(ln))
-	s.closeConns()
-	if !errors.Is(err, http.ErrServerClosed) {
-		return err
-	}
-	return nil
-}

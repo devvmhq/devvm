@@ -14,6 +14,8 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/project"
+	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
 	"github.com/devvmhq/devvm/internal/vmlog"
@@ -80,7 +82,7 @@ func (e linkRuns) removeSockets(ctx context.Context, vm vmname.VM) {
 // logSize is how long vm's link session's log is now: what's written
 // after it is new.
 func (e linkRuns) logSize(vm vmname.VM) int64 {
-	fi, err := os.Stat(e.Dirs.VM(vm).LinksLog())
+	fi, err := os.Lstat(e.Dirs.VM(vm).LinksLog()) // a link the VM's proxy's child left counts as itself
 	if err != nil {
 		return 0
 	}
@@ -108,16 +110,18 @@ func (e linkRuns) start(vm vmname.VM) (int64, error) {
 			return 0, err
 		}
 	}
+	// The VM's proxy's child writes the logs' folder: the log is opened
+	// never through a link, and what the child left in its place goes.
+	out, err := proxy.OpenLog(logPath)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = out.Close() }()
 	// The session holds its log to its cap as it runs (Session); one an
 	// earlier one left past it is rotated first.
 	if _, err := vmlog.Trim(logPath, vmlog.OwnMax); err != nil {
 		return 0, err
 	}
-	out, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // devvm's own log
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = out.Close() }()
 	fi, err := out.Stat()
 	if err != nil {
 		return 0, err
@@ -139,7 +143,9 @@ func (e linkRuns) report(ctx context.Context, vm vmname.VM, links []Link, from i
 	var r vmssh.LinksReport
 	deadline := time.Now().Add(linksReportWait)
 	for {
-		data, _ := os.ReadFile(e.Dirs.VM(vm).LinksLog())
+		// Read as a file a VM's proxy's child can swap: never through a
+		// link, nor waiting on a FIFO, and only up to twice its cap.
+		data, _ := safefile.Read(e.Dirs.VM(vm).LinksLog(), 2*vmlog.OwnMax, safefile.Opts{OneLink: true})
 		if int64(len(data)) < from {
 			from = 0 // emptied since
 		}

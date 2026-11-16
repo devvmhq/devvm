@@ -14,7 +14,18 @@ func watchedText(path string, keep bool) (w *watched[string], fails, changes *in
 	fails, changes = new(int), new(int)
 	w = &watched[string]{
 		path: path, keep: keep,
-		read:    func(p string) ([]byte, error) { return readPrivate(p, 64, 0o077) },
+		read: func() (fileRead, error) {
+			f, err := openPrivate(path, 0o077)
+			if errors.Is(err, os.ErrNotExist) {
+				return fileRead{missing: true}, nil
+			}
+			if err != nil {
+				return fileRead{}, err
+			}
+			defer f.Close()
+			b, err := f.ReadAll(64)
+			return fileRead{data: b, st: stampOf(f.Info)}, err
+		},
 		parse:   func(b []byte) (string, error) { return string(b), nil },
 		onFail:  func(error) { *fails++ },
 		changed: func() { *changes++ },

@@ -46,17 +46,33 @@ type links struct {
 	vm      vmname.VM          // Config.VM, whose links' sockets they are
 	log     *log.Logger
 	events  *events
+	// dial connects to the link that host and port name, e its entry: to its socket, in this
+	// process (dialEntry), or through the broker, which finds it again (the child's).
+	dial func(ctx context.Context, host string, port int, e LinkEntry) (net.Conn, error)
 }
 
+// newLinks is the links in file, read by this process, whose sockets it connects to itself.
 func newLinks(file, sockets string, vm vmname.VM, l *log.Logger, ev *events) links {
+	return newLinksOf(watchedFile{watchLinks, file}.local(), sockets, vm, l, ev, dialEntry)
+}
+
+// newLinksOf is the links in src, connected to with dial.
+func newLinksOf(src watchSource, sockets string, vm vmname.VM, l *log.Logger, ev *events,
+	dial func(ctx context.Context, host string, port int, e LinkEntry) (net.Conn, error),
+) links {
 	return links{
-		file: file, sockets: sockets, vm: vm, log: l, events: ev,
+		file: src.path, sockets: sockets, vm: vm, log: l, events: ev, dial: dial,
 		list: &watched[LinkList]{
-			path: file, read: readLinkListFile,
-			parse:  func(b []byte) (LinkList, error) { return parseLinkList(file, b) },
+			path: src.path, read: src.read,
+			parse:  func(b []byte) (LinkList, error) { return parseLinkList(src.path, b) },
 			onFail: func(err error) { l.Printf("links: %v", err) },
 		},
 	}
+}
+
+// dialEntry connects to e's socket (dialLink), which find checked is the link's.
+func dialEntry(ctx context.Context, _ string, _ int, e LinkEntry) (net.Conn, error) {
+	return dialLink(ctx, e.Socket)
 }
 
 // LinkList is the file devvm _links writes for the VM's proxy: the links it carries now.
@@ -93,10 +109,6 @@ func LinkHash(vm vmname.VM, parts ...string) string {
 	sum := sha256.Sum256([]byte(strings.Join(append([]string{vm.String()}, parts...), "\x00")))
 	return hex.EncodeToString(sum[:])[:16]
 }
-
-// readLinkListFile reads the list at path: a regular file, not a link, that only its owner, this
-// process's user, may write, at most linkListMax long (readPrivate).
-func readLinkListFile(path string) ([]byte, error) { return readPrivate(path, linkListMax, 0o022) }
 
 // parseLinkList is the list b, read from path, of LinkListVersion.
 func parseLinkList(path string, b []byte) (LinkList, error) {
@@ -226,7 +238,7 @@ const linkNotCarried = "not carried"
 
 // connect tunnels a CONNECT for a link to its socket, the bytes as they are.
 func (k links) connect(w http.ResponseWriter, r *http.Request, host string, port int, e LinkEntry) {
-	up, err := dialLink(r.Context(), e.Socket)
+	up, err := k.dial(r.Context(), host, port, e)
 	if err != nil {
 		k.gone(w, host, port, e, err)
 		return
@@ -249,7 +261,7 @@ func (e linkDialError) Error() string { return e.err.Error() }
 func (k links) forward(w http.ResponseWriter, r *http.Request, host string, port int, e LinkEntry) {
 	tr := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			c, err := dialLink(ctx, e.Socket)
+			c, err := k.dial(ctx, host, port, e)
 			if err != nil {
 				return nil, linkDialError{err}
 			}

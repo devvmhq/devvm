@@ -182,6 +182,9 @@ func internalDocLinks() map[string]string {
 		// A tools build refused a base that isn't the one its images are
 		// for: devvm's own guard, which only a bug or a race reaches.
 		"tools_wrong_base": "internal failure",
+		// Only a VM's proxy that held the shared Nix cache's lock for 5 s, one a VM
+		// took over or stuck, makes devvm say it: How it works says why.
+		"nix_cache_locked": "a VM's proxy holding a lock",
 	}
 }
 

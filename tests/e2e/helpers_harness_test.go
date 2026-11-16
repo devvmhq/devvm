@@ -431,7 +431,7 @@ func TestHarnessKeepProxyLogs(t *testing.T) {
 		return f
 	}
 	write("vms/abc/logs/proxy.log", "devvm proxy: x.test:443: can't resolve it: lookup x.test: i/o timeout\n")
-	write("run/builds/b/run/build-proxy/proxy.log", "devvm proxy: crl3.digicert.com:80: can't resolve it\n")
+	write("run/builds/b/run/build-proxy/logs/proxy.log", "devvm proxy child: crl3.digicert.com:80: can't resolve it\n")
 	old := write("vms/old/logs/proxy.log", "an earlier check's line\n")
 	write("images/k/proxy.log", "an image's\n")
 	write("vms/empty/logs/proxy.log", "")
@@ -447,7 +447,7 @@ func TestHarnessKeepProxyLogs(t *testing.T) {
 	for _, e := range kept {
 		names = append(names, e.Name())
 	}
-	want := []string{"run_builds_b_run_build-proxy_proxy.log", "vms_abc_logs_proxy.log", "vms_old_logs_proxy.log"}
+	want := []string{"run_builds_b_run_build-proxy_logs_proxy.log", "vms_abc_logs_proxy.log", "vms_old_logs_proxy.log"}
 	if !slices.Equal(names, want) {
 		t.Errorf("kept %q, want %q", names, want)
 	}

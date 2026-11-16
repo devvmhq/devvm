@@ -530,7 +530,9 @@ func imagesProxy(s *S) {
 		case !s.Paths.RunLogHas(pxtoken):
 			return errors.New("no run log has the layer's output")
 		case Matches(string(ps), `_proxy -config `+regexp.QuoteMeta(builds)+`/.*/build-proxy/proxy\.json`):
-			return errors.New("the build's proxy still runs")
+			return errors.New("the build's proxy's broker still runs")
+		case Matches(string(ps), `_proxy-child -for `+regexp.QuoteMeta(builds)+`/.*/build-proxy/proxy\.json`):
+			return errors.New("the build's proxy's child still runs")
 		case len(left) > 0:
 			return errors.New("the build's proxy left its folder: " + strings.Join(left, " "))
 		}
