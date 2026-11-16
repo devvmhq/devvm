@@ -81,7 +81,7 @@ Right, as `internal/proxy/nixcache.go` marks the file it opened (`touchFile` is 
 func touch(f *os.File) { _ = touchFile(f, time.Now()) }
 ```
 
-**Guard:** forbidigo refuses `os.Open`, `os.OpenFile`, `os.ReadFile` and `os.Root`'s openers in the files that the `safefile` row of [the checks on owners](../../../docs/content/docs/contributing/structure.md#the-checks-on-owners) lists, and the child's seccomp filter on Linux refuses it a change by path (`TestSelf`). `TestOpenLogReplacesWhatIsPlanted`, `TestRotateCopiesWithoutItsPath`, `TestTrimNixCachePlanted`, `TestOneLineDropsInvisible` and `internal/hostgit`'s tests, such as `TestCommandNoHooks` and `TestCommandSSHOnly`, keep what reviews found, and the end-to-end `network` and `nix` sections plant links, FIFOs and hard links. A path-based change elsewhere is review only.
+**Guard:** forbidigo refuses `os.Open`, `os.OpenFile`, `os.ReadFile` and `os.Root`'s openers in the files that the `safefile` row of [the checks on owners](../../../docs/content/docs/contributing/structure.md#the-checks-on-owners) lists, and forbidigo refuses `os.Chmod`, `os.Chtimes`, `os.Chown`, `os.Lchown` and `os.Truncate` in `internal/proxy`, `internal/vmlog` and `internal/vmssh`, but for a socket devvm has just made, with a `nolint` that says why. The child's seccomp filter on Linux refuses it a change by path (`TestSelf`). `TestOpenLogReplacesWhatIsPlanted`, `TestRotateCopiesWithoutItsPath`, `TestTrimNixCachePlanted`, `TestOneLineDropsInvisible` and `internal/hostgit`'s tests, such as `TestCommandNoHooks` and `TestCommandSSHOnly`, keep what reviews found, and the end-to-end `network` and `nix` sections plant links, FIFOs and hard links. A path-based change elsewhere is review only.
 
 ## Keep secrets and host data on the host
 

@@ -87,7 +87,7 @@ func copyRotating(fd *os.File, path string, w io.Writer, limit int64) (*rotating
 // opens the file again, never through a link, and only when it's fd's file. nil when it can't,
 // and fd itself is locked instead.
 func lockOf(fd *os.File, path string) *os.File {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) //nolint:gosec // the proxy's own log, checked to be the file it writes
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) //nolint:gosec,forbidigo // the proxy's own log, opened only to lock, never through a link or waiting on a FIFO, and checked to be the file it writes
 	if err != nil {
 		return nil
 	}
@@ -130,7 +130,7 @@ func OpenLog(path string) (*os.File, error) {
 
 // openLog is OpenLog's open of path, with flags besides its own.
 func openLog(path string, flags int) (*os.File, error) {
-	f, err := os.OpenFile(path, flags|os.O_RDWR|os.O_APPEND|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600) //nolint:gosec // a log of devvm's own, checked once open
+	f, err := os.OpenFile(path, flags|os.O_RDWR|os.O_APPEND|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600) //nolint:gosec,forbidigo // a log of devvm's own, opened to write, never through a link or waiting on a FIFO, and checked once open
 	if errors.Is(err, syscall.ELOOP) {
 		return nil, fmt.Errorf("%s: %w", path, safefile.ErrNotRegular)
 	}

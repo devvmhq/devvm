@@ -119,7 +119,7 @@ func listenAgent(ctx context.Context, path, upstream string, l *log.Logger) (*ag
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := os.Chmod(path, 0o600); err != nil { //nolint:forbidigo // a socket's mode is set only by its path (fchmod changes its socket's, not its file's), in devvm's own folder, which no VM writes
 		_ = ln.Close()
 		return nil, err
 	}

@@ -680,7 +680,7 @@ func lockNix(dir string) (func(), error) { return lockNixWithin(dir, nixLockWait
 
 // lockNixWithin is lockNix, waiting at most wait.
 func lockNixWithin(dir string, wait time.Duration) (func(), error) {
-	f, err := os.OpenFile(filepath.Join(dir, ".lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600) //nolint:gosec // the cache's own lock, checked once open
+	f, err := os.OpenFile(filepath.Join(dir, ".lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600) //nolint:gosec,forbidigo // the cache's own lock, opened to lock, never through a link or waiting on a FIFO, and checked once open
 	if errors.Is(err, syscall.ELOOP) {
 		return nil, fmt.Errorf("the shared Nix cache's lock: %w", safefile.ErrNotRegular)
 	}

@@ -141,6 +141,8 @@ linters:
           msg: ask msg.Safe which characters reach the terminal (msg.Printable and msg.OneLine drop the rest); a check that isn't about the terminal says why in a nolint.
         - pattern: ^(os\.(Open|OpenFile|ReadFile|OpenRoot|OpenInRoot|DirFS)|os\.Root\.(Open|OpenFile|ReadFile|FS))$
           msg: read a file a VM can write through internal/safefile (Read, Open, OpenRoot), which never waits on a FIFO or follows a link it wasn't asked to, and reads only a regular file within its cap; what opens a file to write, or a folder, says why in a nolint.
+        - pattern: ^os\.(Chmod|Chtimes|Chown|Lchown|Truncate)$
+          msg: change a file through what opened it (os.File's Chmod, Chown and Truncate, or an os.Root's methods), never by its path, which a VM can swap for a link between the open and the change; a path only devvm writes, such as a socket it just made, says why in a nolint.
         - pattern: ^netip\.Addr\.IsPrivate$
           msg: ask proxy.Public whether an address is on the internet, the one table of the ranges that aren't.
         - pattern: ^redact\.Secret\.Reveal$
@@ -250,14 +252,25 @@ linters:
       # The readers of files a VM can write, or swap, are held to
       # internal/safefile: the project folder's (devcontainer.json, its
       # default.nix, .git's), devvm agent save's store, devvm paste's copied
-      # file, the agents' logins and the policy files. Tests make their own
-      # fixtures.
-      - path-except: ^internal/(gitprotect/|vm/(devcontainer|detect|paste|agentsave[a-z_]*)\.go$|agentlogin/|netpolicy/rules\.go$|proxy/(config|policy)\.go$)|^testdata/lint/
+      # file, the agents' logins and the policy files, the logs a VM drives
+      # (vmlog, and the proxy's rotate.go) and the Nix cache. Tests make
+      # their own fixtures.
+      - path-except: ^internal/(gitprotect/|vm/(devcontainer|detect|paste|agentsave[a-z_]*)\.go$|agentlogin/|netpolicy/rules\.go$|proxy/(config|policy|rotate|nixcache)\.go$|vmlog/)|^testdata/lint/
         linters: [forbidigo]
         text: internal/safefile
       - path: _test\.go$
         linters: [forbidigo]
         text: internal/safefile
+      # The packages that change files a VM can write or swap (the proxy's
+      # logs and Nix cache, the logs vmlog keeps, and vmssh's sockets and
+      # files beside the VM's) change them through what opened them. Tests
+      # make their own fixtures.
+      - path-except: ^internal/(proxy|vmlog|vmssh)/|^testdata/lint/
+        linters: [forbidigo]
+        text: never by its path
+      - path: _test\.go$
+        linters: [forbidigo]
+        text: never by its path
       # A secret's value is revealed where it's used, each call with a
       # //nolint:forbidigo that says why. Tests check the values.
       - path: _test\.go$

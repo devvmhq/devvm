@@ -5,12 +5,14 @@ package lint
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
 	"os"
 	"runtime"
 	"syscall"
+	"time"
 	"unicode"
 
 	"github.com/devvmhq/devvm/internal/redact"
@@ -60,3 +62,18 @@ func shows(r rune) bool { return unicode.IsGraphic(r) } // want forbidigo
 func private(a netip.Addr) bool { return a.IsPrivate() } // want forbidigo
 
 func reveals(s redact.Secret) string { return s.Reveal() } // want forbidigo
+
+func chmods() error { return os.Chmod("f", 0o600) } // want forbidigo
+
+func chtimes(t time.Time) error { return os.Chtimes("f", t, t) } // want forbidigo
+
+func chowns() error { return os.Chown("f", 0, 0) } // want forbidigo
+
+func lchowns() error { return os.Lchown("f", 0, 0) } // want forbidigo
+
+func truncatesPath() error { return os.Truncate("f", 0) } // want forbidigo
+
+// Changes through what opened the file are what the rule asks for.
+func changesOpen(f *os.File, r *os.Root) error {
+	return errors.Join(f.Chmod(0o600), f.Chown(0, 0), f.Truncate(0), r.Chmod("f", 0o600))
+}
