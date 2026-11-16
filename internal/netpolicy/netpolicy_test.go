@@ -1684,3 +1684,57 @@ func TestNixCache(t *testing.T) {
 		t.Errorf("unreadable: %d, warned %q", capped, warned.Names())
 	}
 }
+
+// Unconfined warns of a running VM's proxy whose child isn't fully
+// confined, saying why, and says nothing of a confined one, one that
+// hasn't said, or one that doesn't run.
+func TestUnconfined(t *testing.T) {
+	d, st := sandbox(t, "base")
+	p, f := testProxy(t, d)
+	files := d.VM(st.Name())
+	if err := os.MkdirAll(files.Run(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	vms := []*state.VM{st}
+	if got := Unconfined(p, vms); len(got) != 0 {
+		t.Errorf("no proxy: %v", got)
+	}
+	broker := exec.CommandContext(t.Context(), "sleep", "30")
+	if err := broker.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = broker.Wait(); close(done) }()
+	t.Cleanup(func() { _ = broker.Process.Kill(); <-done })
+	pid := broker.Process.Pid
+	f.mu.Lock()
+	f.args[pid] = []string{"/bin/devvm", "_proxy", "-config", files.ProxyConfig()}
+	f.mu.Unlock()
+	if err := daemon.WritePID(files.Proxy(".pid"), pid); err != nil {
+		t.Fatal(err)
+	}
+	if got := Unconfined(p, vms); len(got) != 0 {
+		t.Errorf("a proxy that hasn't said: %v", got)
+	}
+	log, vm := files.ProxyLog(), st.Name().String()
+	for line, want := range map[string]string{
+		"full seatbelt":                 "",
+		"none unsupported":              "proxy_unconfined_unsupported vm=" + vm,
+		"none sandbox-exec-missing":     "proxy_unconfined_no_sandbox vm=" + vm,
+		"none sandbox-exec-failed":      "proxy_unconfined_sandbox_failed log=" + log + " vm=" + vm,
+		"none seatbelt check-failed":    "proxy_unconfined_check_failed log=" + log + " vm=" + vm,
+		"partial seatbelt check-failed": "proxy_unconfined confinement=partial seatbelt check-failed log=" + log + " vm=" + vm,
+		"not one":                       "",
+	} {
+		if err := os.WriteFile(proxy.ConfinedFile(files.ProxyConfig()), []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, m := range Unconfined(p, vms) {
+			names = append(names, msg.NamesOf(m))
+		}
+		if got := strings.Join(names, "; "); got != want {
+			t.Errorf("%q: %q, want %q", line, got, want)
+		}
+	}
+}

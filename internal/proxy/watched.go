@@ -24,7 +24,8 @@ const watchTick = 2 * time.Second
 // last read's mtime was within watchTick of then; it parses what it read only when the bytes
 // differ. A read gives the stamp of the file it read, which the next call compares, so a write
 // after the read changes it: the child looks at a file itself and has the broker read it
-// (watchSource), which costs no hop while the file is unchanged. A file that's gone has none,
+// (watchSource), which costs no hop while the file is unchanged; a stat refused for want of
+// permission reads it on every call. A file that's gone has none,
 // silently. A file that can't be stat'd, read or parsed is logged once for each distinct error
 // (onFail) and, with keep, keeps its last good T; without, it has none until it's read again.
 type watched[T any] struct {
@@ -83,10 +84,12 @@ func (w *watched[T]) get() T {
 		w.gone()
 		return w.val
 	}
-	if err != nil {
+	// A stat refused, as a sandbox refuses the child one through a link that now points
+	// elsewhere, reads the file each time, which the broker can.
+	if err != nil && !errors.Is(err, fs.ErrPermission) {
 		return w.fail(err)
 	}
-	if stampOf(fi) == w.st && w.settled {
+	if err == nil && stampOf(fi) == w.st && w.settled {
 		return w.val
 	}
 	got, err := w.read()

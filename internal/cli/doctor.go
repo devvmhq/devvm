@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/devvmhq/devvm/assets"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/hostsafety"
 	"github.com/devvmhq/devvm/internal/msg"
@@ -73,6 +74,17 @@ func newDoctorCmd(a *app) *cobra.Command {
 					return upgrade.ReadKnown(dirs.ReleaseCheck())
 				},
 				Pins: newPinsCheck(reg),
+				Proxies: func() []msg.M {
+					dirs, err := a.dirs()
+					if err != nil {
+						return nil
+					}
+					inv, err := vm.ReadStates(dirs)
+					if err != nil {
+						return nil
+					}
+					return netpolicy.Unconfined(netpolicy.NewProxy(dirs, assets.FS, "", nil, u), inv.States())
+				},
 			}
 			if asJSON {
 				return printJSON(u, d.report(cmd.Context(), u.Text, reg.All(), b))
@@ -155,7 +167,8 @@ func (d doctor) report(ctx context.Context, text func(msg.M) string, all []backe
 
 // warnings are doctor's warnings, which never make it fail: another devvm
 // first on PATH, low free space, a small host, policy files' lines that
-// aren't rules, and what in the VMs' folder isn't a VM's.
+// aren't rules, what in the VMs' folder isn't a VM's, and running VMs'
+// proxies that aren't confined.
 func (d doctor) warnings(b backend.Backend) []msg.M {
 	var ms []msg.M
 	if m, ok := d.Path.other(); ok {
@@ -173,6 +186,9 @@ func (d doctor) warnings(b backend.Backend) []msg.M {
 	}
 	if m, ok := d.Pins.warning(); ok {
 		ms = append(ms, m)
+	}
+	if d.Proxies != nil {
+		ms = append(ms, d.Proxies()...)
 	}
 	return ms
 }
@@ -216,6 +232,9 @@ type doctor struct {
 	// GitBare reports whether this machine's git takes a bare repo only
 	// when it's named (hostsafety.BareExplicit); nil checks nothing.
 	GitBare func() bool
+	// Proxies are the warnings for running VMs whose proxy isn't confined
+	// to only what it needs (netpolicy.Proxy.Unconfined); nil for none.
+	Proxies func() []msg.M
 }
 
 // known is what the daily release check last found, if anything.

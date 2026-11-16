@@ -282,8 +282,11 @@ func onlyField(set map[string]bool, typ string) bool {
 // watched files the child looks at (stat) and asks the broker for by their number. Password,
 // CAKey, CANextKey and UpstreamPassword are secrets, filled by childStart.wire alone.
 type wireStart struct {
-	Version int       `json:"version"`
-	Exe     string    `json:"exe"` // the broker's executable's SHA-256, in hex
+	Version int    `json:"version"`
+	Exe     string `json:"exe"` // the broker's executable's SHA-256, in hex
+	// Spawned is how the broker started the child (Confinement.String): under a sandbox, or
+	// unconfined and why.
+	Spawned string    `json:"spawned"`
 	VM      vmname.VM `json:"vm"`
 	// Password is the VM's password: secret.
 	Password        string      `json:"password"`
@@ -315,7 +318,7 @@ type wireWatch struct {
 }
 
 // wireReady is the child's answer to start: the protocol's version, its own executable's SHA-256,
-// the address it serves and how it's confined ("none" for not at all).
+// the address it serves and how it's confined (Confinement.String).
 type wireReady struct {
 	Version  int    `json:"version"`
 	Exe      string `json:"exe"`

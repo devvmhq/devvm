@@ -158,3 +158,34 @@ func TestWatchedRefused(t *testing.T) {
 		t.Errorf("a parse that failed gave %q, %d failures", got, *fails)
 	}
 }
+
+// A stat refused for want of permission, as a sandbox refuses the child one, reads the file each
+// time, as the broker can, rather than fail: its folder here is one the test can't search.
+func TestWatchedStatRefused(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root searches any folder")
+	}
+	dir := filepath.Join(t.TempDir(), "closed")
+	must(t, os.Mkdir(dir, 0o700))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // G302: a folder, searchable again for its cleanup
+	must(t, os.Chmod(dir, 0))
+	reads := 0
+	text := "one"
+	w := &watched[string]{
+		path: filepath.Join(dir, "f"),
+		read: func() (fileRead, error) {
+			reads++
+			return fileRead{data: []byte(text), st: stamp{size: int64(len(text))}}, nil
+		},
+		parse:  func(b []byte) (string, error) { return string(b), nil },
+		onFail: func(err error) { t.Errorf("a failure: %v", err) },
+	}
+	if got := w.get(); got != "one" {
+		t.Errorf("get = %q", got)
+	}
+	text = "two"
+	if got := w.get(); got != "two" || reads != 2 {
+		t.Errorf("get = %q after %d reads, want two after 2", got, reads)
+	}
+}

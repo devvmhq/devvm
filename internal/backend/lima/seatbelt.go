@@ -2,16 +2,11 @@ package lima
 
 import (
 	"bytes"
-	"strings"
 	"text/template"
 
-	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/seatbelt"
 	"github.com/devvmhq/devvm/internal/state"
 )
-
-// sandboxExec is macOS's sandbox-exec, by its full path: never one found
-// on PATH.
-const sandboxExec = "/usr/bin/sandbox-exec"
 
 // profile is what a VM's Seatbelt profile allows its Lima hostagent, the
 // process that runs the VM and its user-mode network.
@@ -39,7 +34,7 @@ type profile struct {
 
 // The profile allows everything else, so the hostagent runs as usual. No
 // DNS: names resolve in the proxy.
-var profileTmpl = template.Must(template.New("sb").Funcs(template.FuncMap{"sb": sbPath}).Parse(`(version 1)
+var profileTmpl = template.Must(template.New("sb").Funcs(template.FuncMap{"sb": seatbelt.Path}).Parse(`(version 1)
 (allow default)
 {{- if .Internet}}
 (deny network-outbound (remote ip "localhost:*"))
@@ -68,19 +63,6 @@ func (p profile) render() string {
 		panic(err) // the template and its data are devvm's own
 	}
 	return b.String()
-}
-
-// sbPath is a path as Seatbelt matches it, with its folder's links
-// resolved (Seatbelt sees real paths, paths.PhysicalParent), as a profile
-// string.
-func sbPath(p string) string {
-	return sbString(paths.PhysicalParent(p))
-}
-
-// sbString quotes s as a Seatbelt string: backslashes and double quotes
-// escaped, so s can't end the string.
-func sbString(s string) string {
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
 // writeProfile writes a VM's profile into the run folder, owner-only.

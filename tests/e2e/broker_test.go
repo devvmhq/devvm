@@ -105,6 +105,19 @@ func childFDs(pid, log string) error {
 	return nil
 }
 
+// childConfined checks how the broker whose run folder is run says its child is confined: on
+// macOS, by Seatbelt in full, which says the child started under sandbox-exec and its own check
+// that the sandbox refuses it the run folder held.
+func childConfined(run string) error {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
+	if got := strings.TrimSpace(readText(filepath.Join(run, "proxy.confined"))); got != "full seatbelt" {
+		return fmt.Errorf("run/proxy.confined says %q, not full seatbelt", got)
+	}
+	return nil
+}
+
 // netBroker checks the network VM's proxy runs as a broker and a child, and that they end
 // together: a stop leaves neither, a killed broker takes its child, and a killed child its
 // broker; things planted in the VM's logs folder lead nowhere. It launches the VM again after.
@@ -128,6 +141,9 @@ func netBroker(n *netRun) {
 			return errors.New("run/proxy-child.pid doesn't name the child")
 		case strings.TrimSpace(readText(filepath.Join(run, "proxy.confined"))) == "":
 			return errors.New("run/proxy.confined says nothing")
+		}
+		if err := childConfined(run); err != nil {
+			return err
 		}
 		env, err := childEnv(s, c, 4)
 		if err != nil {

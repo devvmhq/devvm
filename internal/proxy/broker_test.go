@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -42,6 +43,9 @@ func (c *fakeChild) PID() int              { return 42 }
 func (c *fakeChild) Done() <-chan struct{} { return c.done }
 func (c *fakeChild) end()                  { c.once.Do(func() { close(c.done) }) }
 func (c *fakeChild) Exit() string          { return "signal: killed" }
+func (c *fakeChild) ExitCode() int         { return -1 }
+
+func (c *fakeChild) ExitSignal() syscall.Signal { return syscall.SIGKILL }
 
 func (c *fakeChild) Kill() {
 	c.mu.Lock()
@@ -126,7 +130,7 @@ func TestHandshake(t *testing.T) {
 				tc.answer(c, child)
 			}()
 			start := time.Now()
-			ready, err := b.handshake(p, "e", start.Add(startWait))
+			ready, err := b.handshake(p, "e", unconfined(WhyUnsupported), start.Add(startWait))
 			if took := time.Since(start); took != tc.took {
 				t.Errorf("%s: took %v, want %v", tc.name, took, tc.took)
 			}
@@ -498,11 +502,11 @@ func TestRunChildOn(t *testing.T) {
 		return ln
 	}
 	std := IO{Stdout: io.Discard, Stderr: io.Discard}
-	start := childStart{vm: "devvm-x", password: redact.NewSecret("pw"), exe: "built"}
+	start := childStart{vm: "devvm-x", password: redact.NewSecret("pw"), exe: "built", spawned: unconfined(WhyUnsupported)}
 	// Another build's broker.
 	bfc, cfc := pairOf(t)
 	must(t, bfc.send(toChild{Type: frameStart, Start: start.wire()}, nil))
-	if err := runChildOn(cfc, listen(), std, "other", quiet()); err == nil {
+	if err := runChildOn(cfc, listen(), std, "other", "", quiet()); err == nil {
 		t.Error("another build: no error")
 	}
 	var f toBroker
@@ -512,7 +516,7 @@ func TestRunChildOn(t *testing.T) {
 	// Not start.
 	bfc, cfc = pairOf(t)
 	must(t, bfc.send(toChild{Type: frameValue, ID: 1, Value: &wireValue{}}, nil))
-	if err := runChildOn(cfc, listen(), std, "built", quiet()); !isRuleError(err) {
+	if err := runChildOn(cfc, listen(), std, "built", "", quiet()); !isRuleError(err) {
 		t.Errorf("a first frame that isn't start: %v", err)
 	}
 	// Ready, serving, then ended by the broker's end.
@@ -520,8 +524,8 @@ func TestRunChildOn(t *testing.T) {
 	ln := listen()
 	must(t, bfc.send(toChild{Type: frameStart, Start: start.wire()}, nil))
 	done := make(chan error, 1)
-	go func() { done <- runChildOn(cfc, ln, std, "built", quiet()) }()
-	if _, err := bfc.recv(&f); err != nil || f.Type != frameReady || f.Ready.Addr != ln.Addr().String() || f.Ready.Confined != childConfined || f.Ready.Exe != "built" {
+	go func() { done <- runChildOn(cfc, ln, std, "built", "", quiet()) }()
+	if _, err := bfc.recv(&f); err != nil || f.Type != frameReady || f.Ready.Addr != ln.Addr().String() || f.Ready.Confined != "none unsupported" || f.Ready.Exe != "built" {
 		t.Fatalf("ready: %+v, %v", f, err)
 	}
 	c, err := new(net.Dialer).DialContext(t.Context(), "tcp", ln.Addr().String())
@@ -618,7 +622,7 @@ func TestChildMain(t *testing.T) {
 	std := IO{Stdout: io.Discard, Stderr: logFile, ErrFile: logFile, inherited: func() (*os.File, *os.File) { return sock, lnFile }}
 	done := make(chan error, 1)
 	go func() { done <- ChildMain([]string{"-for", filepath.Join(dir, "proxy.json")}, std) }()
-	start := childStart{exe: exe, vm: "devvm-x", password: redact.NewSecret("pw"), proxyLog: logPath, files: []watchedFile{{watchPolicy, filepath.Join(dir, "policy")}}}
+	start := childStart{exe: exe, spawned: unconfined(WhyUnsupported), vm: "devvm-x", password: redact.NewSecret("pw"), proxyLog: logPath, files: []watchedFile{{watchPolicy, filepath.Join(dir, "policy")}}}
 	must(t, bfc.send(toChild{Type: frameStart, Start: start.wire()}, nil))
 	var f toBroker
 	if _, err := bfc.recv(&f); err != nil || f.Type != frameReady || f.Ready.Exe != exe {
@@ -643,7 +647,7 @@ func TestChildMain(t *testing.T) {
 // with a watched file of a kind it doesn't know, or a second bindings file or links' list.
 func TestStartOfRefuses(t *testing.T) {
 	t.Parallel()
-	ok := childStart{vm: "devvm-x", password: redact.NewSecret("pw"), files: []watchedFile{{watchPolicy, "/p"}, {watchDeny, "/d"}, {watchLinks, "/l"}}}
+	ok := childStart{spawned: unconfined(WhyUnsupported), vm: "devvm-x", password: redact.NewSecret("pw"), files: []watchedFile{{watchPolicy, "/p"}, {watchDeny, "/d"}, {watchLinks, "/l"}}}
 	if _, err := startOf(ok.wire()); err != nil {
 		t.Fatal(err)
 	}
@@ -726,14 +730,14 @@ func TestBrokerStartRefuses(t *testing.T) {
 	uln, err := new(net.ListenConfig).Listen(t.Context(), "unix", filepath.Join(dirU, "s"))
 	must(t, err)
 	defer uln.Close()
-	if _, err := spawnChild(uln, filepath.Join(dir, "proxy.json"), IO{}); err == nil {
+	if _, err := spawnChild(uln, filepath.Join(dir, "proxy.json"), IO{}, nil); err == nil {
 		t.Error("a unix listener: a child")
 	}
 	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	must(t, err)
 	defer ln.Close()
 	failing := IO{spawn: func(daemon.Cmd) (childProc, error) { return nil, errors.New("no such program") }}
-	if _, err := spawnChild(ln, filepath.Join(dir, "proxy.json"), failing); err == nil {
+	if _, err := spawnChild(ln, filepath.Join(dir, "proxy.json"), failing, nil); err == nil {
 		t.Error("a child that doesn't start: started")
 	}
 }
@@ -744,7 +748,7 @@ func TestBrokerStartRefuses(t *testing.T) {
 func TestChildServerRefuses(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	base := childStart{exe: "e", vm: "devvm-x", password: redact.NewSecret("pw")}
+	base := childStart{exe: "e", spawned: unconfined(WhyUnsupported), vm: "devvm-x", password: redact.NewSecret("pw")}
 	for name, change := range map[string]func(s *childStart){
 		"an event log it can't open": func(s *childStart) { s.log = filepath.Join(dir, "none", "network.jsonl") },
 		"a CA that doesn't parse":    func(s *childStart) { s.ca, s.caKey = []byte("x"), redact.NewSecret("y") },

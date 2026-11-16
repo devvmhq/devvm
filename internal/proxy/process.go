@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"slices"
 	"syscall"
 	"time"
 
@@ -55,12 +56,20 @@ type IO struct {
 	// vmlog.KeepVM, which rotates them): required with them. They're in the backend's folder for
 	// the VM, beside its disk, which the child never writes.
 	KeepLogs func(ctx context.Context, paths []string)
+	// Seatbelt is the command that starts the child under macOS's Seatbelt, confined from its
+	// first instruction to what it needs, to which the broker adds devvm's executable and the
+	// child's arguments: sandbox-exec and the child's profile (seatbelt.Sandbox). An error that's
+	// fs.ErrNotExist says there's no sandbox-exec. nil: none, elsewhere than macOS.
+	Seatbelt func(ChildNeeds) ([]string, error)
 
 	// spawn starts the child: daemon.Spawn, which tests replace with a child in their process.
 	spawn func(daemon.Cmd) (childProc, error)
 	// inherited are the child's socket to its broker and its listener: its descriptors 3 and 4,
 	// which tests replace with their own.
 	inherited func() (sock, listener *os.File)
+	// confine is how the child confines itself and checks it holds, given how its broker started
+	// it and the file it must be refused: confineChild, which tests replace.
+	confine func(spawned Confinement, probe string) Confinement
 }
 
 // Main runs devvm _proxy with args (its flags): the broker, with -config's file, and its child,
@@ -170,28 +179,22 @@ func runBroker(ctx context.Context, c Config, configPath string, std IO, tick ti
 		defer stop()
 		go std.KeepLogs(kctx, c.VMLogs)
 	}
-	p, err := spawnChild(ln, configPath, std)
+	p, ready, confined, err := startChild(b, ln, configPath, std, exe, began.Add(startWait))
 	_ = ln.Close()
 	if err != nil {
-		return fmt.Errorf("the child: %w", err)
-	}
-	p.lifeline = lifeline
-	ready, err := b.handshake(p, exe, began.Add(startWait))
-	if err != nil {
-		_ = p.fc.close()
-		p.child.Stop(stopWait)
 		return err
 	}
+	p.lifeline = lifeline
 	// Both stay once the pair has ended, as the broker's own pid file does: a pid file names a
 	// process only while its arguments say it's that one (daemon.Proc), and devvm's stop removes
 	// them.
 	if err := daemon.WritePID(ChildPIDFile(configPath), p.child.PID()); err != nil {
 		l.Printf("the child's pid file: %v", err)
 	}
-	if err := writeAtomic(ConfinedFile(configPath), []byte(ready.Confined+"\n"), 0o600); err != nil {
+	if err := writeAtomic(ConfinedFile(configPath), []byte(confined.String()+"\n"), 0o600); err != nil {
 		l.Printf("how the child is confined: %v", err)
 	}
-	l.Printf("listening on %s for %s, in a child (pid %d) confined: %s", ready.Addr, c.VM, p.child.PID(), ready.Confined)
+	l.Printf("listening on %s for %s, in a child (pid %d) confined: %s", ready.Addr, c.VM, p.child.PID(), confined)
 	// What devvm waits for as it starts the proxy: the address it listens on.
 	if err := daemon.Ready(ready.Addr); err != nil {
 		l.Printf("%v", err)
@@ -200,12 +203,13 @@ func runBroker(ctx context.Context, c Config, configPath string, std IO, tick ti
 }
 
 // spawnChild starts the child of the broker whose config is at configPath, with ln, the VM's proxy
-// port's listener, and one end of a socketpair, whose other end it returns: devvm's own
-// executable (selfExe), _proxy-child -for configPath, its input the null device, its output and
-// its error output the broker's (std.OutFile, std.ErrFile), the socket its descriptor 3 and the
+// port's listener, and one end of a socketpair, whose other end it returns: sandbox, a sandbox's
+// command ending in devvm's executable (childSandbox), or nil for devvm's own executable alone
+// (selfExe), then _proxy-child -for configPath, its input the null device, its output and its
+// error output the broker's (std.OutFile, std.ErrFile), the socket its descriptor 3 and the
 // listener its 4, its environment childEnv's alone, and on Linux killed with the thread that
 // started it. The broker's copies of the child's descriptors are closed once it runs.
-func spawnChild(ln net.Listener, configPath string, std IO) (pair, error) {
+func spawnChild(ln net.Listener, configPath string, std IO, sandbox []string) (pair, error) {
 	tl, ok := ln.(*net.TCPListener)
 	if !ok {
 		return pair{}, errors.New("the proxy's listener isn't TCP's")
@@ -221,17 +225,21 @@ func spawnChild(ln net.Listener, configPath string, std IO) (pair, error) {
 	}
 	brokerEnd, childEnd := os.NewFile(uintptr(ends[0]), "broker"), os.NewFile(uintptr(ends[1]), "child")
 	defer func() { _ = brokerEnd.Close() }()
-	exe, err := selfExe()
-	if err != nil {
-		_ = childEnd.Close()
-		return pair{}, err
+	cmd := sandbox
+	if len(cmd) == 0 {
+		exe, err := selfExe()
+		if err != nil {
+			_ = childEnd.Close()
+			return pair{}, err
+		}
+		cmd = []string{exe}
 	}
 	spawn := std.spawn
 	if spawn == nil {
 		spawn = func(c daemon.Cmd) (childProc, error) { return daemon.Spawn(c) }
 	}
 	child, err := spawn(daemon.Cmd{
-		Path: exe, Args: []string{ChildCommand, "-for", configPath}, Out: std.OutFile, Err: std.ErrFile,
+		Path: cmd[0], Args: append(slices.Clone(cmd[1:]), ChildCommand, "-for", configPath), Out: std.OutFile, Err: std.ErrFile,
 		Files: []*os.File{childEnd, lnFile}, Env: childEnv(os.Environ()), DieWithThread: true,
 	})
 	_ = childEnd.Close()
@@ -326,5 +334,5 @@ func ChildMain(args []string, std IO) error {
 		return fmt.Errorf("the proxy's listener: %w", err)
 	}
 	defer func() { _ = ln.Close() }()
-	return runChildOn(newFrameConn(conn), ln, std, exe, log.New(std.Stderr, "devvm proxy child: ", log.LstdFlags))
+	return runChildOn(newFrameConn(conn), ln, std, exe, forConfig, log.New(std.Stderr, "devvm proxy child: ", log.LstdFlags))
 }

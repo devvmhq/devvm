@@ -119,8 +119,8 @@ func TestSpawnChosen(t *testing.T) {
 	if e := output(t, errOut.Name(), "oops"); e != "oops\n" {
 		t.Errorf("error output %q", e)
 	}
-	if h.Exit() != "running" {
-		t.Errorf("Exit while it runs: %q", h.Exit())
+	if h.Exit() != "running" || h.ExitCode() != -1 {
+		t.Errorf("Exit while it runs: %q, %d", h.Exit(), h.ExitCode())
 	}
 	pidFile := filepath.Join(dir, "pid")
 	if err := WritePID(pidFile, h.PID()); err != nil || output(t, pidFile, "\n") != strconv.Itoa(h.PID())+"\n" {
@@ -128,10 +128,19 @@ func TestSpawnChosen(t *testing.T) {
 	}
 	h.Kill()
 	<-h.Done()
-	if h.Exit() != "signal: killed" {
-		t.Errorf("Exit = %q", h.Exit())
+	if h.Exit() != "signal: killed" || h.ExitCode() != -1 || h.ExitSignal() != syscall.SIGKILL {
+		t.Errorf("Exit = %q, %d", h.Exit(), h.ExitCode())
 	}
 	h.Kill() // ended: nothing
+	// One that exits gives its status.
+	h, err = Spawn(Cmd{Path: "/bin/sh", Args: []string{"-c", "exit 65"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-h.Done()
+	if h.ExitCode() != 65 || h.ExitSignal() != 0 {
+		t.Errorf("ExitCode = %d, want 65", h.ExitCode())
+	}
 }
 
 // A Handle stops its process with SIGTERM, or SIGKILL when that doesn't

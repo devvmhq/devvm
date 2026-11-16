@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/daemon"
@@ -331,6 +332,8 @@ type childProc interface {
 	Stop(wait time.Duration) bool
 	Kill()
 	Exit() string
+	ExitCode() int
+	ExitSignal() syscall.Signal
 }
 
 // pair is a started child and the broker's end of the socketpair to it, which the broker's life
@@ -342,17 +345,27 @@ type pair struct {
 	lifeline <-chan struct{}
 }
 
-// handshake sends the child start, with the broker's executable's SHA-256 (exe), and waits until
-// deadline for its answer: ready, of the protocol's version and the broker's executable, or
-// failed. A child that answers anything else, or nothing in time, fails the start.
-func (b *broker) handshake(p pair, exe string, deadline time.Time) (wireReady, error) {
+// errEndedEarly is the start's error for a child that ended before it answered.
+var errEndedEarly = errors.New("the child ended as it started")
+
+// handshake sends the child start, with the broker's executable's SHA-256 (exe) and how the
+// broker started it (spawned), and waits until deadline for its answer: ready, of the protocol's
+// version and the broker's executable, or failed. A child that answers anything else, or nothing
+// in time, fails the start, and one that ended first fails it with errEndedEarly.
+func (b *broker) handshake(p pair, exe string, spawned Confinement, deadline time.Time) (wireReady, error) {
 	st := b.start
-	st.exe = exe
+	st.exe, st.spawned = exe, spawned
 	// A child that never reads its socket can't hold the broker past the start's deadline.
 	_ = p.fc.c.SetWriteDeadline(deadline)
 	err := p.fc.send(toChild{Type: frameStart, Start: st.wire()}, nil)
 	_ = p.fc.c.SetWriteDeadline(time.Time{})
 	if err != nil {
+		// A child that ended before the start was sent closed its end.
+		select {
+		case <-p.child.Done():
+			return wireReady{}, fmt.Errorf("%w (%s)", errEndedEarly, p.child.Exit())
+		case <-time.After(time.Until(deadline)):
+		}
 		return wireReady{}, fmt.Errorf("the child's start: %w", err)
 	}
 	type answer struct {
@@ -384,7 +397,7 @@ func (b *broker) handshake(p pair, exe string, deadline time.Time) (wireReady, e
 		case <-p.child.Done():
 		case <-t.C:
 		}
-		return wireReady{}, fmt.Errorf("the child ended as it started (%s)", p.child.Exit())
+		return wireReady{}, fmt.Errorf("%w (%s)", errEndedEarly, p.child.Exit())
 	case a.err != nil:
 		return wireReady{}, fmt.Errorf("the child's answer: %w", a.err)
 	case a.f.Type == frameFailed && a.f.fields():

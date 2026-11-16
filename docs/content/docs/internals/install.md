@@ -72,7 +72,8 @@ It warns in these cases:
 - another devvm comes first on your `PATH` ([one devvm](../using/upgrading.md#one-devvm)),
 - the disk that devvm's images and VMs go on has less free space than building base needs ([free space](../using/ports-size.md#free-space)),
 - this machine has less than the 8 GiB of memory or the 4 CPUs that devvm recommends ([requirements](../getting-started/install.md#requirements)),
-- a line of your policy files isn't a rule, which VMs' proxies skip ([rules](../safety/network.md#rules)).
+- a line of your policy files isn't a rule, which VMs' proxies skip ([rules](../safety/network.md#rules)),
+- a running VM's proxy runs without its sandbox, or with only part of it, as the proxy wrote in the VM's `run/proxy.confined` once it started ([the proxy runs without a sandbox](../using/troubleshooting.md#the-proxy-runs-without-a-sandbox)).
 
 It also gives a tip, which isn't a warning, when `safe.bareRepository` isn't `explicit` in your global or system git config, or in the files that `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` name: git then takes any folder shaped like a git folder for a bare repo, so a VM can make one that git run below it uses ([bare repos](../safety/git-protection.md#bare-repos)). doctor only reads the setting.
 
@@ -84,7 +85,7 @@ Then it says devvm has everything it needs, or it fails. The warnings and tips n
 
 - `backend` is the backend that doctor checked, `lima`, which every new VM gets.
 - `problems` has what that backend is missing, each with its `key`, the `fix` command, and the `message` that `devvm doctor` prints for it. The `fix` is a command whose words are separated by spaces, without shell syntax, or `null` when there's none to run, for example when virtualization is turned off in the firmware.
-- `warnings` has the messages of doctor's warnings, which have no keys, because there's nothing for a script to fix. They're about another devvm on `PATH`, low free space, a machine with less than 8 GiB of memory or fewer than 4 CPUs, and each line of `~/.config/devvm/policy`, `~/.config/devvm/layers/*.policy` and `~/.local/share/devvm/vms/*/policy` that isn't a rule (`policy_not_rule`).
+- `warnings` has the messages of doctor's warnings, which have no keys, because there's nothing for a script to fix. They're about another devvm on `PATH`, low free space, a machine with less than 8 GiB of memory or fewer than 4 CPUs, each line of `~/.config/devvm/policy`, `~/.config/devvm/layers/*.policy` and `~/.local/share/devvm/vms/*/policy` that isn't a rule (`policy_not_rule`), and each running VM whose proxy runs without its sandbox (`proxy_unconfined` and the `proxy_unconfined_*` messages, one for each reason).
 - `tips` has the messages of doctor's tips, which aren't problems: git's `safe.bareRepository` (`doctor_git_bare`).
 - `docker` says whether Docker is installed, which only `--from` with an image that only Docker has needs.
 - `features` has, for each backend, how it has each feature, as `native`, `emulated`, `unreviewed` or `none`. The example below shows two of Lima's features.

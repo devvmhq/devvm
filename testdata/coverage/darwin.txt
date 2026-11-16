@@ -10,7 +10,7 @@ internal/backend/registry 100.0
 internal/build 88.5
 internal/cli 91.2
 internal/cli/docgen 86.5
-internal/daemon 98.0
+internal/daemon 98.3
 internal/desktop 78.8
 internal/devcontainer 96.8
 internal/fetch 96.6
@@ -30,8 +30,9 @@ internal/platform 90.4
 internal/ports 92.6
 internal/project 98.5
 internal/proxy 93.6
-internal/redact 98.9
-internal/safefile 97.7
+internal/redact 99.1
+internal/safefile 97.8
+internal/seatbelt 96.2
 internal/secrets 93.4
 internal/settings 96.4
 internal/shell 100.0
@@ -45,11 +46,11 @@ internal/testbuild 100.0
 internal/tools 90.9
 internal/trust 95.0
 internal/ubuntu 97.3
-internal/ui 97.2
+internal/ui 97.3
 internal/upgrade 93.8
 internal/upgrade/upgradetest 97.4
 internal/vm 88.4
-internal/vmlog 95.8
+internal/vmlog 97.6
 internal/vmname 100.0
 internal/vmssh 92.6
 packaging 71.4

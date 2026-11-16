@@ -29,6 +29,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 | `internal/agentlogin/` | agents' login and settings files on the host, and their placeholders |
 | `internal/proxy/` | the proxy: its broker, `devvm _proxy`, and the child that reads the VM's network, `devvm _proxy-child`; see its `README.md`; every host's one form (`NormHost`); the VM's SSH agent relay, the only way a VM reaches an agent |
 | `internal/daemon/` | devvm's background processes; the only place a process is signalled by pid |
+| `internal/seatbelt/` | macOS's sandbox: `sandbox-exec`, profile strings and real paths, the proxy child's profile |
 | `internal/desktop/` | devvm desktop's relay on the host |
 | `internal/backend/` | `Backend`, its roles, `Caps`, the registry and its guard; `backendtest/`, `registry/`, `lima/` |
 | `internal/vmssh/` | devvm's own ssh to a VM (`Checked`), the port forwarder (`Forwards`), each start's host keys |

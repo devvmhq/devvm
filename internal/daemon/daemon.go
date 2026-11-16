@@ -74,6 +74,9 @@ func Spawn(c Cmd) (*Handle, error) {
 		cmd.Stderr = c.Err
 	}
 	cmd.ExtraFiles = c.Files
+	// A session of its own also keeps a proxy's child, under Seatbelt, from every other process's
+	// arguments: macOS answers kern.procargs2 to a sandboxed process within its own process group
+	// alone, so the child's confinement of process info relies on this.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if c.DieWithThread {
 		dieWithThread(cmd.SysProcAttr)
@@ -142,6 +145,30 @@ func (h *Handle) Exit() string {
 	default:
 		return "running"
 	}
+}
+
+// ExitCode is the process's exit status once it has ended, and -1 while it runs or when a signal
+// ended it.
+func (h *Handle) ExitCode() int {
+	select {
+	case <-h.done:
+		return h.state.ExitCode()
+	default:
+		return -1
+	}
+}
+
+// ExitSignal is the signal that ended the process, once it has ended; 0 while it runs, or when it
+// exited.
+func (h *Handle) ExitSignal() syscall.Signal {
+	select {
+	case <-h.done:
+		if ws, ok := h.state.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			return ws.Signal()
+		}
+	default:
+	}
+	return 0
 }
 
 // PID is the process's pid.

@@ -103,12 +103,12 @@ func TestV010ProxyConfigsStart(t *testing.T) {
 		}
 		ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp", c.Listen)
 		must(t, err)
-		p, err := spawnChild(ln, own, std)
+		p, err := spawnChild(ln, own, std, nil)
 		_ = ln.Close()
 		must(t, err)
 		exe, err := selfSum()
 		must(t, err)
-		if ready, err := b2.handshake(p, exe, time.Now().Add(startWait)); err != nil || ready.Addr == "" {
+		if ready, err := b2.handshake(p, exe, unconfined(WhyUnsupported), time.Now().Add(startWait)); err != nil || ready.Addr == "" {
 			t.Errorf("%s: the child: %v", path, err)
 		}
 		_ = p.fc.close()

@@ -157,6 +157,23 @@ A confined VM runs only with its proxy, so when the proxy doesn't start, devvm s
 - **The proxy doesn't stop for new settings:** run `devvm stop`, then `devvm` ([the proxy](../internals/network.md#the-proxy)).
 - **An open VM's proxy doesn't answer it:** the VM runs on, and devvm warns you, because its tools that use the proxy fail, so run `devvm restart`, which starts both again.
 
+## The proxy runs without a sandbox
+
+On macOS, the part of a VM's proxy that reads the VM's network runs in a macOS sandbox, which keeps it from your files, the Keychain and the rest of this machine if a VM ever took it over. When the sandbox can't start, the proxy runs without it, so the VM keeps its network, and devvm doctor warns for each running VM:
+
+```sh
+devvm doctor                                            # names each VM whose proxy runs without a sandbox
+tail ~/.local/share/devvm/vms/<hash>/logs/proxy.log     # the proxy's own warning, with why
+devvm restart                                           # in the VM's folder: start the proxy again, sandboxed if it can be
+```
+
+- **sandbox-exec is missing:** macOS's `/usr/bin/sandbox-exec` runs the sandbox, and Lima's hostagent needs it too, so check that it's there, and run `devvm restart` once it is.
+- **sandbox-exec couldn't start it:** `proxy.log` has `sandbox-exec`'s own error, which says why, such as a profile that this macOS refused. Run `devvm restart` once you've fixed what it names, and if it names devvm's profile, report it as a bug ([reporting a bug](#reporting-a-bug)), with your macOS version.
+- **Its sandbox let it open a file it mustn't:** the sandbox started but didn't hold, so the proxy runs as if it had none. Report it as a bug ([reporting a bug](#reporting-a-bug)), with your macOS version.
+- **devvm can't confine it on this system yet:** on Linux, the proxy runs without a sandbox for now.
+
+[The child's sandbox](../internals/network.md#the-childs-sandbox) has what the sandbox allows and how the proxy decides to run without it.
+
 ## A request is blocked
 
 On the allowlist tier, a VM reaches only the hosts on its allowlist, and on the none tier only its agents' and secrets' hosts. To see what the proxy blocked, run `devvm network log --blocked` on this machine, or `devvm-why` in the VM. `devvm network log --blocked` also shows the `devvm network allow` command that allows each host, and the rule applies at once, to the next connection ([logs](../safety/network.md#logs)).

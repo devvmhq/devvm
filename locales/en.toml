@@ -2011,6 +2011,22 @@ other = "{{.vm}}'s proxy didn't start. Check {{.log}} for why."
 [proxy_stop_failed]
 other = "{{.vm}}'s proxy didn't stop, so devvm couldn't start it again with new settings. Run devvm stop, then devvm."
 
+[proxy_unconfined_unsupported]
+other = "{{.vm}}'s proxy runs without a sandbox, because devvm can't confine it on this system yet."
+
+[proxy_unconfined_no_sandbox]
+other = "{{.vm}}'s proxy runs without a sandbox, because macOS's sandbox-exec is missing."
+
+[proxy_unconfined_sandbox_failed]
+other = "{{.vm}}'s proxy runs without a sandbox, because sandbox-exec couldn't start it. Check {{.log}} for why."
+
+[proxy_unconfined_check_failed]
+other = "{{.vm}}'s proxy runs without a sandbox, because its sandbox let it open a file it mustn't. Check {{.log}} for more."
+
+[proxy_unconfined]
+description = "confinement is how the proxy's child is confined, in devvm's own words, such as partial landlock"
+other = "{{.vm}}'s proxy isn't confined to only what it needs ({{.confinement}}). Check {{.log}} for why."
+
 [upstream_proxy_scheme]
 description = "setting is HTTPS_PROXY or HTTP_PROXY; scheme is the URL's, such as https:// or socks5://"
 other = "{{.setting}} names a {{.scheme}} proxy, and VMs' proxies and image builds go only through http:// proxies. Set {{.setting}} to the company proxy's http:// address, or unset it."

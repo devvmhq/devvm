@@ -616,7 +616,14 @@ func (n *nixCache) open() error {
 	if n.max < 0 {
 		return errors.New("nix_cache_max is below 0")
 	}
-	for _, d := range []string{n.dir, filepath.Join(n.dir, "nar")} {
+	return makeNixFolders(n.dir)
+}
+
+// makeNixFolders makes the cache's folders in dir, the user's alone: the broker makes them before
+// its child starts, as a sandbox lets the child make no folder, and the child again, which finds
+// them made.
+func makeNixFolders(dir string) error {
+	for _, d := range []string{dir, filepath.Join(dir, "nar")} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return err
 		}

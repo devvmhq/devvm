@@ -29,7 +29,9 @@ import (
 // without the paths the child never opens, the CAs' files and the company proxy's password as the
 // broker read them, and the files that change, which the child asks for by their number.
 type childStart struct {
-	exe                string // the broker's executable's SHA-256, in hex
+	exe string // the broker's executable's SHA-256, in hex
+	// spawned is how the broker started the child: under a sandbox, or unconfined and why.
+	spawned            Confinement
 	vm                 vmname.VM
 	password           redact.Secret
 	builtin            []string
@@ -53,7 +55,7 @@ type childStart struct {
 // wire is s as the start frame has it, its secrets revealed into it alone.
 func (s childStart) wire() *wireStart {
 	w := &wireStart{
-		Version: protocolVersion, Exe: s.exe, VM: s.vm,
+		Version: protocolVersion, Exe: s.exe, Spawned: s.spawned.String(), VM: s.vm,
 		Password:        s.password.Reveal(), //nolint:forbidigo // the start's wire struct: the child checks each request's password
 		BuiltinPolicies: s.builtin, Open: s.open, Log: s.log, ProxyLog: s.proxyLog,
 		CA: s.ca, CAKey: s.caKey.Reveal(), //nolint:forbidigo // the start's wire struct: the child intercepts with the VM's CA
@@ -79,8 +81,12 @@ func startOf(w *wireStart) (childStart, error) {
 	case w.Password == "":
 		return childStart{}, errors.New("a start without the VM's password")
 	}
+	spawned, err := ParseConfinement(w.Spawned)
+	if err != nil {
+		return childStart{}, fmt.Errorf("how the broker started the child: %w", err)
+	}
 	s := childStart{
-		exe: w.Exe, vm: w.VM, password: redact.NewSecret(w.Password), builtin: w.BuiltinPolicies, open: w.Open,
+		exe: w.Exe, spawned: spawned, vm: w.VM, password: redact.NewSecret(w.Password), builtin: w.BuiltinPolicies, open: w.Open,
 		log: w.Log, proxyLog: w.ProxyLog, ca: w.CA, caKey: redact.NewSecret(w.CAKey), caNext: w.CANext,
 		caNextKey: redact.NewSecret(w.CANextKey), captures: w.Captures, upstreamCAs: w.UpstreamCAs,
 		upstream: w.Upstream, upstreamPassword: redact.NewSecret(w.UpstreamPassword),
@@ -456,17 +462,15 @@ func tokenReplyOf(w wireTokenReply) tokenReply {
 
 // --- the child's process ---
 
-// childConfined is what the child says of its confinement while the follow-ups that confine it
-// aren't built: none, so it runs with the broker's access.
-const childConfined = "none"
-
 // runChildOn runs the child on fc, its end of the socketpair, and ln, the listener the broker
 // opened: it reads start, checks the broker's executable is its own (exe), opens its logs, makes
-// its server, checks it reads the host's addresses, answers ready, and serves until the broker's
-// end closes, when it closes its listener, then its connections, waiting up to closeWait for its
-// handlers (closeConns). A start it can't run with gets failed, with why, and returns the error.
-// Nothing is asked of the broker before ready.
-func runChildOn(fc *frameConn, ln net.Listener, std IO, exe string, l *log.Logger) error {
+// its server, checks it reads the host's addresses, confines itself where its platform does that
+// in the process and checks its confinement holds, refusing it probe, its broker's config
+// (std.confine, else confineChild), answers ready with how it's confined, and serves until the
+// broker's end closes, when it closes its listener, then its connections, waiting up to
+// closeWait for its handlers (closeConns). A start it can't run with gets failed, with why, and
+// returns the error. Nothing is asked of the broker before ready.
+func runChildOn(fc *frameConn, ln net.Listener, std IO, exe, probe string, l *log.Logger) error {
 	defer func() { _ = fc.close() }()
 	var f toChild
 	fd, err := fc.recv(&f)
@@ -484,7 +488,13 @@ func runChildOn(fc *frameConn, ln net.Listener, std IO, exe string, l *log.Logge
 		return err
 	}
 	defer closeLog()
-	ready := &wireReady{Version: protocolVersion, Exe: exe, Addr: ln.Addr().String(), Confined: childConfined}
+	confine := std.confine
+	if confine == nil {
+		confine = confineChild
+	}
+	spawned, _ := ParseConfinement(f.Start.Spawned) // startOf took it, in childServer
+	confined := confine(spawned, probe)
+	ready := &wireReady{Version: protocolVersion, Exe: exe, Addr: ln.Addr().String(), Confined: confined.String()}
 	if err := fc.send(toBroker{Type: frameReady, Ready: ready}, nil); err != nil {
 		return err
 	}

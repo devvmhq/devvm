@@ -146,6 +146,45 @@ func (p *Proxy) Stop(vm vmname.VM) bool {
 	return true
 }
 
+// Unconfined are devvm doctor's warnings for the VMs among vms whose
+// proxy runs with a child that isn't confined to only what it needs, as
+// its broker wrote once the child was ready (proxy.ReadConfined), one for
+// each, saying why. A proxy that hasn't said, such as one still starting
+// or one an older devvm started, gets none.
+func Unconfined(p *Proxy, vms []*state.VM) []msg.M {
+	var ms []msg.M
+	for _, st := range vms {
+		vm := st.Name()
+		if _, ok := p.PID(vm); !ok {
+			continue
+		}
+		c, err := proxy.ReadConfined(p.Dirs.VM(vm).ProxyConfig())
+		if err != nil || c.Level == proxy.ConfinedFull {
+			continue
+		}
+		ms = append(ms, unconfinedWarning(vm, c, p.Dirs.VM(vm).ProxyLog()))
+	}
+	return ms
+}
+
+// unconfinedWarning is the warning for VM vm's proxy's child confined as
+// c, whose log is log: one for each reason devvm knows.
+func unconfinedWarning(vm vmname.VM, c proxy.Confinement, log string) msg.M {
+	switch {
+	case c.Level != proxy.ConfinedNone:
+		return msg.ProxyUnconfined(c.String(), log, vm)
+	case c.Why == proxy.WhyUnsupported:
+		return msg.ProxyUnconfinedUnsupported(vm)
+	case c.Why == proxy.WhySandboxMissing:
+		return msg.ProxyUnconfinedNoSandbox(vm)
+	case c.Why == proxy.WhySandboxFailed:
+		return msg.ProxyUnconfinedSandboxFailed(log, vm)
+	case c.Why == proxy.WhyCheckFailed:
+		return msg.ProxyUnconfinedCheckFailed(log, vm)
+	}
+	return msg.ProxyUnconfined(c.String(), log, vm)
+}
+
 // relayedAgent is the SSH agent a VM's proxy relays and the socket it
 // relays it on: a start's, agent ("" none), on the VM's own socket
 // (paths.Dirs.AgentRelay); a running VM's, the one its proxy's start

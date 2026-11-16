@@ -17,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/redact"
+	"github.com/devvmhq/devvm/internal/seatbelt"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmlog"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -248,7 +249,7 @@ func (l *machines) confine(vm vmname.VM, c backend.Confinement, sshPort int, for
 		if err := writeProfile(l.Dirs.VM(vm).Profile(), p); err != nil {
 			return nil, nil, err
 		}
-		return []string{sandboxExec, "-f", l.Dirs.VM(vm).Profile()}, env, nil
+		return []string{seatbelt.Exec, "-f", l.Dirs.VM(vm).Profile()}, env, nil
 	case "linux":
 		qenv, err := l.qemuEnv(vm, c)
 		return nil, append(env, qenv...), err

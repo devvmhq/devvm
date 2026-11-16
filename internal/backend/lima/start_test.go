@@ -968,12 +968,6 @@ func TestProfileAgent(t *testing.T) {
 	}
 }
 
-func TestSBString(t *testing.T) {
-	if got, want := sbString(`/a "b" \c`), `"/a \"b\" \\c"`; got != want {
-		t.Errorf("sbString = %s, want %s", got, want)
-	}
-}
-
 // Lima can report a failed start for a VM that's running: carry on with a
 // warning, unless it doesn't answer over ssh; then it's stopped.
 func TestDegradedStart(t *testing.T) {

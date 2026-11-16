@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/daemon"
@@ -65,7 +66,7 @@ func inProcess(std IO) IO {
 		}
 		g := &goChild{done: make(chan struct{}), stop: func() { _ = conn.Close(); _ = ln.Close() }}
 		go func() {
-			g.err = runChildOn(newFrameConn(conn), ln, std, exe, log.New(std.Stderr, "devvm proxy child: ", log.LstdFlags))
+			g.err = runChildOn(newFrameConn(conn), ln, std, exe, "", log.New(std.Stderr, "devvm proxy child: ", log.LstdFlags))
 			_ = ln.Close()
 			close(g.done)
 		}()
@@ -95,6 +96,22 @@ func (g *goChild) Stop(wait time.Duration) bool {
 		return false
 	}
 }
+
+// ExitCode is 1 for a child that returned an error, 0 for one that didn't, and -1 while it runs.
+func (g *goChild) ExitCode() int {
+	select {
+	case <-g.done:
+		if g.err != nil {
+			return 1
+		}
+		return 0
+	default:
+		return -1
+	}
+}
+
+// ExitSignal is none: a child in the test's process ends by returning.
+func (g *goChild) ExitSignal() syscall.Signal { return 0 }
 
 func (g *goChild) Exit() string {
 	select {

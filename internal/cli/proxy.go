@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"runtime"
+
 	"github.com/spf13/cobra"
 
 	"github.com/devvmhq/devvm/assets"
@@ -8,6 +10,7 @@ import (
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/proxy"
+	"github.com/devvmhq/devvm/internal/seatbelt"
 	"github.com/devvmhq/devvm/internal/ui"
 	"github.com/devvmhq/devvm/internal/vmlog"
 )
@@ -37,14 +40,19 @@ func newProxyCmd(a *app) *cobra.Command {
 			}
 			if err == nil {
 				out, errOut := ui.Files(u)
-				err = proxy.Main(cmd.Context(), args, proxy.IO{
+				std := proxy.IO{
 					Stdout: u.Stdout(), Stderr: u.Stderr(), OutFile: out, ErrFile: errOut,
 					FS:      assets.FS, // the built-in policies, read from the binary
 					Secret:  store.Get,
 					Capture: netpolicy.Capturer{Dirs: d, Secrets: store},
 					// The VM's backend's logs, held to their cap while the VM runs.
 					KeepLogs: vmlog.KeepVM,
-				})
+				}
+				// On macOS the child starts under Seatbelt, confined from its first instruction.
+				if runtime.GOOS == "darwin" {
+					std.Seatbelt = seatbelt.Sandbox{Exec: seatbelt.Exec}.ProxyChild
+				}
+				err = proxy.Main(cmd.Context(), args, std)
 			}
 			if err != nil {
 				return msg.ProxyFailed(err.Error()).Because(err)

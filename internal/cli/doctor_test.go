@@ -110,6 +110,7 @@ func TestDoctorReport(t *testing.T) {
 		Policies: func() []msg.M { return []msg.M{msg.PolicyNotRule("/p", "2", "a b")} },
 		Folders:  func() []msg.M { return []msg.M{msg.VMFolderStateless("/vms/0123456789abcd")} },
 		GitBare:  func() bool { return false },
+		Proxies:  func() []msg.M { return []msg.M{msg.ProxyUnconfinedNoSandbox("devvm-web-0123456789abcd")} },
 	}
 	r := d.report(t.Context(), msg.M.Names, []backend.Backend{b}, b)
 	fix := "brew install lima"
@@ -118,7 +119,10 @@ func TestDoctorReport(t *testing.T) {
 		r.Problems[0].Message != want[0].Message || r.Problems[1].Key != "kvm" {
 		t.Errorf("problems %+v, want %+v", r.Problems, want)
 	}
-	if !slices.Equal(r.Warnings, []string{"host_cpus_few have=2 want=4", "policy_not_rule file=/p line=2 rule=a b", "vm_folder_stateless path=/vms/0123456789abcd"}) || r.Backend != "lima" ||
+	if !slices.Equal(r.Warnings, []string{
+		"host_cpus_few have=2 want=4", "policy_not_rule file=/p line=2 rule=a b", "vm_folder_stateless path=/vms/0123456789abcd",
+		"proxy_unconfined_no_sandbox vm=devvm-web-0123456789abcd",
+	}) || r.Backend != "lima" ||
 		!slices.Equal(r.Tips, []string{"doctor_git_bare"}) {
 		t.Errorf("warnings %q, backend %q", r.Warnings, r.Backend)
 	}

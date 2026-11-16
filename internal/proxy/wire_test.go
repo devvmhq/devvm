@@ -52,7 +52,7 @@ func TestFramesRoundTrip(t *testing.T) {
 	b, c := pairOf(t)
 	odd := []byte{0xff, 0, 'x', 0xc3}
 	start := toChild{Type: frameStart, Start: childStart{
-		vm: "devvm-x", password: redact.NewSecret("pw"), files: []watchedFile{{watchPolicy, "/p"}, {watchBindings, "/b"}},
+		spawned: unconfined(WhyUnsupported), vm: "devvm-x", password: redact.NewSecret("pw"), files: []watchedFile{{watchPolicy, "/p"}, {watchBindings, "/b"}},
 		ca: odd, caKey: redact.NewSecret("key"),
 	}.wire()}
 	must(t, b.send(start, nil))
