@@ -392,7 +392,7 @@ func (b *broker) handshake(p pair, exe string, spawned Confinement, deadline tim
 		return wireReady{}, fmt.Errorf("the child didn't say it's ready within %s", startWait)
 	}
 	switch {
-	case errors.Is(a.err, io.EOF) || errors.Is(a.err, io.ErrUnexpectedEOF):
+	case socketEnded(a.err):
 		select {
 		case <-p.child.Done():
 		case <-t.C:
@@ -454,11 +454,18 @@ func (b *broker) live(ctx context.Context, p pair, stop <-chan struct{}) error {
 		if isRuleError(err) {
 			return fmt.Errorf("the child broke the protocol: %w", err)
 		}
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		if socketEnded(err) {
 			return fmt.Errorf("the child ended (%s)", p.child.Exit())
 		}
 		return fmt.Errorf("the child's socket: %w", err)
 	}
+}
+
+// socketEnded reports whether err, a read of the socket to the child, is its end: EOF, or, as
+// Linux says it when the child closed its end with frames it hadn't read, such as a child that
+// ended as it started, ECONNRESET.
+func socketEnded(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET)
 }
 
 // ChildPIDFile is the pid file of the child of the broker whose config is at config, beside it:

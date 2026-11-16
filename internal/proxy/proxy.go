@@ -22,8 +22,8 @@
 //     sockets on the host before any rule, their bytes as they are (see links.go).
 //
 // It exits when the VM's hostagent does (Config.Lifeline). Standard library only, and internal/daemon,
-// internal/redact, internal/safefile and internal/vmname, which are too: it prints nothing itself,
-// but writes to the streams devvm hands Main.
+// internal/landlock, internal/redact, internal/safefile and internal/vmname, which are too: it prints
+// nothing itself, but writes to the streams devvm hands Main.
 //
 // Everything one proxy runs with and keeps between connections is in its server, which Main makes
 // from the config (newServer): the package keeps no state of its own, so each test makes a server
@@ -297,7 +297,12 @@ type hostAddrs struct {
 	read func() ([]net.Addr, error)
 }
 
-func (h *hostAddrs) load() {
+func (h *hostAddrs) load() { _ = h.check() }
+
+// check reads the host's addresses now, as load does, and returns an error when the read fails or
+// finds none: the child's check once it's confined, as a confinement that refused the read would
+// leave the floor without them.
+func (h *hostAddrs) check() error {
 	read := h.read
 	if read == nil {
 		read = net.InterfaceAddrs
@@ -315,6 +320,13 @@ func (h *hostAddrs) load() {
 	if err == nil && len(own) > 0 || h.addrs == nil {
 		h.addrs = own
 	}
+	switch {
+	case err != nil:
+		return fmt.Errorf("this machine's own addresses can't be read: %w", err)
+	case len(own) == 0:
+		return errors.New("this machine's own addresses can't be read")
+	}
+	return nil
 }
 
 // own is the host's addresses, read again when they're older than 30 seconds. load replaces the map

@@ -159,7 +159,7 @@ A confined VM runs only with its proxy, so when the proxy doesn't start, devvm s
 
 ## The proxy runs without a sandbox
 
-On macOS, the part of a VM's proxy that reads the VM's network runs in a macOS sandbox, which keeps it from your files, the Keychain and the rest of this machine if a VM ever took it over. When the sandbox can't start, the proxy runs without it, so the VM keeps its network, and devvm doctor warns for each running VM:
+The part of a VM's proxy that reads the VM's network runs in a sandbox, which keeps it from your files, your unix sockets and the rest of this machine if a VM ever took it over: macOS's on macOS, and Landlock and a seccomp filter on Linux. When the sandbox can't start, or the kernel has only part of it, the proxy runs with what there is, so the VM keeps its network, and devvm doctor warns for each running VM:
 
 ```sh
 devvm doctor                                            # names each VM whose proxy runs without a sandbox
@@ -170,7 +170,8 @@ devvm restart                                           # in the VM's folder: st
 - **sandbox-exec is missing:** macOS's `/usr/bin/sandbox-exec` runs the sandbox, and Lima's hostagent needs it too, so check that it's there, and run `devvm restart` once it is.
 - **sandbox-exec couldn't start it:** `proxy.log` has `sandbox-exec`'s own error, which says why, such as a profile that this macOS refused. Run `devvm restart` once you've fixed what it names, and if it names devvm's profile, report it as a bug ([reporting a bug](#reporting-a-bug)), with your macOS version.
 - **Its sandbox let it open a file it mustn't:** the sandbox started but didn't hold, so the proxy runs as if it had none. Report it as a bug ([reporting a bug](#reporting-a-bug)), with your macOS version.
-- **devvm can't confine it on this system yet:** on Linux, the proxy runs without a sandbox for now.
+- **This kernel has no Landlock, or an older one, or no seccomp filters:** on Linux, the proxy gets what the kernel has. Check that Landlock is turned on with `cat /sys/kernel/security/lsm`, whose list should name `landlock`, and turn it on as your distribution's docs describe, or update the kernel: with Landlock's ABI 8 or later, or ABI 6 or 7 with its fix for signals between threads, and the seccomp filter, the proxy is fully confined. Then run `devvm restart`.
+- **devvm can't confine it on this system yet:** this devvm, or this machine's architecture, has no sandbox for it, though devvm's releases for macOS and for Linux on Intel and Arm have one, so install a release ([installing devvm](../getting-started/install.md)).
 
 [The child's sandbox](../internals/network.md#the-childs-sandbox) has what the sandbox allows and how the proxy decides to run without it.
 

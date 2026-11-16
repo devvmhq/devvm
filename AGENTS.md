@@ -21,6 +21,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 | `internal/redact/` | passwords out of logs; `Secret`, the type of every secret's value |
 | `internal/vmlog/` | every log a VM can drive (but the proxy's own): its rate, its cap while it runs, and the backend's logs, serial consoles' included |
 | `internal/safefile/` | every read of a file a VM can write or swap |
+| `internal/landlock/` | Linux's sandbox for the proxy's child: Landlock and the hand-written seccomp filter (`Self`) |
 | `internal/devcontainer/`, `internal/jsonc/` | a project's devcontainer.json; JSON with comments |
 | `internal/tools/` | the shared tools: the lock, host mise, the daily check, tool image builds, the share |
 | `internal/netpolicy/`, `internal/secrets/` | network policy; tokens on the host, the VM's bindings and your own secrets |
@@ -88,8 +89,8 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 - **Arguments and flag values are checked before anything runs**, with `args.go`'s checks, never Cobra's; a usage error exits 2 ([Command arguments](docs/content/docs/contributing/cli.md#command-arguments)).
 - **Cleanups:** whatever a failure would leave (a build VM, a temp file) registers with the UI's `AddCleanup` and is removed once done; one only for interrupts checks `Interrupted()` and stays once interrupted, as the cleanups run after the command returns. Cleanups get a fresh context.
 - **External commands run with the UI's `LoggedCmd(ctx, step, cmd)`**, a failure after one returned as `backend.Logged(m)` ([CLI conventions](docs/content/docs/contributing/cli.md#cli-conventions)).
-- **OS-specific code goes behind build tags** in `internal/platform` (`*_darwin.go`, `*_linux.go`, `*_other.go`).
-- **Dependencies:** the depguard allowlist (cobra, pflag, cobra/doc, go-i18n, BurntSushi/toml, x/text, x/term, x/sys, x/crypto's `blake2b` only (minisign's prehash); go-internal in tests; cobra/doc's own deps never imported directly). `internal/proxy`, `internal/daemon`, `internal/safefile`, `internal/vmname`, `internal/leaktest`, `internal/memnet` and `internal/redact` are stdlib only. Adding one: ask.
+- **OS-specific code goes behind build tags** in `internal/platform` (`*_darwin.go`, `*_linux.go`, `*_other.go`); packages the proxy imports keep their own (`internal/safefile`, `internal/daemon`, `internal/proxy`, `internal/landlock`).
+- **Dependencies:** the depguard allowlist (cobra, pflag, cobra/doc, go-i18n, BurntSushi/toml, x/text, x/term, x/sys, x/crypto's `blake2b` only (minisign's prehash); go-internal in tests; cobra/doc's own deps never imported directly). `internal/proxy`, `internal/landlock`, `internal/daemon`, `internal/safefile`, `internal/vmname`, `internal/leaktest`, `internal/memnet` and `internal/redact` are stdlib only. Adding one: ask.
 - **A secret's value is a `redact.Secret`:** each `Reveal` with a `//nolint:forbidigo` saying why, and a file that holds one writes it through its own wire type ([Secrets in the code](docs/content/docs/contributing/structure.md#secrets-in-the-code)).
 - **External tools are commands, never linked** (`limactl`, `docker`, `security`, `git`, `chflags`…); prefer the standard library to shelling out. Strings into a shell are quoted with `shell.Quote`.
 - **Test seams are fields** tests set (`Host`, `Exec`, `Runner`, `OS`, `Reporter`…), never package vars (reassign: no package sets another's); `internal/proxy`'s are its `server`'s, which each test makes.

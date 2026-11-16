@@ -193,7 +193,8 @@ func newChildServer(st childStart, host hostSide, own fs.FS, l *log.Logger, out 
 		pol: pol, own: &hostAddrs{}, up: up, log: l, lookup: net.DefaultResolver.LookupNetIP,
 		connect: (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
 	}
-	s.egress.own.load()
+	// The host's addresses are read once the child is confined (confineStarted), or at their
+	// first use (own).
 	maxSize := st.nixCacheMax
 	if maxSize == 0 {
 		maxSize = NixCacheDefault
@@ -462,14 +463,43 @@ func tokenReplyOf(w wireTokenReply) tokenReply {
 
 // --- the child's process ---
 
+// confineStarted confines the child of start w, whose server is s, with conf (IO.confine), to
+// what it needs of the files (childFiles), refusing it probe, then checks that it still reads the host's
+// addresses (s.egress.own), which the floor refuses none of without. It returns how the child is
+// confined; no confinement, one that fails, or a host whose addresses it can't read then, is an
+// error.
+func confineStarted(w *wireStart, s *server, conf func(Confinement, ChildNeeds, string) (Confinement, error), probe string) (Confinement, error) {
+	if conf == nil {
+		return Confinement{}, errors.New("no confinement for the child")
+	}
+	spawned, err := ParseConfinement(w.Spawned)
+	if err != nil {
+		return Confinement{}, err
+	}
+	files := make([]watchedFile, len(w.Files))
+	for i, f := range w.Files {
+		files[i] = watchedFile{f.Kind, f.Path}
+	}
+	n := childFiles(Config{Log: w.Log, ProxyLog: w.ProxyLog, NixCache: w.NixCache}, files)
+	c, err := conf(spawned, n, probe)
+	if err != nil {
+		return Confinement{}, err
+	}
+	if err := s.egress.own.check(); err != nil {
+		return Confinement{}, err
+	}
+	return c, nil
+}
+
 // runChildOn runs the child on fc, its end of the socketpair, and ln, the listener the broker
 // opened: it reads start, checks the broker's executable is its own (exe), opens its logs, makes
-// its server, checks it reads the host's addresses, confines itself where its platform does that
-// in the process and checks its confinement holds, refusing it probe, its broker's config
-// (std.confine, else confineChild), answers ready with how it's confined, and serves until the
-// broker's end closes, when it closes its listener, then its connections, waiting up to
+// its server, confines itself where its platform does that in the process and checks its
+// confinement holds, refusing it probe, its broker's config (std.confine), and that it still reads
+// the host's addresses (confineStarted), answers ready with how it's confined, and serves until
+// the broker's end closes, when it closes its listener, then its connections, waiting up to
 // closeWait for its handlers (closeConns). A start it can't run with gets failed, with why, and
-// returns the error. Nothing is asked of the broker before ready.
+// returns the error. Nothing is asked of the broker before ready, and no byte of the VM's is read
+// before the child is confined.
 func runChildOn(fc *frameConn, ln net.Listener, std IO, exe, probe string, l *log.Logger) error {
 	defer func() { _ = fc.close() }()
 	var f toChild
@@ -488,12 +518,11 @@ func runChildOn(fc *frameConn, ln net.Listener, std IO, exe, probe string, l *lo
 		return err
 	}
 	defer closeLog()
-	confine := std.confine
-	if confine == nil {
-		confine = confineChild
+	confined, err := confineStarted(f.Start, s, std.confine, probe)
+	if err != nil {
+		_ = fc.send(toBroker{Type: frameFailed, Failed: &wireFailed{Why: err.Error()}}, nil)
+		return err
 	}
-	spawned, _ := ParseConfinement(f.Start.Spawned) // startOf took it, in childServer
-	confined := confine(spawned, probe)
 	ready := &wireReady{Version: protocolVersion, Exe: exe, Addr: ln.Addr().String(), Confined: confined.String()}
 	if err := fc.send(toBroker{Type: frameReady, Ready: ready}, nil); err != nil {
 		return err
@@ -522,9 +551,10 @@ func runChildOn(fc *frameConn, ln net.Listener, std IO, exe, probe string, l *lo
 }
 
 // childServer makes the child's server from w, the broker's start, asking host for what only the
-// broker has: a start of another build than exe, or one it can't run with, is an error, and so
-// is a host whose addresses it can't read, which would leave the floor without them. It opens the
-// event log (start's Log, else std.Stdout), which closeLog closes.
+// broker has: a start of another build than exe, or one it can't run with, is an error. It opens
+// the event log (start's Log, else std.Stdout), which closeLog closes, the Nix cache, the system's
+// roots and the time zone: all a confined child can't open later. The host's addresses are
+// checked once it's confined (confineStarted).
 func childServer(w *wireStart, host hostSide, std IO, exe string, l *log.Logger) (s *server, closeLog func(), err error) {
 	st, err := startOf(w)
 	if err != nil {
@@ -558,9 +588,5 @@ func childServer(w *wireStart, host hostSide, std IO, exe string, l *log.Logger)
 		return nil, nil, fmt.Errorf("the system's roots: %w", err)
 	}
 	_, _ = time.Now().Zone()
-	if len(s.egress.own.own()) == 0 {
-		closeLog()
-		return nil, nil, errors.New("this machine's own addresses can't be read")
-	}
 	return s, closeLog, nil
 }

@@ -65,7 +65,7 @@ Run the tasks with `mise run <task>`:
 
 Before and after every change, `mise run fmt && mise run lint && mise run test` must pass.
 
-CI runs `lint` and `test` on macOS and Linux, and `vuln` and `nilaway` in jobs of their own. A weekly workflow also scans `main` and the binaries of the latest releases ([Known vulnerabilities](maintaining.md#known-vulnerabilities)). A change that touches only the docs and Markdown files skips them: the Docs workflow runs `lint:docs` and builds the site instead, and on every push to `main` it deploys next.devvm.dev ([the docs sites](maintaining.md#the-docs-sites)).
+CI runs `lint` and `test` on macOS and Linux, and `vuln` and `nilaway` in jobs of their own. Its `nocgo` job runs `internal/landlock`'s and `internal/proxy`'s tests on Linux with `CGO_ENABLED=0`, as devvm ships, because the test tasks turn cgo on for the race detector, and with cgo the proxy's child can't confine every thread of itself (`syscall.AllThreadsSyscall`), so only that job runs a child under Landlock and the seccomp filter. A weekly workflow also scans `main` and the binaries of the latest releases ([Known vulnerabilities](maintaining.md#known-vulnerabilities)). A change that touches only the docs and Markdown files skips them: the Docs workflow runs `lint:docs` and builds the site instead, and on every push to `main` it deploys next.devvm.dev ([the docs sites](maintaining.md#the-docs-sites)).
 
 ### Nil checks
 
@@ -122,6 +122,6 @@ The linters above check most of these, and the structure test checks others ([th
 
 - **One binary, no C.** devvm builds with `CGO_ENABLED=0`, which `mise.toml` and `.goreleaser.yaml` set, and only the test tasks turn cgo on, for the race detector. `internal/proxy` and `internal/daemon` build only on unix systems for now, because they use `syscall.Kill`, `Setsid` and `Flock`.
 - **External tools are commands, never linked.** devvm runs `limactl`, `docker`, `security`, `git`, `chflags` and the other tools it needs as commands, and it uses the standard library where that does the job rather than shelling out. A string that goes into a shell is quoted with `shell.Quote`.
-- **Code for one system goes behind build tags** in `internal/platform`, in files named `*_darwin.go`, `*_linux.go` and `*_other.go`.
+- **Code for one system goes behind build tags** in `internal/platform`, in files named `*_darwin.go`, `*_linux.go` and `*_other.go`. The exceptions are packages that the proxy imports, which can't import `internal/platform`, so each keeps its own few such files: `internal/safefile`'s flags, `internal/daemon`'s `spawn_*.go`, `internal/proxy`'s socketpair, `touch_*.go` and `confineself_*.go`, and `internal/landlock`, the proxy's child's confinement on Linux.
 - **Test seams are fields** that a test sets, such as `Host`, `Exec`, `Runner`, `OS` and `Reporter`, and never package variables, which reassign keeps any package from setting in another. `internal/proxy`'s seams are fields of its `server`, which each test makes.
 - **A new dependency needs the maintainers' yes** before it goes on depguard's list.

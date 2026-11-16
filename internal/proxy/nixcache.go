@@ -369,7 +369,7 @@ func (n *nixCache) serveNarinfo(w http.ResponseWriter, r *http.Request, p string
 	file := filepath.Join(n.dir, p)
 	if data, err := readUpTo(file, nixInfoMax); err == nil {
 		if ni, err := parseNarinfo(data, hash); err == nil {
-			touch(file)
+			touchPath(file)
 			n.remember(ni)
 			e.Reason = "hit"
 			serveBytes(w, r, data, "text/x-nix-narinfo", time.Time{})
@@ -452,7 +452,7 @@ func serveCachedNar(w http.ResponseWriter, r *http.Request, file string, m narMe
 		_ = os.Remove(file) //nolint:gosec // a name nixPath checked, in the cache's folder
 		return false
 	}
-	touch(file)
+	touch(f.File)
 	w.Header().Set("Content-Type", "application/x-nix-nar")
 	http.ServeContent(w, r, "", time.Time{}, f)
 	return true
@@ -600,10 +600,19 @@ func readUpTo(file string, limit int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(f, limit))
 }
 
-// touch marks a file used now: the trim deletes the least recently used first.
-func touch(file string) {
-	now := time.Now()
-	_ = os.Chtimes(file, now, now)
+// touch marks a file used now, through f, its descriptor: the trim deletes the least recently used
+// first. Never by its path, which the child's seccomp filter refuses on Linux.
+func touch(f *os.File) { _ = touchFile(f, time.Now()) }
+
+// touchPath marks the regular file at file used now, opened as a VM's file is (safefile), never
+// through a link or waiting on a FIFO.
+func touchPath(file string) {
+	f, err := safefile.Open(file, safefile.Opts{})
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	touch(f.File)
 }
 
 // --- the folder, its size and its cap ---

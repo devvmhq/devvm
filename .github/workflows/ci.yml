@@ -77,6 +77,28 @@ jobs:
         env:
           MISE_TASK_RUN_AUTO_INSTALL: "false"
 
+  # Without cgo, as devvm ships. On Linux the proxy's child confines every
+  # thread of itself through syscall.AllThreadsSyscall, which a build with
+  # cgo, such as the race detector's in the check jobs, refuses: here a
+  # child of the confinement's own tests confines itself on the runner's
+  # kernel, Landlock and the seccomp filter, and is refused what it must
+  # be. (The CLI tests' devvm is built without cgo in the check jobs too.)
+  nocgo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Only Go, cached apart from the check jobs' full set.
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        with:
+          version: 2026.11.8
+          install_args: go
+          cache_key_prefix: mise-v1-nocgo
+      - run: go test -count=1 ./internal/landlock/... ./internal/proxy/...
+        env:
+          CGO_ENABLED: "0"
+
   # Advisory: nilaway's findings include false positives, so they never fail
   # CI. A finding testdata/nilaway-baseline.txt hasn't triaged is a warning
   # on the run, and the run's summary lists the new ones, then every

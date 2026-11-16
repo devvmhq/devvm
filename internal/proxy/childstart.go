@@ -133,7 +133,16 @@ func childNeeds(c Config, files []watchedFile) (ChildNeeds, error) {
 	if err != nil {
 		return ChildNeeds{}, fmt.Errorf("devvm's own executable: %w", err)
 	}
-	n := ChildNeeds{Exe: exe}
+	n := childFiles(c, files)
+	n.Exe = exe
+	return n, nil
+}
+
+// childFiles is what the child of c needs of the files on this machine, without its executable,
+// which the child itself, already in its sandbox on macOS, can't look up: the folders of its logs
+// and the shared Nix cache, and the files it looks at (files), each absolute.
+func childFiles(c Config, files []watchedFile) ChildNeeds {
+	var n ChildNeeds
 	// A config's relative path is the broker's folder's, which the child shares, and a profile's
 	// paths are absolute.
 	abs := func(p string) string {
@@ -153,5 +162,5 @@ func childNeeds(c Config, files []watchedFile) (ChildNeeds, error) {
 	for _, f := range files {
 		n.Watched = append(n.Watched, abs(f.path))
 	}
-	return n, nil
+	return n
 }

@@ -62,14 +62,19 @@ type IO struct {
 	// fs.ErrNotExist says there's no sandbox-exec. nil: none, elsewhere than macOS.
 	Seatbelt func(ChildNeeds) ([]string, error)
 
+	// dumpable leaves the broker's process dumpable: a test's, which runs the broker in its own
+	// process (undumpable).
+	dumpable bool
 	// spawn starts the child: daemon.Spawn, which tests replace with a child in their process.
 	spawn func(daemon.Cmd) (childProc, error)
 	// inherited are the child's socket to its broker and its listener: its descriptors 3 and 4,
 	// which tests replace with their own.
 	inherited func() (sock, listener *os.File)
 	// confine is how the child confines itself and checks it holds, given how its broker started
-	// it and the file it must be refused: confineChild, which tests replace.
-	confine func(spawned Confinement, probe string) Confinement
+	// it, what it needs and the file it must be refused: confineChild, which ChildMain sets when a
+	// test hasn't, as a child in a test's process must leave that process as it was. The child
+	// refuses to start without it.
+	confine func(spawned Confinement, n ChildNeeds, probe string) (Confinement, error)
 }
 
 // Main runs devvm _proxy with args (its flags): the broker, with -config's file, and its child,
@@ -144,6 +149,13 @@ func runBroker(ctx context.Context, c Config, configPath string, std IO, tick ti
 	l, err := proxyLogger(std, "devvm proxy: ", c.ProxyLog)
 	if err != nil {
 		return err
+	}
+	// No process of the user's reads the broker's memory or descriptors, its child that a VM took
+	// over on a kernel without Landlock included.
+	if !std.dumpable {
+		if err := undumpable(); err != nil {
+			return fmt.Errorf("making the broker undumpable: %w", err)
+		}
 	}
 	// The lifeline's watch starts first: a hostagent that ends while the child starts is one the
 	// watch saw, never one it takes for an earlier start's.
@@ -321,6 +333,9 @@ func ChildMain(args []string, std IO) error {
 			return err
 		}
 		inherited = func() (*os.File, *os.File) { return os.NewFile(3, "broker"), os.NewFile(4, "listener") }
+	}
+	if std.confine == nil {
+		std.confine = confineChild
 	}
 	sock, lnFile := inherited()
 	defer func() { _ = sock.Close(); _ = lnFile.Close() }()

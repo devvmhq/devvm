@@ -6,6 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
+	"time"
+
+	"github.com/devvmhq/devvm/internal/landlock"
 )
 
 // A confinement reads back as it was written, and a line that isn't one of the fixed words, in
@@ -57,16 +61,82 @@ func TestCheckConfined(t *testing.T) {
 		t.Errorf("missing: %v", err)
 	}
 	// A child started under a sandbox keeps it only when the check holds; one started unconfined
-	// stays so, unchecked.
+	// stays so, unchecked, and so does one confined by the seccomp filter alone, which leaves its
+	// files open.
+	asSpawned := func(spawned Confinement, _ ChildNeeds) (Confinement, error) { return spawned, nil }
+	confine := func(spawned Confinement, probe string) Confinement {
+		t.Helper()
+		c, err := confineWith(asSpawned, spawned, ChildNeeds{}, probe)
+		must(t, err)
+		return c
+	}
 	sb := Confinement{Level: ConfinedFull, By: BySeatbelt}
-	if got := confineChild(sb, closed); got != sb {
+	if got := confine(sb, closed); got != sb {
 		t.Errorf("held: %+v", got)
 	}
-	if got, want := confineChild(sb, open), (Confinement{Level: ConfinedNone, By: BySeatbelt, Why: WhyCheckFailed}); got != want {
+	if got, want := confine(sb, open), (Confinement{Level: ConfinedNone, By: BySeatbelt, Why: WhyCheckFailed}); got != want {
 		t.Errorf("didn't hold: %+v", got)
 	}
-	if got := confineChild(unconfined(WhySandboxMissing), open); got != unconfined(WhySandboxMissing) {
+	if got := confine(unconfined(WhySandboxMissing), open); got != unconfined(WhySandboxMissing) {
 		t.Errorf("unconfined: %+v", got)
+	}
+	ll := Confinement{Level: ConfinedFull, By: ByLandlock}
+	if got, want := confine(ll, open), (Confinement{Level: ConfinedNone, By: ByLandlock, Why: WhyCheckFailed}); got != want {
+		t.Errorf("Landlock that didn't hold: %+v", got)
+	}
+	sc := Confinement{Level: ConfinedPartial, By: BySeccomp, Why: WhyNoLandlock}
+	if got := confine(sc, open); got != sc {
+		t.Errorf("the filter alone: %+v", got)
+	}
+	// A confinement in the process that fails fails the child's start.
+	if _, err := confineWith(func(Confinement, ChildNeeds) (Confinement, error) {
+		return Confinement{}, errors.New("landlock_restrict_self: EINVAL")
+	}, sb, ChildNeeds{}, closed); err == nil {
+		t.Error("a failure: no error")
+	}
+}
+
+// A confinement in the process that takes longer than confineWait fails the start rather than hang
+// it.
+func TestConfineWithin(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		began := time.Now()
+		_, err := confineWith(func(s Confinement, _ ChildNeeds) (Confinement, error) { <-release; return s, nil }, unconfined(WhyUnsupported), ChildNeeds{}, "")
+		if err == nil || time.Since(began) != confineWait {
+			t.Errorf("a confinement that hangs: %v after %s", err, time.Since(began))
+		}
+		close(release)
+	})
+}
+
+// A Linux child's confinement, by what Landlock and the seccomp filter gave it: fully from ABI 9
+// with its signals scoped, partly naming what's missing first, and not at all without either.
+func TestLandlockConfinement(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		r    landlock.Result
+		want string
+	}{
+		{landlock.Result{}, "none no-landlock-or-seccomp"},
+		{landlock.Result{Seccomp: true}, "partial seccomp no-landlock"},
+		{landlock.Result{ABI: 9, SignalsScoped: true}, "partial landlock no-seccomp"},
+		{landlock.Result{ABI: 3, Seccomp: true}, "partial landlock landlock-below-abi4"},
+		{landlock.Result{ABI: 5, Seccomp: true}, "partial landlock landlock-signals"},
+		{landlock.Result{ABI: 7, Seccomp: true}, "partial landlock landlock-signals"},
+		{landlock.Result{ABI: 6, SignalsScoped: true, Seccomp: true}, "full landlock"},
+		{landlock.Result{ABI: 8, SignalsScoped: true, Seccomp: true}, "full landlock"},
+		{landlock.Result{ABI: 9, SignalsScoped: true, Seccomp: true}, "full landlock"},
+		{landlock.Result{ABI: 12, SignalsScoped: true, Seccomp: true}, "full landlock"},
+	} {
+		c := landlockConfinement(tc.r)
+		if c.String() != tc.want {
+			t.Errorf("%+v: %q, want %q", tc.r, c, tc.want)
+		}
+		if back, err := ParseConfinement(c.String()); err != nil || back != c {
+			t.Errorf("%q reads back as %+v, %v", c, back, err)
+		}
 	}
 }
 

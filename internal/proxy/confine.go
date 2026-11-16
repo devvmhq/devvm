@@ -10,7 +10,9 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/devvmhq/devvm/internal/landlock"
 	"github.com/devvmhq/devvm/internal/safefile"
 )
 
@@ -22,9 +24,14 @@ const (
 	ConfinedNone    = "none"
 )
 
-// BySeatbelt is what confines a child on macOS: Seatbelt, which the broker starts it under
-// (sandbox-exec).
-const BySeatbelt = "seatbelt"
+// What confines a child: on macOS Seatbelt, which the broker starts it under (sandbox-exec); on
+// Linux Landlock, which the child confines itself with, with its seccomp filter
+// (internal/landlock), or the seccomp filter alone, on a kernel without Landlock.
+const (
+	BySeatbelt = "seatbelt"
+	ByLandlock = "landlock"
+	BySeccomp  = "seccomp"
+)
 
 // Why a child isn't fully confined: this system has no way devvm confines it (WhyUnsupported),
 // sandbox-exec isn't there (WhySandboxMissing), sandbox-exec failed to start it under its
@@ -37,17 +44,64 @@ const (
 	WhyCheckFailed    = "check-failed"
 )
 
+// Why a Linux child isn't fully confined, by what the kernel lacks: neither Landlock nor seccomp
+// (WhyNoKernel), Landlock or one at its floor, ABI 2 (WhyNoLandlock), seccomp (WhyNoSeccomp), or
+// a Landlock too old to refuse it a TCP port's bind, below ABI 4 (WhyLandlockPorts), a signal to
+// another process, below ABI 6 or without the fix for signals between a process's threads
+// (WhyLandlockSignals). Each names the first of these, and a later one follows from it.
+const (
+	WhyNoKernel        = "no-landlock-or-seccomp"
+	WhyNoLandlock      = "no-landlock"
+	WhyNoSeccomp       = "no-seccomp"
+	WhyLandlockPorts   = "landlock-below-abi4"
+	WhyLandlockSignals = "landlock-signals"
+)
+
 // knownBy and knownWhy are the words a confinement may hold, so a reader never takes, or prints,
 // one that a child chose.
-func knownBy(w string) bool { return w == BySeatbelt }
-
-func knownWhy(w string) bool {
+func knownBy(w string) bool {
 	switch w {
-	case WhyUnsupported, WhySandboxMissing, WhySandboxFailed, WhyCheckFailed:
+	case BySeatbelt, ByLandlock, BySeccomp:
 		return true
 	}
 	return false
 }
+
+func knownWhy(w string) bool {
+	switch w {
+	case WhyUnsupported, WhySandboxMissing, WhySandboxFailed, WhyCheckFailed,
+		WhyNoKernel, WhyNoLandlock, WhyNoSeccomp, WhyLandlockPorts, WhyLandlockSignals:
+		return true
+	}
+	return false
+}
+
+// landlockConfinement is how a Linux child that confined itself with r is confined: fully, by
+// Landlock and the seccomp filter from Landlock's ABI 6 with its signals scoped; partly, naming
+// what the kernel lacks first; or not at all without either. Below ABI 9 Landlock doesn't refuse
+// a named unix socket itself, and below ABI 10 a UDP datagram to any port, but the filter refuses
+// the child every unix socket, and UDP out is as open as TCP out is at every ABI, so neither is
+// a gap the user could close.
+func landlockConfinement(r landlock.Result) Confinement {
+	partial := func(by, why string) Confinement { return Confinement{Level: ConfinedPartial, By: by, Why: why} }
+	switch {
+	case r.ABI == 0 && !r.Seccomp:
+		return unconfined(WhyNoKernel)
+	case r.ABI == 0:
+		return partial(BySeccomp, WhyNoLandlock)
+	case !r.Seccomp:
+		return partial(ByLandlock, WhyNoSeccomp)
+	case r.ABI < landlock.ABIPorts:
+		return partial(ByLandlock, WhyLandlockPorts)
+	case !r.SignalsScoped:
+		return partial(ByLandlock, WhyLandlockSignals)
+	}
+	return Confinement{Level: ConfinedFull, By: ByLandlock}
+}
+
+// confinesFiles reports whether c's sandbox keeps the child from files it doesn't need, which its
+// check (checkConfined) can then see: Seatbelt's or Landlock's, not the seccomp filter alone.
+func (c Confinement) confinesFiles() bool { return c.By == BySeatbelt || c.By == ByLandlock }
 
 // Confinement is how a proxy's child is confined: its level, what confines it ("" for nothing),
 // and why it isn't fully confined ("" when it is). As text it's one line of those words, in that
@@ -112,19 +166,60 @@ func ReadConfined(config string) (Confinement, error) {
 	return ParseConfinement(string(b))
 }
 
-// confineChild is how the child is confined, given how its broker started it (spawned): it
-// confines itself where its platform does that in the process (confineSelf), then checks that
-// whatever confines it holds (checkConfined), refusing it probe, its broker's config, which it
-// never reads.
-func confineChild(spawned Confinement, probe string) Confinement {
-	c := confineSelf(spawned)
-	if c.Level == ConfinedNone {
-		return c
+// confineChild is how the child is confined, given how its broker started it (spawned) and what
+// it needs (n): it confines itself where its platform does that in the process (confineSelf),
+// within confineWait, then checks that whatever confines its files holds (checkConfined), refusing
+// it probe, its broker's config, which it never reads. A confinement that fails, or takes longer,
+// is an error, and the child mustn't start: part of it may be confined.
+func confineChild(spawned Confinement, n ChildNeeds, probe string) (Confinement, error) {
+	return confineWith(confineSelf, spawned, n, probe)
+}
+
+// confineWith is confineChild with self as the confinement in the process, which tests replace:
+// confineSelf would confine the test's own process.
+func confineWith(self func(Confinement, ChildNeeds) (Confinement, error), spawned Confinement, n ChildNeeds, probe string) (Confinement, error) {
+	c, err := within(confineWait, func() (Confinement, error) { return self(spawned, n) })
+	if err != nil {
+		return Confinement{}, fmt.Errorf("confining the child: %w", err)
 	}
-	if err := checkConfined(probe); err != nil {
-		return Confinement{Level: ConfinedNone, By: c.By, Why: WhyCheckFailed}
+	if c.Level == ConfinedNone || !c.confinesFiles() {
+		return c, nil
 	}
-	return c
+	if !holds(probe) {
+		// A check that fails says so in the line, and the child runs on with what holds.
+		return Confinement{Level: ConfinedNone, By: c.By, Why: WhyCheckFailed}, nil
+	}
+	return c, nil
+}
+
+// holds reports whether the child's confinement refuses it probe (checkConfined).
+func holds(probe string) bool { return checkConfined(probe) == nil }
+
+// confineWait bounds the child's confinement and its check, well within the broker's startWait,
+// so a sandbox that fails slowly fails the start with its reason. One that stops the whole process
+// (syscall.AllThreadsSyscall stops the world) is the broker's startWait's to end.
+const confineWait = 2 * time.Second
+
+// within is f's confinement, or an error once wait has passed without it: f goes on, and the
+// child exits as its start fails.
+func within(wait time.Duration, f func() (Confinement, error)) (Confinement, error) {
+	type result struct {
+		c   Confinement
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		c, err := f()
+		done <- result{c, err}
+	}()
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	select {
+	case r := <-done:
+		return r.c, r.err
+	case <-t.C:
+		return Confinement{}, fmt.Errorf("it took more than %s", wait)
+	}
 }
 
 // checkConfined checks that the child can't open probe, a file of the broker's that it may never

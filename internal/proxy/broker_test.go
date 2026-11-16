@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -146,6 +147,40 @@ func TestHandshake(t *testing.T) {
 			synctest.Wait()
 		}
 	})
+}
+
+// A child that ends with the start unread, as one that aborts as it loads does, ended early,
+// whether the system reads its end as EOF or, as Linux does, as a reset of the socket; and both
+// count as the socket's end.
+func TestHandshakeChildGone(t *testing.T) {
+	t.Parallel()
+	b := testBroker(t)
+	bfc, cfc := pairOf(t)
+	go func() {
+		// Wait, without reading, until the start is there, then close: the start goes unread.
+		rc, err := cfc.c.(*net.UnixConn).SyscallConn()
+		if err != nil {
+			return
+		}
+		buf := make([]byte, 1)
+		_ = rc.Read(func(fd uintptr) bool {
+			_, _, err := syscall.Recvfrom(int(fd), buf, syscall.MSG_PEEK)
+			return !errors.Is(err, syscall.EAGAIN)
+		})
+		_ = cfc.close()
+	}()
+	_, err := b.handshake(pair{fc: bfc, child: newEndedChild(-6)}, "e", unconfined(WhyUnsupported), time.Now().Add(startWait))
+	if !errors.Is(err, errEndedEarly) {
+		t.Errorf("a child gone with the start unread: %v", err)
+	}
+	for _, err := range []error{io.EOF, io.ErrUnexpectedEOF, syscall.ECONNRESET, fmt.Errorf("read: %w", syscall.ECONNRESET)} {
+		if !socketEnded(err) {
+			t.Errorf("%v: not the socket's end", err)
+		}
+	}
+	if socketEnded(syscall.EPIPE) || socketEnded(errors.New("x")) {
+		t.Error("another error taken for the socket's end")
+	}
 }
 
 // The pair's end: the lifeline's closes the socket and waits for the child, killing it only
@@ -501,15 +536,24 @@ func TestRunChildOn(t *testing.T) {
 		must(t, err)
 		return ln
 	}
-	std := IO{Stdout: io.Discard, Stderr: io.Discard}
+	std := IO{Stdout: io.Discard, Stderr: io.Discard, confine: noConfine}
 	start := childStart{vm: "devvm-x", password: redact.NewSecret("pw"), exe: "built", spawned: unconfined(WhyUnsupported)}
-	// Another build's broker.
+	// No confinement: failed, as confineChild would confine the test's own process.
 	bfc, cfc := pairOf(t)
+	must(t, bfc.send(toChild{Type: frameStart, Start: start.wire()}, nil))
+	if err := runChildOn(cfc, listen(), IO{Stdout: io.Discard, Stderr: io.Discard}, "built", "", quiet()); err == nil {
+		t.Error("no confinement: no error")
+	}
+	var f toBroker
+	if _, err := bfc.recv(&f); err != nil || f.Type != frameFailed || !strings.Contains(f.Failed.Why, "confinement") {
+		t.Errorf("no confinement: %+v, %v", f, err)
+	}
+	// Another build's broker.
+	bfc, cfc = pairOf(t)
 	must(t, bfc.send(toChild{Type: frameStart, Start: start.wire()}, nil))
 	if err := runChildOn(cfc, listen(), std, "other", "", quiet()); err == nil {
 		t.Error("another build: no error")
 	}
-	var f toBroker
 	if _, err := bfc.recv(&f); err != nil || f.Type != frameFailed || !strings.Contains(f.Failed.Why, "another build") {
 		t.Errorf("another build: %+v, %v", f, err)
 	}
@@ -619,7 +663,8 @@ func TestChildMain(t *testing.T) {
 	_ = ln.Close()
 	exe, err := selfSum()
 	must(t, err)
-	std := IO{Stdout: io.Discard, Stderr: logFile, ErrFile: logFile, inherited: func() (*os.File, *os.File) { return sock, lnFile }}
+	// A confinement of its own: confineChild would confine the test's process on Linux.
+	std := IO{Stdout: io.Discard, Stderr: logFile, ErrFile: logFile, inherited: func() (*os.File, *os.File) { return sock, lnFile }, confine: noConfine}
 	done := make(chan error, 1)
 	go func() { done <- ChildMain([]string{"-for", filepath.Join(dir, "proxy.json")}, std) }()
 	start := childStart{exe: exe, spawned: unconfined(WhyUnsupported), vm: "devvm-x", password: redact.NewSecret("pw"), proxyLog: logPath, files: []watchedFile{{watchPolicy, filepath.Join(dir, "policy")}}}

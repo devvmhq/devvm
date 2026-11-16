@@ -172,7 +172,7 @@ func Unconfined(p *Proxy, vms []*state.VM) []msg.M {
 func unconfinedWarning(vm vmname.VM, c proxy.Confinement, log string) msg.M {
 	switch {
 	case c.Level != proxy.ConfinedNone:
-		return msg.ProxyUnconfined(c.String(), log, vm)
+		return linuxWarning(vm, c, log)
 	case c.Why == proxy.WhyUnsupported:
 		return msg.ProxyUnconfinedUnsupported(vm)
 	case c.Why == proxy.WhySandboxMissing:
@@ -181,6 +181,26 @@ func unconfinedWarning(vm vmname.VM, c proxy.Confinement, log string) msg.M {
 		return msg.ProxyUnconfinedSandboxFailed(log, vm)
 	case c.Why == proxy.WhyCheckFailed:
 		return msg.ProxyUnconfinedCheckFailed(log, vm)
+	case c.Why == proxy.WhyNoKernel:
+		return msg.ProxyUnconfinedNoKernel(vm)
+	}
+	return msg.ProxyUnconfined(c.String(), log, vm)
+}
+
+// linuxWarning is the warning for VM vm's proxy's child that Landlock or
+// the seccomp filter confines only in part on this kernel, as c says,
+// whose log is log: one for what the kernel lacks first, or the line
+// itself for a reason devvm doesn't know.
+func linuxWarning(vm vmname.VM, c proxy.Confinement, log string) msg.M {
+	switch c.Why {
+	case proxy.WhyNoLandlock:
+		return msg.ProxyUnconfinedNoLandlock(vm)
+	case proxy.WhyNoSeccomp:
+		return msg.ProxyUnconfinedNoSeccomp(vm)
+	case proxy.WhyLandlockPorts:
+		return msg.ProxyUnconfinedOldPorts(vm)
+	case proxy.WhyLandlockSignals:
+		return msg.ProxyUnconfinedOldSignals(vm)
 	}
 	return msg.ProxyUnconfined(c.String(), log, vm)
 }

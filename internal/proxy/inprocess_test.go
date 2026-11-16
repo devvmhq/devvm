@@ -46,8 +46,13 @@ func newSecrets(path string, lookup Lookup, l *log.Logger) *secrets {
 
 // inProcess is std with a spawn that runs the broker's child in the test's process, on the
 // socket and the listener the broker gives it, as devvm _proxy-child runs it: the test's binary
-// isn't devvm's, so it can't be the child.
+// isn't devvm's, so it can't be the child. Its confinement is as the broker started it (noConfine),
+// as confineChild would confine the test's own process on Linux.
 func inProcess(std IO) IO {
+	if std.confine == nil {
+		std.confine = noConfine
+	}
+	std.dumpable = true
 	std.spawn = func(c daemon.Cmd) (childProc, error) {
 		conn, err := net.FileConn(c.Files[0])
 		if err != nil {
@@ -74,6 +79,10 @@ func inProcess(std IO) IO {
 	}
 	return std
 }
+
+// noConfine is a test's child's confinement: as its broker started it, with nothing done in the
+// test's process.
+func noConfine(spawned Confinement, _ ChildNeeds, _ string) (Confinement, error) { return spawned, nil }
 
 // goChild is a child the test runs in its own process (inProcess): stopping or killing it closes
 // its socket and its listener, which ends it.

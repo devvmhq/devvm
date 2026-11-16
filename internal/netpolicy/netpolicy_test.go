@@ -1725,6 +1725,16 @@ func TestUnconfined(t *testing.T) {
 		"none seatbelt check-failed":    "proxy_unconfined_check_failed log=" + log + " vm=" + vm,
 		"partial seatbelt check-failed": "proxy_unconfined confinement=partial seatbelt check-failed log=" + log + " vm=" + vm,
 		"not one":                       "",
+		// Linux: Landlock and the seccomp filter, by what the kernel lacks first.
+		"full landlock":                        "",
+		"none no-landlock-or-seccomp":          "proxy_unconfined_no_kernel vm=" + vm,
+		"partial seccomp no-landlock":          "proxy_unconfined_no_landlock vm=" + vm,
+		"partial landlock no-seccomp":          "proxy_unconfined_no_seccomp vm=" + vm,
+		"partial landlock landlock-below-abi4": "proxy_unconfined_old_ports vm=" + vm,
+		"partial landlock landlock-signals":    "proxy_unconfined_old_signals vm=" + vm,
+		"partial landlock landlock-below-abi9": "", // a word no devvm writes now
+		"none landlock check-failed":           "proxy_unconfined_check_failed log=" + log + " vm=" + vm,
+		"partial landlock check-failed":        "proxy_unconfined confinement=partial landlock check-failed log=" + log + " vm=" + vm,
 	} {
 		if err := os.WriteFile(proxy.ConfinedFile(files.ProxyConfig()), []byte(line+"\n"), 0o600); err != nil {
 			t.Fatal(err)

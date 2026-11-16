@@ -2023,6 +2023,21 @@ other = "{{.vm}}'s proxy runs without a sandbox, because sandbox-exec couldn't s
 [proxy_unconfined_check_failed]
 other = "{{.vm}}'s proxy runs without a sandbox, because its sandbox let it open a file it mustn't. Check {{.log}} for more."
 
+[proxy_unconfined_no_kernel]
+other = "{{.vm}}'s proxy runs without a sandbox, because this kernel has neither Landlock nor seccomp filters."
+
+[proxy_unconfined_no_landlock]
+other = "{{.vm}}'s proxy can read and write your files, because this kernel has no Landlock, or one older than ABI 2. Its seccomp filter still keeps it from your unix sockets."
+
+[proxy_unconfined_no_seccomp]
+other = "{{.vm}}'s proxy runs without its seccomp filter, because this kernel has none, so only Landlock confines it."
+
+[proxy_unconfined_old_ports]
+other = "This kernel's Landlock is older than ABI 4, so {{.vm}}'s proxy could bind a port, such as another VM's proxy port, and signal your other processes."
+
+[proxy_unconfined_old_signals]
+other = "This kernel's Landlock can't keep {{.vm}}'s proxy from signalling your other processes."
+
 [proxy_unconfined]
 description = "confinement is how the proxy's child is confined, in devvm's own words, such as partial landlock"
 other = "{{.vm}}'s proxy isn't confined to only what it needs ({{.confinement}}). Check {{.log}} for why."

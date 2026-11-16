@@ -154,6 +154,20 @@ func netBroker(n *netRun) {
 		}
 		return childFDs(c, filepath.Join(n.vmd, "logs", "proxy.log"))
 	})
+	if runtime.GOOS == "linux" {
+		s.Check("on Linux the child is confined: Landlock and the seccomp filter in run/proxy.confined, no_new_privs and a filter in its /proc entry", func() error {
+			_, c := brokerPair(s, n.pxc)
+			said := strings.TrimSpace(readText(filepath.Join(filepath.Dir(n.pxc), "proxy.confined")))
+			if !strings.HasPrefix(said, "full landlock") && !strings.HasPrefix(said, "partial landlock landlock-") {
+				return fmt.Errorf("run/proxy.confined says %q", said)
+			}
+			status := readText(filepath.Join("/proc", c, "status"))
+			if !strings.Contains(status, "\nNoNewPrivs:\t1\n") || !strings.Contains(status, "\nSeccomp:\t2\n") {
+				return fmt.Errorf("the child's status: %q", status)
+			}
+			return nil
+		})
+	}
 	s.Check("devvm stop leaves neither process, and the next launch starts both on the same port at once", func() error {
 		if _, err := s.Devvm(n.n, "stop"); err != nil {
 			return err

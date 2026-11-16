@@ -140,8 +140,8 @@ func devvm() rules {
 				to: []string{"..."},
 			},
 			{
-				name: "internal/proxy is standard library only, with internal/daemon, internal/redact, internal/safefile and internal/vmname",
-				from: []string{"internal/proxy/..."}, exceptTo: []string{"internal/proxy/...", "internal/daemon", "internal/redact", "internal/safefile", "internal/vmname"},
+				name: "internal/proxy is standard library only, with internal/daemon, internal/landlock, internal/redact, internal/safefile and internal/vmname",
+				from: []string{"internal/proxy/..."}, exceptTo: []string{"internal/proxy/...", "internal/daemon", "internal/landlock", "internal/redact", "internal/safefile", "internal/vmname"},
 				to: []string{"..."},
 			},
 			{
@@ -149,7 +149,7 @@ func devvm() rules {
 				from: []string{
 					"assets", "locales", "packaging", "internal/platform", "internal/msg/gen", "internal/testbuild", "internal/hostgit",
 					"internal/shell", "internal/vmname", "internal/daemon", "internal/fetch", "internal/jsonc",
-					"internal/redact", "internal/agents", "internal/safefile", "internal/leaktest", "internal/memnet",
+					"internal/redact", "internal/agents", "internal/safefile", "internal/landlock", "internal/leaktest", "internal/memnet",
 				},
 				to: []string{"..."},
 			},
@@ -354,6 +354,7 @@ func devvmGoroutineSites() map[string]string {
 		"internal/proxy/broker.go: broker.handshake":        detached + "the read of the child's answer, which ends once the socket does, as a start that fails closes it, its result in a buffered channel",
 		"internal/proxy/broker.go: broker.live":             detached + "serveChild's read of the child's requests, which ends once the socket closes, as each of live's ends closes it, its result in a buffered channel",
 		"internal/proxy/child.go: runChildOn":               "runChildOn, on ended, once the broker client's read has ended, which closing the socket ends",
+		"internal/proxy/confine.go: within":                 detached + "the confinement, which within waits for up to its wait (confineWait): one that takes longer fails the child's start, and the child's process exits",
 		"internal/proxy/agent.go: agentRelay.serve":         detached + "each connection's relay, which ends when either side closes, when the client sends no whole request within agentIdle, or with the proxy; nothing waits for one waiting on the agent's answer",
 		"internal/proxy/splice.go: splice":                  "splice, on done, once both directions have ended",
 		"internal/proxy/proxy.go: whileHeard":               "whileHeard's cancel, which handleHTTP defers, so it ends with the request's handler",

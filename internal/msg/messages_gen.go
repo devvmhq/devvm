@@ -3973,9 +3973,34 @@ func ProxyUnconfinedCheckFailed(log string, vm vmname.VM) M {
 	return M{id: "proxy_unconfined_check_failed", vals: []val{{"log", log}, {"vm", string(vm)}}}
 }
 
+// ProxyUnconfinedNoKernel is [proxy_unconfined_no_kernel]: "{{.vm}}'s proxy runs without a sandbox, because this kernel has neither Landlock nor seccomp filters."
+func ProxyUnconfinedNoKernel(vm vmname.VM) M {
+	return M{id: "proxy_unconfined_no_kernel", vals: []val{{"vm", string(vm)}}}
+}
+
+// ProxyUnconfinedNoLandlock is [proxy_unconfined_no_landlock]: "{{.vm}}'s proxy can read and write your files, because this kernel has no Landlock, or one older than ABI 2. Its seccomp filter still keeps it from your unix sockets."
+func ProxyUnconfinedNoLandlock(vm vmname.VM) M {
+	return M{id: "proxy_unconfined_no_landlock", vals: []val{{"vm", string(vm)}}}
+}
+
 // ProxyUnconfinedNoSandbox is [proxy_unconfined_no_sandbox]: "{{.vm}}'s proxy runs without a sandbox, because macOS's sandbox-exec is missing."
 func ProxyUnconfinedNoSandbox(vm vmname.VM) M {
 	return M{id: "proxy_unconfined_no_sandbox", vals: []val{{"vm", string(vm)}}}
+}
+
+// ProxyUnconfinedNoSeccomp is [proxy_unconfined_no_seccomp]: "{{.vm}}'s proxy runs without its seccomp filter, because this kernel has none, so only Landlock confines it."
+func ProxyUnconfinedNoSeccomp(vm vmname.VM) M {
+	return M{id: "proxy_unconfined_no_seccomp", vals: []val{{"vm", string(vm)}}}
+}
+
+// ProxyUnconfinedOldPorts is [proxy_unconfined_old_ports]: "This kernel's Landlock is older than ABI 4, so {{.vm}}'s proxy could bind a port, such as another VM's proxy port, and signal your other processes."
+func ProxyUnconfinedOldPorts(vm vmname.VM) M {
+	return M{id: "proxy_unconfined_old_ports", vals: []val{{"vm", string(vm)}}}
+}
+
+// ProxyUnconfinedOldSignals is [proxy_unconfined_old_signals]: "This kernel's Landlock can't keep {{.vm}}'s proxy from signalling your other processes."
+func ProxyUnconfinedOldSignals(vm vmname.VM) M {
+	return M{id: "proxy_unconfined_old_signals", vals: []val{{"vm", string(vm)}}}
 }
 
 // ProxyUnconfinedSandboxFailed is [proxy_unconfined_sandbox_failed]: "{{.vm}}'s proxy runs without a sandbox, because sandbox-exec couldn't start it. Check {{.log}} for why."
@@ -6148,7 +6173,12 @@ var specs = map[string]spec{
 	"proxy_stop_failed":               {fields: []string{"vm"}},
 	"proxy_unconfined":                {fields: []string{"confinement", "log", "vm"}},
 	"proxy_unconfined_check_failed":   {fields: []string{"log", "vm"}},
+	"proxy_unconfined_no_kernel":      {fields: []string{"vm"}},
+	"proxy_unconfined_no_landlock":    {fields: []string{"vm"}},
 	"proxy_unconfined_no_sandbox":     {fields: []string{"vm"}},
+	"proxy_unconfined_no_seccomp":     {fields: []string{"vm"}},
+	"proxy_unconfined_old_ports":      {fields: []string{"vm"}},
+	"proxy_unconfined_old_signals":    {fields: []string{"vm"}},
 	"proxy_unconfined_sandbox_failed": {fields: []string{"log", "vm"}},
 	"proxy_unconfined_unsupported":    {fields: []string{"vm"}},
 	"published":                       {fields: []string{"ports", "vm"}},

@@ -98,15 +98,15 @@ func TestStartChildSandbox(t *testing.T) {
 			var cmds []daemon.Cmd
 			std := inProcess(IO{
 				Stdout: io.Discard, Stderr: io.Discard, Seatbelt: seatbelt,
-				confine: func(spawned Confinement, _ string) Confinement {
+				confine: func(spawned Confinement, _ ChildNeeds, _ string) (Confinement, error) {
 					if tc.says != "" {
-						c, err := ParseConfinement(tc.says)
-						if err != nil {
-							return Confinement{Level: tc.says}
+						// A line of no known confinement goes to the broker as it is.
+						if c, err := ParseConfinement(tc.says); err == nil {
+							return c, nil
 						}
-						return c
+						return Confinement{Level: tc.says}, nil
 					}
-					return spawned
+					return spawned, nil
 				},
 			})
 			run := std.spawn
