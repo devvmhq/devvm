@@ -305,6 +305,43 @@ func TestServeChildCaps(t *testing.T) {
 	})
 }
 
+// A reply too long for a frame, such as a value past wireMax, is never sent: the child gets
+// too_long for that request at once, rather than waiting on it, and its next request is answered.
+func TestServeChildTooLong(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		k, _ := testLookups(t, Binding{Name: "gh", Kind: KindSecret}, Binding{Name: "small", Kind: KindSecret})
+		b := testBroker(t)
+		b.lookups = k
+		big := strings.Repeat("v", wireMax+1)
+		k.lookup = func(_ context.Context, bd Binding) (redact.Secret, error) {
+			if bd.Name == "gh" {
+				return redact.NewSecret(big), nil
+			}
+			return redact.NewSecret("v"), nil
+		}
+		a, c := memnet.Pipe()
+		bfc, cfc := newFrameConn(a), newFrameConn(c)
+		served := make(chan error)
+		go func() { served <- b.serveChild(t.Context(), bfc) }()
+		must(t, cfc.send(toBroker{Type: frameValue, ID: 1, Value: &wireValueKey{Kind: KindSecret, Name: "gh"}}, nil))
+		var f toChild
+		if _, err := cfc.recv(&f); err != nil || f.ID != 1 || f.Type != frameValue || f.Error != codeTooLong || f.Value != nil {
+			t.Errorf("the long value: %+v, %v", f, err)
+		}
+		must(t, cfc.send(toBroker{Type: frameValue, ID: 2, Value: &wireValueKey{Kind: KindSecret, Name: "small"}}, nil))
+		f = toChild{}
+		if _, err := cfc.recv(&f); err != nil || f.ID != 2 || f.Error != "" || f.Value == nil || f.Value.Value != "v" {
+			t.Errorf("the next value: %+v, %v", f, err)
+		}
+		_ = cfc.close()
+		if err := <-served; !errors.Is(err, io.EOF) {
+			t.Errorf("serveChild: %v", err)
+		}
+		synctest.Wait()
+	})
+}
+
 // The broker gives a request's place back as its reply starts to go, so a child that keeps the
 // caps, sending its next value as the last one's reply comes, never gets busy; a reply that waits
 // for the socket holds its place, so a child that doesn't read gets busy past the cap.
