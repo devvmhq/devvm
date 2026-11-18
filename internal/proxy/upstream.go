@@ -326,6 +326,11 @@ func parseNoProxy(s string) []noProxyRule {
 		}
 		e = strings.Trim(e, "[]")
 		if a, err := netip.ParseAddr(e); err == nil {
+			// An address with an IPv6 zone names nothing, as in Go's clients: no request's host
+			// has a zone, and the prefix would drop it, naming the address without its zone.
+			if a.Zone() != "" {
+				continue
+			}
 			r.prefix = netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen())
 			out = append(out, r)
 			continue

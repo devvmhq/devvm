@@ -289,8 +289,9 @@ func TestNoProxy(t *testing.T) {
 		t.Error("NO_PROXY=* sent a host upstream")
 	}
 	// A port no request has, or one not in plain decimal, names nothing, as in Go's clients: port 0
-	// was read as every port (found by FuzzNoProxy).
-	for _, e := range []string{"git.test:0", "git.test:65536", "[::1]:0", "git.test:080", "git.test:+80"} {
+	// was read as every port (found by FuzzNoProxy). So does an address with an IPv6 zone, as no
+	// request's host has one, rather than the address without its zone (found by FuzzNoProxy).
+	for _, e := range []string{"git.test:0", "git.test:65536", "[::1]:0", "git.test:080", "git.test:+80", "fe80::1%eth0", "[fe80::1%eth0]:443"} {
 		if got := parseNoProxy(e); len(got) != 0 {
 			t.Errorf("NO_PROXY=%s: %+v", e, got)
 		}

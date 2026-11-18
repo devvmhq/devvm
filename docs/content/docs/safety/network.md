@@ -536,7 +536,7 @@ devvm passes the settings to the VM's proxy when the proxy starts, and when you 
 The VM's proxy uses the company proxy this way ([through a company proxy](../internals/network.md#through-a-company-proxy)):
 
 - It still decides each request by the host name the VM asked for, against the same allowlists, and only then passes it on. It sends tunnels, which carry HTTPS and the requests it puts your secrets into, through `HTTPS_PROXY`'s proxy, and plain HTTP requests through `HTTP_PROXY`'s.
-- It reaches the hosts that `NO_PROXY` names directly, and also `localhost` and loopback addresses. In `NO_PROXY`, `example.com` matches that host and its subdomains, `.example.com` matches only its subdomains, an address or a CIDR matches addresses, any entry can end in a port, and `*` matches every host.
+- It reaches the hosts that `NO_PROXY` names directly, and also `localhost` and loopback addresses. In `NO_PROXY`, `example.com` matches that host and its subdomains, `.example.com` matches only its subdomains, an address or a CIDR matches addresses, any entry can end in a port, and `*` matches every host. An IPv6 address with a zone, such as `fe80::1%eth0`, matches nothing, as it does in Go's HTTP clients.
 - `devvm network log` adds `through host:port` to each request that went through the company proxy.
 
 The company proxy's address and password follow these rules:

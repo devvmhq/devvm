@@ -359,7 +359,8 @@ func sniSites(t *testing.T, sni, other string) {
 // matches no host the proxy takes (the Kelvin sign's kubernetes.io no longer matches
 // kubernetes.io). An entry of dots alone is no entry, as "" and "." weren't. An entry with a port
 // no request has (0, or past 65535), or one not in plain decimal (080, +80), is no entry, where
-// port 0 was read as every port and 080 as 80.
+// port 0 was read as every port and 080 as 80. An address with an IPv6 zone is no entry, where
+// it was read as the address without its zone.
 func noProxySite(t *testing.T, entry, other string) {
 	entry = strings.ReplaceAll(entry, ",", "") // one entry
 	list := entry + ",*." + entry + ",." + entry
@@ -367,8 +368,14 @@ func noProxySite(t *testing.T, entry, other string) {
 	for e := range strings.SplitSeq(list, ",") {
 		e = strings.ToLower(strings.TrimSpace(e))
 		_, perr := netip.ParsePrefix(e)
-		_, p, err := net.SplitHostPort(e)
+		h, p, err := net.SplitHostPort(e)
 		n, nerr := strconv.Atoi(p)
+		if err != nil || nerr != nil {
+			h = e
+		}
+		if a, aerr := netip.ParseAddr(strings.Trim(h, "[]")); perr != nil && aerr == nil && a.Zone() != "" {
+			continue
+		}
 		if perr == nil || err != nil || nerr != nil || n >= 1 && n <= 65535 && strconv.Itoa(n) == p {
 			kept = append(kept, e)
 		}
