@@ -29,7 +29,8 @@ Some protections hold only on some [network tiers](network.md#network-tiers) or 
 - **Your coding agents' history.** Agent transcripts hold what you pasted into them, such as secrets and code from other projects. Your history never goes into a VM, and each VM's own history stays in that VM ([coding agents](../using/coding-agents.md)).
 - **Secrets, on every tier.** Every VM, an open one included, gets a placeholder instead of each secret, such as your GitHub token or Claude Code's token, and the proxy on this machine puts the real value only into requests for that secret's own hosts ([secrets](network.md#secrets)). A placeholder copied out of the VM is worthless elsewhere, because it ends in a random value of that VM's own, and an open VM that sends a request around its proxy sends only the placeholder.
   - Another VM, or another user's program on this machine, can't spend the secret through the proxy either, because the proxy needs the VM's own password, which only you can read. A program that runs as you can read it, though, as it can read the rest of your files.
-  - Codex and opencode logins and Claude Code's MCP secrets work the same way, and devvm refreshes OAuth logins on this machine, so a VM never holds a refresh token.
+  - Codex and opencode logins and the MCP secrets that Claude Code gets from this machine work the same way, and devvm refreshes those OAuth logins on this machine, so a VM never holds their refresh tokens.
+  - A login to an MCP server that you make with `/mcp` in a VM is that VM's own: Claude Code keeps its real tokens in the VM, where code in the VM can read them, and they never leave it ([MCP servers' logins](../using/coding-agents.md#mcp-servers-logins)).
 
 ### Git running code on this machine
 

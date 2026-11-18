@@ -3,8 +3,10 @@ package vm
 // Claude Code's own code in internal/vm: the hooks the code for every agent
 // calls, which do something for Claude Code alone. Its ~/.claude.json is
 // both its settings and its login file, which devvm merges into the VM's
-// own and saves a part of, and devvm keeps one Claude Code login, its OAuth
-// login or a setup token's secret.
+// own and saves a part of. devvm keeps one Claude Code login, its OAuth
+// login or a setup token's secret, and merges the OAuth login's copy into
+// the VM's own .credentials.json, which keeps the VM's logins to MCP
+// servers.
 
 import (
 	"bytes"
@@ -69,14 +71,20 @@ func (e AgentLogin) claude(ctx context.Context, t *target, conf backend.Confinem
 }
 
 // claudeSyncName is the name a launch's setup gives the VM's copy of the
-// login of kind, merged true: Claude Code's .claude.json, claude.json,
-// which sync.sh merges into the VM's own rather than copying it. Any other
-// kind's is copied to its place below the home folder: "", false.
+// login of kind, merged true, for Claude Code's two files, which sync.sh
+// merges into the VM's own rather than copying them: its .claude.json,
+// claude.json, and its .credentials.json, claude-credentials.json, whose
+// OAuth login replaces the VM's while the rest of the VM's file stays,
+// such as its logins to MCP servers. Any other kind's is copied to its
+// place below the home folder: "", false.
 func claudeSyncName(kind string) (string, bool) {
-	if kind != agents.Claude {
-		return "", false
+	switch kind {
+	case agents.Claude:
+		return "claude.json", true
+	case agents.ClaudeOAuth:
+		return "claude-credentials.json", true
 	}
-	return "claude.json", true
+	return "", false
 }
 
 // claudeTokenUnsaved warns, as a launch's setup finds the VM's secret name

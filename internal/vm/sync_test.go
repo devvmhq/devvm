@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"io"
+	"maps"
 	"net/netip"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend/backendtest"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
+	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
@@ -168,6 +170,52 @@ func TestStageSecretsEveryTier(t *testing.T) {
 				t.Errorf("%+v: staged %s = %q", o, name, got[name])
 			}
 		}
+	}
+}
+
+// The VM's copy of Claude Code's OAuth login goes to the setup to merge
+// into the VM's own .credentials.json (guest/sync.sh), never to be copied
+// over it, which would take away what Claude Code keeps there of its own,
+// such as its logins to MCP servers.
+func TestStageClaudeOAuthMerged(t *testing.T) {
+	e, f, _ := upEnv(t, allNative())
+	write(t, filepath.Dir(secrets.LoginFile(e.Dirs, agents.ClaudeOAuth)), map[string]string{ //nolint:gosec // a test's fake login
+		".credentials.json": `{"claudeAiOauth": {"accessToken": "sk-ant-oat01-testfake", "refreshToken": "sk-ant-ort01-testfake", "expiresAt": 4070908800000, "scopes": ["user:inference"]}}`,
+	})
+	if err := (Launch{e}).Up(t.Context(), Options{Agents: &[]string{"claude"}, Network: "open"}); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	got := staged(t, f)
+	if _, ok := got["home/"+secrets.LoginRel(agents.ClaudeOAuth)]; ok {
+		t.Errorf("the login is copied over the VM's: staged %q", slices.Sorted(maps.Keys(got)))
+	}
+	// The name guest/sync.sh merges from.
+	c := got["claude-credentials.json"]
+	if !strings.Contains(c, `"sk-ant-oat01-devvm-proxy-managed-oauth-`) || strings.Contains(c, "testfake") {
+		t.Errorf("staged claude-credentials.json = %q", c)
+	}
+}
+
+// Each of Claude Code's files that a launch's setup merges (claudeSyncName)
+// is merged by guest/sync.sh from the name it's sent as, into its place
+// below the VM's home folder.
+func TestClaudeSyncNamesMerged(t *testing.T) {
+	for kind, merge := range map[string]string{
+		agents.Claude:      "merge_claude_json ~/.claude.json",
+		agents.ClaudeOAuth: "merge_claude_credentials ~/.claude/.credentials.json",
+	} {
+		name, merged := claudeSyncName(kind)
+		if !merged {
+			t.Errorf("%s isn't merged", kind)
+			continue
+		}
+		block := between(t, "guest/sync.sh", `if [[ -f "$s/`+name+`" ]]; then`, "fi")
+		if !strings.Contains(block, "  "+merge+` "$s/`+name+`"`) {
+			t.Errorf("sync.sh's merge of %s: %q", name, block)
+		}
+	}
+	if _, merged := claudeSyncName(agents.Codex); merged {
+		t.Error("Codex's login is merged")
 	}
 }
 

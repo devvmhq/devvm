@@ -27,6 +27,20 @@ cmp stdout blocked.want
 exec bash merge-test.sh
 cmp stdout merge.want
 
+# The VM's Claude Code login follows devvm's: its claudeAiOauth is
+# replaced by the store's copy (or taken out, when the copy has none), and
+# the rest of the VM's file stays, such as its logins to MCP servers
+# (mcpOAuth), mode 600. A file that's missing is the copy; one that's a
+# link, not JSON or not one object is replaced by the copy, and said; a
+# link to a folder is replaced, not written into; a folder is left as it
+# is, and said.
+env HOME=$WORK/credhome
+exec bash creds-test.sh
+cmp stdout creds.want
+stderr -count=6 '^devvm: .*/credhome/\.claude/\.credentials\.json couldn''t be read as a file of one JSON object, so devvm''s login replaced it, with any MCP servers'' logins in it$'
+stderr -count=1 '^devvm: .*/credhome/\.claude/\.credentials\.json is a folder, so Claude Code in this VM doesn''t get devvm''s login$'
+! stderr 'jq|error'
+
 # VS Code's and Cursor's settings in the VM: no port forwarding to the
 # host, no git sign-in relay; their other settings kept. A file that isn't
 # plain JSON is left as it is, and said; the other editor's still set.
@@ -87,9 +101,10 @@ cmp stdout hosts.want
 awk '/^cat > ~\/.bashrc.d\/devvm-prompt.sh/ { on = 1; next } on && /^EOF$/ { exit } on' "$1" > prompt.sh
 awk '/^_devvm_blocked\(\) \{/ { on = 1 } on && /^EOF$/ { exit } on' "$1" > blocked.sh
 awk '/^merge_claude_json\(\) \{/ { on = 1 } on { print } on && /^\}$/ { exit }' "$1" > merge.sh
+awk '/^merge_claude_credentials\(\) \{/ { on = 1 } on { print } on && /^\}$/ { exit }' "$1" > creds.sh
 awk '/^editor_off=/ { on = 1 } on && /^done$/ { print; exit } on' "$1" > vsc.sh
 awk '/^link_hosts\(\) \{/ { on = 1 } on { print } on && /^\}$/ { exit }' "$1" > hosts.sh
-for f in prompt.sh blocked.sh merge.sh vsc.sh hosts.sh; do [[ -s $f ]] || { echo "no $f in $1" >&2; exit 1; }; done
+for f in prompt.sh blocked.sh merge.sh creds.sh vsc.sh hosts.sh; do [[ -s $f ]] || { echo "no $f in $1" >&2; exit 1; }; done
 -- hosts-test.sh --
 # sudo runs the command and says when it writes; hosts.link is the same
 # file as hosts, which a write in place keeps.
@@ -172,6 +187,67 @@ jq -c '.mcpServers | keys' "$v"
 {"theme":"dark","projects":{"/p":{"trust":true}},"mcpServers":{"mine":{"command":"vm-only"},"gh":{"url":"https://x","headers":{"Authorization":"PLACEHOLDER"}},"new":{"command":"n"}}}
 ["gh","new"]
 ["gh","new"]
+-- creds-test.sh --
+set -euo pipefail
+. creds.sh
+v=$HOME/.claude/.credentials.json
+show() { printf '%s %s\n' "$(stat -c %a "$v" 2>/dev/null || stat -f %Lp "$v")" "$(jq -cS . "$v")"; }
+echo '{"claudeAiOauth":{"accessToken":"PLACEHOLDER","refreshToken":"devvm-proxy-managed"}}' > store.json
+# No VM file yet: the copy.
+merge_claude_credentials "$v" store.json; show
+# The VM's own logins stay, its old login is replaced whole.
+echo '{"claudeAiOauth":{"accessToken":"OLD","extra":"x"},"mcpOAuth":{"srv|1":{"accessToken":"MCP"}},"other":1}' > "$v"
+chmod 644 "$v"
+merge_claude_credentials "$v" store.json; show
+# A copy with no login takes the VM's away and keeps the rest.
+echo '{}' > empty.json
+merge_claude_credentials "$v" empty.json; show
+# A key written with a JSON escape for its O is the same key.
+bs=$(printf '\134')
+printf '%s' "{\"claudeAi${bs}u004fauth\":{\"accessToken\":\"OLD\"},\"mcpOAuth\":{}}" > "$v"
+grep -qF "${bs}u004f" "$v"
+merge_claude_credentials "$v" store.json; show
+# Empty, not JSON, two values, not an object: the copy.
+for bad in '' 'not json' '{"mcpOAuth":{}} {"claudeAiOauth":{}}' '[1]'; do
+  printf '%s' "$bad" > "$v"
+  merge_claude_credentials "$v" store.json; show
+done
+# A link, to a file or to a folder: replaced by the copy, its target left.
+echo '{"mcpOAuth":{"x":1}}' > target.json
+ln -sfn "$PWD/target.json" "$v"
+merge_claude_credentials "$v" store.json; show; [[ ! -L $v ]] && jq -c . target.json
+mkdir -p elsewhere; rm "$v"; ln -s "$PWD/elsewhere" "$v"
+merge_claude_credentials "$v" store.json; show; ls -A elsewhere | wc -l | tr -d ' '
+# A folder: left, and said.
+rm "$v"; mkdir "$v"
+merge_claude_credentials "$v" store.json; [[ -d $v ]] && echo folder kept
+# No temp file left behind, and none beside the VM's file.
+ls -A ~/.cache | wc -l | tr -d ' '
+ls -A ~/.claude
+# A move that fails (a folder it can't write in): it fails, and its temp
+# file goes.
+rmdir "$v"; chmod 500 ~/.claude
+if merge_claude_credentials "$v" store.json 2>/dev/null; then echo moved; else echo move failed; fi
+chmod 700 ~/.claude
+ls -A ~/.cache | wc -l | tr -d ' '
+-- creds.want --
+600 {"claudeAiOauth":{"accessToken":"PLACEHOLDER","refreshToken":"devvm-proxy-managed"}}
+600 {"claudeAiOauth":{"accessToken":"PLACEHOLDER","refreshToken":"devvm-proxy-managed"},"mcpOAuth":{"srv|1":{"accessToken":"MCP"}},"other":1}
+600 {"mcpOAuth":{"srv|1":{"accessToken":"MCP"}},"other":1}
+600 {"claudeAiOauth":{"accessToken":"PLACEHOLDER","refreshToken":"devvm-proxy-managed"},"mcpOAuth":{}}
+600 {"claudeAiOauth":{"accessToken":"PLACEHOLDER","refreshToken":"devvm-proxy-managed"}}
+600 {"claudeAiOauth":{"accessToken":"PLACEHOLDER","refreshToken":"devvm-proxy-managed"}}
+600 {"claudeAiOauth":{"accessToken":"PLACEHOLDER","refreshToken":"devvm-proxy-managed"}}
+600 {"claudeAiOauth":{"accessToken":"PLACEHOLDER","refreshToken":"devvm-proxy-managed"}}
+600 {"claudeAiOauth":{"accessToken":"PLACEHOLDER","refreshToken":"devvm-proxy-managed"}}
+{"mcpOAuth":{"x":1}}
+600 {"claudeAiOauth":{"accessToken":"PLACEHOLDER","refreshToken":"devvm-proxy-managed"}}
+0
+folder kept
+0
+.credentials.json
+move failed
+0
 -- tools-test.sh --
 # tools.sh ($1) with its folders under t/, and the commands it mounts with
 # stubbed: losetup fails for bad-loop.erofs, and mount for bad-mount.erofs (at mnt/1).

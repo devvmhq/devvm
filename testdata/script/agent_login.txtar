@@ -266,7 +266,7 @@ wait c
 stdout '^==> agent_own_login_saved display=Claude Code vm=devvm-claude-[0-9a-f]{14}$'
 # Only the launch, before the login, found none.
 stderr -count=1 no_claude_token
-exec tar -xOf $STUB_DIR/sync.tar home/.claude/.credentials.json
+exec tar -xOf $STUB_DIR/sync.tar claude-credentials.json
 stdout '"accessToken": "sk-ant-oat01-devvm-proxy-managed-oauth-[0-9a-f]{32}"'
 stdout '"refreshToken": "devvm-proxy-managed"'
 ! stdout testfake

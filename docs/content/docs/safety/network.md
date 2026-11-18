@@ -627,7 +627,12 @@ Secrets stay on this machine, whatever the VM's tier. A VM gets a placeholder of
 | `github` | `api.github.com`, `github.com`, `codeload.github.com`, `raw.githubusercontent.com` | `Authorization` | VMs it's bound to |
 | [your own](#your-own-secrets) | the hosts you give it, for the paths and methods you give it | `Authorization`, or the header you give it | VMs it's bound to |
 
-Agents' logins work the same way. When a VM's image has a coding agent and devvm's agent store has a login or an API key for it, the VM gets placeholders for the login, and so do Claude Code's MCP servers' secrets ([agents' logins and settings](../internals/network.md#agents-logins-and-settings)). A Claude Code, Codex or opencode login that you make inside a VM goes to the store, and the VM gets placeholders for it too ([Claude Code login](../using/coding-agents.md#claude-code-login)). A VM saves a login only for an agent that its image has, and its proxy refuses a login for any other agent, so a VM without Codex can never replace the store's Codex login. Because the store keeps one login for each agent, any VM with the agent can replace it, so a VM you don't trust can log your other VMs in to an account of its choosing ([logins made in a VM](../internals/network.md#logins-made-in-a-vm)).
+Agents' logins work the same way. When a VM's image has a coding agent and devvm's agent store has a login or an API key for it, the VM gets placeholders for the login, and so do Claude Code's MCP servers' secrets ([agents' logins and settings](../internals/network.md#agents-logins-and-settings)). A Claude Code, Codex or opencode login that you make inside a VM goes to the store, and the VM gets placeholders for it too ([Claude Code login](../using/coding-agents.md#claude-code-login)). A login to an MCP server that you make with `/mcp` in a VM stays in that VM instead, with real tokens that code in the VM can read ([MCP servers' logins](../using/coding-agents.md#mcp-servers-logins)).
+
+The logins a VM saves have two limits ([logins made in a VM](../internals/network.md#logins-made-in-a-vm)):
+
+- **Only its own agents.** A VM saves a login only for an agent that its image has, and its proxy refuses a login for any other agent, so a VM without Codex can never replace the store's Codex login.
+- **One login for each agent.** Because the store keeps one login for each agent, any VM with the agent can replace it, so a VM you don't trust can log your other VMs in to an account of its choosing.
 
 ### Saving and binding secrets
 

@@ -1,11 +1,13 @@
 #!/bin/bash
 # Runs inside a project VM on every devvm launch, from a staging dir the host sends over:
-#   home/        agents' settings files and logins from devvm's store, copied into ~
+#   home/        agents' settings files and logins (but Claude Code's) from devvm's store, copied into ~
 #   links        agents' settings folders from devvm's store, two lines each: the path relative to
 #                ~, then the folder's path, where it's mounted read-only; linked into ~
 #   claude.json  the store's .claude.json's settings, account state and MCP servers (never its API key
 #                or per-project history), merged in (MCP servers' env values and headers are
 #                placeholders)
+#   claude-credentials.json  the store's Claude Code OAuth login, placeholders only, merged into
+#                ~/.claude/.credentials.json (merge_claude_credentials)
 #   env          exports (LANG, CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN: placeholders), installed as
 #                ~/.config/devvm/env
 #   ca/          the CAs the VM trusts besides its system's, one certificate per file:
@@ -244,6 +246,36 @@ merge_claude_json() {
 }
 if [[ -f "$s/claude.json" ]]; then
   merge_claude_json ~/.claude.json "$s/claude.json" ~/.local/state/devvm/claude-mcp-copied.json
+fi
+# merge_claude_credentials VM STORE: the store's Claude Code login (claudeAiOauth, its placeholder)
+# replaces the VM's, or takes it away when STORE has none, and the rest of the VM's file stays: what
+# Claude Code keeps there of its own, such as its logins to MCP servers (mcpOAuth), which never leave
+# the VM. A VM file that's a link, not JSON or not one object is replaced by STORE, and said; a folder
+# is left, and said. It's written whole, mode 600: a temp file in ~/.cache, which no export or remake
+# carries, moved over, and removed when that fails.
+merge_claude_credentials() {
+  local vm=$1 store=$2 tmp
+  if [[ -d $vm && ! -L $vm ]]; then
+    echo "devvm: $vm is a folder, so Claude Code in this VM doesn't get devvm's login" >&2
+    return 0
+  fi
+  mkdir -p ~/.cache "$(dirname "$vm")"
+  tmp=$(mktemp ~/.cache/devvm-credentials.XXXXXX)
+  if [[ -L $vm || ! -f $vm ]] || ! jq -n --slurpfile v "$vm" --slurpfile s "$store" '
+      if ($v | length) == 1 and ($v[0] | type) == "object"
+      then ($v[0] | del(.claudeAiOauth)) + ($s[0] | with_entries(select(.key == "claudeAiOauth")))
+      else error("not one object") end' > "$tmp" 2>/dev/null; then
+    if [[ -L $vm || -e $vm ]]; then
+      echo "devvm: $vm couldn't be read as a file of one JSON object, so devvm's login replaced it, with any MCP servers' logins in it" >&2
+    fi
+    cat "$store" > "$tmp" || { rm -f "$tmp"; return 1; }
+  fi
+  # A link goes first, so mv never follows it into a folder.
+  [[ ! -L $vm ]] || rm -f "$vm"
+  mv -f "$tmp" "$vm" || { rm -f "$tmp"; return 1; }
+}
+if [[ -f "$s/claude-credentials.json" ]]; then
+  merge_claude_credentials ~/.claude/.credentials.json "$s/claude-credentials.json"
 fi
 # The project folder moved since the last setup: Claude Code's sessions and settings, kept by its old
 # path, follow it.

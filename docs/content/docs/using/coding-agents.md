@@ -199,7 +199,7 @@ claude plugin list   # in the VM: the store's plugins and the VM's own
 
 ## Copies
 
-devvm copies the store's files into the VM's home on every launch, over the VM's own. On every [network tier](../safety/network.md#network-tiers), the copies of the logins and settings files have your secrets taken out, and the VM's proxy puts them into requests instead ([agents' logins and settings](../internals/network.md#agents-logins-and-settings)). devvm merges the store's `.claude.json` into the VM's own, so servers added in the VM stay, writes `devvm-redacted` in place of each secret in the settings files, names what it replaced in each file, and names each file it didn't copy ([what it takes out](../internals/agents.md#copies)).
+devvm copies the store's files into the VM's home on every launch, over the VM's own. On every [network tier](../safety/network.md#network-tiers), the copies of the logins and settings files have your secrets taken out, and the VM's proxy puts them into requests instead ([agents' logins and settings](../internals/network.md#agents-logins-and-settings)). devvm merges the store's `.claude.json` into the VM's own, so servers added in the VM stay, and Claude Code's login into the VM's `~/.claude/.credentials.json`, so [MCP servers' logins](#mcp-servers-logins) made in the VM stay, writes `devvm-redacted` in place of each secret in the settings files, names what it replaced in each file, and names each file it didn't copy ([what it takes out](../internals/agents.md#copies)).
 
 ### Claude Code login
 
@@ -218,6 +218,20 @@ devvm keeps one Claude Code login, either your subscription's login or a Claude 
 - **A Claude Code token**, from `devvm agent login claude --setup-token` or a `claude setup-token` that you run in a VM yourself, goes with the other [secrets](../safety/network.md#saving-and-binding-secrets). You can also save one with `devvm secret set claude` and paste the token that `claude setup-token` printed on another machine (`sk-ant-oat01-…`), not the code the browser shows. devvm neither saves nor sends a Claude Code token that isn't a setup token. Every VM with Claude Code gets the token in its environment as `CLAUDE_CODE_OAUTH_TOKEN`, holding a placeholder of its own, and its proxy puts the token into its requests. When you set up a token in a VM, `claude setup-token` prints that VM's placeholder, not the token, because devvm already saved it.
 
 A `CLAUDE_CODE_OAUTH_TOKEN` in devvm's own environment on this machine wins over both, as it does in Claude Code, so VMs get that token, and `devvm agent login claude` warns you when it's set. Only your subscription's login reaches your claude.ai connectors, so a VM can use them, which [your claude.ai connectors](../safety/attack-vectors.md#the-network) says how to stop. Anthropic doesn't document the requests that Claude Code's login sends, so devvm follows the ones Claude Code sends today, and a new Claude Code release can change them. When a login in a VM stops working, run `devvm agent login claude` again, or save a Claude Code token instead.
+
+#### MCP servers' logins
+
+You log Claude Code in to an MCP server that asks for a login inside the VM, the way you would on this machine:
+
+```text
+/mcp   # in Claude Code in the VM: pick the server and log in to it
+```
+
+Claude Code keeps these logins in the VM's `~/.claude/.credentials.json`, beside the Claude login, and they're the VM's own ([how](../internals/agents.md#claude-codes-login)):
+
+- **They stay in the VM.** Each launch replaces only the Claude login in that file and keeps the rest, so a login you make lasts across launches.
+- **They hold real tokens,** which code in the VM can read, and they never reach this machine, another VM, `devvm agent save` or an export of the VM's history.
+- **They don't come along when devvm makes the VM again,** such as to add a layer, so you log in to those servers again there ([what a VM made again keeps](images.md#what-a-vm-made-again-keeps)).
 
 ### Codex and opencode logins
 
@@ -490,7 +504,7 @@ devvm history import ~/backup.tar.gz    # or an export of your own
 
 - When devvm makes a new VM that has an agent, and it saved an export for the same folder before, it offers that export. In a terminal it asks whether to import it into the new VM, with no as the default. Without a terminal, or with `--no-input`, it doesn't ask, and it says which export it found and that `devvm history import` in the folder puts it into the VM. devvm imports the export once the VM has started and before its setup, and if the import fails, devvm warns and makes the VM anyway, so you can run `devvm history import` later.
 - An export holds what a VM wrote, so devvm treats it as untrusted, and when it comes from a VM on a less strict tier than the VM you import it into, devvm warns you before it imports. It treats an export with no tier recorded, or a FILE elsewhere, as if it came from an open VM. When an export holds a path outside the agents' history folders, devvm imports nothing.
-- The import leaves out what devvm puts in the VM itself. That's the agents' logins, `~/.claude/.credentials.json`, `~/.codex/auth.json`, and opencode's `auth.json`, `account.json`, `mcp-auth.json` and `bin`. It's also `~/.claude.json`, whose copy in the old VM held that VM's own placeholders, and every agent's [mounted folders and copied files](#devvms-agent-store), which the new VM's setup links and copies from devvm's agent store.
+- The import leaves out what devvm puts in the VM itself. That's the agents' logins, `~/.claude/.credentials.json`, with the old VM's own MCP servers' logins in it, `~/.codex/auth.json`, and opencode's `auth.json`, `account.json`, `mcp-auth.json` and `bin`. It's also `~/.claude.json`, whose copy in the old VM held that VM's own placeholders, and every agent's [mounted folders and copied files](#devvms-agent-store), which the new VM's setup links and copies from devvm's agent store.
 - A file or folder the VM already has stays as it is, so importing into a VM that has history of its own adds the export's files without replacing any of its own.
 
 ## The VM's setup
