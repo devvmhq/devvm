@@ -41,7 +41,7 @@ func devvm() rules {
 		// hostgit runs git without fsmonitor, hooks, filters, GIT_* or prompts, ssh only; tests, stubtest.Git (GitEnv).
 		commands:     map[string]string{"git": "internal/hostgit"},
 		testCommands: map[string]string{"git": "internal/stubtest"},
-		execSites:    devvmExecSites(), goroutineSites: devvmGoroutineSites(), unboundedReads: devvmUnboundedReads(),
+		execSites:    devvmExecSites(), goroutineSites: devvmGoroutineSites(), unboundedReads: devvmUnboundedReads(), folderIDOwner: "internal/platform", exactFolderIDs: devvmExactFolderIDs(),
 		// The registry's backends are behind its guard: only backend.As
 		// finds their other interfaces.
 		guardOwner: "internal/backend/guard.go",
@@ -393,6 +393,21 @@ func devvmUnboundedReads() map[string]string {
 		"internal/stubtest/stub/guest.go: guest.logScript": stub,
 		"internal/stubtest/stub/stub.go: call.copyIn":      stub,
 		"internal/stubtest/stub/control.go: control":       stub,
+	}
+}
+
+// devvmExactFolderIDs are the functions that compare a field named Folder
+// or GitID with == or != outside platform.SameFolder, the one comparison
+// of two folders' identities, as a boot can number an unchanged folder's
+// device anew, each with why: a path that shares the name, or a record
+// checked unchanged under its lock.
+func devvmExactFolderIDs() map[string]string {
+	return map[string]string{
+		"internal/agents/agents.go: SettingsFormat": "an agent's folder in its home folder, a path, not a folder's identity",
+		"internal/agents/agents.go: Withheld":       "an agent's folder in its home folder, a path, not a folder's identity",
+		"internal/vm/exports.go: Exports.Newest":    "an export's project folder, a path, not a folder's identity",
+		"internal/vm/move.go: recordMove":           "the state as it was read, unchanged under its lock, byte for byte",
+		"internal/vm/start.go: folderChanged":       "after renumbered recorded the folder as it is now in this run, the folder the backend mounts by the record, byte for byte",
 	}
 }
 

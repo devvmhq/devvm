@@ -22,6 +22,49 @@ func FolderDevice(id string) string {
 	return dev
 }
 
+// SameFolder reports whether id, the FolderID of the folder at dir now,
+// names the folder recorded as was when it was at wasDir: the same ID, or
+// at the same path the same inode and birth time on another device. It's
+// the one place two FolderIDs are compared. macOS numbers its disks'
+// devices in the order they appear at boot, so after a restart an
+// unchanged folder can have another device number. Only a folder whose ID
+// is its alone (UniqueFolderID), at a path with no link on it, matches on
+// another device: what a VM can put in a folder's place, a link or a new
+// folder, can't take an inode and a birth time, and a copy that keeps
+// both, such as a snapshot or a cloned disk, is at another path, unless
+// you mount it at the folder's own. A folder at another path (moved)
+// matches only its ID as recorded. On another device, id must also be
+// the ID of the folder opened at dir with no link followed (OpenNoLinks),
+// read from that open folder, so a link put at the path, or above it,
+// while the caller read id can't pass a copy's ID off as the folder's.
+func SameFolder(wasDir, was, dir, id string) bool {
+	if was == "" || id == "" {
+		return false
+	}
+	if was == id {
+		return true
+	}
+	wasDev, wasRest, _ := strings.Cut(was, ":")
+	dev, rest, _ := strings.Cut(id, ":")
+	if wasDir != dir || !digits(wasDev) || !digits(dev) || wasRest != rest || strings.Count(id, ":") != 2 {
+		return false
+	}
+	f, hops, err := OpenNoLinks(dir)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	now, unique, err := openFolderID(f)
+	return err == nil && hops == 0 && unique && now == id
+}
+
+// Renumbered reports whether id names the folder recorded as was
+// (SameFolder) on a device numbered anew since, so the record needs the
+// folder's ID as it is now.
+func Renumbered(wasDir, was, dir, id string) bool {
+	return was != id && SameFolder(wasDir, was, dir, id)
+}
+
 // VolPath returns the path of the folder a FolderID names by its device
 // and inode, /.vol/<dev>/<ino>, which macOS's volfs opens whatever path
 // the folder has now; "" when id has neither. Only macOS has /.vol.

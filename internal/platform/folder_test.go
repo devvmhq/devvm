@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/devvmhq/devvm/internal/stubtest"
 )
 
 // A folder made again at the same path is another folder.
@@ -62,6 +65,66 @@ func TestUniqueFolderID(t *testing.T) {
 		if !UniqueFolderID(dir, id) || UniqueFolderID(filepath.Join(dir, "missing"), id) || UniqueFolderID(dir, "1:2") {
 			t.Errorf("UniqueFolderID(%s) = %v", dir, UniqueFolderID(dir, id))
 		}
+	}
+}
+
+// SameFolder: the ID recorded, or at the same physical path the same
+// inode and birth time on a device numbered anew, as after macOS's boot,
+// of a folder whose ID is its alone; never another inode, birth time or
+// path, an ID without a birth time, a link, or a missing folder.
+func TestSameFolder(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "p")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	id, err := FolderID(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	dev, rest, _ := strings.Cut(id, ":")
+	ino, birth, _ := strings.Cut(rest, ":")
+	renumbered := stubtest.Renumbered(id)
+	unique := UniqueFolderID(dir, id)
+	gone := filepath.Join(root, "gone")
+	for _, tc := range []struct {
+		name                 string
+		wasDir, was, at, now string
+		want                 bool
+	}{
+		{"as recorded", dir, id, dir, id, true},
+		{"moved, as recorded", filepath.Join(root, "q"), id, dir, id, true},
+		{"its device numbered anew", dir, renumbered, dir, id, unique},
+		{"its device numbered anew, at another path", filepath.Join(root, "q"), renumbered, dir, id, false},
+		{"another inode", dir, stubtest.Renumbered(dev + ":" + ino + "1:" + birth), dir, id, false},
+		{"another birth time", dir, stubtest.Renumbered(dev + ":" + ino + ":" + birth + "1"), dir, id, false},
+		{"no birth time", dir, stubtest.Renumbered(dev + ":" + ino), dir, dev + ":" + ino, false},
+		{"through a link", link, renumbered, link, id, false},
+		// What a link swapped in for the moment the caller read the ID
+		// gave: a copy of the folder, on another device.
+		{"an ID that isn't the folder's at its path", dir, id, dir, renumbered, false},
+		{"an ID that isn't the folder's, nor the record's", dir, stubtest.Renumbered(renumbered), dir, renumbered, false},
+		{"gone", gone, renumbered, gone, id, false},
+		{"nothing recorded", dir, "", dir, id, false},
+		{"neither read", dir, "", dir, "", false},
+	} {
+		if got := SameFolder(tc.wasDir, tc.was, tc.at, tc.now); got != tc.want {
+			t.Errorf("%s: SameFolder(%s, %q, %s, %q) = %v, want %v", tc.name, tc.wasDir, tc.was, tc.at, tc.now, got, tc.want)
+		}
+		// Renumbered: the same folder, but not as recorded.
+		if got, want := Renumbered(tc.wasDir, tc.was, tc.at, tc.now), tc.want && tc.was != tc.now; got != want {
+			t.Errorf("%s: Renumbered = %v, want %v", tc.name, got, want)
+		}
+	}
+	if runtime.GOOS == "darwin" && !unique {
+		t.Errorf("a folder on APFS: its ID %q isn't its alone", id)
 	}
 }
 

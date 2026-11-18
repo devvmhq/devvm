@@ -173,7 +173,7 @@ Each time `devvm` makes or opens the nested project's VM, it warns once and name
 
 ## A folder made again
 
-A VM belongs to the folder it was made for, which devvm knows by its path and by the folder itself ([one VM per folder](../internals/security.md#one-vm-per-folder)). When that folder was deleted and a new one made at the same path, every command that opens, stops or changes the VM refuses it, such as `devvm`, `devvm stop`, `devvm restart` and `devvm tools`. Two commands deal with it, and each acts only after you confirm in a terminal:
+A VM belongs to the folder it was made for, which devvm knows by its path and by the folder itself ([one VM per folder](../internals/security.md#one-vm-per-folder)). When that folder was deleted and a new one made at the same path, every command that opens, stops or changes the VM refuses it, such as `devvm`, `devvm stop`, `devvm restart` and `devvm tools`. A restart of your Mac can give the folder's disk another device number, but that doesn't make it a new folder, so the VM opens as before. Two commands deal with a folder made again, and each acts only after you confirm in a terminal:
 
 - `devvm rm` deletes the VM and never exports its history, because its folder is gone. The VM may hold that project's work, so `--force` never answers this question.
 - `devvm adopt` gives the VM to this folder, with its files, secrets and allowlist. Its `.git` protection starts again, as if `.git` had just appeared. `devvm adopt --force` gives it without asking, which `devvm adopt` needs when there's no terminal.
@@ -216,6 +216,7 @@ devvm offers the move only when the folder at the new path is the folder the VM 
 - **A copy:** a copy of the folder is another folder.
 - **Some file systems:** a folder on a file system that may give a new folder the inode number of a deleted one, such as a network share, a FUSE file system or a USB drive formatted with FAT or exFAT, never gets the offer. [One VM per folder](../internals/security.md#one-vm-per-folder) lists the file systems that do.
 - **Another user's folder:** devvm offers no VM for a folder that another user owns.
+- **Moved after a restart:** on macOS, a folder moved after a restart and before its VM started again gets no offer, because the restart may have given the folder's disk another device number. `devvm adopt VM` moves the VM to it.
 - **A `--clone` VM,** which keeps its own clone of the repo at the old path inside the VM.
 - **Several VMs:** when more than one VM was made for the folder at paths it had before, devvm moves none of them and names them, so you can choose one with `devvm adopt VM`.
 

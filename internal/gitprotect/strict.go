@@ -10,6 +10,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/hostgit"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -48,6 +49,12 @@ type converter struct{ *Protector }
 type strictRepo struct {
 	tree
 	rel, id string
+}
+
+// recorded reports whether r's .git is the one the VM's state recorded,
+// on whichever device a boot numbered its disk (platform.SameFolder).
+func (r strictRepo) recorded() bool {
+	return platform.SameFolder(r.git(), r.id, r.git(), folderID(r.git()))
 }
 
 // strictRepos are the repos made records, the folder's own and the nested
@@ -157,7 +164,7 @@ func (p converter) dropIgnore(ctx context.Context, vm vmname.VM, repos []strictR
 		if !p.setsAll(ctx, r, cfg) {
 			continue
 		}
-		if r.id == "" || folderID(r.git()) != r.id {
+		if !r.recorded() {
 			// Not the .git strict set it in: the user's to decide.
 			p.Warn(msg.GitStrictUnknown(cfg))
 			continue
@@ -215,7 +222,7 @@ func (p converter) setsAll(ctx context.Context, r strictRepo, cfg string) bool {
 // new file over the old one, so it's the folder that's compared.
 func (p converter) sameRepo(r strictRepo, cfg string) bool {
 	fi, err := os.Lstat(cfg)
-	return err == nil && fi.Mode().IsRegular() && p.realInDir(cfg) && folderID(r.git()) == r.id
+	return err == nil && fi.Mode().IsRegular() && p.realInDir(cfg) && r.recorded()
 }
 
 // warnKept names a config another VM's protection keeps locked, k, that

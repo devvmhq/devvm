@@ -99,6 +99,12 @@ type rules struct {
 	// on a reader that isn't an io.LimitReader made in the call, as "file:
 	// Func" (siteName), each with why (checkReads).
 	unboundedReads map[string]string
+	// folderIDOwner is the package folder that compares folders'
+	// identities (platform.SameFolder), and exactFolderIDs the functions
+	// outside it and tests that compare one with == or !=, as "file: Func"
+	// (siteName), each with why (checkFolderIDs); "" checks none.
+	folderIDOwner  string
+	exactFolderIDs map[string]string
 	// secretOwner is the package folder of redact.Secret, the type of
 	// every secret's value (checkSecrets); "" checks none.
 	secretOwner string
@@ -224,7 +230,7 @@ func check(m *module, r rules) []violation {
 	vs := slices.Concat(checkMethods(m, r), checkInit(m), checkVars(m, r), checkLayers(m, r), checkCommands(m, r),
 		checkExecSites(m, r), checkGuard(m, r), checkEnv(m, r), checkLiterals(m, r), checkNames(m, r), checkSeparators(m, r),
 		checkPaths(m, r), checkCallers(m, r), checkSwitches(m, r), checkEvery(m, r), checkVMNames(m, r), checkHosts(m, r),
-		checkGoroutineSites(m, r), checkSecrets(m, r), checkDroppedErrors(m, r), checkReads(m, r))
+		checkGoroutineSites(m, r), checkSecrets(m, r), checkDroppedErrors(m, r), checkReads(m, r), checkFolderIDs(m, r))
 	slices.SortFunc(vs, func(a, b violation) int { return strings.Compare(a.String(), b.String()) })
 	return vs
 }

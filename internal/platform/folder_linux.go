@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -14,8 +15,28 @@ import (
 // the inode number the deleted one had, so the birth time (where the file
 // system keeps one) tells them apart.
 func FolderID(path string) (string, error) {
+	return statxID(unix.AT_FDCWD, path, 0)
+}
+
+// openFolderID is the FolderID of the open folder f, and whether it's
+// its alone (UniqueFolderID), both read from f itself, so nothing put at
+// its path since it was opened counts.
+func openFolderID(f *os.File) (string, bool, error) {
+	id, err := statxID(int(f.Fd()), "", unix.AT_EMPTY_PATH)
+	if err != nil {
+		return "", false, err
+	}
+	var fs unix.Statfs_t
+	if err := unix.Fstatfs(int(f.Fd()), &fs); err != nil {
+		return "", false, err
+	}
+	return id, strings.Count(id, ":") == 2 && uniqueFS(fs.Type), nil
+}
+
+// statxID is the FolderID of what statx finds at dirfd, path and flags.
+func statxID(dirfd int, path string, flags int) (string, error) {
 	var st unix.Statx_t
-	if err := unix.Statx(unix.AT_FDCWD, path, 0, unix.STATX_INO|unix.STATX_BTIME, &st); err != nil {
+	if err := unix.Statx(dirfd, path, flags, unix.STATX_INO|unix.STATX_BTIME, &st); err != nil {
 		return "", err
 	}
 	id := fmt.Sprintf("%d:%d", unix.Mkdev(st.Dev_major, st.Dev_minor), st.Ino)

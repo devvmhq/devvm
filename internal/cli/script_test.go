@@ -62,6 +62,7 @@ func scriptCmds() map[string]func(ts *testscript.TestScript, neg bool, args []st
 		"listen_any":     listenAny,
 		"project":        project,
 		"release_server": releaseServer,
+		"renumber":       renumber,
 		"stub_calls":     stubCalls,
 		"stub_reset":     stubReset,
 		"vm_name":        vmName,
@@ -586,6 +587,53 @@ func jsonSet(ts *testscript.TestScript, neg bool, args []string) {
 		ts.Check(os.MkdirAll(filepath.Dir(f), 0o700))
 		ts.Check(os.WriteFile(f, append(data, '\n'), 0o600))
 	}
+}
+
+// renumber FILE changes a VM's state, FILE, as a boot that numbered its
+// disks' devices anew leaves it, as macOS does (stubtest.Renumbered): its
+// project folder's identity and each .git's (git_id) on another device,
+// their inodes and birth times as they were. FOLDER_ID is the folder's
+// identity before, and GIT_ID its own .git's ("" for none).
+func renumber(ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 1 {
+		ts.Fatalf("usage: renumber FILE")
+	}
+	file := ts.MkAbs(args[0])
+	dec := json.NewDecoder(strings.NewReader(ts.ReadFile(args[0])))
+	dec.UseNumber()
+	var obj map[string]any
+	ts.Check(dec.Decode(&obj))
+	id, _ := obj["folder"].(string)
+	if id == "" {
+		ts.Fatalf("%s records no folder", args[0])
+	}
+	ts.Setenv("FOLDER_ID", id)
+	git, _ := obj["git"].(map[string]any)
+	made, _ := git["made"].(map[string]any)
+	gitID, _ := made["git_id"].(string)
+	ts.Setenv("GIT_ID", gitID)
+	obj["folder"] = stubtest.Renumbered(id)
+	var each func(v any)
+	each = func(v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			for k, e := range v {
+				if s, ok := e.(string); ok && k == "git_id" {
+					v[k] = stubtest.Renumbered(s)
+				} else {
+					each(e)
+				}
+			}
+		case []any:
+			for _, e := range v {
+				each(e)
+			}
+		}
+	}
+	each(obj)
+	data, err := json.MarshalIndent(obj, "", "  ")
+	ts.Check(err)
+	ts.Check(os.WriteFile(file, append(data, '\n'), 0o600))
 }
 
 // vmName sets VAR to the name of the one VM made for the folder NAME, the

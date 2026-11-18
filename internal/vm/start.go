@@ -43,7 +43,9 @@ type upOpts struct {
 }
 
 // bringUp takes t's VM, made and finished, to running, confined as its
-// state says, in these steps: its instance read once; for a launch, its
+// state says, in these steps: its instance read once; its project
+// folder's identity recorded anew where a boot renumbered its disk
+// (renumbered); for a launch, its
 // agent folder mounts matched to the host's, and a running VM that gets
 // changes at its next start stopped once the user agrees
 // (restartForNextStart); its
@@ -68,6 +70,9 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 		return backend.Confinement{}, err
 	}
 	if err := s.instance(ctx, t, o); err != nil {
+		return backend.Confinement{}, err
+	}
+	if err := renumbered(ctx, st); err != nil {
 		return backend.Confinement{}, err
 	}
 	mountsLater := false
@@ -282,7 +287,10 @@ func projectMount(st *state.VM) string {
 // replace the folder after the finder found the VM, and the backend
 // mounts the path as it is then, following a link to anywhere on this
 // machine. bringUp checks it before its host checks and start before and
-// after the backend's start.
+// after the backend's start, each after renumbered recorded the folder's
+// identity as it is now, so the identity must be the one recorded, byte
+// for byte: no boot renumbers a disk within one run, and the backend
+// mounts the folder by the record.
 func folderChanged(st *state.VM) bool {
 	dir := projectMount(st)
 	if dir == "" {
@@ -293,6 +301,31 @@ func folderChanged(st *state.VM) bool {
 	}
 	id, err := platform.FolderID(dir)
 	return err != nil || id != st.Folder
+}
+
+// renumbered records, under the VM's state lock, the identity its project
+// folder has now, when a boot numbered the folder's disk anew since it was
+// recorded (platform.SameFolder), before its start mounts the folder by
+// it (startOnce, Want.ProjectID): the device's old number may be another
+// disk's now. Whatever else differs is left for folderChanged to refuse,
+// and a state another devvm changed meanwhile is compared again under the
+// lock.
+func renumbered(ctx context.Context, st *state.VM) error {
+	dir := projectMount(st)
+	if dir == "" {
+		return nil
+	}
+	// A folder whose identity can't be read is folderChanged's to refuse.
+	id, _ := platform.FolderID(dir)
+	if !platform.Renumbered(st.Dir, st.Folder, dir, id) {
+		return nil
+	}
+	return st.Update(ctx, func(st *state.VM) error {
+		if projectMount(st) == dir && platform.Renumbered(st.Dir, st.Folder, dir, id) {
+			st.Folder = id
+		}
+		return nil
+	})
 }
 
 // nextStartChanges lists what a running VM, as in is, gets only at its

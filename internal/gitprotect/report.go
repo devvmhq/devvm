@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -178,7 +179,8 @@ func (p *Protector) warnAppeared(ctx context.Context, s snapshot, rel string, vm
 // protectRepo locks one repo's .git, as r.how says, and reports what a
 // lock can't stop (reports); it returns what it found of the repo. Before
 // anything else, a check whose .git replaced the one it locked reports
-// that alone.
+// that alone; the one it locked on a device a boot numbered anew is that
+// .git (platform.SameFolder).
 func (p *Protector) protectRepo(ctx context.Context, r *run) Repo {
 	was, s, w, h := r.was, r.s, r.why, r.how
 	if !s.exists {
@@ -187,13 +189,18 @@ func (p *Protector) protectRepo(ctx context.Context, r *run) Repo {
 		}
 		return Repo{GitDirs: was.GitDirs, Delegations: was.Delegations}
 	}
-	if w == whyCheck && was.GitID != "" && was.GitID != s.id {
+	if w == whyCheck && was.GitID != "" && !platform.SameFolder(s.git, was.GitID, s.git, s.id) {
 		p.Warn(msg.GitReplaced(s.git))
 		if h == watching {
 			// Nothing to lock again: the next check compares with this one.
 			was.GitID = s.id
 		}
 		return was
+	}
+	if platform.Renumbered(s.git, was.GitID, s.git, s.id) {
+		// The .git locked, on the device a boot numbered anew: recorded as
+		// it is now, whatever the check does with the locks.
+		was.GitID = s.id
 	}
 	r.sum = delegationsSum(s.ds)
 	for _, rep := range reports {

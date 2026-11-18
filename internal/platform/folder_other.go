@@ -5,10 +5,14 @@ package platform
 import (
 	"context"
 	"errors"
+	"os"
 )
 
 // FolderID returns what identifies a folder itself: not on this system yet.
 func FolderID(string) (string, error) { return "", errors.ErrUnsupported }
+
+// openFolderID is an open folder's FolderID: not on this system yet.
+func openFolderID(*os.File) (string, bool, error) { return "", false, errors.ErrUnsupported }
 
 // UniqueFolderID reports whether a FolderID is its folder's alone: never
 // on this system.

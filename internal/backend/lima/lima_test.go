@@ -837,6 +837,13 @@ func TestProjectMountByInode(t *testing.T) {
 			`--set .mounts = [{"location":"/.vol/16777232/99","mountPoint":"/p",` + kept + `,` + tools + `]`,
 		},
 		{
+			// macOS numbers its volumes' devices anew at boot: the folder
+			// as devvm records it now, never the old number's.
+			"vz, its device numbered anew", vm("vz", vol),
+			backend.Want{Project: "/p", ProjectID: "16777233:4242:1700000000.000000001"},
+			`--set .mounts = [{"location":"/.vol/16777233/4242","mountPoint":"/p",` + kept + `,` + tools + `]`,
+		},
+		{
 			"vz, the folder moved", vm("vz", vol),
 			backend.Want{Project: "/q", ProjectID: id},
 			`--set .mounts = [{"location":"/.vol/16777232/4242","mountPoint":"/q",` + kept + `,` + tools + `]`,

@@ -1,0 +1,27 @@
+# devvm 0.1.0's state (testdata/v0.1.0/GOOS, which 0.1.0 itself made:
+# see fixture_v010.txtar) after a boot that numbered the disks' devices
+# anew, as macOS does: app's folder and .git are the ones 0.1.0
+# recorded, on another device. Its VM starts, with nothing refused or
+# called replaced, and its state records them on the device they're on
+# now.
+[!darwin] [!linux] skip 'a fixture for macOS and Linux only'
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+mkdir $HOME/src/db $HOME/src/app $HOME/src/web $HOME/src/scratch
+cd $HOME/src/app
+exec git init -q -b main
+exec git commit -q --allow-empty -m one
+fixture v0.1.0
+vm_name APP app
+renumber $APP_dir/vm.json
+
+stub_reset
+exec devvm
+stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
+! stderr 'unreadable|corrupt|layout_|moved|replaced|refused|failed|other_folder|folder_changed'
+stub_calls
+stdout '^limactl start --tty=false devvm-app-[0-9a-f]{14}$'
+stdout '^limactl shell --workdir \S*/home/src/app devvm-app-[0-9a-f]{14}$'
+vm_state $APP_dir/vm.json
+stdout '^folder='$FOLDER_ID'$'
+[darwin] stdout '^git\.made\.git_id='$GIT_ID'$'
+[darwin] stdout '^git\.mode=on$'

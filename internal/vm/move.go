@@ -76,14 +76,14 @@ func hereOf(dir string) (here, bool) {
 
 // movedFrom reports whether st is the VM of h's folder, which moved from
 // the path st records: the folder itself (its identity, the device
-// included), unique and this user's, at another path, and nothing left at
-// the old one (away). The VM's creation finished, and it mounts its
-// folder: a --clone VM keeps its clone at the old path, in the VM, so it
-// never moves. A copy of the folder is another folder, so it never
-// matches.
+// included, as platform.SameFolder has it at another path), unique and
+// this user's, at another path, and nothing left at the old one (away).
+// The VM's creation finished, and it mounts its folder: a --clone VM
+// keeps its clone at the old path, in the VM, so it never moves. A copy
+// of the folder is another folder, so it never matches.
 func (h here) movedFrom(st *state.VM, away func(st *state.VM, to string) bool) bool {
-	return h.unique && h.mine && h.id != "" && st.Folder == h.id &&
-		st.Dir != "" && st.Dir != h.dir && st.Finished() && !isClone(st) && away(st, h.dir)
+	return h.unique && h.mine && st.Dir != "" && st.Dir != h.dir && platform.SameFolder(st.Dir, st.Folder, h.dir, h.id) &&
+		st.Finished() && !isClone(st) && away(st, h.dir)
 }
 
 // movedAway reports whether st's folder is no longer at the path st
@@ -250,7 +250,7 @@ func (e finder) move(ctx context.Context, st *state.VM, dir, want string, fresh 
 	}
 	if id, err := platform.FolderID(dir); err != nil {
 		return err
-	} else if id != want {
+	} else if id != want { // both read in this run, which no boot renumbered
 		return msg.MoveFolderChanged(dir, st.Name())
 	}
 	if err := e.stopForMove(ctx, st); err != nil {

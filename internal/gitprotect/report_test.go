@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/stubtest"
 )
 
 // Every delegation kind has a message of its own, and its name as Made's
@@ -141,6 +142,33 @@ func TestReportsReplacedAndMissing(t *testing.T) {
 	if made := f.protectOne(s, was, whyNew, lockNow); !madeEqual(made, Made{Protected: true, Nested: true, Repo: Repo{GitDirs: was.GitDirs, Delegations: "d"}}) ||
 		len(f.warns.Names()) > 0 {
 		t.Errorf("no .git: made %+v, warned %q", made, f.warns.Names())
+	}
+}
+
+// A .git whose device a boot numbered anew, as macOS does, is the .git
+// locked: a check reports no git_replaced, and records its identity on
+// the device it has now, however it treats the locks. A strict
+// conversion takes it as that repo's too. Another inode is replaced.
+func TestReportsRenumbered(t *testing.T) {
+	f, s := reportsFixture(t)
+	renumbered := stubtest.Renumbered(s.id)
+	for _, h := range []how{lockNow, watching, later} {
+		f.warns.Reset()
+		was := Made{Protected: true, Repo: Repo{GitID: renumbered, GitDirs: []string{"sub/.git"}, Delegations: delegationsSum(s.ds)}}
+		made := f.protectOne(s, was, whyCheck, h)
+		if slices.Contains(f.warns.Names(), msg.GitReplaced(s.git).Names()) || made.GitID != s.id {
+			t.Errorf("how %d: made %+v, warned %q, want its identity now %q", h, made, f.warns.Names(), s.id)
+		}
+	}
+	if r := (strictRepo{tree: f.p.tree, rel: ".", id: renumbered}); !r.recorded() {
+		t.Error("a strict conversion: not its .git")
+	}
+	f.warns.Reset()
+	dev, rest, _ := strings.Cut(s.id, ":")
+	ino, birth, _ := strings.Cut(rest, ":")
+	was := Made{Protected: true, Repo: Repo{GitID: stubtest.Renumbered(dev + ":" + ino + "0:" + birth)}}
+	if f.protectOne(s, was, whyCheck, lockNow); !slices.Equal(f.warns.Names(), []string{msg.GitReplaced(s.git).Names()}) {
+		t.Errorf("another inode: warned %q", f.warns.Names())
 	}
 }
 

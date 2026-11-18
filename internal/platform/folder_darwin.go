@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -19,7 +20,28 @@ func FolderID(path string) (string, error) {
 	if err := unix.Stat(path, &st); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%d:%d:%d.%09d", st.Dev, st.Ino, st.Btim.Sec, st.Btim.Nsec), nil
+	return statID(&st), nil
+}
+
+// statID is a stat's FolderID.
+func statID(st *unix.Stat_t) string {
+	return fmt.Sprintf("%d:%d:%d.%09d", st.Dev, st.Ino, st.Btim.Sec, st.Btim.Nsec)
+}
+
+// openFolderID is the FolderID of the open folder f, and whether it's
+// its alone (UniqueFolderID), both read from f itself, so nothing put at
+// its path since it was opened counts.
+func openFolderID(f *os.File) (string, bool, error) {
+	var st unix.Stat_t
+	if err := unix.Fstat(int(f.Fd()), &st); err != nil {
+		return "", false, err
+	}
+	var fs unix.Statfs_t
+	if err := unix.Fstatfs(int(f.Fd()), &fs); err != nil {
+		return "", false, err
+	}
+	name := unix.ByteSliceToString(fs.Fstypename[:])
+	return statID(&st), name == "apfs" || name == "hfs", nil
 }
 
 // UniqueFolderID reports whether id, the FolderID of the folder at path,

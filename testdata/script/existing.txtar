@@ -159,6 +159,21 @@ stdout '^==> deleted vm=devvm-api-[0-9a-f]{14}$'
 ! exists $API_dir
 rm $STUB_DIR/delete-fails
 
+# A boot that numbered the folder's disk anew, as macOS does: the same
+# folder and .git, so its VM starts, and its state records them on the
+# device they're on now.
+project boot git
+exec devvm --network open
+vm_name BOOT boot
+exec devvm stop
+renumber $BOOT_dir/vm.json
+exec devvm
+! stderr 'vm_other_folder|project_folder_changed|git_replaced'
+vm_state $BOOT_dir/vm.json
+stdout '^folder='$FOLDER_ID'$'
+[darwin] stdout '^git\.made\.git_id='$GIT_ID'$'
+cd $WORK
+
 # A folder made again at the same path: rm and adopt ask first, so
 # without a terminal neither deletes nor takes the VM over.
 project site

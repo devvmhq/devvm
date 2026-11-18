@@ -571,11 +571,12 @@ func (e finder) inspect(ctx context.Context, f project.Folder, st *state.VM) (*t
 }
 
 // sameFolder reports whether the VM was made for this folder: its path,
-// and the folder itself. A VM without state has no folder to differ.
+// and the folder itself (platform.SameFolder), on whichever device a
+// boot numbered its disk. A VM without state has no folder to differ.
 func sameFolder(f project.Folder, st *state.VM) bool {
 	if !st.Exists() {
 		return true
 	}
 	id, err := platform.FolderID(f.Dir)
-	return err == nil && st.Dir == f.Dir && st.Folder == id
+	return err == nil && st.Dir == f.Dir && platform.SameFolder(st.Dir, st.Folder, f.Dir, id)
 }
