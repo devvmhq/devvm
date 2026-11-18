@@ -20,10 +20,10 @@ import (
 )
 
 var (
-	// The key names: *key*, *token*, *secret*, *password*, Authorization (any case).
-	redactName = regexp.MustCompile(`(?i)(key|token|secret|passw|^authorization$|^proxy-authorization$|^cookie$)`)
-	envName    = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
-	envRef     = regexp.MustCompile(`^(\{(env|file):[^}]*\}|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)$`)
+	// A value that names where a secret is rather than holding it: an env
+	// var's name, or a reference to one ({env:X}, ${X}).
+	envName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	envRef  = regexp.MustCompile(`^(\{(env|file):[^}]*\}|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)$`)
 	// A switch or a port, kept in env tables: true, false or a number of at most five digits.
 	plainValue = regexp.MustCompile(`^(?i:true|false|[0-9]{1,5})$`)
 	// An env variable whose name says it holds a credential, or headers, wherever it is: its
@@ -35,6 +35,58 @@ var (
 	claudeEnv = regexp.MustCompile(`^(ANTHROPIC_(MODEL|SMALL_FAST_MODEL|DEFAULT_[A-Z0-9]+_MODEL|CUSTOM_MODEL_OPTION)(_[A-Z0-9_]+)?|` +
 		`CLAUDE_CODE_[A-Z0-9_]+|DISABLE_[A-Z0-9_]+|MAX_[A-Z0-9_]+|[A-Z0-9_]+_TIMEOUT_MS)$`)
 )
+
+// secretKeyName reports whether k names a secret: a stem as a word of its own,
+// at a camelCase or separator boundary, or at the key's end, with a trailing s
+// (apiKeys, tokens) allowed — but not as the start of a longer lowercase word,
+// as in tokeneconomizer, a marketplace name rather than a token. Authorization
+// and cookie only as the whole key.
+func secretKeyName(k string) bool {
+	lower := strings.ToLower(k)
+	switch lower {
+	case "authorization", "proxy-authorization", "cookie":
+		return true
+	}
+	// The words that name a secret in a settings key.
+	stems := []string{"key", "token", "secret", "password", "passwd"}
+	for _, stem := range stems {
+		for i := 0; i+len(stem) <= len(lower); {
+			j := strings.Index(lower[i:], stem)
+			if j < 0 {
+				break
+			}
+			i += j
+			if secretStemAt(k, i, i+len(stem)) {
+				return true
+			}
+			i++
+		}
+	}
+	return false
+}
+
+// secretStemAt reports whether the stem at k[i:j] stands as a word: what
+// follows it ends it (the key's end, a separator, an uppercase letter, a digit,
+// or a trailing s before one of those), and what precedes it ends the word
+// before it — or the stem ends the key, as in apikey.
+func secretStemAt(k string, i, j int) bool {
+	if j < len(k) {
+		switch next := k[j]; {
+		case next == 's' && j+1 < len(k) && k[j+1] >= 'a' && k[j+1] <= 'z':
+			return false // a longer word starting with s, as in keystore
+		case next >= 'a' && next <= 'z' && next != 's':
+			return false // a longer lowercase word, as in tokeneconomizer
+		}
+	}
+	if i == 0 || j == len(k) {
+		return true
+	}
+	prev := k[i-1]
+	if (prev < 'a' || prev > 'z') && (prev < 'A' || prev > 'Z') {
+		return true
+	}
+	return k[i] >= 'A' && k[i] <= 'Z' // a camelCase boundary, as in apiKey
+}
 
 // agentSetting: the value at path, under key k, is one of Claude Code's configuration variables in
 // its settings' top-level env (claudeEnv), and its name doesn't say it's a credential (credName).
@@ -126,9 +178,9 @@ func (r *redaction) value(v any, path, k string, secret bool) any {
 func secretIn(path, k, ck string, x any) bool {
 	if _, ok := x.(map[string]any); ok {
 		name := strings.ToLower(ck)
-		return redactName.MatchString(ck) && !strings.Contains(name, "keybind") && !strings.Contains(name, "keymap")
+		return secretKeyName(ck) && !strings.Contains(name, "keybind") && !strings.Contains(name, "keymap")
 	}
-	return redactName.MatchString(ck) || wholeTable(path, k)
+	return secretKeyName(ck) || wholeTable(path, k)
 }
 
 // str returns s, at path under key k, as the VM's copy holds it. A URL in a table of secrets, such
@@ -137,7 +189,7 @@ func secretIn(path, k, ck string, x any) bool {
 // keys and credentials go (scrubText).
 func (r *redaction) str(s, path, k string, secret bool) string {
 	url := strings.Contains(s, "://")
-	named := redactName.MatchString(k) || credName.MatchString(k)
+	named := secretKeyName(k) || credName.MatchString(k)
 	keep := redactKeep(s) || plainValue.MatchString(s) || (url && !named) || agentSetting(path, k)
 	if (secret && !keep) || secretShape.MatchString(s) { // a known key's shape, wherever it is
 		r.paths = append(r.paths, path)

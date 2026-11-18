@@ -249,6 +249,63 @@ func TestRedactFreeText(t *testing.T) {
 	}
 }
 
+// A marketplace or plugin name that only starts with a secret word —
+// tokeneconomizer, the TokenEconomizer plugin — keeps its settings, while a
+// real secret key under it still goes.
+func TestRedactKeepsMarketplaceName(t *testing.T) {
+	in := `{
+  "extraKnownMarketplaces": {
+    "tokeneconomizer": {"source": {"source": "github"}},
+    "tokeneconomizerApiKey": "DUMMY-UNDER-MARKETPLACE"
+  },
+  "marketplaces": {"tokeneconomizer": {"source_type": "github"}}
+}`
+	out, names := redacted(t, "json", in)
+	for _, s := range []string{`"source": "github"`, `"source_type": "github"`} {
+		if !strings.Contains(out, s) {
+			t.Errorf("copy lost %s:\n%s", s, out)
+		}
+	}
+	if strings.Contains(out, "DUMMY-UNDER-MARKETPLACE") {
+		t.Errorf("copy holds the secret under the marketplace name:\n%s", out)
+	}
+	if want := "extraKnownMarketplaces.tokeneconomizerApiKey\n"; names != want {
+		t.Errorf("names = %q, want %q", names, want)
+	}
+
+	tomlIn := "[marketplaces.tokeneconomizer]\nsource_type = \"github\"\n"
+	out, _ = redacted(t, "toml", tomlIn)
+	if !strings.Contains(out, `"github"`) {
+		t.Errorf("TOML copy lost the marketplace source type:\n%s", out)
+	}
+}
+
+// secretKeyName: a secret word as a word of its own, at a camelCase or
+// separator boundary, or at the key's end — not as the start of a longer
+// lowercase word.
+func TestSecretKeyName(t *testing.T) {
+	for _, k := range []string{
+		"token", "apiKey", "apikey", "api_key", "API_KEY", "accessToken", "oauth_token",
+		"tokens", "apiKeys", "keys", "clientSecret", "client_secret", "mySecret",
+		"password", "passwd", "userPassword", "privateKey", "refresh_token",
+		"Authorization", "Proxy-Authorization", "cookie", "GITHUB_TOKEN",
+		"ANTHROPIC_API_KEY", "SECRET_X", "tokenList", "mytoken", "thekey",
+		"tokeneconomizerApiKey", "secretKey",
+	} {
+		if !secretKeyName(k) {
+			t.Errorf("secretKeyName(%q) = false", k)
+		}
+	}
+	for _, k := range []string{
+		"tokeneconomizer", "tokenizer", "keystore", "keyboard", "secretary",
+		"tokenize", "secretive", "model", "preferred_auth_method", "baseURL",
+	} {
+		if secretKeyName(k) {
+			t.Errorf("secretKeyName(%q) = true", k)
+		}
+	}
+}
+
 // opencode.json (JSONC) and Claude Code's settings.json.
 func TestRedactJSON(t *testing.T) {
 	in := `{
