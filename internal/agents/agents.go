@@ -369,7 +369,7 @@ var Defs = []Def{
 		},
 		Docs: Docs{
 			Adds:    "the newest release, with its auto-update off, since the shared copy is read-only, and its telemetry off",
-			Reaches: "Anthropic's API, Claude's login and Claude Code's downloads",
+			Reaches: "Anthropic's API, Claude's login, Claude Code's downloads and claude.ai's connectors",
 		},
 	},
 	{

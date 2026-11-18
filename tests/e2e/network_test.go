@@ -1290,7 +1290,7 @@ func netTokenServer(n *netRun) error {
 	if err != nil {
 		return err
 	}
-	cf, kf, err := ca.Sign("auth", "auth.openai.com", "platform.claude.com", "api.anthropic.com", "api.groq.com", "api.openai.com", geminiAPIHost, "openrouter.ai", customHost, cursorAPIHost)
+	cf, kf, err := ca.Sign("auth", "auth.openai.com", "platform.claude.com", "api.anthropic.com", "mcp-proxy.anthropic.com", "api.groq.com", "api.openai.com", geminiAPIHost, "openrouter.ai", customHost, cursorAPIHost)
 	if err != nil {
 		return err
 	}
@@ -2235,7 +2235,9 @@ func (n *netRun) apiGot(path, tok string) bool {
 // Authorization each request brings. This login path is unofficial: the
 // requests are Claude Code 2.1's, read from its bundle. First claude
 // setup-token's, as curl: the store keeps its token as the claude
-// secret, and the VM gets the secret's placeholder. The proxy saves the
+// secret, and the VM gets the secret's placeholder, which the API gets the
+// token for and the claude.ai connectors' host doesn't, and neither does
+// the OAuth login's placeholder there. The proxy saves the
 // token in the Keychain under the run's service, through the VM's home's
 // link to the Keychains folder (netSetup).
 func netClaudeLogins(n *netRun) {
@@ -2258,8 +2260,9 @@ func netClaudeLogins(n *netRun) {
 	// cache of a login's value) makes the host refresh it at Claude's
 	// endpoint, through the run's company proxy. The refresh trusts the
 	// VM's proxy's CAs, the run's among them, so it succeeds: the store
-	// gets the new tokens, the VM's request goes on with the refreshed
-	// access token, and no log holds a value.
+	// gets the new tokens, the VM's requests to the API and to the claude.ai
+	// connectors' host go on with the refreshed access token, and no log
+	// holds a value.
 	s.Check("the host refreshes Claude Code's login at Claude's endpoint, through the company proxy, when it's due", func() error {
 		if what := n.refreshed(); what != "" {
 			return errors.New(what + "\n" + n.tokenWhy())
@@ -2301,6 +2304,7 @@ func netClaudeLogins(n *netRun) {
 // nothing when none.
 func (n *netRun) setupToken() string {
 	s := n.s
+	oauthPH := "sk-ant-oat01-devvm-proxy-managed-oauth-" + n.salt
 	r, err := s.InVM(n.vm, "curl -fsS -m 30 https://platform.claude.com/v1/oauth/token -H 'Content-Type: application/json' -d '"+claudeSetup+"'")
 	switch {
 	case err != nil:
@@ -2315,6 +2319,18 @@ func (n *netRun) setupToken() string {
 		return "the proxy puts the token in for the placeholder"
 	case !n.apiGot("/v1/e2e-setup", "sk-ant-oat01-e2efake-setup"):
 		return "... which the API got"
+	case inVM(s, n.vm, "curl -sS -m 20 -o /dev/null https://mcp-proxy.anthropic.com/v1/mcp/e2e-setup -H 'Authorization: Bearer sk-ant-oat01-devvm-proxy-managed-"+n.salt+"'") != nil:
+		return "the VM's request to the connectors' host"
+	case !n.apiGot("/v1/mcp/e2e-setup", "sk-ant-oat01-devvm-proxy-managed-"+n.salt):
+		return "... which got the placeholder alone, as the token goes only to the API"
+	case inVM(s, n.vm, "curl -sS -m 20 -o /dev/null https://api.anthropic.com/v1/e2e-setup-oauth -H 'Authorization: Bearer "+oauthPH+"'") != nil:
+		return "the VM's request to the API with the OAuth login's placeholder, which it can make from its salt"
+	case !n.apiGot("/v1/e2e-setup-oauth", "sk-ant-oat01-e2efake-setup"):
+		return "... which got the token, as a VM that started with the OAuth login gets the token that replaced it"
+	case inVM(s, n.vm, "curl -sS -m 20 -o /dev/null https://mcp-proxy.anthropic.com/v1/mcp/e2e-setup-oauth -H 'Authorization: Bearer "+oauthPH+"'") != nil:
+		return "the same placeholder to the connectors' host"
+	case strings.Contains(readText(n.tokLog), "api /v1/mcp/e2e-setup-oauth Bearer sk-ant-oat01-e2efake-setup"):
+		return "... which never got the token"
 	case !strings.Contains(readText(n.events), `"event":"login","host":"platform.claude.com","port":443,"method":"POST","path":"/v1/oauth/token","login":"claude"`):
 		return "the event names the login"
 	}
@@ -2422,6 +2438,10 @@ func (n *netRun) refreshed() string {
 		return "the store holds the refreshed login"
 	case !n.apiGot("/v1/e2e-oauth", "sk-ant-oat01-e2efake-refreshed"):
 		return "the VM's request went on with the refreshed access token"
+	case inVM(s, n.vm, `curl -sS -m 30 -o /dev/null https://mcp-proxy.anthropic.com/v1/mcp/e2e-oauth -H "Authorization: Bearer $(jq -r .claudeAiOauth.accessToken ~/.claude/.credentials.json)"`) != nil:
+		return "the VM's request to a claude.ai connector, with its placeholder"
+	case !n.apiGot("/v1/mcp/e2e-oauth", "sk-ant-oat01-e2efake-refreshed"):
+		return "the connectors' host got the access token"
 	case NoLeak([]string{"e2efake-oauth", "e2efake-setup", "e2efake-refreshed"}, filepath.Join(n.vmd, "logs"), filepath.Join(s.Paths.Devvm, "logs")) != nil:
 		return "no log holds a value"
 	}
@@ -3225,9 +3245,9 @@ def claude(q):
         return dict(access_token="sk-ant-oat01-e2efake-refreshed", refresh_token="sk-ant-ort01-e2efake-refreshed",
                     expires_in=28800, scope="user:inference user:profile", token_type="Bearer")
     return None
-# Anthropic's API: the profile Claude Code reads as it logs in, and the Authorization of each request
-# logged, and its x-api-key when it has one (an API key's), so a check sees which token the VM's
-# proxy put in.
+# Anthropic's API, and its connectors' host (mcp-proxy.anthropic.com), whose paths the checks keep
+# apart: the profile Claude Code reads as it logs in, and the Authorization of each request logged,
+# and its x-api-key when it has one (an API key's), so a check sees which token the VM's proxy put in.
 def api(path, h):
     a = [x.split(":", 1)[1].strip() for x in h[1:] if x.lower().startswith("authorization:")]
     k = [x.split(":", 1)[1].strip() for x in h[1:] if x.lower().startswith("x-api-key:")]
@@ -3285,7 +3305,7 @@ def cursor(t, h):
         t.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/connect+proto\r\nConnect-Content-Encoding: gzip\r\nContent-Length: %d\r\n\r\n" % len(out) + out)
         return
     t.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\n\r\nNot found")
-HOSTS = ("auth.openai.com", "platform.claude.com", "api.anthropic.com", "api.groq.com", "api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai", "` + customHost + `", "` + cursorAPIHost + `")
+HOSTS = ("auth.openai.com", "platform.claude.com", "api.anthropic.com", "mcp-proxy.anthropic.com", "api.groq.com", "api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai", "` + customHost + `", "` + cursorAPIHost + `")
 def serve(c):
     try:
         req = head(c.makefile("rb"))
@@ -3309,7 +3329,7 @@ def serve(c):
             if host == "` + cursorAPIHost + `":
                 cursor(t, h)
                 continue
-            if host in ("api.anthropic.com", "` + customHost + `"):
+            if host in ("api.anthropic.com", "mcp-proxy.anthropic.com", "` + customHost + `"):
                 code, r = api(h[0].split(" ")[1], h)
             elif host == "api.groq.com":
                 code, r = groq(h[0].split(" ")[1], h)

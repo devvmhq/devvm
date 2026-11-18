@@ -46,7 +46,8 @@ func strs(v any) []string {
 
 // Claude Code's OAuth login: saved as Claude Code keeps it (.credentials.json's claudeAiOauth), the
 // VM given its account and organization, a placeholder of its own and no refresh token; its binding
-// names that placeholder, and the VM's copy holds it with an expiry at farFuture.
+// names that placeholder for Anthropic's API, and a second for claude.ai's connectors, below
+// mcp-proxy.anthropic.com's /v1/mcp/ alone, and the VM's copy holds it with an expiry at farFuture.
 func TestClaudeCapture(t *testing.T) {
 	f := storeFile(t, ClaudeOAuth, ".credentials.json")
 	req := []byte(`{"grant_type":"authorization_code","code":"c","client_id":"x","code_verifier":"v","state":"s"}`)
@@ -66,8 +67,10 @@ func TestClaudeCapture(t *testing.T) {
 		t.Errorf("the VM's reply = %v", vm)
 	}
 	bs := bindings(t, f)
-	if len(bs) != 1 || bs[0].Name != ClaudeOAuthName || bs[0].Placeholder != ph || bs[0].Header != "Authorization" ||
-		!slices.Equal(bs[0].Hosts, []string{"api.anthropic.com"}) {
+	if len(bs) != 2 || bs[0].Name != ClaudeOAuthName || bs[0].Placeholder != ph || bs[0].Header != "Authorization" ||
+		!slices.Equal(bs[0].Hosts, []string{"api.anthropic.com"}) || bs[0].Path != "" ||
+		bs[1].Name != ClaudeConnectorsName || bs[1].Agent != ClaudeOAuth || bs[1].Placeholder != ph || bs[1].Header != "Authorization" ||
+		!slices.Equal(bs[1].Hosts, []string{"mcp-proxy.anthropic.com"}) || bs[1].Path != "/v1/mcp/" {
 		t.Errorf("bindings = %+v", bs)
 	}
 	data, _ := vmCopy(t, f)

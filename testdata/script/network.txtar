@@ -133,17 +133,20 @@ exec sh -c 'kill "$(cat "$WORK/squat.pid")"'
 
 # Secrets: claude comes with Claude Code. The proxy gets its binding, with
 # the VM's own placeholder and never the token, and its host on 443, and
-# the OAuth login's binding, which gets the same token.
+# the OAuth login's binding, which gets the same token, and its binding for
+# claude.ai's connectors, below mcp-proxy.anthropic.com's /v1/mcp/, which
+# never gets a token in the login's place.
 project agent
 env CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-testfake
 exec devvm --network allowlist --no-git-protect --agents claude
 vm_name AGENT agent
 exec cat $AGENT_dir/run/secrets.json
-stdout '^\{"version":1,"bindings":\[\{"name":"claude","kind":"secret","hosts":\["api\.anthropic\.com"\],"header":"Authorization","placeholder":"sk-ant-oat01-devvm-proxy-managed-[0-9a-f]{32}"\},\{"name":"claude-oauth","kind":"login","agent":"claude-oauth","hosts":\["api\.anthropic\.com"\],"header":"Authorization","placeholder":"sk-ant-oat01-devvm-proxy-managed-oauth-[0-9a-f]{32}"\}\]\}$'
+stdout '^\{"version":1,"bindings":\[\{"name":"claude","kind":"secret","hosts":\["api\.anthropic\.com"\],"header":"Authorization","placeholder":"sk-ant-oat01-devvm-proxy-managed-[0-9a-f]{32}"\},\{"name":"claude-oauth","kind":"login","agent":"claude-oauth","hosts":\["api\.anthropic\.com"\],"header":"Authorization","placeholder":"sk-ant-oat01-devvm-proxy-managed-oauth-[0-9a-f]{32}"\},\{"name":"claude-connectors","kind":"login","agent":"claude-oauth","hosts":\["mcp-proxy\.anthropic\.com"\],"path":"/v1/mcp/","header":"Authorization","placeholder":"sk-ant-oat01-devvm-proxy-managed-oauth-[0-9a-f]{32}"\}\]\}$'
 ! stdout testfake
 exec sh -c 'salt=$(sed -n "s/^ *\"proxy_salt\": \"\(.*\)\".*/\1/p" "$AGENT_dir/vm.json"); test -n "$salt" && grep -F "$salt" "$AGENT_dir/run/secrets.json"'
 exec cat $AGENT_dir/run/secrets.policy
 stdout '^api\.anthropic\.com:443$'
+stdout '^mcp-proxy\.anthropic\.com:443$'
 # Its proxy's policies: base's and claude's built in, read from the
 # binary, then the files: the user's, the VM's own and its secrets' hosts.
 exec cat $AGENT_dir/run/proxy.json

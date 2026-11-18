@@ -15,7 +15,8 @@ package agentlogin
 // an empty refreshToken means a login it can't refresh. With an OAuth login (or
 // CLAUDE_CODE_OAUTH_TOKEN, which wins over it) it sends the access token as a Bearer
 // Authorization to api.anthropic.com, with its anthropic-beta header naming oauth-2025-04-20
-// itself, so the proxy only swaps the placeholder.
+// itself, so the proxy only swaps the placeholder, and to mcp-proxy.anthropic.com for the
+// claude.ai account's connectors.
 
 import (
 	"context"
@@ -45,6 +46,9 @@ const (
 	claudeAPIKeyScope = "org:create_api_key" //nolint:gosec // a scope's name, not a secret
 	// ClaudeOAuthName is the OAuth login's binding's name: its file's kind's.
 	ClaudeOAuthName = agents.ClaudeOAuth
+	// ClaudeConnectorsName is the name of the OAuth login's binding for claude.ai's connectors,
+	// which, unlike ClaudeOAuthName's, never gets a Claude Code token in the login's place.
+	ClaudeConnectorsName = "claude-connectors"
 	// claudeTokenStart is how Claude Code's access tokens and tokens from claude setup-token start.
 	claudeTokenStart = "sk-ant-oat01-" //nolint:gosec // a token's prefix, not a secret
 )
@@ -66,13 +70,21 @@ func claudeOAuthBindings(m map[string]any, salt string) []proxy.Binding {
 	if str(claudeOAuth(m), "accessToken") == "" {
 		return nil
 	}
-	return []proxy.Binding{ClaudeOAuthBinding(salt)}
+	return ClaudeOAuthBindings(salt)
 }
 
-// ClaudeOAuthBinding is the binding of the OAuth login's placeholder ending in salt: its access
-// token goes into Authorization for api.anthropic.com.
-func ClaudeOAuthBinding(salt string) proxy.Binding {
-	return login(agents.ClaudeOAuth, ClaudeOAuthName, authorization("api.anthropic.com"), claudeOAuthPlaceholder(salt))[0]
+// ClaudeOAuthBindings are the bindings of the OAuth login's placeholder ending in salt, its access
+// token going into Authorization: ClaudeOAuthName's for api.anthropic.com, the model's API, and
+// ClaudeConnectorsName's for mcp-proxy.anthropic.com below /v1/mcp/, where Claude Code reaches
+// each of the claude.ai account's connectors. Two names, as the proxy looks a value up by its
+// binding's name: ClaudeOAuthName's gets a Claude Code token while devvm keeps one in the login's
+// place (secrets.Store.Get), and ClaudeConnectorsName's never does, so such a token, saved or in
+// devvm's environment, goes only to the API.
+func ClaudeOAuthBindings(salt string) []proxy.Binding {
+	ph := claudeOAuthPlaceholder(salt)
+	connectors := provider{hosts: []string{"mcp-proxy.anthropic.com"}, path: "/v1/mcp/", headers: []string{"Authorization"}}
+	return append(login(agents.ClaudeOAuth, ClaudeOAuthName, authorization("api.anthropic.com"), ph),
+		login(agents.ClaudeOAuth, ClaudeConnectorsName, connectors, ph)...)
 }
 
 // claudeOAuthVM is the VM's .credentials.json: the login's placeholder, a refresh token that's
@@ -105,10 +117,10 @@ func scopesOf(o map[string]any) []string {
 	return out
 }
 
-// claudeOAuthGet is the OAuth login's access token, refreshed here when it's due, as Claude Code
-// refreshes it, written back under the file's lock.
+// claudeOAuthGet is the OAuth login's access token, for either of its bindings' names, refreshed
+// here when it's due, as Claude Code refreshes it, written back under the file's lock.
 func (f File) claudeOAuthGet(ctx context.Context, name string) (redact.Secret, error) {
-	if name != ClaudeOAuthName {
+	if name != ClaudeOAuthName && name != ClaudeConnectorsName {
 		return redact.Secret{}, fmt.Errorf("no Claude Code login %q", name)
 	}
 	unlock, err := lockLogin(f.Path)

@@ -1,3 +1,4 @@
+binding {"name":"claude-connectors","kind":"login","agent":"claude-oauth","hosts":["mcp-proxy.anthropic.com"],"path":"/v1/mcp/","header":"Authorization","placeholder":"sk-ant-oat01-devvm-proxy-managed-oauth-s4lt"}
 binding {"name":"claude-oauth","kind":"login","agent":"claude-oauth","hosts":["api.anthropic.com"],"header":"Authorization","placeholder":"sk-ant-oat01-devvm-proxy-managed-oauth-s4lt"}
 kept 
 withheld 

@@ -120,6 +120,13 @@ func (c Claude) oauthToken(ctx context.Context) (redact.Secret, error) {
 	return c.s.Get(ctx, proxy.Binding{Kind: proxy.KindLogin, Agent: agents.ClaudeOAuth, Name: agentlogin.ClaudeOAuthName})
 }
 
+// tokenInstead reports whether the OAuth login's binding of that name gets
+// the Claude Code token while devvm keeps it in the login's place: the
+// API's binding does, and the connectors' never does, so the token, whose
+// scope devvm doesn't check when it's in the environment, goes to its own
+// host alone.
+func (c Claude) tokenInstead(name string) bool { return name == agentlogin.ClaudeOAuthName }
+
 // OAuthInstead reports whether a VM's secret name, with no value saved,
 // gets Claude Code's OAuth login instead: the claude secret, while devvm
 // keeps that login, so the VM gets the one or the other, never both.
@@ -153,7 +160,7 @@ func (c Claude) bindings(ctx context.Context, tools []string, salt string) ([]pr
 	if l, err := c.Login(ctx); err != nil || l == "" {
 		return nil, err
 	}
-	return []proxy.Binding{agentlogin.ClaudeOAuthBinding(salt)}, nil
+	return agentlogin.ClaudeOAuthBindings(salt), nil
 }
 
 // Sums are hashes of the Claude Code logins devvm keeps, "" for one it

@@ -123,7 +123,8 @@ func TestOneClaudeLogin(t *testing.T) {
 }
 
 // A VM with Claude Code has both Claude Code logins' bindings while devvm keeps either, and each
-// gets the login devvm keeps: the token, or the OAuth login's access token.
+// gets the login devvm keeps: the token, or the OAuth login's access token. The OAuth login's
+// binding for claude.ai's connectors gets the OAuth login alone, never the token.
 func TestClaudeBindings(t *testing.T) {
 	ctx := t.Context()
 	s, kc := testStore(t, true, nil)
@@ -139,10 +140,12 @@ func TestClaudeBindings(t *testing.T) {
 	if err := s.WriteFiles(ctx, st, salt); err != nil {
 		t.Fatal(err)
 	}
-	if got := bindingNames(t, s, st); !slices.Equal(got, []string{"claude", agentlogin.ClaudeOAuthName}) {
+	names := []string{"claude", agentlogin.ClaudeOAuthName, agentlogin.ClaudeConnectorsName}
+	if got := bindingNames(t, s, st); !slices.Equal(got, names) {
 		t.Errorf("the OAuth login: %q", got)
 	}
-	for _, b := range []proxy.Binding{secretOf("claude"), loginOf(agents.ClaudeOAuth, agentlogin.ClaudeOAuthName)} {
+	connectors := loginOf(agents.ClaudeOAuth, agentlogin.ClaudeConnectorsName)
+	for _, b := range []proxy.Binding{secretOf("claude"), loginOf(agents.ClaudeOAuth, agentlogin.ClaudeOAuthName), connectors} {
 		if v, err := s.Get(ctx, b); v.Reveal() != "sk-ant-oat01-oauth" || err != nil {
 			t.Errorf("Get(%s) with the OAuth login = %q, %v", b.Name, v.Reveal(), err)
 		}
@@ -153,13 +156,24 @@ func TestClaudeBindings(t *testing.T) {
 	if err := s.WriteFiles(ctx, st, salt); err != nil {
 		t.Fatal(err)
 	}
-	if got := bindingNames(t, s, st); !slices.Equal(got, []string{"claude", agentlogin.ClaudeOAuthName}) {
+	if got := bindingNames(t, s, st); !slices.Equal(got, names) {
 		t.Errorf("the token: %q", got)
 	}
 	for _, b := range []proxy.Binding{secretOf("claude"), loginOf(agents.ClaudeOAuth, agentlogin.ClaudeOAuthName)} {
 		if v, err := s.Get(ctx, b); v.Reveal() != "sk-ant-oat01-token" || err != nil {
 			t.Errorf("Get(%s) with the token = %q, %v", b.Name, v.Reveal(), err)
 		}
+	}
+	// The connectors' binding never gets the token, saved or in devvm's environment.
+	if v, err := s.Get(ctx, connectors); !v.Empty() || msg.IDOf(err) != "claude_no_login" {
+		t.Errorf("Get(%s) with the token = %q, %v", connectors.Name, v.Reveal(), msg.NamesOf(err))
+	}
+	es, _ := testStore(t, true, map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-env"}) //nolint:gosec // G101: a test's fake token
+	if v, err := es.Get(ctx, loginOf(agents.ClaudeOAuth, agentlogin.ClaudeOAuthName)); v.Reveal() != "sk-ant-oat01-env" || err != nil {
+		t.Errorf("Get(%s) with the environment's token = %q, %v", agentlogin.ClaudeOAuthName, v.Reveal(), err)
+	}
+	if v, err := es.Get(ctx, connectors); !v.Empty() || msg.IDOf(err) != "claude_no_login" {
+		t.Errorf("Get(%s) with the environment's token = %q, %v", connectors.Name, v.Reveal(), msg.NamesOf(err))
 	}
 	delete(kc, "devvm/claude")
 	if _, err := s.Get(ctx, loginOf(agents.ClaudeOAuth, agentlogin.ClaudeOAuthName)); msg.IDOf(err) != "claude_no_login" {

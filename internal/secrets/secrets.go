@@ -547,7 +547,7 @@ func (s *Store) Get(ctx context.Context, b proxy.Binding) (redact.Secret, error)
 		f := s.login(b.Agent, "")
 		v, err := f.Get(ctx, b.Name)
 		if errors.Is(err, agentlogin.ErrClaudeNoLogin) {
-			if tok, terr := s.Value(ctx, ClaudeToken); terr == nil {
+			if tok, terr := s.Value(ctx, ClaudeToken); terr == nil && ClaudeOf(s).tokenInstead(b.Name) {
 				return tok, nil
 			}
 			return redact.Secret{}, msg.ClaudeNoLogin().Because(err)
