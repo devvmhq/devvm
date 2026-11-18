@@ -177,6 +177,19 @@ func Files(u *UI) (stdout, stderr *os.File) {
 	return stdout, stderr
 }
 
+// Terminal is stdout and stderr as the files they are when devvm runs on
+// a terminal, its stdin and stdout both terminals and stderr a file, and
+// nil files otherwise: what a command in a VM that draws on the terminal
+// gets (an agent's login), since the backend gives it a terminal in the
+// VM only when its streams are one (backend.ExecOpts).
+func Terminal(u *UI) (stdout, stderr *os.File) {
+	stdout, stderr = Files(u)
+	if !u.stdinTTY || !u.stdoutTTY || stdout == nil || stderr == nil {
+		return nil, nil
+	}
+	return stdout, stderr
+}
+
 type lockedWriter struct {
 	u *UI
 	w io.Writer

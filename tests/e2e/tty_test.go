@@ -21,11 +21,16 @@ func TTYRun(s *S, dir, input string, args ...string) (Res, error) {
 	if st, err := os.Stat(s.sb.logFile()); err == nil {
 		at = st.Size()
 	}
-	tty := append([]string{"script", "-q", "/dev/null"}, args...)
+	return s.Run(Cmd{Args: OnTTY(args...), Dir: dir, Input: &typist{log: s.sb.logFile(), at: at, input: input + "\n"}})
+}
+
+// OnTTY is args run on a terminal of their own: macOS's script, or
+// Python's pty on Linux, where script isn't always installed.
+func OnTTY(args ...string) []string {
 	if runtime.GOOS != "darwin" {
-		tty = append([]string{"python3", "-c", "import os, pty, sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))"}, args...)
+		return append([]string{"python3", "-c", "import os, pty, sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))"}, args...)
 	}
-	return s.Run(Cmd{Args: tty, Dir: dir, Input: &typist{log: s.sb.logFile(), at: at, input: input + "\n"}})
+	return append([]string{"script", "-q", "/dev/null"}, args...)
 }
 
 // typist is a terminal's input: its answer once the check's log, past

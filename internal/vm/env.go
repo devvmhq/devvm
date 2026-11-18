@@ -54,6 +54,12 @@ type Env struct {
 	Protector func(dir string) *gitprotect.Protector
 	// Exec runs the shell in devvm's place; it returns only on failure.
 	Exec func(backend.Command) error
+	// Terminal returns devvm's stdout and stderr as the files they are
+	// when devvm runs on a terminal, its input and output both terminals
+	// (ui.Terminal), and nil files otherwise: what an agent's login in the
+	// VM draws on, since the backend gives a command in the VM a terminal
+	// only when its own output is one. Its caller sets it; nil is none.
+	Terminal func() (stdout, stderr *os.File)
 	// OpenURL opens a URL with macOS's open (devvm desktop's vnc://, in
 	// Screen Sharing).
 	OpenURL func(ctx context.Context, url string) error

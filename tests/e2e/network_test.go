@@ -2248,6 +2248,15 @@ func netClaudeLogins(n *netRun) {
 		}
 		return nil
 	}, Tail(60))
+	// devvm agent login claude --setup-token on a terminal: the real
+	// claude setup-token, full-screen, gets a terminal in the VM and draws
+	// its address there, which nothing logs in with: the check stops it.
+	s.Check("devvm agent login claude --setup-token on a terminal shows Claude Code's address", func() error {
+		if what := setupTokenShows(n); what != "" {
+			return errors.New(what)
+		}
+		return nil
+	}, Tail(40))
 	// devvm agent login claude: the real Claude Code's claude auth login in
 	// the VM, its code pasted on devvm's input as code#state, the state
 	// from the address it shows. The proxy saves the subscription's login
@@ -2333,6 +2342,45 @@ func (n *netRun) setupToken() string {
 		return "... which never got the token"
 	case !strings.Contains(readText(n.events), `"event":"login","host":"platform.claude.com","port":443,"method":"POST","path":"/v1/oauth/token","login":"claude"`):
 		return "the event names the login"
+	}
+	return ""
+}
+
+// setupTokenShows runs devvm agent login claude --setup-token on a
+// terminal of its own, its input one that never ends (an end of input on
+// a terminal is a key of its own), until the terminal shows Claude Code's
+// address, its escapes and line breaks taken out, then stops it: the
+// first step that failed, nothing when none.
+func setupTokenShows(n *netRun) string {
+	s := n.s
+	args := append([]string{"sh", "-c", `sleep 600 | "$@"`, "sh"}, OnTTY(s.sb.devvm, "agent", "login", "claude", "--setup-token")...)
+	p, err := s.Start(Cmd{Args: args, Dir: n.n, Env: n.tokenEnv("DEVVM_MESSAGES=names")})
+	if err != nil {
+		return err.Error()
+	}
+	// The terminal's devvm is in a session of its own, which Stop's TERM
+	// doesn't reach: it ends at the hangup, then ends the login in the VM
+	// (endLogin) through the same pid file the next check's login writes,
+	// so the next check waits until it's gone.
+	defer func() {
+		p.Stop()
+		_ = s.Until(time.Minute, func() error {
+			if len(pids(s, "[a]gent login claude --setup-token")) > 0 {
+				return errors.New("devvm agent login claude --setup-token runs on")
+			}
+			return nil
+		})
+	}()
+	escapes := regexp.MustCompile(`\x1b(\[[0-9;?<=>]*[ -/]*[@-~]|\][^\x07\x1b]*(\x07|\x1b\\)|[@-Z\\-_])|[\r\n]`)
+	shown := func() bool { return strings.Contains(escapes.ReplaceAllString(p.Out(), ""), "oauth/authorize?") }
+	_ = s.Until(2*time.Minute, func() error {
+		if shown() || !p.Running() {
+			return nil
+		}
+		return errors.New("no address yet")
+	})
+	if !shown() {
+		return "Claude Code shows its address on the terminal\n" + n.loginWhy(p)
 	}
 	return ""
 }

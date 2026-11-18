@@ -159,6 +159,7 @@ func (a *app) vmEnv() (*vm.Env, error) {
 		e.PickParts = pickParts(a.u)
 		e.PickOne = pickOne(a.u)
 		e.PickMany = pickMany(a.u)
+		e.Terminal = func() (*os.File, *os.File) { return ui.Terminal(a.u) }
 		e.Folder = a.folder.rule()
 		e.HistoryMax = a.testOverrides().HistoryMax
 		e.PasteWait = time.Duration(a.testOverrides().PasteWait) * time.Second

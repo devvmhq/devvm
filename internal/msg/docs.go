@@ -515,6 +515,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"agent_login_provider_alone":      "using/coding-agents#logging-in-with-devvm-agent-login",
 	"agent_login_key_only":            "using/coding-agents#logging-in-with-devvm-agent-login",
 	"agent_login_stdin_alone":         "using/coding-agents#logging-in-with-devvm-agent-login",
+	"setup_token_no_terminal":         "using/coding-agents#claude-code-login",
 	"agent_login_flag":                "using/coding-agents#logging-in-with-devvm-agent-login",
 	"agent_login_flag_or_token":       "using/coding-agents#logging-in-with-devvm-agent-login",
 	"agent_refresh_failed":            "using/coding-agents#logging-in-with-devvm-agent-login",

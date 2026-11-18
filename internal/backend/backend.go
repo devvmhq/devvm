@@ -641,7 +641,11 @@ type Instance struct {
 }
 
 // ExecOpts is where a command run in a VM runs and what it's connected to.
-// Nil streams are empty input and discarded output.
+// Nil streams are empty input and discarded output. Stdin and Stdout that
+// are a terminal's files (*os.File) give the command a terminal in the VM,
+// as a shell has, so the backend passes them on as they are, never
+// wrapped: an agent's login that draws full-screen needs it. Any other
+// streams are pipes.
 type ExecOpts struct {
 	Dir    string // the folder in the VM; "" for /
 	Stdin  io.Reader

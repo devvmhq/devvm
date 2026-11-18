@@ -3289,6 +3289,10 @@ other = "{{.flag}} doesn't go with devvm agent login {{.agent}}, because {{.agen
 description = "flag is the flag given, as typed: --device-code, --api-key or --stdin; agent is the name in devvm's commands of an agent with a setup token, such as claude"
 other = "{{.flag}} doesn't go with devvm agent login {{.agent}}, because {{.agent}} has no login that takes it. Run devvm agent login {{.agent}}, or devvm agent login {{.agent}} --setup-token."
 
+[setup_token_no_terminal]
+description = "agent is the name in devvm's commands of an agent with a setup token, such as claude"
+other = "devvm's input or output isn't a terminal, so the setup token's login in the VM gets none, and it may show nothing and wait. Run devvm agent login {{.agent}} --setup-token in a terminal."
+
 [agent_key_saved]
 description = "provider is the API key's provider, as the agent names it, such as openai"
 other = "devvm saved {{.agent}}'s {{.provider}} API key in its agent store, and {{.vm}} uses it now. Every VM with {{.agent}} gets it from its next launch."

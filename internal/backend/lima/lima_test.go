@@ -40,6 +40,8 @@ type call struct {
 	env   []string
 	dir   string
 	stdin string // what a script fed on its input got
+	// stdout and stderr are the command's own, as given.
+	stdout, stderr io.Writer
 }
 
 func (c call) line() string { return strings.Join(c.argv, " ") }
@@ -63,7 +65,7 @@ func (f *fakeRunner) record(cmd *exec.Cmd) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	argv := append([]string{filepath.Base(cmd.Path)}, cmd.Args[1:]...)
-	c := call{argv: argv, env: cmd.Env, dir: cmd.Dir}
+	c := call{argv: argv, env: cmd.Env, dir: cmd.Dir, stdout: cmd.Stdout, stderr: cmd.Stderr}
 	if cmd.Stdin != nil {
 		b, _ := io.ReadAll(cmd.Stdin)
 		c.stdin = string(b)
@@ -1140,6 +1142,30 @@ func TestExecAndShell(t *testing.T) {
 	}
 	if v, ok := envOf(call{env: c.Env}, "SSH_AUTH_SOCK"); ok {
 		t.Errorf("Shell without an agent: SSH_AUTH_SOCK=%q", v)
+	}
+}
+
+// Exec gives limactl shell the command's streams as they are, so a
+// terminal's files reach it as files: limactl shell gives the command a
+// terminal in the VM (ssh -t) only when its own stdout is one, which an
+// agent's login on a terminal needs (backend.ExecOpts).
+func TestExecStreamsAsGiven(t *testing.T) {
+	l, f, _ := testLima(t, "darwin")
+	out, err := os.CreateTemp(t.TempDir(), "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	errOut, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer errOut.Close()
+	if err := l.Exec(t.Context(), "v", []string{"true"}, backend.ExecOpts{Stdout: out, Stderr: errOut}); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.calls[0]; c.stdout != io.Writer(out) || c.stderr != io.Writer(errOut) {
+		t.Errorf("Exec's limactl got stdout %v and stderr %v, want the files as given", c.stdout, c.stderr)
 	}
 }
 

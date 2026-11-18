@@ -145,6 +145,10 @@ func (e AgentLogin) login(ctx context.Context, t *target, o AgentLoginOptions) e
 		e.Info(msg.AgentLoginForward(o.Agent, strconv.Itoa(loginPort), vm))
 	}
 	argv := append([]string{"bash", "-lc", loginScript, "devvm"}, cmd.Run(o.Device, o.SetupToken)...)
+	opts, onTerminal := e.loginOpts()
+	if o.SetupToken && !onTerminal {
+		e.Warn(msg.SetupTokenNoTerminal(o.Agent))
+	}
 	// Interrupted, the run ends the login in the VM too, here or, past
 	// the run's grace for this command, in its cleanups.
 	remove := e.AddCleanup(func(ctx context.Context) {
@@ -152,8 +156,11 @@ func (e AgentLogin) login(ctx context.Context, t *target, o AgentLoginOptions) e
 			e.endLogin(ctx, t)
 		}
 	})
-	err := t.exec(ctx, argv, backend.ExecOpts{Stdin: os.Stdin, Stdout: e.Stdout(), Stderr: e.Stderr()})
+	err := t.exec(ctx, argv, opts)
 	if ctx.Err() != nil {
+		// The cleanup stays: past the run's grace, this endLogin may not
+		// finish, and the cleanup's, which the run waits for, ends the
+		// login then (endScript is safe to run twice).
 		e.endLogin(ctx, t)
 		return ctx.Err()
 	}
@@ -162,6 +169,25 @@ func (e AgentLogin) login(ctx context.Context, t *target, o AgentLoginOptions) e
 		return msg.AgentLoginExited(o.Agent, vm)
 	}
 	return nil
+}
+
+// loginOpts are the login's streams, and whether they're a terminal:
+// devvm's input, and on a terminal (Terminal) its output as the files
+// they are, so the backend gives the login a terminal in the VM
+// (backend.ExecOpts), which a full-screen login (claude setup-token)
+// draws on; without one, devvm's writers, pipes. Either way the login's
+// output reaches devvm's output alone, never the run log.
+func (e AgentLogin) loginOpts() (backend.ExecOpts, bool) {
+	o := backend.ExecOpts{Stdin: os.Stdin, Stdout: e.Stdout(), Stderr: e.Stderr()}
+	if e.Terminal == nil {
+		return o, false
+	}
+	out, errOut := e.Terminal()
+	if out == nil {
+		return o, false
+	}
+	o.Stdout, o.Stderr = out, errOut
+	return o, true
 }
 
 // loginScript runs the agent's login in a login shell (commandScript's
@@ -176,7 +202,12 @@ const (
 // endLogin ends the agent's login in the VM once devvm's run is
 // interrupted: without a terminal, the end of its ssh session doesn't end
 // it, and its server would wait on, for the VM's port forwarder to forward
-// on. It has a few seconds, past the run's end.
+// on. On a terminal (loginOpts), Ctrl-C reaches the login in the VM rather
+// than devvm, and the session's end hangs it up, so endLogin runs only for
+// a signal sent to devvm itself, and ends what's left. Then the backend's
+// ssh to the VM, which holds the terminal in raw mode, can outlast devvm
+// until endLogin ends the login, within its 10 seconds for a VM that ends
+// its login when told. It has those seconds past the run's end.
 func (e AgentLogin) endLogin(ctx context.Context, t *target) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()

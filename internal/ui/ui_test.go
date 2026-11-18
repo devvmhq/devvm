@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -402,5 +404,45 @@ func TestRefusedInterrupted(t *testing.T) {
 	u.Refused(question("x").Refused(false))
 	if errOut.Len() != 0 {
 		t.Errorf("printed %q", errOut)
+	}
+}
+
+// Terminal gives stdout and stderr as files only when stdin and stdout
+// are both terminals and both streams are files, and otherwise neither.
+func TestTerminal(t *testing.T) {
+	out, err := os.CreateTemp(t.TempDir(), "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	errOut, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer errOut.Close()
+	for _, c := range []struct {
+		name          string
+		stdin, stdout bool
+		w, errW       io.Writer
+		want          bool
+	}{
+		{"both terminals", true, true, out, errOut, true},
+		{"input piped", false, true, out, errOut, false},
+		{"output piped", true, false, out, errOut, false},
+		{"output not a file", true, true, &bytes.Buffer{}, errOut, false},
+		{"errors not a file", true, true, out, &bytes.Buffer{}, false},
+	} {
+		u := New(strings.NewReader(""), c.w, c.errW, env{}.get)
+		u.stdinTTY, u.stdoutTTY = c.stdin, c.stdout
+		gotOut, gotErr := Terminal(u)
+		if (gotOut == nil) != (gotErr == nil) {
+			t.Errorf("%s: Terminal = %v, %v, a half pair", c.name, gotOut, gotErr)
+		}
+		if got := gotOut != nil; got != c.want {
+			t.Errorf("%s: Terminal = %v, %v, want files %v", c.name, gotOut, gotErr, c.want)
+		}
+		if c.want && (gotOut != out || gotErr != errOut) {
+			t.Errorf("%s: Terminal = %v, %v, want devvm's own", c.name, gotOut, gotErr)
+		}
 	}
 }

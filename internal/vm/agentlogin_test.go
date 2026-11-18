@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -137,6 +139,72 @@ func TestAgentLoginSaved(t *testing.T) {
 	}
 	if names := got.Names(); !slices.Equal(names, want) {
 		t.Errorf("said %q, want %q", names, want)
+	}
+}
+
+// An agent's login in the VM gets devvm's terminal as the files they are
+// when devvm has one, so Lima gives the login a terminal of its own in
+// the VM (claude setup-token draws on it), and devvm's own writers,
+// pipes, when it hasn't.
+func TestAgentLoginTerminal(t *testing.T) {
+	e, f, _ := upEnv(t, allNative())
+	existingVM(t, e, Options{Network: "open"})
+	tg, err := (finder{e}).target(t.Context(), need{})
+	if err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	out, err := os.CreateTemp(t.TempDir(), "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	errOut, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer errOut.Close()
+	loginOpts := func() backend.ExecOpts {
+		t.Helper()
+		calls := f.Calls()
+		for i := len(calls) - 1; i >= 0; i-- {
+			c := calls[i]
+			if argv, ok := c.Args[1].([]string); c.Method == "Exec" && ok && len(argv) > 2 && argv[2] == loginScript {
+				o, _ := c.Args[2].(backend.ExecOpts)
+				return o
+			}
+		}
+		t.Fatal("the login didn't run")
+		return backend.ExecOpts{}
+	}
+	login := AgentLogin{e}
+	o := AgentLoginOptions{Agent: agents.Claude, SetupToken: true}
+	for _, c := range []struct {
+		name     string
+		terminal func() (stdout, stderr *os.File)
+		stdout   io.Writer
+		stderr   io.Writer
+		warned   []string
+	}{
+		{"a terminal", func() (*os.File, *os.File) { return out, errOut }, out, errOut, nil},
+		{"no terminal", func() (*os.File, *os.File) { return nil, nil }, e.Stdout(), e.Stderr(), []string{"setup_token_no_terminal agent=claude"}},
+		{"no seam", nil, e.Stdout(), e.Stderr(), []string{"setup_token_no_terminal agent=claude"}},
+	} {
+		var said msg.Recorder
+		fake(e).OnWarn = said.Add
+		e.Terminal = c.terminal
+		if err := login.login(t.Context(), tg, o); err != nil {
+			t.Fatalf("%s: %v", c.name, msg.NamesOf(err))
+		}
+		if names := said.Names(); !slices.Equal(names, c.warned) {
+			t.Errorf("%s: warned %q, want %q", c.name, names, c.warned)
+		}
+		got := loginOpts()
+		if got.Stdout != c.stdout || got.Stderr != c.stderr {
+			t.Errorf("%s: the login's stdout %T, stderr %T, want %T, %T", c.name, got.Stdout, got.Stderr, c.stdout, c.stderr)
+		}
+		if got.Stdin != os.Stdin {
+			t.Errorf("%s: the login's stdin %v, want devvm's", c.name, got.Stdin)
+		}
 	}
 }
 

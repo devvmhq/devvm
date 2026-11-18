@@ -4548,6 +4548,11 @@ func SetupInConfig(file string, key string) M {
 	return M{id: "setup_in_config", vals: []val{{"file", file}, {"key", key}}}
 }
 
+// SetupTokenNoTerminal is [setup_token_no_terminal]: "devvm's input or output isn't a terminal, so the setup token's login in the VM gets none, and it may show nothing and wait. Run devvm agent login {{.agent}} --setup-token in a terminal."
+func SetupTokenNoTerminal(agent string) M {
+	return M{id: "setup_token_no_terminal", vals: []val{{"agent", agent}}}
+}
+
 // ShareWaiting is [share_waiting]: "waiting for another devvm to finish with {{.dir}}"
 func ShareWaiting(dir string) M {
 	return M{id: "share_waiting", vals: []val{{"dir", dir}}}
@@ -6293,6 +6298,7 @@ var specs = map[string]spec{
 	"setting_set":                     {fields: []string{"vm"}},
 	"setup_failed":                    {fields: []string{"reason"}},
 	"setup_in_config":                 {fields: []string{"file", "key"}},
+	"setup_token_no_terminal":         {fields: []string{"agent"}},
 	"share_waiting":                   {fields: []string{"dir"}},
 	"size_cpus_prompt":                {fields: []string{"cpus"}},
 	"size_defaults":                   {fields: []string{"size"}},

@@ -285,6 +285,8 @@ exec devvm secret set claude --stdin
 rm $STUB_DIR/shell-waits-on
 wait s
 stdout '^==> claude_setup_token_saved vm=devvm-claude-[0-9a-f]{14}$'
+# Without a terminal, devvm warns that the login in the VM gets none.
+stderr '^devvm: setup_token_no_terminal agent=claude$'
 exec tar -tf $STUB_DIR/sync.tar
 ! stdout credentials
 exec tar -xOf $STUB_DIR/sync.tar env
