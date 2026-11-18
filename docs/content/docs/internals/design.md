@@ -800,6 +800,32 @@ Whichever allows it, the same rules hold:
 | A link followed without the user seeing it | Without a terminal nothing is followed unless the flag is given, and each link followed is named | `TestAgentImportFollowsLinks`, `agent_import_links` |
 | What VMs get | Copies only, mounted read-only like the rest of the store | e2e's `project` section reads the linked skill's copy in a VM and finds root can't write it |
 
+## Claude Code's plugins: a seed and a folder of the VM's own
+
+Claude Code writes into its plugins folder whenever it runs: each plugin's data, which a plugin reaches as `${CLAUDE_PLUGIN_DATA}`, the plugins it installs, its marketplaces' copies and their updates, its MCP bundles and its records. devvm's agent store holds one plugins folder for every VM with Claude Code, mounted read-only, so if that folder were each VM's `~/.claude/plugins`, every one of those writes would fail: a plugin that keeps data would break, and no plugin could be installed in a VM. Making the store's folder writable would fix the writes, but every VM shares it, so a VM could then change the plugins, hooks and MCP servers' commands that Claude Code runs in every other VM, and keep a foothold in each of them after you delete it. That isn't an escape to this machine, but it breaks the line between VMs that the store's read-only mounts hold for every other agent folder.
+
+So each VM's plugins folder is its own, on its own disk, and the store's folder is Claude Code's seed, a plugins folder that Claude Code reads but never writes, which it supports for container images and CI ([how](agents.md#claude-codes-plugins)). Its two variables, `CLAUDE_CODE_PLUGIN_CACHE_DIR` and `CLAUDE_CODE_PLUGIN_SEED_DIR`, are Claude Code's own, so devvm patches nothing in Claude Code and copies nothing into the VM at a launch: the seed stays one mount that every VM reads. What a VM writes stays in that VM, and what it installed reaches the store, and every VM, only through `devvm agent save`, whose diff you read before you answer yes. The import and the save copy only the entries a seed has, the marketplaces' records, their copies and the plugins' cache, because the rest of the folder is each machine's own: each plugin's data can hold its own logins, and this machine's plugins' data in the store would reach every VM.
+
+The save never takes a plugin out of the store, because a VM's folder holds only what that VM installed, not the store's plugins, which it reads from the seed, so a plugin missing from it isn't one the VM removed. Taking out what the VM's folder lacks would empty the store of every plugin the VM didn't install itself. The VM's marketplaces' records join the store's for the same reason, and only a record whose copy is in the store's marketplaces folder joins, so the records that Claude Code made of the seed's own marketplaces stay as the store has them, and a record can't point other VMs elsewhere.
+
+**Not covered:**
+
+- **A marketplace in a folder on this machine** reaches a VM only when that folder is in the VM too, because Claude Code reads such a marketplace where it is, and a seed holds no copy of it.
+- **A plugin's data stays in its VM.** A new VM, or one made from an export of another's history, starts each plugin's data afresh, and so does every VM after you install a plugin there, as the export leaves the VM's plugins folder out.
+- **A plugin installed in a VM runs in that VM** with whatever it does, as a plugin does on this machine. devvm keeps it from the other VMs until you save it, and the save's diff shows what it adds.
+
+**Threat check** (the security-audit skill, a hostile VM writing what other VMs or this machine run):
+
+| Lead | What holds it | Check |
+| --- | --- | --- |
+| A VM writing the store's plugins, which every VM runs | The store's folder stays mounted read-only, and the VM's writes go to its own folder | `TestClaudePluginsSeed`, `sync`'s links and `own-dirs`, e2e's `project` section |
+| A save that sends more than the seed's entries, such as a plugin's data | The VM's script sends only the seed's entries, and devvm saves nothing when the stream has any other entry of the folder | `TestReadSentClaudePlugins`, `TestAgentSaveScriptClaudePlugins`, `agent_save` |
+| This machine's plugins' data reaching every VM | The import copies only the seed's entries, through links too | `TestAgentImportClaudePlugins`, `agent` |
+| A VM's paths in the records it saves | The records' paths to the VM's plugins folder are renamed to the store's, only a record whose copy is in the store's `marketplaces` by a clean path joins the store's, and a records file that isn't a JSON object is left out | `TestAgentSaveClaudePlugins` |
+| A name in the VM's plugins folder that the save's script would read as a pattern | It's sent rather than excluded, and devvm refuses the save | `TestAgentSaveScriptClaudePlugins` |
+| A plugin's data, or what a VM installed, reaching another VM through an export | The export and the import leave out the VM's plugins folder, and the import leaves out the seed's link | `TestClaudePluginsHistory` |
+| An export that names the VM's plugins folder another way, such as `.claude/./plugins`, past the import's excludes, now that the folder is writable | The import refuses a name with a `.`, `..` or empty part, and deletes what it leaves out by its path once unpacked; the review found it first, and it's fixed | `TestHistoryImportRuns` |
+
 ## The 9p cache on Linux
 
 On a Linux host, Lima's QEMU shares the project folder over 9p, and Lima mounts a writable 9p share with `cache=mmap` unless the VM's config says otherwise (read-only ones with `fscache`). The guest kernel's 9p client has a race in that mode, which [Pierre Barre's patch](https://lore.kernel.org/all/20251227180137.730385-1-pierre@barre.sh/) describes and which isn't merged. A `stat()` that runs while a `write()` makes a file longer refreshes the inode from the server, which still has the old size, so the client takes that size over its own, and writeback then drops the pages past it. `fsync` succeeds, yet the file reaches the host empty or cut to 4096 bytes. Claude Code's Edit tool sets it off, and so can any editor or build that stats files as they're written. macOS isn't affected, because Lima's `vz` VMs mount the folder with virtiofs.

@@ -41,6 +41,25 @@ stdout '^700\n600\n$'
 stub_calls
 [darwin] stdout '^tmutil addexclusion \S*/data/devvm/logins/claude$'
 
+# Claude Code's plugins: only what a VM reads as its seed (its marketplaces, their records and
+# the plugins' cache), the records naming the store's folders; never what is this machine's own,
+# such as each plugin's data or the plugins it installed (installed_plugins.json).
+exec cp -R $WORK/plugins $HOME/.claude/plugins
+exec sh -c 'printf "{\"m\":{\"installLocation\":\"%s/.claude/plugins/marketplaces/m\"}}\n" "$HOME" > "$HOME/.claude/plugins/known_marketplaces.json"'
+exec devvm agent import --force claude
+exists $CFG/agents/claude/.claude/plugins/cache/m/p/1.0.0/SKILL.md
+exists $CFG/agents/claude/.claude/plugins/marketplaces/m/marketplace.json
+grep '"installLocation":"\S*/config/devvm/agents/claude/\.claude/plugins/marketplaces/m"' $CFG/agents/claude/.claude/plugins/known_marketplaces.json
+! exists $CFG/agents/claude/.claude/plugins/data
+! exists $CFG/agents/claude/.claude/plugins/mcpb
+! exists $CFG/agents/claude/.claude/plugins/synced
+! exists $CFG/agents/claude/.claude/plugins/.trash
+! exists $CFG/agents/claude/.claude/plugins/store
+! exists $CFG/agents/claude/.claude/plugins/installed_plugins.json
+exec rm -r $HOME/.claude/plugins
+exec devvm agent import --force claude
+! exists $CFG/agents/claude/.claude/plugins
+
 # The store has claude's: without a terminal the import is refused,
 # naming --force, and nothing changes; a yes replaces it, and so does
 # --force without asking.
@@ -61,6 +80,22 @@ cmp $CFG/agents/claude/.claude/settings.json $WORK/settings.json
 
 -- yes --
 y
+-- plugins/cache/m/p/1.0.0/SKILL.md --
+# a plugin's skill
+-- plugins/marketplaces/m/marketplace.json --
+{"name":"m"}
+-- plugins/installed_plugins.json --
+{"version":2,"plugins":{}}
+-- plugins/data/p-m/state.json --
+{"token":"testfake-plugin-data"}
+-- plugins/mcpb/b/manifest.json --
+{}
+-- plugins/synced/s.json --
+{}
+-- plugins/.trash/t.json --
+{}
+-- plugins/store/s.json --
+{}
 -- skill.md --
 # a skill
 -- settings.json --

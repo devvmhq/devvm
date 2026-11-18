@@ -210,6 +210,14 @@ git config --global --get-all safe.directory | grep -qx '\*' || git config --glo
 
 [[ -d "$s/home" ]] && cp -a "$s/home/." ~/
 
+# The agents' folders that are the VM's own, the store's being their seed, such as Claude Code's
+# plugins: a link to the store's, as a VM from before has, becomes a folder.
+while IFS= read -r rel; do
+  [[ -n "$rel" ]] || continue
+  [[ ! -L ~/"$rel" ]] || rm -f ~/"$rel"
+  mkdir -p ~/"$rel"
+done < "$s/own-dirs"
+
 while IFS= read -r rel && IFS= read -r mount; do
   [[ -n "$rel" && -e "$mount" ]] || continue
   mkdir -p "$(dirname ~/"$rel")"

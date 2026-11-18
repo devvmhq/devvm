@@ -97,7 +97,7 @@ Each row lists the agent's paths in the VM's home, and the store keeps each one 
 
 | | Mounted read-only, linked into `~` | Copied in on every launch |
 | --- | --- | --- |
-| claude | `~/.claude/{skills,agents,commands,output-styles,plugins}` | `~/.claude/settings.json`, `~/.claude/CLAUDE.md`, and from the logins `~/.claude.json` ([merged](#copies), only its settings, account state and MCP servers) |
+| claude | `~/.claude/{skills,agents,commands,output-styles}`, and the store's `~/.claude/plugins` at `~/.claude/plugins-seed` ([Claude Code's plugins](#claude-codes-plugins)) | `~/.claude/settings.json`, `~/.claude/CLAUDE.md`, and from the logins `~/.claude.json` ([merged](#copies), only its settings, account state and MCP servers) |
 | codex | `~/.codex/{prompts,skills}` | `~/.codex/{config.toml,AGENTS.md}`, and from the logins `~/.codex/auth.json` |
 | opencode | the subfolders of `~/.config/opencode` (not `node_modules`) | the files in `~/.config/opencode` (not lock files), and from the logins `~/.local/share/opencode/auth.json` |
 | pi | `~/.pi/agent/{extensions,skills,prompts,themes}` | `~/.pi/agent/{settings.json,keybindings.json,models.json,mcp.json,AGENTS.md,SYSTEM.md,APPEND_SYSTEM.md}`, and from the logins `~/.pi/agent/auth.json` |
@@ -115,7 +115,7 @@ devvm agent import --follow-links   # copy what links out of the agents' folders
 
 devvm says which agents it imported and where, and an agent you named that your home folder has nothing of gets a warning. What the import copies and asks:
 
-- The import copies only the paths in the table above, so it never copies your history or `~/.claude/.credentials.json` ([what it copies](../internals/agents.md#importing)). From `~/.claude.json` it keeps only the settings, account state and MCP servers, so your API key and your per-project entries stay out of the store.
+- The import copies only the paths in the table above, so it never copies your history or `~/.claude/.credentials.json` ([what it copies](../internals/agents.md#importing)). From `~/.claude.json` it keeps only the settings, account state and MCP servers, so your API key and your per-project entries stay out of the store. From `~/.claude/plugins` it copies only the marketplaces, their records and the plugins' cache, never what is this machine's own, such as each plugin's data.
 - devvm reads each agent's settings inside the agent's own folder, such as `~/.claude`. A link to a file inside the folder becomes a copy of that file, and a link to a folder inside it, or one that leads nowhere, is left out with a warning that names it. A login file that's a link is always left out with a warning too. A link that leads out of the folder, by a relative or an absolute path, is copied only when you allow it ([links out of an agent's folder](#links-out-of-an-agents-folder)).
 - When the store already has settings or a login of an agent you import, devvm asks in a terminal whether to replace them, with no as the default. Without a terminal, or with `--no-input`, devvm refuses and names `--force`, which replaces them without asking. An agent whose settings aren't in your home folder keeps the store's settings, and one without a login there keeps the store's login.
 - On macOS, Claude Code keeps its own login in the Keychain, and devvm neither reads it nor copies it. You log Claude Code in from a VM instead, with `devvm agent login claude`, and every VM with Claude Code gets that login ([Claude Code login](#claude-code-login)).
@@ -148,11 +148,18 @@ Without either, two layouts keep your settings in a dotfiles repo and import the
 
 ### Saving a VM's settings
 
-When you change an agent's settings in a VM, for example by installing a plugin or writing a skill there, `devvm agent save` copies them into the store, so every VM with that agent gets them. With no argument it saves every agent that the folder's VM has, and `devvm agent save claude` saves only the agents you name. devvm starts a stopped VM for it. It reads only the settings, never the logins or your history, treats everything the VM sends as untrusted, and puts your secrets back where the VM's copies hold placeholders ([how](../internals/agents.md#saving-a-vms-settings)). It reads at most 128 MiB from the VM, in at most 20,000 files, folders and links, none of the files larger than 16 MiB, and when the VM sends more, or sends a path outside the agents' settings, devvm saves nothing.
+When you change an agent's settings in a VM, for example by installing a Claude Code plugin there with `claude plugin install` or `/plugin`, or by changing `~/.claude/settings.json`, `devvm agent save` copies them into the store, so every VM with that agent gets them. With no argument it saves every agent that the folder's VM has, and `devvm agent save claude` saves only the agents you name. devvm starts a stopped VM for it. It reads only the settings, never the logins or your history, treats everything the VM sends as untrusted, and puts your secrets back where the VM's copies hold placeholders ([how](../internals/agents.md#saving-a-vms-settings)). It reads at most 128 MiB from the VM, in at most 20,000 files, folders and links, none of the files larger than 16 MiB, and when the VM sends more, or sends a path outside the agents' settings, devvm saves nothing.
 
 ```sh
 devvm agent save          # show what changed in the VM's agents' settings, then save them
 devvm agent save codex    # save only Codex's
+```
+
+For example, to give every VM a plugin that you install in one:
+
+```sh
+claude plugin install my-plugin@my-marketplace   # in the VM: installs into the VM's own ~/.claude/plugins
+devvm agent save claude                          # on this machine, in the project folder: copies it into the store
 ```
 
 Before it saves anything, devvm shows what would change:
@@ -175,6 +182,19 @@ When you make or delete one of these folders in the store later, by hand or with
 
 ```sh
 devvm restart   # give a running VM the store's new folders now
+```
+
+### Claude Code's plugins
+
+Claude Code writes into its plugins folder as it runs, for each plugin's data, for the plugins you install and for its marketplaces' updates, so each VM's `~/.claude/plugins` is its own folder, on the VM's disk. The store's `~/.claude/plugins` is mounted read-only and linked at `~/.claude/plugins-seed`, and Claude Code reads it as its seed, a plugins folder it never writes. Every shell in the VM names both for Claude Code, with `CLAUDE_CODE_PLUGIN_CACHE_DIR` and `CLAUDE_CODE_PLUGIN_SEED_DIR` ([how](../internals/agents.md#claude-codes-plugins)). What that means in a VM:
+
+- A plugin in the store loads when `enabledPlugins` in `~/.claude/settings.json` turns it on, as it does on this machine, and Claude Code keeps its data in the VM's own `~/.claude/plugins/data`.
+- A plugin you install in the VM goes into the VM's own folder, and only that VM has it until you [save it](#saving-a-vms-settings). The save copies the plugins you installed and their marketplaces into the store, and it never takes a plugin out of the store, so remove one in the store's folder yourself, or import your machine's plugins again.
+- Claude Code doesn't update the store's marketplaces in a VM, and `claude plugin marketplace update` refuses them, so update a marketplace on this machine and run `devvm agent import claude` again.
+- Neither `devvm agent import` nor `devvm agent save` copies what is each machine's own, such as each plugin's data, and an export of the VM's history leaves out the VM's plugins folder.
+
+```sh
+claude plugin list   # in the VM: the store's plugins and the VM's own
 ```
 
 ## Copies

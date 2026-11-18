@@ -396,7 +396,7 @@ func (f *follower) copy(h *hostAgent, l *linkOut) error {
 	if err != nil {
 		return err
 	}
-	ls := listing{f: f, root: root, l: l, base: filepath.ToSlash(rel)}
+	ls := listing{f: f, root: root, l: l, base: filepath.ToSlash(rel), folder: agents.Of(h.agent).Folder}
 	if err := fs.WalkDir(root.FS(), ls.base, ls.visit); err != nil {
 		if errors.Is(err, errTooMany) {
 			f.im.Warn(msg.AgentImportLinkTooBig(l.path))
@@ -426,13 +426,15 @@ func (f *follower) copy(h *hostAgent, l *linkOut) error {
 var errTooMany = errors.New("past the bounds of what an import copies through links")
 
 // listing is one link's walk: what it leads to, in root, from base, and
-// what it found, each by its path in the agent's folder (in), with the
-// warnings it gives once the link is followed (warn).
+// what it found, each by its path in the agent's folder (folder, below
+// the home folder) (in), with the warnings it gives once the link is
+// followed (warn).
 type listing struct {
 	f       *follower
 	root    *safefile.Root
 	l       *linkOut
 	base    string
+	folder  string
 	dirs    []string
 	files   []linkFile
 	warn    []msg.M
@@ -451,7 +453,8 @@ type linkFile struct {
 // visit lists one entry of what the link leads to: a folder, a file, or
 // a link to a file in the root, which is read as that file. The root
 // refuses a link out of it, which Stat's error says, and such a link, or
-// one to a folder, is left out with a warning.
+// one to a folder, is left out with a warning. What of a seed's folder is
+// this machine's own (agents.MachineOwn) is left out.
 func (ls *listing) visit(name string, d fs.DirEntry, err error) error {
 	if err != nil {
 		return err
@@ -464,6 +467,9 @@ func (ls *listing) visit(name string, d fs.DirEntry, err error) error {
 		in = path.Join(ls.l.p, name)
 	default:
 		in = path.Join(ls.l.p, strings.TrimPrefix(name, ls.base+"/"))
+	}
+	if agents.MachineOwn(ls.folder + "/" + in) {
+		return skipEntry(d)
 	}
 	ls.entries++
 	if ls.f.budget.entries+ls.entries > linkMaxEntries {

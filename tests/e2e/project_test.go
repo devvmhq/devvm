@@ -18,6 +18,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/ports"
+	"github.com/devvmhq/devvm/internal/shell"
 )
 
 // projectSection: a base project VM (its launch, mounts, ports, a
@@ -1270,10 +1271,36 @@ func agentHome(s *S) string {
 	} {
 		_ = os.WriteFile(filepath.Join(ah, f), []byte(body), 0o644) //nolint:gosec // a home's files, as its user writes them
 	}
+	claudePlugins(ah)
 	_ = os.Symlink("../../outside/e2e-not-a-secret.txt", filepath.Join(ah, ".claude", "skills", "escape"))
 	_ = os.Symlink(filepath.Join(ah, "outside", "e2e-not-a-secret.txt"), filepath.Join(ah, ".claude", "skills", "escape-abs"))
 	_ = os.Symlink("../../dotfiles/linked", filepath.Join(ah, ".claude", "skills", "linked"))
 	return ah
+}
+
+// claudePlugins is a plugins folder in the home ah as Claude Code keeps it for a plugin, p, from a
+// marketplace on GitHub, e2e, made by hand so nothing is fetched: the marketplace's record and
+// copy, the plugin in the cache, with a hook that writes to its data folder as a session starts,
+// and its data on this machine, which never leaves it. settings.json turns the plugin on.
+func claudePlugins(ah string) {
+	pl := filepath.Join(ah, ".claude", "plugins")
+	manifest := `{"name": "p", "version": "1.0.0"}` + "\n"
+	hooks := `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "mkdir -p \"${CLAUDE_PLUGIN_DATA}\" && echo e2e-plugin-wrote > \"${CLAUDE_PLUGIN_DATA}/wrote\""}]}]}}` + "\n"
+	for f, body := range map[string]string{
+		"known_marketplaces.json": `{"e2e": {"source": {"source": "github", "repo": "devvm-e2e-invalid/e2e"}, "installLocation": "` +
+			pl + `/marketplaces/e2e", "lastUpdated": "2026-11-18T00:00:00.000Z"}}` + "\n",
+		"marketplaces/e2e/.claude-plugin/marketplace.json": `{"name": "e2e", "owner": {"name": "e2e"}, "plugins": [{"name": "p", "source": "./p", "version": "1.0.0"}]}` + "\n",
+		"marketplaces/e2e/p/.claude-plugin/plugin.json":    manifest,
+		"marketplaces/e2e/p/hooks/hooks.json":              hooks,
+		"cache/e2e/p/1.0.0/.claude-plugin/plugin.json":     manifest,
+		"cache/e2e/p/1.0.0/hooks/hooks.json":               hooks,
+		"data/p-e2e/state.json":                            `{"token": "e2e-plugin-data"}` + "\n",
+		"installed_plugins.json":                           `{"version": 2, "plugins": {}}` + "\n",
+	} {
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(pl, f)), 0o755)  //nolint:gosec // a home's folders, as its user's mkdir makes them
+		_ = os.WriteFile(filepath.Join(pl, f), []byte(body), 0o644) //nolint:gosec // a home's files, as its user writes them
+	}
+	_ = os.WriteFile(filepath.Join(ah, ".claude", "settings.json"), []byte(`{"theme":"e2e-settings","enabledPlugins":{"p@e2e":true}}`+"\n"), 0o644) //nolint:gosec // as above
 }
 
 func projectAgents(s *S) {
@@ -1314,6 +1341,9 @@ func projectAgents(s *S) {
 			return errors.New("the history or a link was copied")
 		case !grepF(r.Out, s.Msg("agent_import_link_not_followed", "path="+ah+"/.claude/skills/escape", "target="+ah+"/outside/e2e-not-a-secret.txt")):
 			return errors.New("it didn't say it left the link out:\n" + r.Out)
+		case !Exists(filepath.Join(store, ".claude", "plugins", "cache", "e2e", "p", "1.0.0", "hooks", "hooks.json")) ||
+			Exists(filepath.Join(store, ".claude", "plugins", "data")) || Exists(filepath.Join(store, ".claude", "plugins", "installed_plugins.json")):
+			return errors.New("the plugins' cache wasn't copied, or this machine's plugins' data was")
 		}
 		return nil
 	})
@@ -1380,6 +1410,23 @@ func projectAgents(s *S) {
 	})
 	_ = os.Remove(filepath.Join(skills, "escape"))
 	_ = os.Remove(filepath.Join(skills, "escape-abs"))
+	s.Check("Claude Code's plugins: the store's are a read-only seed, the VM's own folder takes Claude Code's writes", func() error {
+		_, err := s.InVM(vm, `[[ -d ~/.claude/plugins && ! -L ~/.claude/plugins ]] && [[ $(readlink ~/.claude/plugins-seed) == `+
+			shell.Quote(filepath.Join(store, ".claude", "plugins"))+` ]] &&
+  [[ $CLAUDE_CODE_PLUGIN_CACHE_DIR == ~/.claude/plugins && $CLAUDE_CODE_PLUGIN_SEED_DIR == ~/.claude/plugins-seed ]] &&
+  ! sudo touch ~/.claude/plugins-seed/x 2>/dev/null && [[ ! -e ~/.claude/plugins-seed/data ]]`)
+		return err
+	})
+	s.Check("a plugin of the seed loads with only enabledPlugins, and writes its data in the VM's own folder", func() error {
+		// Claude Code registers the seed's marketplaces during the first session, so the plugin's hook
+		// for a session's start runs from the second; neither needs Anthropic's API to answer.
+		r, err := s.InVM(vm, `cd /tmp && for i in 1 2; do ANTHROPIC_API_KEY=e2e-fake timeout 120 claude -p hi --output-format stream-json --verbose > /tmp/e2e-claude.json 2>&1; done
+  grep -q '"path":"'"$HOME"'/.claude/plugins-seed/cache/e2e/p/1.0.0"' /tmp/e2e-claude.json && grep -qx e2e-plugin-wrote ~/.claude/plugins/data/p-e2e/wrote`)
+		if err != nil {
+			return fmt.Errorf("%w: %s", err, r.Out)
+		}
+		return nil
+	})
 	s.Check("its settings are copied in, its history never", func() error {
 		if _, err := s.Limactl("shell", "--workdir", "/", vm, "bash", "-c", `grep -q e2e-settings ~/.claude/settings.json && [[ ! -e ~/.claude/projects/p ]]`); err != nil {
 			return err

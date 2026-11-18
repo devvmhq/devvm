@@ -28,7 +28,7 @@ internal/netpolicy 91.8
 internal/paths 98.1
 internal/platform 90.4
 internal/ports 92.6
-internal/project 98.5
+internal/project 98.6
 internal/proxy 93.6
 internal/redact 99.1
 internal/safefile 97.8
@@ -39,7 +39,7 @@ internal/shell 100.0
 internal/sshagent 85.0
 internal/sshconfig 95.0
 internal/state 94.4
-internal/stubtest 83.4
+internal/stubtest 83.8
 internal/stubtest/stub 92.9
 internal/stubtest/stubstate 93.8
 internal/testbuild 100.0

@@ -32,8 +32,11 @@ const (
 	// ClaudeJSON is Claude Code's .claude.json, its settings, account state and MCP servers,
 	// which devvm merges into the VM's own rather than copying it.
 	ClaudeJSON = ".claude.json"
-	// ClaudePlugins is Claude Code's plugins folder, whose JSON files name their paths.
+	// ClaudePlugins is Claude Code's plugins folder, whose JSON files name their paths: in a VM,
+	// the VM's own, and the store's its seed (Seed).
 	ClaudePlugins = ".claude/plugins"
+	// ClaudePluginSeed is where a VM links the store's plugins folder, its Claude Code's seed.
+	ClaudePluginSeed = ".claude/plugins-seed"
 	// OpencodeConfig is opencode's config folder: its settings, every entry but node_modules
 	// and lock files (WholeFolder).
 	OpencodeConfig = ".config/opencode"
@@ -164,8 +167,63 @@ func ProviderOf(id string) (Provider, bool) {
 	return Providers[i], true
 }
 
-// Env is a variable of the guest environment that every VM's shells get.
-type Env struct{ Name, Value string }
+// Env is a variable of the guest environment that every VM's shells get: its name, and its
+// value, which with Home is a path in the VM's home folder, relative to it.
+type Env struct {
+	Name, Value string
+	Home        bool
+}
+
+// Seed is one of an agent's settings folders, among its Dirs, that the agent reads in a VM as
+// a read-only seed of a folder of the VM's own at the same path, rather than as that folder:
+// Claude Code's plugins, whose folder Claude Code writes (each plugin's data, its installs, its
+// marketplaces' refreshes), so it can't be the store's, which every VM shares read-only. The VM
+// links the store's folder, mounted read-only as Dirs are, at Link, and the agent's Env names
+// both.
+type Seed struct {
+	// Rel is the folder, relative to the home folder: the store's at that path below it, and in
+	// a VM, the VM's own.
+	Rel string
+	// Link is where the VM's home links the store's folder: the seed.
+	Link string
+	// Entries are the folder's entries that a seed has, which devvm agent import copies of it
+	// from this machine and devvm agent save from a VM: anything else in it is each machine's
+	// own, such as each plugin's data, and stays there.
+	Entries []string
+}
+
+// Seeds are every agent's seeds, in Defs' order.
+func Seeds() []Seed {
+	var out []Seed
+	for _, d := range Defs {
+		out = append(out, d.Seeds...)
+	}
+	return out
+}
+
+// SeedOf returns the seed whose Rel is rel, a folder relative to the home folder, false when
+// none is.
+func SeedOf(rel string) (Seed, bool) {
+	for _, s := range Seeds() {
+		if s.Rel == rel {
+			return s, true
+		}
+	}
+	return Seed{}, false
+}
+
+// MachineOwn reports whether rel, relative to the home folder, is in a seed's folder but in
+// none of its Entries: each machine's own, which neither devvm agent import nor devvm agent
+// save copies.
+func MachineOwn(rel string) bool {
+	for _, s := range Seeds() {
+		if rest, ok := strings.CutPrefix(rel, s.Rel+"/"); ok {
+			first, _, _ := strings.Cut(rest, "/")
+			return !slices.Contains(s.Entries, first)
+		}
+	}
+	return false
+}
 
 // LoginCmd is an agent's own login, as devvm agent login runs it in the VM, in a login shell:
 // each command line starts with the agent's command, or with env and its arguments.
@@ -212,8 +270,11 @@ type Def struct {
 	// copies them from, following no link out of it.
 	Folder string
 	// Dirs are its settings folders, relative to the home folder, mounted read-only from the
-	// store and linked into the VM's home.
+	// store and linked into the VM's home, at their path there, or a Seed's at its Link.
 	Dirs []string
+	// Seeds are its folders among Dirs that it reads in a VM as a seed of a folder of the
+	// VM's own.
+	Seeds []Seed
 	// Files are its settings files, copied in on every launch.
 	Files []File
 	// Names are the tables of its settings files whose keys are names you choose, such as its
@@ -286,8 +347,19 @@ var Defs = []Def{
 		Logins:          []Login{{Claude, ClaudeJSON}, {ClaudeOAuth, ".claude/.credentials.json"}},
 		History:         []string{".claude", ClaudeJSON},
 		HistoryExcludes: []string{".claude/.credentials.json"},
-		Env:             []Env{{"DISABLE_AUTOUPDATER", "1"}, {"DISABLE_TELEMETRY", "1"}, {"DISABLE_ERROR_REPORTING", "1"}},
-		Secret:          Claude,
+		// From code.claude.com/docs/en/plugins/org.md's seed containers (2026-11): a seed is laid
+		// out as the plugins folder, its marketplaces' records, their copies and the plugins'
+		// cache, which Claude Code never writes; the plugins folder's other entries are each
+		// machine's own (plugins/loading.md).
+		Seeds: []Seed{{Rel: ClaudePlugins, Link: ClaudePluginSeed, Entries: []string{"known_marketplaces.json", "marketplaces", "cache"}}},
+		Env: []Env{
+			{Name: "DISABLE_AUTOUPDATER", Value: "1"},
+			{Name: "DISABLE_TELEMETRY", Value: "1"},
+			{Name: "DISABLE_ERROR_REPORTING", Value: "1"},
+			{Name: "CLAUDE_CODE_PLUGIN_CACHE_DIR", Value: ClaudePlugins, Home: true},
+			{Name: "CLAUDE_CODE_PLUGIN_SEED_DIR", Value: ClaudePluginSeed, Home: true},
+		},
+		Secret: Claude,
 		// Its subscription's login, or claude setup-token's token, never with a
 		// CLAUDE_CODE_OAUTH_TOKEN of the VM's environment, which Claude Code would use instead.
 		Login: LoginCmd{
@@ -346,7 +418,7 @@ var Defs = []Def{
 		HistoryExcludes: []string{
 			OpencodeData + "/auth.json", OpencodeData + "/account.json", OpencodeData + "/mcp-auth.json", OpencodeData + "/bin",
 		},
-		Env: []Env{{"OPENCODE_DISABLE_AUTOUPDATE", "1"}},
+		Env: []Env{{Name: "OPENCODE_DISABLE_AUTOUPDATE", Value: "1"}},
 		// Its Codex login to OpenAI (its methods chatgpt-browser and chatgpt-headless), whose
 		// token endpoint the proxy captures: its Sign in with ChatGPT gets its tokens from
 		// another endpoint, whose replies the proxy refuses.
@@ -378,7 +450,7 @@ var Defs = []Def{
 		NamedValues: []string{"modelThinkingLevels", "mcpServers.*.toolExposure"},
 		Logins:      []Login{{Pi, PiFolder + "/auth.json"}},
 		History:     []string{PiFolder + "/sessions"},
-		Env:         []Env{{"PI_SKIP_VERSION_CHECK", "1"}, {"PI_TELEMETRY", "0"}},
+		Env:         []Env{{Name: "PI_SKIP_VERSION_CHECK", Value: "1"}, {Name: "PI_TELEMETRY", Value: "0"}},
 		GlibcOnly:   true, Keys: ProviderKeys, PassKeys: true,
 		Docs: Docs{
 			Site:    "https://pi.dev",

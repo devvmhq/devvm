@@ -58,9 +58,16 @@ exec tar -xOf $STUB_DIR/sync.tar claude.json
 stdout '"theme": *"dark"'
 stdout '"API_KEY": *"devvm-redacted"'
 ! stdout 'testfake|primaryApiKey|customApiKeyResponses|projects'
-# Each folder to link: its path in the VM's home, then its mount's.
+# Each folder to link: its path in the VM's home, then its mount's. Claude Code's plugins are its
+# seed, linked beside the VM's own plugins folder, which Claude Code writes, and which a link
+# from before is replaced by (own-dirs); its environment names both.
 exec tar -xOf $STUB_DIR/sync.tar links
-stdout '^\.claude/skills\n\S+/config/devvm/agents/claude/\.claude/skills\n\.claude/agents\n\S+/agents/claude/\.claude/agents\n\.claude/commands\n\S+/agents/claude/\.claude/commands\n\.claude/output-styles\n\S+/agents/claude/\.claude/output-styles\n\.claude/plugins\n\S+/agents/claude/\.claude/plugins\n\.codex/prompts\n\S+/config/devvm/agents/codex/\.codex/prompts\n\.codex/skills\n\S+/agents/codex/\.codex/skills\n\z'
+stdout '^\.claude/skills\n\S+/config/devvm/agents/claude/\.claude/skills\n\.claude/agents\n\S+/agents/claude/\.claude/agents\n\.claude/commands\n\S+/agents/claude/\.claude/commands\n\.claude/output-styles\n\S+/agents/claude/\.claude/output-styles\n\.claude/plugins-seed\n\S+/agents/claude/\.claude/plugins\n\.codex/prompts\n\S+/config/devvm/agents/codex/\.codex/prompts\n\.codex/skills\n\S+/agents/codex/\.codex/skills\n\z'
+exec tar -xOf $STUB_DIR/sync.tar own-dirs
+stdout '\A\.claude/plugins\n\z'
+exec tar -xOf $STUB_DIR/sync.tar agent-env
+stdout '^export CLAUDE_CODE_PLUGIN_CACHE_DIR="\$HOME"/''\.claude/plugins''$'
+stdout '^export CLAUDE_CODE_PLUGIN_SEED_DIR="\$HOME"/''\.claude/plugins-seed''$'
 exec tar -xOf $STUB_DIR/sync.tar vm
 stdout '\A\QDEVVM_HOSTNAME=''plain''\E\n\QDEVVM_TZ=''Europe/Paris''\E\n\QDEVVM_LANG=''en_US.UTF-8''\E\n\QDEVVM_GIT_NAME=''Test User''\E\n\QDEVVM_GIT_EMAIL=''test@example.com''\E\n'
 # An open VM's proxy too, as its environment has it, where its local proxy listens, and devvm

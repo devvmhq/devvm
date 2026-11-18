@@ -37,16 +37,19 @@ const homeIn = "cd ~ && tar -xzf - --skip-old-files"
 // remake doesn't keep, because the new VM's setup writes them itself:
 // devvm's own files (its environment, with the tokens' placeholders),
 // the ssh key its backend logs in with, the
-// agents' folders linked to their mounts and the files copied from
+// agents' links to their mounts (agentLink) and the files copied from
 // devvm's store, every agent's logins, whichever agents the VM has
-// (agents.LoginFiles), and caches, which are made again.
+// (agents.LoginFiles), and caches, which are made again. The VM's own
+// folders of the agents' seeds, such as Claude Code's plugins, stay.
 func homeSkips(d paths.Dirs, toolNames []string) []string {
 	skips := []string{".config/devvm", ".ssh/authorized_keys", ".cache"}
 	skips = append(skips, agents.HistoryExcludes()...)
 	skips = append(skips, agents.LoginFiles()...)
 	for _, a := range image.AgentsOf(toolNames) {
 		store := agentStore(d, a)
-		skips = append(skips, agentDirs(store, a)...)
+		for _, rel := range agentDirs(store, a) {
+			skips = append(skips, agentLink(rel))
+		}
 		skips = append(skips, agentFiles(store, a)...)
 	}
 	return skips

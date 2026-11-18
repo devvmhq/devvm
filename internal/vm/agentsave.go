@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -175,9 +174,13 @@ type planFile struct {
 // planFolder is a settings folder the store gets whole, by its path
 // relative to the home folder: its folders and files, what was left out
 // (kept: the store's stays) and the files added, changed and removed,
-// relative to it.
+// relative to it. A seed's folder (seed: agents.Seed) is the VM's own,
+// holding only what the VM added to its seed, the store's, so the store
+// gets what it adds and changes, and keeps what it has that the VM's
+// doesn't: nothing is removed.
 type planFolder struct {
 	rel                     string
+	seed                    bool
 	dirs                    []string
 	files                   []planFile
 	kept                    []string
@@ -308,9 +311,11 @@ func (sv saver) claudeJSON(agent string, p *agentPlan) {
 // file and any file with a placeholder are left out with a warning, and
 // the store keeps what it has of them. Claude Code's plugin records name
 // their folders by path, so the copy names them in the store, where VMs
-// mount them.
+// mount them, and joins the store's (claudeRecords); one that isn't JSON
+// is left out with a warning.
 func (sv saver) folder(store, rel string, names []string) (planFolder, error) {
-	f := planFolder{rel: rel}
+	_, seed := agents.SeedOf(rel)
+	f := planFolder{rel: rel, seed: seed}
 	for _, n := range names {
 		e := sv.s.entries[n]
 		switch e.kind {
@@ -335,9 +340,11 @@ func (sv saver) folder(store, rel string, names []string) (planFolder, error) {
 			f.kept = append(f.kept, n)
 			continue
 		}
-		data := e.data
-		if rel == agents.ClaudePlugins && path.Dir(n) == rel && path.Ext(n) == ".json" && sv.s.home != "" {
-			data = renamePrefix(data, sv.s.home+"/"+rel, filepath.Join(store, filepath.FromSlash(rel)))
+		data, err := claudeRecords(rel, n, e.data, sv.s.home, store)
+		if err != nil {
+			sv.Warn(msg.AgentSaveUnparsed(n, sv.s.vm))
+			f.kept = append(f.kept, n)
+			continue
 		}
 		f.files = append(f.files, planFile{rel: n, data: data, exec: e.exec})
 	}
@@ -367,7 +374,9 @@ func (f *planFolder) compare(store string) error {
 		delete(have, strings.TrimPrefix(k, f.rel+"/"))
 	}
 	for in := range have {
-		f.removed = append(f.removed, in)
+		if !f.seed {
+			f.removed = append(f.removed, in)
+		}
 	}
 	slices.Sort(f.removed)
 	return nil
@@ -447,8 +456,9 @@ func fileMode(exec bool) os.FileMode {
 
 // apply puts p into the store: each settings file written whole, each
 // folder's files written whole and what the folder in the store has that
-// the VM's doesn't taken out, but what was left out, so the folders VMs
-// mount stay the same folders; the .claude.json subset as the store's.
+// the VM's doesn't taken out, but what was left out and anything of a
+// seed's folder, so the folders VMs mount stay the same folders; the
+// .claude.json subset as the store's.
 func (sv saver) apply(ctx context.Context, p agentPlan) error {
 	for _, f := range p.files {
 		if err := state.WriteFileMode(filepath.Join(p.store, filepath.FromSlash(f.rel)), f.data, fileMode(f.exec)); err != nil {
@@ -475,6 +485,9 @@ func (sv saver) apply(ctx context.Context, p agentPlan) error {
 		}
 		for _, k := range d.kept {
 			markKept(keep, strings.TrimPrefix(k, d.rel+"/"))
+		}
+		if d.seed {
+			continue
 		}
 		if err := pruneStore(root, keep); err != nil {
 			return err

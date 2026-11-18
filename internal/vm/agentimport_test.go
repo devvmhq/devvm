@@ -96,7 +96,7 @@ func TestAgentImport(t *testing.T) {
 		".claude/skills/s/run.sh":                  "echo",
 		".claude/projects/p/h.jsonl":               "history",
 		".claude/.credentials.json":                "secret",
-		".claude/plugins/installed_plugins.json":   `{"p":{"installPath":"` + filepath.Join(home, ".claude/plugins") + `/cache/p"}}`,
+		".claude/plugins/known_marketplaces.json":  `{"m":{"installLocation":"` + filepath.Join(home, ".claude/plugins") + `/marketplaces/m"}}`,
 		".claude.json":                             `{"theme":"dark","projects":{"/p":{}},"primaryApiKey":"sk-x","mcpServers":{}}`,
 		".codex/config.toml":                       "model = 'x'",
 		".codex/auth.json":                         `{"OPENAI_API_KEY":"sk-codex"}`,
@@ -122,8 +122,8 @@ func TestAgentImport(t *testing.T) {
 		filepath.Join(opencode, ".config/opencode/opencode.json"): "{}",
 		secrets.LoginFile(im.Dirs, "codex"):                       `{"OPENAI_API_KEY":"sk-codex"}`,
 		secrets.LoginFile(im.Dirs, "opencode"):                    `{}`,
-		filepath.Join(claude, ".claude/plugins/installed_plugins.json"): `{"p":{"installPath":"` +
-			filepath.Join(claude, ".claude/plugins") + `/cache/p"}}`,
+		filepath.Join(claude, ".claude/plugins/known_marketplaces.json"): `{"m":{"installLocation":"` +
+			filepath.Join(claude, ".claude/plugins") + `/marketplaces/m"}}`,
 	} {
 		if got := readFile(t, p); got != want {
 			t.Errorf("%s = %q, want %q", p, got, want)

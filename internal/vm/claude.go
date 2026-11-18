@@ -7,8 +7,11 @@ package vm
 // login or a setup token's secret.
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -138,3 +141,83 @@ func claudePlugins(agent, p string, data []byte, folder, store string) []byte {
 	}
 	return renamePrefix(data, filepath.Join(folder, "plugins"), filepath.Join(store, "plugins"))
 }
+
+// claudeMarketplaces is Claude Code's records of its plugins'
+// marketplaces, in its plugins folder.
+const claudeMarketplaces = agents.ClaudePlugins + "/known_marketplaces.json"
+
+// claudeRecords is the file n, data, of the VM's settings folder rel, as
+// devvm agent save puts it into store: Claude Code's plugin records name
+// their folders by path, in the VM's plugins folder below the VM's home
+// (home, when the VM sent it), so the copy names them in the store, where
+// VMs mount them. The VM's folder holds only what it added to its seed
+// (agents.Seed), so its marketplaces' records join the store's, each
+// replacing the store's of the same name, but those whose copy isn't in
+// the store's marketplaces folder (claudeInStore), such as those Claude
+// Code registered from the seed, which are the store's own: the store's
+// file as it is when that changes none of them, and an error for one
+// that isn't a JSON object. Any other file is as it is.
+func claudeRecords(rel, n string, data []byte, home, store string) ([]byte, error) {
+	if rel != agents.ClaudePlugins || path.Dir(n) != rel || path.Ext(n) != ".json" {
+		return data, nil
+	}
+	to := filepath.Join(store, filepath.FromSlash(rel))
+	if n != claudeMarketplaces {
+		if home != "" {
+			data = renamePrefix(data, home+"/"+rel, to)
+		}
+		return data, nil
+	}
+	var vm map[string]json.RawMessage
+	if err := json.Unmarshal(data, &vm); err != nil || vm == nil {
+		return nil, cmp.Or(err, errNotObject)
+	}
+	old, _ := readStoreFile(filepath.Join(store, filepath.FromSlash(n)))
+	merged := map[string]json.RawMessage{}
+	_ = json.Unmarshal(old, &merged) // none, or a store's file that isn't JSON: the VM's alone
+	changed := old == nil
+	for name, m := range vm {
+		if home != "" {
+			m = renamePrefix(m, home+"/"+rel, to)
+		}
+		if !claudeInStore(m, to) {
+			continue
+		}
+		if !jsonEqual(merged[name], m) {
+			merged[name], changed = m, true
+		}
+	}
+	if !changed {
+		return old, nil
+	}
+	out, err := json.MarshalIndent(merged, "", "  ")
+	return append(out, '\n'), err
+}
+
+// claudeInStore reports whether m, a marketplace's record, has its copy
+// in the marketplaces folder of plugins, the store's plugins folder, by a
+// clean path: the only records a seed can use. Those Claude Code
+// registered from the seed name the seed's link instead, and a marketplace
+// that Claude Code reads where it is, such as a folder of the VM's, has no
+// copy there.
+func claudeInStore(m json.RawMessage, plugins string) bool {
+	// By its exact key, as Claude Code reads it: Go's struct fields would
+	// take InstallLocation too.
+	var r map[string]json.RawMessage
+	var loc string
+	if json.Unmarshal(m, &r) != nil || json.Unmarshal(r["installLocation"], &loc) != nil {
+		return false
+	}
+	return loc == filepath.Clean(loc) && strings.HasPrefix(loc, plugins+"/marketplaces/")
+}
+
+// jsonEqual reports whether a and b are the same JSON, but for the space
+// between its tokens.
+func jsonEqual(a, b []byte) bool {
+	var ca, cb bytes.Buffer
+	return json.Compact(&ca, a) == nil && json.Compact(&cb, b) == nil && bytes.Equal(ca.Bytes(), cb.Bytes())
+}
+
+// errNotObject is claudeRecords' error for records that aren't a JSON
+// object.
+var errNotObject = errors.New("not a JSON object")

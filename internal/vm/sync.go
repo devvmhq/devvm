@@ -406,14 +406,24 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 
 // agentEnv is the setup's agent-env file: an export line for each of the
 // agents' guest environment (agents.GuestEnv), every agent's whichever
-// the VM has, which guest/sync.sh installs as /etc/devvm/agents.sh, for
-// base's devvm-tools.sh to read in every shell.
+// the VM has, a value in the VM's home folder below $HOME, which
+// guest/sync.sh installs as /etc/devvm/agents.sh, for base's
+// devvm-tools.sh to read in every shell.
 func agentEnv() []byte {
 	var b bytes.Buffer
 	for _, v := range agents.GuestEnv() {
-		b.WriteString("export " + v.Name + "=" + shell.Quote(v.Value) + "\n")
+		b.WriteString("export " + v.Name + "=" + homeValue(v.Value, v.Home) + "\n")
 	}
 	return b.Bytes()
+}
+
+// homeValue is an environment variable's value, quoted for a shell: below
+// "$HOME" when it's a path in the VM's home folder (home).
+func homeValue(v string, home bool) string {
+	if home {
+		return `"$HOME"/` + shell.Quote(v)
+	}
+	return shell.Quote(v)
 }
 
 // toolchainEnv is the setup's toolchain-env file: an export line for each
@@ -425,11 +435,7 @@ func agentEnv() []byte {
 func toolchainEnv() []byte {
 	var b bytes.Buffer
 	for _, v := range image.GuestEnv() {
-		value := shell.Quote(v.Value)
-		if v.Home {
-			value = `"$HOME"/` + value
-		}
-		b.WriteString("export " + v.Name + "=" + value + "\n")
+		b.WriteString("export " + v.Name + "=" + homeValue(v.Value, v.Home) + "\n")
 	}
 	b.WriteString("devvm_path=")
 	for _, dir := range image.GuestPath() {
@@ -453,14 +459,20 @@ func versionFiles() []byte {
 }
 
 // stageAgents adds the agents' settings from devvm's store (agentStore)
-// to s, and returns the setup's links file: two lines for each folder, its
-// path in the VM's home and its mount's path.
+// to s, with the setup's own-dirs file, a line for each of their folders
+// that the VM keeps of its own (agents.Seed), which guest/sync.sh makes a
+// folder where a link was, and returns the setup's links file: two lines
+// for each folder, its path in the VM's home (agentLink) and its mount's
+// path.
 func (e syncer) stageAgents(s *stage, names []string) ([]byte, error) {
-	var links bytes.Buffer
+	var links, own bytes.Buffer
 	for _, a := range image.AgentsOf(names) {
 		store := agentStore(e.Dirs, a)
 		for _, rel := range agentDirs(store, a) {
-			links.WriteString(rel + "\n" + filepath.Join(store, rel) + "\n")
+			links.WriteString(agentLink(rel) + "\n" + filepath.Join(store, rel) + "\n")
+		}
+		for _, sd := range agents.Of(a).Seeds {
+			own.WriteString(sd.Rel + "\n")
 		}
 		for _, rel := range agentFiles(store, a) {
 			if err := s.copy("home/"+rel, filepath.Join(store, rel)); err != nil {
@@ -468,6 +480,7 @@ func (e syncer) stageAgents(s *stage, names []string) ([]byte, error) {
 			}
 		}
 	}
+	s.put("own-dirs", 0o644, own.Bytes())
 	return links.Bytes(), nil
 }
 

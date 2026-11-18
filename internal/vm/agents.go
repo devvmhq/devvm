@@ -150,7 +150,11 @@ func opencodeCleanAll(dir, then, otherwise string) string {
 
 // historyExport is the script that writes an export of the VM's agents'
 // history to its stdout, a gzipped tar of what there is of their History,
-// run in the VM as its user: without their HistoryExcludes, and with each
+// run in the VM as its user: without their HistoryExcludes or the VM's own
+// folders of their seeds (agents.Seed), which are settings, never history:
+// they hold what the VM installed, which reaches another VM only through
+// devvm agent save, and what each plugin keeps, such as its own logins and
+// caches. With each
 // of opencode's databases as its copy without its logins (opencodeClean),
 // made in a folder of its own and put at the database's path
 // (--transform, which leaves links' targets as they are), never the
@@ -161,6 +165,9 @@ func historyExport() string {
 	excludes := make([]string, 0, len(historyExcludes)+len(opencodeDBs)+1)
 	for _, p := range historyExcludes {
 		excludes = append(excludes, "--exclude="+p)
+	}
+	for _, sd := range agents.Seeds() {
+		excludes = append(excludes, "--exclude="+sd.Rel)
 	}
 	excludes = append(excludes, "--no-wildcards-match-slash")
 	for _, p := range opencodeDBs {
@@ -190,8 +197,10 @@ const historyUnsafe = "devvm-history-unsafe"
 // the home folder, that an import leaves out, because devvm's setup
 // writes them: what an export leaves out (HistoryExcludes), every login
 // file in the agents' history, such as ~/.claude.json, whose copy holds
-// the old VM's placeholders, and every agent's folders linked to their
-// mounts and files copied from the host. Sorted.
+// the old VM's placeholders, every agent's folders linked to their
+// mounts, the seeds' links among them, and the VM's own folders of the
+// seeds, which an export leaves out, and files copied from the host.
+// Sorted.
 func importSkips() []string {
 	skips := agents.HistoryExcludes()
 	for _, d := range agents.Defs {
@@ -201,6 +210,9 @@ func importSkips() []string {
 			}
 		}
 		skips = append(skips, d.Dirs...)
+		for _, sd := range d.Seeds {
+			skips = append(skips, sd.Link)
+		}
 		for _, f := range d.Files {
 			skips = append(skips, f.Rel)
 		}
@@ -220,7 +232,9 @@ const appleDouble = `(^|/)\._[^/]*$`
 // only the listing takes: tar would list them with their leading / and
 // .. parts taken off), each on one line (GNU tar's escape quoting). It
 // imports nothing when one is outside the agents' History, absolute or has a
-// .. part, printing historyUnsafe instead. An AppleDouble file (a name
+// ., .. or empty part (such as .claude/./plugins or .claude//plugins, which
+// an exclude, matched against the name as written, would miss), printing
+// historyUnsafe instead. An AppleDouble file (a name
 // whose last part starts with ._), which macOS's tar puts beside each file
 // with extended attributes, such as com.apple.provenance, isn't checked
 // and is never unpacked (appleDouble), so an export made on a Mac imports;
@@ -231,7 +245,9 @@ const appleDouble = `(^|/)\._[^/]*$`
 // applies) and without importSkips (anchored, each with what's below
 // it); the symlinks there that point outside it (absolute, or with a ..
 // part) are taken out, so an agent's write never follows one out of its
-// history. opencode's databases' WAL and journal files, and any of its
+// history, and only then is each of importSkips taken out again by its
+// path, whatever name got it there, so that never follows one either.
+// opencode's databases' WAL and journal files, and any of its
 // databases that isn't a regular file, are taken out, and each database
 // becomes its copy without its logins (opencodeClean), or is taken out
 // when there's none, so an export made without it, which holds them,
@@ -256,11 +272,12 @@ func historyImport() string {
 		`trap 'rm -rf "$t"' EXIT`,
 		`cat > "$t/export" && tar -tzf "$t/export" --absolute-names --quoting-style=escape > "$t/names" || exit 1`,
 		"if grep -vE " + shell.Quote(appleDouble) + ` "$t/names" | grep -vqE ` + shell.Quote("^("+strings.Join(allowed, "|")+")(/|$)") + ` || ` +
-			"grep -qE " + shell.Quote(`(^|/)\.\.(/|$)`) + ` "$t/names"; then echo ` + historyUnsafe + "; exit 1; fi",
+			"grep -qE " + shell.Quote(`(^|/)(\.\.?)?/|(^|/)\.\.?$`) + ` "$t/names"; then echo ` + historyUnsafe + "; exit 1; fi",
 		`mkdir "$t/x" && tar -xzf "$t/export" -C "$t/x" ` + shell.QuoteJoin(unpack) + " || exit 1",
 		`find "$t/x" -type l -print0 | while IFS= read -r -d '' l; do`,
 		`  case $(readlink "$l") in /* | .. | ../* | */.. | */../*) echo "devvm: left out the link $l" >&2; rm -f "$l" ;; esac`,
 		"done",
+		`for p in ` + shell.QuoteJoin(importSkips()) + `; do rm -rf "$t/x/$p"; done`,
 		opencodeClean(),
 		`o="$t/x/"` + shell.Quote(opencodeData),
 		`for f in "$o"/` + strings.Join(opencodeDBs[1:], ` "$o"/`) + `; do rm -rf "$f"; done`,
@@ -288,6 +305,16 @@ func agentDirs(home, agent string) []string {
 		}
 	}
 	return dirs
+}
+
+// agentLink is where the VM's home links an agent's settings folder rel,
+// mounted from the store: a seed's Link, as the folder at rel is the
+// VM's own (agents.Seed), or rel.
+func agentLink(rel string) string {
+	if sd, ok := agents.SeedOf(rel); ok {
+		return sd.Link
+	}
+	return rel
 }
 
 // folderSetting reports whether a folder of a WholeFolder agent's folder,

@@ -179,7 +179,8 @@ func TestHistoryImportScript(t *testing.T) {
 	s := historyImport()
 	for _, want := range []string{
 		`tar -tzf "$t/export" --absolute-names --quoting-style=escape`, "grep -vqE '^(\\.claude|\\.claude\\.json|\\.codex|",
-		`grep -qE '(^|/)\.\.(/|$)'`, "echo " + historyUnsafe + "; exit 1",
+		`grep -qE '(^|/)(\.\.?)?/|(^|/)\.\.?$'`, "echo " + historyUnsafe + "; exit 1",
+		`; do rm -rf "$t/x/$p"; done`,
 		`tar -xzf "$t/export" -C "$t/x" '--no-same-owner' '--no-same-permissions' '--anchored' '--exclude=`,
 		"'--exclude=.claude.json' ", `find "$t/x" -type l`, "/* | .. | ../* | */.. | */../*) ",
 		"for p in '.claude' '.claude.json' '.codex' '.local/share/opencode' '.local/state/opencode' '.pi/agent/sessions'",
@@ -285,6 +286,9 @@ func TestHistoryImportRuns(t *testing.T) {
 		{".pi/agent/sessions/s", ".pi/agent/auth.json"},
 		{".pi/agent/sessionsx/s"},
 		{".claude/a", "._.claude/a"},
+		{".claude/./plugins/cache/p/hooks.json"},
+		{".claude//plugins/installed_plugins.json"},
+		{".claude/plugins/."},
 	} {
 		t.Run(names[len(names)-1], func(t *testing.T) {
 			home := t.TempDir()
@@ -335,6 +339,22 @@ func TestHistoryImportRuns(t *testing.T) {
 		}
 		if fi, err := os.Stat(filepath.Join(home, ".claude/projects/p.jsonl")); err != nil || fi.Mode()&os.ModeSetuid != 0 {
 			t.Errorf("p.jsonl's mode: %v, %v", fi, err)
+		}
+	})
+	// An export whose agent folders are links out of it, such as to the project folder: the
+	// import takes the links out before it takes out what it leaves out, so nothing of theirs is
+	// deleted where they lead.
+	t.Run("links out", func(t *testing.T) {
+		home, project := t.TempDir(), t.TempDir()
+		write(t, project, map[string]string{"CLAUDE.md": "mine", "skills/s.md": "mine", "auth.json": "mine", "bin": "mine", "plugins/x": "mine"})
+		export := exportOf(t, ".claude->"+project, ".codex->"+project, ".local/share/opencode->"+project, ".claude.json")
+		if out, err := run(t, home, export); err != nil {
+			t.Fatalf("%q, %v", out, err)
+		}
+		for _, p := range []string{"CLAUDE.md", "skills/s.md", "auth.json", "bin", "plugins/x"} {
+			if _, err := os.Lstat(filepath.Join(project, p)); err != nil {
+				t.Errorf("the import deleted %s where a link led: %v", p, err)
+			}
 		}
 	})
 	// An export made with macOS's tar, which puts each file's extended attributes (such as

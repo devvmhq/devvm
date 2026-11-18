@@ -249,7 +249,9 @@ func (im AgentImport) readOpencode2(ctx context.Context, h *hostAgent) error {
 }
 
 // readSettings lists the agent's settings files and folders in h.root,
-// the home folder's folder, relative to it.
+// the home folder's folder, relative to it, but what of a seed's folder
+// is this machine's own (agents.MachineOwn), such as Claude Code's
+// plugins' data.
 func (im AgentImport) readSettings(h *hostAgent, folder string) error {
 	home := filepath.Join(im.Dirs.Home, folder)
 	var inner []string
@@ -273,6 +275,9 @@ func (im AgentImport) readSettings(h *hostAgent, folder string) error {
 			if err != nil {
 				return err
 			}
+			if agents.MachineOwn(folder + "/" + p) {
+				return skipEntry(d)
+			}
 			im.listEntry(h, home, p, d)
 			return nil
 		})
@@ -281,6 +286,15 @@ func (im AgentImport) readSettings(h *hostAgent, folder string) error {
 		}
 	}
 	im.matchKinds(h, home)
+	return nil
+}
+
+// skipEntry is a walk's answer for an entry it leaves out, d: none of
+// what's in it, when it's a folder.
+func skipEntry(d fs.DirEntry) error {
+	if d.IsDir() {
+		return fs.SkipDir
+	}
 	return nil
 }
 

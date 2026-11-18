@@ -158,6 +158,11 @@ func TestDefsWellFormed(t *testing.T) {
 				t.Errorf("%s: setting %s is outside its folder %s", d.Name, p, d.Folder)
 			}
 		}
+		for _, s := range d.Seeds {
+			if !slices.Contains(d.Dirs, s.Rel) || !strings.HasPrefix(s.Link, d.Folder+"/") || slices.Contains(d.Dirs, s.Link) || len(s.Entries) == 0 {
+				t.Errorf("%s: seed %+v isn't one of its folders, or its link isn't a path of its own", d.Name, s)
+			}
+		}
 		if got, ok := Get(d.Name); !ok || got.Name != d.Name {
 			t.Errorf("Get(%s) = %v", d.Name, ok)
 		}
@@ -216,7 +221,7 @@ func TestLists(t *testing.T) {
 	if got := HistoryExcludes(); !slices.Equal(got, excludes) {
 		t.Errorf("HistoryExcludes = %v", got)
 	}
-	if got := GuestEnv(); !slices.Equal(got, env) || !slices.Contains(got, Env{"PI_TELEMETRY", "0"}) {
+	if got := GuestEnv(); !slices.Equal(got, env) || !slices.Contains(got, Env{Name: "PI_TELEMETRY", Value: "0"}) {
 		t.Errorf("GuestEnv = %v", got)
 	}
 	if got := LoginKinds(); !slices.Equal(got, kinds) || !slices.Contains(got, ClaudeOAuth) {
@@ -231,6 +236,41 @@ func TestLists(t *testing.T) {
 		}
 	}()
 	Of("none")
+}
+
+// Claude Code's plugins folder is a seed: its marketplaces, their records and the plugins'
+// cache are what a seed has (Claude Code's docs, plugins/org.md), and every other entry of the
+// folder is each machine's own, such as each plugin's data (plugins/loading.md); nothing outside
+// the folder is.
+func TestSeeds(t *testing.T) {
+	s, ok := SeedOf(ClaudePlugins)
+	if all := Seeds(); !ok || s.Link != ClaudePluginSeed || len(all) != 1 || all[0].Rel != ClaudePlugins {
+		t.Errorf("SeedOf(%s) = %+v, %v; Seeds = %+v", ClaudePlugins, s, ok, Seeds())
+	}
+	if _, ok := SeedOf(".claude/skills"); ok {
+		t.Error("skills is a seed")
+	}
+	for rel, want := range map[string]bool{
+		".claude/plugins/data": true, ".claude/plugins/data/p/state.json": true, ".claude/plugins/mcpb/b": true,
+		".claude/plugins/synced/s": true, ".claude/plugins/.trash/t": true, ".claude/plugins/store/s.json": true,
+		".claude/plugins/installed_plugins.json": true, ".claude/plugins/known_marketplaces_claudeai.json": true,
+		".claude/plugins/flagged-plugins.json": true,
+		".claude/plugins":                      false, ".claude/plugins/cache/m/p/1.0.0/x": false, ".claude/plugins/marketplaces/m": false,
+		".claude/plugins/known_marketplaces.json": false, ".claude/plugins-seed/data": false, ".claude/skills/data": false,
+	} {
+		if got := MachineOwn(rel); got != want {
+			t.Errorf("MachineOwn(%s) = %v, want %v", rel, got, want)
+		}
+	}
+	env := GuestEnv()
+	for _, v := range []Env{
+		{Name: "CLAUDE_CODE_PLUGIN_CACHE_DIR", Value: ClaudePlugins, Home: true},
+		{Name: "CLAUDE_CODE_PLUGIN_SEED_DIR", Value: ClaudePluginSeed, Home: true},
+	} {
+		if !slices.Contains(env, v) {
+			t.Errorf("GuestEnv lacks %+v", v)
+		}
+	}
 }
 
 // The command lines devvm agent login runs, exactly: Claude Code's

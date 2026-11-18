@@ -67,6 +67,38 @@ grep '"theme": "light"' $DATA/logins/claude/.claude.json
 exec devvm agent save
 stdout '^==> agent_save_nothing vm='$AGENT'$'
 
+# Claude Code's plugins: the VM's own plugins folder holds what it installed, and its seed, the
+# store's, the rest, so a save adds and changes the store's plugins and never takes one out; the
+# VM's marketplaces join the store's, each record naming the store's folders. The stream is only
+# the seed's entries (its marketplaces, their records and the plugins' cache). A marketplace that
+# Claude Code registered from the seed (m) is the store's own, and stays as the store has it; saved,
+# the same folder is no change.
+mkdir $CFG/agents/claude/.claude/plugins/cache/m/p/1.0.0
+cp $WORK/plugin-skill.md $CFG/agents/claude/.claude/plugins/cache/m/p/1.0.0/SKILL.md
+exec sh -c 'printf "{\"m\":{\"installLocation\":\"%s/.claude/plugins/marketplaces/m\"}}\n" "$CFG/agents/claude" > "$CFG/agents/claude/.claude/plugins/known_marketplaces.json"'
+exec tar -cf $STUB_DIR/agent-save.tar --no-recursion -C $WORK/vm .devvm-save .devvm-save/home .devvm-save/claude.json .claude/settings.json .claude/plugins .claude/plugins/known_marketplaces.json .claude/plugins/cache .claude/plugins/cache/v .claude/plugins/cache/v/p .claude/plugins/cache/v/p/1.0.0 .claude/plugins/cache/v/p/1.0.0/SKILL.md
+! exec devvm agent save
+stdout '^~/\.claude/plugins in '$AGENT', into \S*/config/devvm/agents/claude/\.claude/plugins:$'
+stdout '^  A cache/v/p/1\.0\.0/SKILL\.md$'
+stdout '^  M known_marketplaces\.json$'
+! stdout '^  D '
+ttyin -stdin $WORK/yes.txt
+exec devvm agent save claude
+cmp $CFG/agents/claude/.claude/plugins/cache/v/p/1.0.0/SKILL.md $WORK/vm/.claude/plugins/cache/v/p/1.0.0/SKILL.md
+cmp $CFG/agents/claude/.claude/plugins/cache/m/p/1.0.0/SKILL.md $WORK/plugin-skill.md
+grep '"m": \{\n *"installLocation": "\S*/agents/claude/\.claude/plugins/marketplaces/m"' $CFG/agents/claude/.claude/plugins/known_marketplaces.json
+grep '"v": \{\n *"installLocation": "\S*/agents/claude/\.claude/plugins/marketplaces/v"' $CFG/agents/claude/.claude/plugins/known_marketplaces.json
+! grep 'u\.linux|autoUpdate' $CFG/agents/claude/.claude/plugins/known_marketplaces.json
+exec devvm agent save
+stdout '^==> agent_save_nothing vm='$AGENT'$'
+
+# Anything else of the VM's plugins folder, such as a plugin's data, is the VM's own: a stream
+# with it saves nothing.
+exec tar -cf $STUB_DIR/agent-save.tar --no-recursion -C $WORK/vm .devvm-save .devvm-save/home .claude/plugins .claude/plugins/data .claude/plugins/data/p .claude/plugins/data/p/state.json
+! exec devvm agent save
+stderr '^devvm: agent_save_unsafe path=\.claude/plugins/data vm='$AGENT'$'
+! exists $CFG/agents/claude/.claude/plugins/data
+
 # A stream with a path outside the agents' settings saves nothing.
 cp $WORK/new-settings.json $WORK/vm/.claude/settings.json
 exec tar -cf $STUB_DIR/agent-save.tar -C $WORK/vm .devvm-save .claude/settings.json .bashrc
@@ -96,6 +128,17 @@ rm $STUB_DIR/shell-fails-on
 # a skill made in the VM
 -- vm/.bashrc --
 echo hi
+-- plugin-skill.md --
+# the store's plugin
+-- vm/.claude/plugins/known_marketplaces.json --
+{
+  "v": {"installLocation": "/home/u.linux/.claude/plugins/marketplaces/v"},
+  "m": {"installLocation": "/home/u.linux/.claude/plugins-seed/marketplaces/m", "autoUpdate": false}
+}
+-- vm/.claude/plugins/cache/v/p/1.0.0/SKILL.md --
+# a plugin installed in the VM
+-- vm/.claude/plugins/data/p/state.json --
+{"token":"testfake-plugin-data"}
 -- vm/.devvm-save/home --
 /home/u.linux
 -- vm/.devvm-save/claude.json --

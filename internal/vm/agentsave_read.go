@@ -37,8 +37,12 @@ const (
 // a link), and the save's own files (saveOwn): its home folder and, for
 // claude, what devvm's store keeps of ~/.claude.json
 // (agentlogin.ClaudeTopKeys), so its per-project entries never leave the
-// VM. The host checks all of it (readSent): the VM is trusted with
-// nothing.
+// VM. Of the VM's own folder of a seed (agents.Seed), only its seed's
+// Entries go: each other entry in it, when it's a folder and not a link,
+// is excluded by name, before the paths (ex), as GNU tar wants, but a name
+// with a wildcard's character, which as a pattern could miss itself or
+// match more, so it's sent and the host refuses the save, naming it. The host
+// checks all of it (readSent): the VM is trusted with nothing.
 func agentSaveScript(names []string) string {
 	var paths []string
 	for _, a := range names {
@@ -55,6 +59,17 @@ func agentSaveScript(names []string) string {
 		`trap 'rm -rf "$t"' EXIT`,
 		`mkdir "$t/` + saveOwn + `" && printf '%s\n' "$HOME" > "$t/` + saveOwn + `/home" || exit 1`,
 		"set --",
+		"ex=()",
+	}
+	for _, a := range names {
+		for _, sd := range agents.Of(a).Seeds {
+			lines = append(lines,
+				`if [ -d `+sd.Rel+` ] && [ ! -L `+sd.Rel+` ]; then`,
+				`  for p in `+sd.Rel+`/* `+sd.Rel+`/.[!.]* `+sd.Rel+`/..?*; do`,
+				`    case ${p##*/} in `+strings.Join(sd.Entries, " | ")+` | *[][*?\\]*) ;; *) if [ -e "$p" ] || [ -L "$p" ]; then ex=(${ex[@]+"${ex[@]}"} "--exclude=$p"); fi ;; esac`,
+				"  done",
+				"fi")
+		}
 	}
 	if len(paths) > 0 {
 		lines = append(lines, `for p in `+shell.QuoteJoin(paths)+`; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done`)
@@ -68,7 +83,7 @@ func agentSaveScript(names []string) string {
 		}
 	}
 	lines = append(lines, claudeSaveLines(names)...)
-	lines = append(lines, `tar -cf - "$@" -C "$t" `+saveOwn)
+	lines = append(lines, `tar -cf - ${ex[@]+"${ex[@]}"} "$@" -C "$t" `+saveOwn)
 	return strings.Join(lines, "\n")
 }
 
@@ -229,7 +244,8 @@ func (s *sent) own(tr io.Reader, h *tar.Header, name string) error {
 
 // listedPath returns the agent, of these, whose settings name is, or is
 // in: the file or folder it's listed as (top), a folder when folder.
-// Those are their Files and Dirs, and a WholeFolder agent's (opencode's)
+// Those are their Files and Dirs, but what of a seed's folder is the VM's
+// own (agents.MachineOwn), and a WholeFolder agent's (opencode's)
 // folder's entries but its lock files and node_modules (fileSetting,
 // folderSetting), by whether the entry is a folder (dir).
 func listedPath(names []string, name string, dir bool) (agent, top string, folder, ok bool) {
@@ -239,7 +255,7 @@ func listedPath(names []string, name string, dir bool) (agent, top string, folde
 			return a, name, false, true
 		}
 		for _, p := range d.Dirs {
-			if name == p || strings.HasPrefix(name, p+"/") {
+			if name == p || strings.HasPrefix(name, p+"/") && !agents.MachineOwn(name) {
 				return a, p, true, true
 			}
 		}

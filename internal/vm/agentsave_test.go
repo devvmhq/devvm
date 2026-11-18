@@ -73,7 +73,7 @@ func saveTar(t *testing.T, own bool, es ...te) []byte {
 // ~/.claude.json's subset, never a login or history.
 func TestAgentSaveScript(t *testing.T) {
 	codex := agentSaveScript([]string{"codex"})
-	for _, s := range []string{"'.codex/config.toml'", "'.codex/skills'", `tar -cf - "$@" -C "$t" .devvm-save`} {
+	for _, s := range []string{"'.codex/config.toml'", "'.codex/skills'", `tar -cf - ${ex[@]+"${ex[@]}"} "$@" -C "$t" .devvm-save`} {
 		if !strings.Contains(codex, s) {
 			t.Errorf("no %s in:\n%s", s, codex)
 		}
@@ -243,6 +243,10 @@ func TestListedPath(t *testing.T) {
 	}{
 		{".claude/settings.json", false, ".claude/settings.json", false},
 		{".claude/plugins/marketplaces/m/.git/config", false, ".claude/plugins", true},
+		{".claude/plugins", true, ".claude/plugins", true},
+		{".claude/plugins/data/p/state.json", false, "", false},
+		{".claude/plugins/installed_plugins.json", false, "", false},
+		{".claude/plugins-seed", true, "", false},
 		{".codex/prompts", true, ".codex/prompts", true},
 		{".config/opencode/opencode.json", false, ".config/opencode/opencode.json", false},
 		{".config/opencode/agent", true, ".config/opencode/agent", true},
@@ -327,8 +331,8 @@ func (st *saveTest) store(agent string) string { return agentStore(st.Dirs, agen
 
 // A save without placeholders: a changed settings file and a new one,
 // a new folder whole (a link to a file inside it a copy, its owner's
-// execute bit kept, set-id bits never), ~/.claude.json's subset, and the
-// plugin records naming the store's folders; what's left out warned
+// execute bit kept, set-id bits never) and ~/.claude.json's subset
+// (TestAgentSaveClaudePlugins has the plugins); what's left out warned
 // about and, in a folder, kept as the store has it; what's the same as
 // the store's not planned. Applied, the store has it, and only it.
 func TestAgentSavePlanAndApply(t *testing.T) {
@@ -343,21 +347,17 @@ func TestAgentSavePlanAndApply(t *testing.T) {
 		te{name: ".claude/skills/escape->../../outside"},
 		te{name: ".claude/skills/ph.md", data: "devvm-redacted"},
 		te{name: ".claude/skills/fifo", kind: tar.TypeFifo},
-		te{name: ".claude/plugins/"},
-		te{name: ".claude/plugins/installed_plugins.json", data: `{"p": {"installPath": "/home/u.linux/.claude/plugins/cache/p"}}`},
 		te{name: ".claude/agents->/elsewhere"},
 		te{name: saveOwn + "/claude.json", data: `{"theme": "light", "projects": {"/p": {}}, "primaryApiKey": "testfake-key"}`},
 	)
 	st := newSaveTest(t, stream, "claude")
 	store := st.store("claude")
 	write(t, store, map[string]string{
-		".claude/settings.json":   "{\"theme\": \"dark\"}\n",
-		".claude/skills/ph.md":    "the store's",
-		".claude/skills/old.md":   "gone",
-		".claude/commands/c.md":   "kept: the VM has no commands",
-		".claude/agents/a.md":     "kept: the VM's is a link",
-		".claude/plugins/x.json":  "gone",
-		".claude/plugins/keep.md": "gone",
+		".claude/settings.json": "{\"theme\": \"dark\"}\n",
+		".claude/skills/ph.md":  "the store's",
+		".claude/skills/old.md": "gone",
+		".claude/commands/c.md": "kept: the VM has no commands",
+		".claude/agents/a.md":   "kept: the VM's is a link",
 	})
 	if err := os.Symlink(filepath.Join(store, ".claude/skills/s/SKILL.md"), filepath.Join(store, ".claude/skills/fifo")); err != nil {
 		t.Fatal(err)
@@ -373,16 +373,13 @@ func TestAgentSavePlanAndApply(t *testing.T) {
 	if !slices.Equal(files, []string{".claude/CLAUDE.md", ".claude/settings.json"}) {
 		t.Errorf("files = %v", files)
 	}
-	if len(p.folders) != 2 {
+	if len(p.folders) != 1 {
 		t.Fatalf("folders = %+v", p.folders)
 	}
-	plugins, skills := p.folders[0], p.folders[1]
+	skills := p.folders[0]
 	if !slices.Equal(skills.added, []string{"copy", "s/SKILL.md", "s/run.sh"}) || len(skills.changed) != 0 ||
 		!slices.Equal(skills.removed, []string{"old.md"}) || !slices.Equal(skills.kept, []string{".claude/skills/escape", ".claude/skills/fifo", ".claude/skills/ph.md"}) {
 		t.Errorf("skills = %+v", skills)
-	}
-	if !slices.Equal(plugins.added, []string{"installed_plugins.json"}) || !slices.Equal(plugins.removed, []string{"keep.md", "x.json"}) {
-		t.Errorf("plugins = %+v", plugins)
 	}
 	if s := string(p.claude); !strings.Contains(s, `"light"`) || strings.Contains(s, "projects") || strings.Contains(s, "testfake") {
 		t.Errorf("claude = %s", s)
@@ -426,10 +423,7 @@ func TestAgentSavePlanAndApply(t *testing.T) {
 			t.Errorf("%s = %q, want %q", rel, got, want)
 		}
 	}
-	if got := readFile(t, filepath.Join(store, ".claude/plugins/installed_plugins.json")); !strings.Contains(got, filepath.Join(store, ".claude/plugins/cache/p")) {
-		t.Errorf("plugin record: %s", got)
-	}
-	for _, rel := range []string{".claude/skills/old.md", ".claude/plugins/x.json", ".claude/skills/escape"} {
+	for _, rel := range []string{".claude/skills/old.md", ".claude/skills/escape"} {
 		if _, err := os.Lstat(filepath.Join(store, rel)); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s is there: %v", rel, err)
 		}
