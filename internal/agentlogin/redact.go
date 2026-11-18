@@ -14,9 +14,12 @@ package agentlogin
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/devvmhq/devvm/internal/agents"
 )
 
 var (
@@ -26,6 +29,8 @@ var (
 	envRef     = regexp.MustCompile(`^(\{(env|file):[^}]*\}|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)$`)
 	// A switch or a port, kept in env tables: true, false or a number of at most five digits.
 	plainValue = regexp.MustCompile(`^(?i:true|false|[0-9]{1,5})$`)
+	// A setting's word, such as off, name-only or allow: lower-case letters and dashes alone.
+	settingWord = regexp.MustCompile(`^[a-z]+(-[a-z]+)*$`)
 	// An env variable whose name says it holds a credential, or headers, wherever it is: its
 	// value goes whole, a URL too. TOKEN only as a word, as MAX_OUTPUT_TOKENS counts model tokens.
 	credName = regexp.MustCompile(`(?i)(key|token($|_)|secret|pass|auth|credential|cookie|header)`)
@@ -82,7 +87,8 @@ func Redact(format string, data []byte) ([]byte, []string, error) {
 		return nil, nil, err
 	}
 	var r redaction
-	out, err := encode(format, r.value(v, "", "", false))
+	r.names, r.values = agents.NameTables()
+	out, err := encode(format, r.value(v, "", nil, "", false))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -90,8 +96,34 @@ func Redact(format string, data []byte) ([]byte, []string, error) {
 	return out, r.paths, nil
 }
 
-// redaction is one file's: the paths of the values it replaced.
-type redaction struct{ paths []string }
+// redaction is one file's: the paths of the values it replaced, and the tables whose keys are
+// names you choose (agents.NameTables).
+type redaction struct {
+	paths         []string
+	names, values [][]string
+}
+
+// named reports how the keys of the table at keys, its parents' keys from the file's top, are
+// judged: as names when what's under them is a table (tables), such as an MCP server's, or a
+// table or a setting's word (values), such as a skill's off (settingWord), while any other value is still judged by its key. A name doesn't make what's
+// under it a secret, as a secret-looking key does, though the fields of a table under it are
+// judged as anywhere else, and a name that's a table of secrets' key, such as env, still makes it
+// one (wholeTable): a server named env loses its settings rather than a real env keeping its
+// secrets. A * stands for any key but a list's.
+func (r *redaction) named(keys []string) (tables, values bool) {
+	at := func(p []string) bool {
+		if len(p) != len(keys) {
+			return false
+		}
+		for i, s := range p {
+			if (s != "*" || keys[i] == "[]") && s != keys[i] {
+				return false
+			}
+		}
+		return true
+	}
+	return slices.ContainsFunc(r.names, at), slices.ContainsFunc(r.values, at)
+}
 
 func joinPath(path, k string) string {
 	if path == "" {
@@ -100,22 +132,29 @@ func joinPath(path, k string) string {
 	return path + "." + k
 }
 
-// value returns v, at path (key k of its parent), with its secrets taken out. secret: every
-// string in v is one, as v is under a secret-looking key or in a table of secrets (secretIn).
-func (r *redaction) value(v any, path, k string, secret bool) any {
+// value returns v, at path (key k of its parent, and keys from the file's top), with its
+// secrets taken out. secret: every string in v is one, as v is under a
+// secret-looking key or in a table of secrets (secretIn).
+func (r *redaction) value(v any, path string, keys []string, k string, secret bool) any {
 	switch t := v.(type) {
 	case string:
 		return r.str(t, path, k, secret)
 	case map[string]any:
+		tables, values := r.named(keys)
 		for ck, x := range t {
-			t[ck] = r.value(x, joinPath(path, ck), ck, secret || secretIn(path, k, ck, x))
+			_, table := x.(map[string]any)
+			in := secretIn(path, k, ck, x)
+			if word, _ := x.(string); (tables || values) && table || values && settingWord.MatchString(word) {
+				in = !table && wholeTable(path, k) // a name you chose (named)
+			}
+			t[ck] = r.value(x, joinPath(path, ck), append(slices.Clip(keys), ck), ck, secret || in)
 		}
 	case []map[string]any: // TOML's [[tables]]
 		for i, x := range t {
-			r.value(x, fmt.Sprintf("%s[%d]", path, i), k, secret)
+			r.value(x, fmt.Sprintf("%s[%d]", path, i), append(slices.Clip(keys), "[]"), k, secret)
 		}
 	case []any:
-		return r.list(t, path, k, secret)
+		return r.list(t, path, keys, k, secret)
 	}
 	return v
 }
@@ -155,7 +194,7 @@ func (r *redaction) str(s, path, k string, secret bool) string {
 
 // list returns l, at path: every string in it replaced when they're secrets, else as arguments
 // are (scrubArgs); the tables and lists in it each checked.
-func (r *redaction) list(l []any, path, k string, secret bool) []any {
+func (r *redaction) list(l []any, path string, keys []string, k string, secret bool) []any {
 	changed := false
 	for i, x := range l {
 		s, ok := x.(string)
@@ -178,7 +217,7 @@ func (r *redaction) list(l []any, path, k string, secret bool) []any {
 	}
 	for i, x := range l {
 		if _, ok := x.(string); !ok {
-			l[i] = r.value(x, fmt.Sprintf("%s[%d]", path, i), k, secret)
+			l[i] = r.value(x, fmt.Sprintf("%s[%d]", path, i), append(slices.Clip(keys), "[]"), k, secret)
 		}
 	}
 	return l

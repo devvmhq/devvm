@@ -277,6 +277,126 @@ func TestRedactJSON(t *testing.T) {
 	}
 }
 
+// The names you choose for marketplaces, plugins, skills and MCP servers, such as tokeneconomizer,
+// token-saver, secret-scanner and tokenEconomizer, aren't judged as keys: their settings stay,
+// while the fields inside them are judged as anywhere else, a value that isn't a table where
+// names' tables go is still judged by its key, and a name that's an env or headers table's key
+// still makes it one.
+func TestRedactNames(t *testing.T) {
+	for name, tc := range map[string]struct {
+		format, in string
+		kept, gone []string
+		want       string
+	}{
+		"Claude Code's settings": {
+			format: "json",
+			in: `{
+  "extraKnownMarketplaces": {
+    "tokeneconomizer": {"source": {"source": "github", "repo": "acme/tokeneconomizer"}},
+    "secret-scanner": {"source": {"source": "git", "url": "https://git.example.com/secret-scanner.git"}}
+  },
+  "enabledPlugins": {"token-saver@tokeneconomizer": true, "tokenEconomizer@tokeneconomizer": false},
+  "skillOverrides": {"secret-scanner": "off", "token-saver": "name-only", "apiKey": "fake-Override1"},
+  "pluginConfigs": {"token-saver@tokeneconomizer": {"options": {"apiToken": "fake-option", "mode": "fast"}}},
+  "mcpServers": {
+    "secret-scanner": {"command": "npx", "args": ["-y", "secret-scanner"], "env": {"MODE": "fake-env"}, "headers": {"X-Custom": "fake-header"}, "apiKey": "fake-field"},
+    "token-saver": {"type": "http", "url": "https://mcp.example.com/mcp", "headers": {"Authorization": "Bearer fake-bearer"}},
+    "env": {"command": "fake-env-named"},
+    "apiKey": "fake-misplaced"
+  }
+}`,
+			kept: []string{
+				`"source": "github"`, `"repo": "acme/tokeneconomizer"`, `"url": "https://git.example.com/secret-scanner.git"`,
+				`"token-saver@tokeneconomizer": true`, `"secret-scanner": "off"`, `"token-saver": "name-only"`, `"mode": "fast"`,
+				`"command": "npx"`, `"url": "https://mcp.example.com/mcp"`,
+			},
+			gone: []string{"fake-option", "fake-env", "fake-header", "fake-field", "fake-bearer", "fake-misplaced", "fake-env-named", "fake-Override1"},
+			want: "mcpServers.apiKey\nmcpServers.env.command\nmcpServers.secret-scanner.apiKey\nmcpServers.secret-scanner.env.MODE\n" +
+				"mcpServers.secret-scanner.headers.X-Custom\nmcpServers.token-saver.headers.Authorization\n" +
+				"pluginConfigs.token-saver@tokeneconomizer.options.apiToken\nskillOverrides.apiKey\n",
+		},
+		"Codex's config": {
+			format: "toml",
+			in: `[marketplaces.tokeneconomizer]
+source_type = "git"
+source = "https://github.com/acme/tokeneconomizer.git"
+
+[plugins."token-saver@tokeneconomizer"]
+enabled = true
+
+[mcp_servers.secret-scanner]
+command = "npx"
+args = ["-y", "secret-scanner"]
+bearer_token_env_var = "SCANNER_TOKEN"
+env = { MODE = "fake-env" }
+
+[mcp_servers.secret-scanner.tools.get_token]
+approval_mode = "approve"
+
+[model_providers.token-gateway]
+base_url = "https://gw.example.com/v1"
+experimental_bearer_token = "fake-bearer"
+
+[projects."/Users/me/secret-project"]
+trust_level = "trusted"
+
+[profiles.tokenmax]
+model = "o4"
+
+[hooks.state."tokeneconomizer@tokeneconomizer:SessionStart"]
+trust = "trusted-hook"
+
+[shell_environment_policy]
+filters = { "*_TOKEN" = "exclude" }
+`,
+			kept: []string{
+				`source = "https://github.com/acme/tokeneconomizer.git"`, `source_type = "git"`, "enabled = true",
+				`command = "npx"`, `bearer_token_env_var = "SCANNER_TOKEN"`, `approval_mode = "approve"`,
+				`base_url = "https://gw.example.com/v1"`, `trust_level = "trusted"`, `model = "o4"`, `"*_TOKEN" = "exclude"`,
+				`trust = "trusted-hook"`,
+			},
+			gone: []string{"fake-env", "fake-bearer"},
+			want: "mcp_servers.secret-scanner.env.MODE\nmodel_providers.token-gateway.experimental_bearer_token\n",
+		},
+		"opencode's and pi's": {
+			format: "json",
+			in: `{
+  "provider": {"token-gw": {"options": {"apiKey": "fake-oc", "baseURL": "https://gw.example.com"}, "models": {"token-model": {"name": "Gateway model"}}}},
+  "providers": {"secret-llm": {"baseUrl": "https://llm.example.com", "apiKey": "fake-pi", "modelOverrides": {"token-x": {"name": "Model X"}}}},
+  "agent": {"secret-reviewer": {"model": "anthropic/claude", "prompt": "review", "permission": [{"apiKey": "fakelistvalue"}]}},
+  "permission": {"bash": {"gh auth token": "deny", "x_token": "fake-Perm1"}},
+  "command": {"rotate-token": {"template": "rotate it"}},
+  "mcp": {"servers": {"token-saver": {"type": "local", "command": ["npx", "token-saver"], "environment": {"MODE": "fake-oc-env"}}}},
+  "mcpServers": {"secret-scanner": {"command": "npx", "toolExposure": {"get_token": "direct"}}},
+  "modelThinkingLevels": {"tokenco/model": "high"}
+}`,
+			kept: []string{
+				`"baseURL": "https://gw.example.com"`, `"name": "Gateway model"`, `"baseUrl": "https://llm.example.com"`, `"name": "Model X"`,
+				`"model": "anthropic/claude"`, `"template": "rotate it"`, `"token-saver"`, `"command": "npx"`,
+				`"get_token": "direct"`, `"tokenco/model": "high"`, `"gh auth token": "deny"`,
+			},
+			gone: []string{"fake-oc", "fake-pi", "fake-oc-env", "fakelistvalue", "fake-Perm1"},
+			want: "agent.secret-reviewer.permission[0].apiKey\nmcp.servers.token-saver.environment.MODE\npermission.bash.x_token\n" +
+				"provider.token-gw.options.apiKey\nproviders.secret-llm.apiKey\n",
+		},
+	} {
+		out, paths := redacted(t, tc.format, tc.in)
+		for _, s := range tc.kept {
+			if !strings.Contains(out, s) {
+				t.Errorf("%s: copy lost %s:\n%s", name, s, out)
+			}
+		}
+		for _, s := range tc.gone {
+			if strings.Contains(out, s) {
+				t.Errorf("%s: copy holds %q:\n%s", name, s, out)
+			}
+		}
+		if paths != tc.want {
+			t.Errorf("%s: paths = %q, want %q", name, paths, tc.want)
+		}
+	}
+}
+
 // The secrets FuzzRedact plants: one of a known key's shape, and one that only where it is says
 // is a secret.
 const (
@@ -337,6 +457,13 @@ func FuzzRedact(f *testing.F) {
 		f.Add(false, []byte(`{"mcp":{"m":{"command":"x","env":{"A":"b"}}},"model":"sonnet"}`), "mcp", "m", "TOKEN", "run it", i)
 		f.Add(true, []byte("[mcp_servers.m]\ncommand = \"x\"\nargs = [\"-y\"]\n"), "mcp_servers", "m", "x", "", i)
 		f.Add(false, []byte(`{}`), "", "", "CLAUDE_CODE_X", "Bearer", i)
+		// Under names you choose, which aren't judged as keys.
+		f.Add(false, []byte(`{"mcpServers":{"secret-scanner":{"command":"x"}}}`), "mcpServers", "secret-scanner", "apiKey", "x", i)
+		f.Add(false, []byte(`{}`), "extraKnownMarketplaces", "tokeneconomizer", "source", "token-saver", i)
+		f.Add(true, []byte("[mcp_servers.token-saver]\ncommand = \"x\"\n"), "mcp_servers", "token-saver", "x", "", i)
+		f.Add(false, []byte(`{}`), "skillOverrides", "env", "TOKEN", "", i)
+		f.Add(false, []byte(`{}`), "permission", "bash", "x", "", i)
+		f.Add(true, []byte(""), "shell_environment_policy", "filters", "GITHUB", "", i)
 	}
 	f.Fuzz(func(t *testing.T, isTOML bool, doc []byte, k1, k2, key, around string, how uint8) {
 		// A file that isn't UTF-8 is refused before Redact reads it.

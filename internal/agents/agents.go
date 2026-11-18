@@ -15,6 +15,7 @@ package agents
 import (
 	"path"
 	"slices"
+	"strings"
 )
 
 // The agents' names: what special-cased code elsewhere names one by.
@@ -215,6 +216,16 @@ type Def struct {
 	Dirs []string
 	// Files are its settings files, copied in on every launch.
 	Files []File
+	// Names are the tables of its settings files whose keys are names you choose, such as its
+	// MCP servers' or its plugins' marketplaces', each a path of keys joined by dots, * standing
+	// for any one key. A table under one of those names isn't judged by its name as the VM's copy
+	// is made (agentlogin.Redact), so a server named secret-scanner keeps its settings, while its
+	// own fields, such as its env or an apiKey, are judged as anywhere else.
+	Names []string
+	// NamedValues are the tables whose keys are names you choose and whose values are settings,
+	// such as Claude Code's skillOverrides' "off": neither a table nor a setting's word in them,
+	// such as off or name-only, is judged by its name, while any other value still is.
+	NamedValues []string
 	// WholeFolder: its settings are every entry of Folder, read as they are now: each folder
 	// but node_modules is mounted, and each file but lock files is copied, a JSON, JSONC or
 	// TOML one as a settings file, Markdown as it is, and any other withheld, as devvm can't
@@ -263,8 +274,15 @@ type Docs struct {
 var Defs = []Def{
 	{
 		Name: Claude, Display: "Claude Code", Folder: ".claude",
-		Dirs:            []string{".claude/skills", ".claude/agents", ".claude/commands", ".claude/output-styles", ClaudePlugins},
-		Files:           []File{{".claude/settings.json", JSON}, {".claude/CLAUDE.md", AsIs}},
+		Dirs:  []string{".claude/skills", ".claude/agents", ".claude/commands", ".claude/output-styles", ClaudePlugins},
+		Files: []File{{".claude/settings.json", JSON}, {".claude/CLAUDE.md", AsIs}},
+		// From code.claude.com/docs/en/settings and /mcp (2026-11): mcpServers is
+		// ~/.claude.json's, whose copy devvm agent save's diff shows.
+		Names: []string{
+			"extraKnownMarketplaces", "additionalMarketplaces", "pluginConfigs", "pluginConfigs.*.mcpServers",
+			"modelSettings", "modelPricing.overrides", "mcpServers", "managedMcpServers",
+		},
+		NamedValues:     []string{"enabledPlugins", "skillOverrides", "modelOverrides"},
 		Logins:          []Login{{Claude, ClaudeJSON}, {ClaudeOAuth, ".claude/.credentials.json"}},
 		History:         []string{".claude", ClaudeJSON},
 		HistoryExcludes: []string{".claude/.credentials.json"},
@@ -284,8 +302,20 @@ var Defs = []Def{
 	},
 	{
 		Name: Codex, Display: "Codex", Folder: ".codex",
-		Dirs:            []string{".codex/prompts", ".codex/skills"},
-		Files:           []File{{".codex/config.toml", TOML}, {".codex/AGENTS.md", AsIs}},
+		Dirs:  []string{".codex/prompts", ".codex/skills"},
+		Files: []File{{".codex/config.toml", TOML}, {".codex/AGENTS.md", AsIs}},
+		// From its configuration reference (2026-11), and hooks.state, where it records which
+		// hooks you trusted, by the hook's plugin and event.
+		Names: []string{
+			"mcp_servers", "mcp_servers.*.tools", "model_providers", "profiles", "projects", "marketplaces",
+			"plugins", "plugins.*.mcp_servers", "plugins.*.mcp_servers.*.tools", "apps", "apps.*.tools", "agents",
+			"permissions", "hooks.state", "otel.exporter", "otel.trace_exporter", "desktop.custom_file_handlers",
+			"browser_use.origins", "tui.presets",
+		},
+		NamedValues: []string{
+			"shell_environment_policy.filters", "notice.model_migrations", "permissions.*.filesystem", "permissions.*.filesystem.*",
+			"permissions.*.network.domains", "permissions.*.network.unix_sockets", "permissions.*.workspace_roots",
+		},
 		Logins:          []Login{{Codex, ".codex/auth.json"}},
 		History:         []string{".codex"},
 		HistoryExcludes: []string{".codex/auth.json"},
@@ -304,8 +334,15 @@ var Defs = []Def{
 	},
 	{
 		Name: Opencode, Display: "opencode", Folder: OpencodeConfig, WholeFolder: true,
-		Logins:  []Login{{Opencode, OpencodeData + "/auth.json"}},
-		History: []string{OpencodeData, ".local/state/opencode"},
+		// From opencode.ai/docs (2026-11): 2.x's names and 1.x's singular ones, which it still
+		// reads, with 1.x's permission tables of patterns.
+		Names: []string{
+			"mcp", "mcp.servers", "provider", "providers", "provider.*.models", "providers.*.models",
+			"agent", "agents", "command", "commands", "mode", "formatter", "lsp", "references",
+		},
+		NamedValues: []string{"permission", "permission.*", "agent.*.permission", "agent.*.permission.*"},
+		Logins:      []Login{{Opencode, OpencodeData + "/auth.json"}},
+		History:     []string{OpencodeData, ".local/state/opencode"},
 		HistoryExcludes: []string{
 			OpencodeData + "/auth.json", OpencodeData + "/account.json", OpencodeData + "/mcp-auth.json", OpencodeData + "/bin",
 		},
@@ -336,10 +373,13 @@ var Defs = []Def{
 			{PiFolder + "/SYSTEM.md", AsIs},
 			{PiFolder + "/APPEND_SYSTEM.md", AsIs},
 		},
-		Logins:    []Login{{Pi, PiFolder + "/auth.json"}},
-		History:   []string{PiFolder + "/sessions"},
-		Env:       []Env{{"PI_SKIP_VERSION_CHECK", "1"}, {"PI_TELEMETRY", "0"}},
-		GlibcOnly: true, Keys: ProviderKeys, PassKeys: true,
+		// From its docs' settings.md, models.md and mcp.md (2026-11).
+		Names:       []string{"providers", "providers.*.modelOverrides", "mcpServers", "compaction.modelOverrides"},
+		NamedValues: []string{"modelThinkingLevels", "mcpServers.*.toolExposure"},
+		Logins:      []Login{{Pi, PiFolder + "/auth.json"}},
+		History:     []string{PiFolder + "/sessions"},
+		Env:         []Env{{"PI_SKIP_VERSION_CHECK", "1"}, {"PI_TELEMETRY", "0"}},
+		GlibcOnly:   true, Keys: ProviderKeys, PassKeys: true,
 		Docs: Docs{
 			Site:    "https://pi.dev",
 			Adds:    "the newest release, with its check for a newer pi and its install report off, and `fd`, which pi finds files with, in base",
@@ -357,6 +397,7 @@ var Defs = []Def{
 		Name: Cursor, Display: "Cursor CLI", Command: "cursor-agent", Folder: ".cursor",
 		Dirs:      []string{".cursor/rules", ".cursor/commands"},
 		Files:     []File{{".cursor/cli-config.json", JSON}, {".cursor/mcp.json", JSON}},
+		Names:     []string{"mcpServers"},
 		Logins:    []Login{{Cursor, ".config/cursor/auth.json"}},
 		History:   []string{".cursor/chats"},
 		GlibcOnly: true,
@@ -467,6 +508,23 @@ func SettingsFormat(rel string) (Format, bool) {
 		}
 	}
 	return AsIs, false
+}
+
+// NameTables are every agent's Names and NamedValues, each path split into its keys, which
+// agentlogin.Redact applies to every agent's settings files alike.
+func NameTables() (names, values [][]string) {
+	split := func(l []string) [][]string {
+		var out [][]string
+		for _, p := range l {
+			out = append(out, strings.Split(p, "."))
+		}
+		return out
+	}
+	for _, d := range Defs {
+		names = append(names, split(d.Names)...)
+		values = append(values, split(d.NamedValues)...)
+	}
+	return names, values
 }
 
 // Withheld reports whether a VM doesn't get an agent's file, by its path relative to the home

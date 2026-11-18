@@ -37,6 +37,18 @@ func TestRestoreWithoutPlaceholders(t *testing.T) {
 	}
 }
 
+// A VM's copy that an older devvm made, with devvm-redacted in place of the settings under a name
+// that looks like a secret's, can't be put back, as the copy devvm makes now keeps them: the
+// file is left out of the save, never saved with the placeholder.
+func TestRestoreOlderNamesCopy(t *testing.T) {
+	store := `{"extraKnownMarketplaces": {"tokeneconomizer": {"source": {"source": "github", "repo": "acme/tokeneconomizer"}}}}`
+	vm := `{"extraKnownMarketplaces": {"tokeneconomizer": {"source": {"source": "devvm-redacted", "repo": "devvm-redacted"}}}}`
+	out, err := restored(t, "json", vm, store)
+	if _, ok := errors.AsType[*PlaceholderError](err); !ok {
+		t.Errorf("Restore = %q, %v, want a placeholder error", out, err)
+	}
+}
+
 // The store's secrets go back where the VM's copy had their placeholders, the VM's own changes
 // elsewhere kept: JSON and TOML, in tables, lists and Codex's [[tables]].
 func TestRestorePutsSecretsBack(t *testing.T) {
