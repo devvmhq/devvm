@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -146,21 +145,6 @@ func listedRelease(ctx context.Context) (string, error) {
 	return slices.Max(rs), nil
 }
 
-// pinned is a field of the cloud image pinned in the sandbox, as devvm
-// recorded it (images/ubuntu.json).
-func pinned(s *S, field string) string {
-	b, err := os.ReadFile(filepath.Join(s.Paths.Images, "ubuntu.json"))
-	if err != nil {
-		return ""
-	}
-	var m map[string]any
-	if json.Unmarshal(b, &m) != nil {
-		return ""
-	}
-	v, _ := m[field].(string)
-	return v
-}
-
 // first is the first of keys, nothing when there's none.
 func first(keys []string) string {
 	if len(keys) == 0 {
@@ -262,11 +246,11 @@ func imagesRecord(s *S, kb string) {
 			return errors.New("base isn't there, stopped")
 		case rec("chain") != "base="+kb || rec("libc") != "gnu" || rec("from") != "":
 			return errors.New("base's record has another chain, C library or --from")
-		case !Matches(rec("built"), `^[0-9-]+T[0-9:]+Z$`) || pinned(s, "release") != release:
+		case !Matches(rec("built"), `^[0-9-]+T[0-9:]+Z$`) || pinned(s.Paths.Images, "release") != release:
 			return errors.New("base's record has no build time, or another release is pinned")
-		case rec("digest") != "https://cloud-images.ubuntu.com/releases/resolute/"+release+"/"+pinned(s, "file")+" "+pinned(s, "digest"):
+		case rec("digest") != "https://cloud-images.ubuntu.com/releases/resolute/"+release+"/"+pinned(s.Paths.Images, "file")+" "+pinned(s.Paths.Images, "digest"):
 			return errors.New("base's record has another cloud image")
-		case !Matches(pinned(s, "digest"), `^sha256:[0-9a-f]{64}$`):
+		case !Matches(pinned(s.Paths.Images, "digest"), `^sha256:[0-9a-f]{64}$`):
 			return errors.New("the pinned cloud image has no SHA-256")
 		}
 		return nil

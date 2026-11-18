@@ -24,13 +24,13 @@ import (
 
 // The mise devvm resolves the tools lock with, on the host: pinned, and
 // checked against its checksum before it runs.
-const miseVersion = "2026.11.8"
+const miseVersion = "2026.11.10"
 
 var miseSHA256 = map[string]string{
-	"macos-arm64": "3e390ecbcf7f03e91e72c920a248a0f149f00d77ae95d37ea1736a1c7b42fee6",
-	"macos-x64":   "efedda14eb491af096dc27daaccfd5c57caaf77f1b79c5e387b8a091b8938f66",
-	"linux-arm64": "0de1450dcc3f838e372e05e8c5231423760ad3f22d14275ef340bc0a250303ce",
-	"linux-x64":   "32b6abe844efa43d37d7ac4ed21d2ec41e9479d66feb19b0db8d2c548cd6e36d",
+	"macos-arm64": "3f4ba9d21c6f2170048d0870fd98ab287e04730b76a6fc8e83964d59c80eb704",
+	"macos-x64":   "7eab8054d301b75dcbd93440ff184bee6864d95799cfdc4a00ce858313b68783",
+	"linux-arm64": "86ef275d541c5243cd20b1c0fcd16810e5f3601113d8db09278d0608617a3833",
+	"linux-x64":   "b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9",
 }
 
 const miseURL = "https://github.com/jdx/mise/releases/download/v%[1]s/mise-v%[1]s-%[2]s"

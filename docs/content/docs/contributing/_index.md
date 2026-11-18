@@ -36,7 +36,7 @@ mise installs every tool at the version pinned in `mise.toml`, checked against `
 | govulncheck | checking dependencies for known vulnerabilities |
 | nilaway | finding where a nil value may be dereferenced |
 | goreleaser | release builds ([Maintaining](maintaining.md#releasing)) |
-| hugo-extended | the docs site |
+| hugo | the docs site |
 | vale, markdownlint-cli2, lychee | linting the docs |
 | node | running markdownlint-cli2, and drawing the docs site's diagrams with pele, which `docs/package.json` pins ([diagrams](docs.md#writing-docs)) |
 | shellcheck | linting shell scripts |

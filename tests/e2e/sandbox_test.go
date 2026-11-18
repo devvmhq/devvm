@@ -8,8 +8,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,7 +59,7 @@ const (
 // starts from here, in place of the newest a user's devvm pins, so base
 // stays cached between runs (scripts/bump.sh e2e-ubuntu moves it). devvm
 // still checks its signed checksums.
-const e2eUbuntuRelease = "release-20261016"
+const e2eUbuntuRelease = "release-20261108"
 
 // slotWork, slotLima and slotService are slot k's state folder, Lima home
 // and Keychain service.
@@ -219,7 +221,47 @@ func (sb *sandbox) setup(ctx context.Context, out *output) error {
 	if sb.o.clean {
 		sb.clean(ctx, out)
 	}
+	if !sb.o.newest {
+		// A --newest-base run pins the newest itself.
+		if err := repin(sb.images()); err != nil {
+			return err
+		}
+	}
 	return sb.refuseLeftovers(ctx)
+}
+
+// repin deletes the Ubuntu pin in images, a sandbox's images folder, when
+// it names a release other than e2eUbuntuRelease, as devvm keeps a pin it
+// has (DEVVM_UBUNTU_RELEASE only picks the first): the next build pins
+// e2eUbuntuRelease, under a key of its own.
+func repin(images string) error {
+	if pinned(images, "release") == e2eUbuntuRelease {
+		return nil
+	}
+	if err := os.Remove(ubuntuPin(images)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// ubuntuPin is the record of the cloud image devvm pinned for base, in
+// images, a sandbox's images folder.
+func ubuntuPin(images string) string { return filepath.Join(images, "ubuntu.json") }
+
+// pinned is a field of the cloud image pinned in images, a sandbox's
+// images folder, as devvm recorded it, or "" when none is or the record
+// doesn't parse.
+func pinned(images, field string) string {
+	b, err := os.ReadFile(ubuntuPin(images))
+	if err != nil {
+		return ""
+	}
+	var m map[string]any
+	if json.Unmarshal(b, &m) != nil {
+		return ""
+	}
+	v, _ := m[field].(string)
+	return v
 }
 
 // refuseLeftovers stops the run when the sandbox's Lima home has project

@@ -88,9 +88,9 @@ backend = "go:go.uber.org/nilaway/cmd/nilaway"
 specifiers = ["0.0.0-20261112030514-ccd005690d1e"]
 
 [[tools."go:golang.org/x/vuln/cmd/govulncheck"]]
-version = "1.9.0"
+version = "1.10.0"
 backend = "go:golang.org/x/vuln/cmd/govulncheck"
-specifiers = ["1.9.0"]
+specifiers = ["1.10.0"]
 
 [[tools.golangci-lint]]
 version = "2.15.0"
@@ -226,52 +226,52 @@ checksum = "sha256:fd5a6dc69e46a0970593e70d85a7e75f16714e9c61d6d72ccc324eb82df5b
 url = "https://github.com/gotestyourself/gotestsum/releases/download/v1.13.0/gotestsum_1.13.0_windows_amd64.tar.gz"
 url_api = "https://api.github.com/repos/gotestyourself/gotestsum/releases/assets/291996823"
 
-[[tools.hugo-extended]]
-version = "0.169.0"
-backend = "aqua:gohugoio/hugo/hugo-extended"
-specifiers = ["0.169.0"]
+[[tools.hugo]]
+version = "0.170.1"
+backend = "aqua:gohugoio/hugo"
+specifiers = ["0.170.1"]
 
-[tools.hugo-extended."platforms.linux-arm64"]
-checksum = "sha256:5b190e5d2836c09efe25cc6249f70bde8a6c5331ef412a4c9137e9d5de89a515"
+[tools.hugo."platforms.linux-arm64"]
+checksum = "sha256:6f57f13bc47c000c0d36c7f5a446d6c06f7956d8e102cc2a13735e0c0225b2d2"
 checksum_source = "mise-versions"
-url = "https://github.com/gohugoio/hugo/releases/download/v0.169.0/hugo_extended_0.169.0_linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/682125186"
+url = "https://github.com/gohugoio/hugo/releases/download/v0.170.1/hugo_0.170.1_linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/759871399"
 
-[tools.hugo-extended."platforms.linux-arm64-musl"]
-checksum = "sha256:5b190e5d2836c09efe25cc6249f70bde8a6c5331ef412a4c9137e9d5de89a515"
+[tools.hugo."platforms.linux-arm64-musl"]
+checksum = "sha256:6f57f13bc47c000c0d36c7f5a446d6c06f7956d8e102cc2a13735e0c0225b2d2"
 checksum_source = "mise-versions"
-url = "https://github.com/gohugoio/hugo/releases/download/v0.169.0/hugo_extended_0.169.0_linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/682125186"
+url = "https://github.com/gohugoio/hugo/releases/download/v0.170.1/hugo_0.170.1_linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/759871399"
 
-[tools.hugo-extended."platforms.linux-x64"]
-checksum = "sha256:c41672a0725d307758a132bc94a962e59760eb33f9ba08c991b81f9881d6fa7d"
+[tools.hugo."platforms.linux-x64"]
+checksum = "sha256:841a5462853aefc9942e4de1e8a5d75584b6a5181941e6ad3f1d745190e03cd8"
 checksum_source = "mise-versions"
-url = "https://github.com/gohugoio/hugo/releases/download/v0.169.0/hugo_extended_0.169.0_linux-amd64.tar.gz"
-url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/682125110"
+url = "https://github.com/gohugoio/hugo/releases/download/v0.170.1/hugo_0.170.1_linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/759871396"
 
-[tools.hugo-extended."platforms.linux-x64-musl"]
-checksum = "sha256:c41672a0725d307758a132bc94a962e59760eb33f9ba08c991b81f9881d6fa7d"
+[tools.hugo."platforms.linux-x64-musl"]
+checksum = "sha256:841a5462853aefc9942e4de1e8a5d75584b6a5181941e6ad3f1d745190e03cd8"
 checksum_source = "mise-versions"
-url = "https://github.com/gohugoio/hugo/releases/download/v0.169.0/hugo_extended_0.169.0_linux-amd64.tar.gz"
-url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/682125110"
+url = "https://github.com/gohugoio/hugo/releases/download/v0.170.1/hugo_0.170.1_linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/759871396"
 
-[tools.hugo-extended."platforms.macos-arm64"]
-checksum = "sha256:d48dfd5adab308f941e83e48c5ba925747cf383395972278942cf526ad27cf38"
+[tools.hugo."platforms.macos-arm64"]
+checksum = "sha256:f7672f5e47f13c488ecd9ae96450ed9d2044629d60fe23570312e896c1918d73"
 checksum_source = "mise-versions"
-url = "https://github.com/gohugoio/hugo/releases/download/v0.169.0/hugo_extended_0.169.0_darwin-universal.pkg"
-url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/682125254"
+url = "https://github.com/gohugoio/hugo/releases/download/v0.170.1/hugo_0.170.1_darwin-universal.pkg"
+url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/759871553"
 
-[tools.hugo-extended."platforms.macos-x64"]
-checksum = "sha256:d48dfd5adab308f941e83e48c5ba925747cf383395972278942cf526ad27cf38"
+[tools.hugo."platforms.macos-x64"]
+checksum = "sha256:f7672f5e47f13c488ecd9ae96450ed9d2044629d60fe23570312e896c1918d73"
 checksum_source = "mise-versions"
-url = "https://github.com/gohugoio/hugo/releases/download/v0.169.0/hugo_extended_0.169.0_darwin-universal.pkg"
-url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/682125254"
+url = "https://github.com/gohugoio/hugo/releases/download/v0.170.1/hugo_0.170.1_darwin-universal.pkg"
+url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/759871553"
 
-[tools.hugo-extended."platforms.windows-x64"]
-checksum = "sha256:396b4c8326dc2dd61c2618f825042781c5ea43e1ac1375a2204a9fde4e98b84c"
+[tools.hugo."platforms.windows-x64"]
+checksum = "sha256:e4a8bec642b5d18f451452fafb318bbb6b7f09e5208f3dca76a204c888c9e072"
 checksum_source = "mise-versions"
-url = "https://github.com/gohugoio/hugo/releases/download/v0.169.0/hugo_extended_0.169.0_windows-amd64.zip"
-url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/682125356"
+url = "https://github.com/gohugoio/hugo/releases/download/v0.170.1/hugo_0.170.1_windows-amd64.zip"
+url_api = "https://api.github.com/repos/gohugoio/hugo/releases/assets/759871573"
 
 [[tools.lychee]]
 version = "0.24.2"
@@ -422,51 +422,51 @@ url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellche
 url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056944"
 
 [[tools.vale]]
-version = "3.26.0"
+version = "3.27.0"
 backend = "aqua:vale-cli/vale"
-specifiers = ["3.26.0"]
+specifiers = ["3.27.0"]
 
 [tools.vale."platforms.linux-arm64"]
-checksum = "sha256:3154179f4611140c9af54a8b3bc6a90bc02b73fe6c1f635369604dde0490406d"
+checksum = "sha256:dcaee812fd892c5750702d16ed348a1f7113be57c73cf36fe9e016c789cae6e2"
 checksum_source = "mise-versions"
-url = "https://github.com/vale-cli/vale/releases/download/v3.26.0/vale_3.26.0_Linux_arm64.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/695681932"
+url = "https://github.com/vale-cli/vale/releases/download/v3.27.0/vale_3.27.0_Linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/740781556"
 
 [tools.vale."platforms.linux-arm64-musl"]
-checksum = "sha256:3154179f4611140c9af54a8b3bc6a90bc02b73fe6c1f635369604dde0490406d"
+checksum = "sha256:dcaee812fd892c5750702d16ed348a1f7113be57c73cf36fe9e016c789cae6e2"
 checksum_source = "mise-versions"
-url = "https://github.com/vale-cli/vale/releases/download/v3.26.0/vale_3.26.0_Linux_arm64.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/695681932"
+url = "https://github.com/vale-cli/vale/releases/download/v3.27.0/vale_3.27.0_Linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/740781556"
 
 [tools.vale."platforms.linux-x64"]
-checksum = "sha256:22aa69a556558e4a9dfc63c17030777383d8d3c48dcdfad655fa98e839d666ed"
+checksum = "sha256:c80d62f6bce87b81843ac5b512a26e63213927b957adba0a64fc594570da2000"
 checksum_source = "mise-versions"
-url = "https://github.com/vale-cli/vale/releases/download/v3.26.0/vale_3.26.0_Linux_64-bit.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/695681930"
+url = "https://github.com/vale-cli/vale/releases/download/v3.27.0/vale_3.27.0_Linux_64-bit.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/740781554"
 
 [tools.vale."platforms.linux-x64-musl"]
-checksum = "sha256:22aa69a556558e4a9dfc63c17030777383d8d3c48dcdfad655fa98e839d666ed"
+checksum = "sha256:c80d62f6bce87b81843ac5b512a26e63213927b957adba0a64fc594570da2000"
 checksum_source = "mise-versions"
-url = "https://github.com/vale-cli/vale/releases/download/v3.26.0/vale_3.26.0_Linux_64-bit.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/695681930"
+url = "https://github.com/vale-cli/vale/releases/download/v3.27.0/vale_3.27.0_Linux_64-bit.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/740781554"
 
 [tools.vale."platforms.macos-arm64"]
-checksum = "sha256:a6c3370f53bad93086c6b85f3163676e44e08049d69743afdcc13f3aab5b7482"
+checksum = "sha256:91bcd6352a832e5995a61dde73ee6367c5006669c6efa4091e0404ec8d7dd7e3"
 checksum_source = "mise-versions"
-url = "https://github.com/vale-cli/vale/releases/download/v3.26.0/vale_3.26.0_macOS_arm64.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/695682018"
+url = "https://github.com/vale-cli/vale/releases/download/v3.27.0/vale_3.27.0_macOS_arm64.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/740781550"
 
 [tools.vale."platforms.macos-x64"]
-checksum = "sha256:df42b317be6ece6a6a70d06b952deec581d047046eb93ea4632f58da56a86ff9"
+checksum = "sha256:0288ab603ee6d67240ac5b97e67b0915efcfc28bb33f212a885110a2a5a6e2bc"
 checksum_source = "mise-versions"
-url = "https://github.com/vale-cli/vale/releases/download/v3.26.0/vale_3.26.0_macOS_64-bit.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/695681994"
+url = "https://github.com/vale-cli/vale/releases/download/v3.27.0/vale_3.27.0_macOS_64-bit.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/740781555"
 
 [tools.vale."platforms.windows-x64"]
-checksum = "sha256:c42f4b413aa29b6b36fa4e3ac0c18322588a54ac860db4c84b8255997f7d1ec2"
+checksum = "sha256:26e61cc58ac4180866d068dc2325d2625560c8cc518de7e7b5523211a5ab0cbc"
 checksum_source = "mise-versions"
-url = "https://github.com/vale-cli/vale/releases/download/v3.26.0/vale_3.26.0_Windows_64-bit.zip"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/695681931"
+url = "https://github.com/vale-cli/vale/releases/download/v3.27.0/vale_3.27.0_Windows_64-bit.zip"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/740781617"
 
 [[tools.zizmor]]
 version = "1.32.0"

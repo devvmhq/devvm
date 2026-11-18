@@ -8,12 +8,12 @@ CGO_ENABLED = "0"
 go = "1.27.4"
 golangci-lint = "2.15.0"
 gotestsum = "1.13.0"
-"go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.10.0"
 # nilaway has no releases: a pseudo-version, its newest commit's.
 "go:go.uber.org/nilaway/cmd/nilaway" = "0.0.0-20261112030514-ccd005690d1e"
 goreleaser = "2.20.2"
-hugo-extended = "0.169.0"
-vale = "3.26.0"
+hugo = "0.170.1"
+vale = "3.27.0"
 lychee = "0.24.2"
 node = "24.22.3"
 markdownlint-cli2 = "0.24.1"
@@ -117,7 +117,7 @@ run = "GOOS=linux scripts/nilaway.sh"
 
 [tasks.deadcode]
 description = "List functions nothing calls"
-run = "go run golang.org/x/tools/cmd/deadcode@v0.52.0 ./..."
+run = "go run golang.org/x/tools/cmd/deadcode@v0.53.0 ./..."
 
 [tasks.cli-docs]
 description = "Generate the CLI reference (docs/content/docs/cli) and the pages' generated blocks"

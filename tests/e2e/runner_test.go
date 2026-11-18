@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -373,14 +372,9 @@ func (r *runner) newestSummary(ok bool) {
 	if err != nil {
 		listed = "nothing"
 	}
-	got := "nothing"
-	if b, err := os.ReadFile(filepath.Join(r.sb.images(), "ubuntu.json")); err == nil {
-		var m map[string]any
-		if json.Unmarshal(b, &m) == nil {
-			if v, _ := m["release"].(string); v != "" {
-				got = v
-			}
-		}
+	got := pinned(r.sb.images(), "release")
+	if got == "" {
+		got = "nothing"
 	}
 	r.out.line("e2e: newest base: Ubuntu listed %s as its newest; devvm pinned %s", listed, got)
 	if !ok {

@@ -330,3 +330,38 @@ func TestHarnessProjectVMs(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+// repin deletes a sandbox's Ubuntu pin that names a release other than
+// e2eUbuntuRelease, or doesn't parse, so the next build pins
+// e2eUbuntuRelease, and keeps e2eUbuntuRelease's.
+func TestHarnessRepin(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pin  string // "" for none
+		kept bool
+	}{
+		{name: "no pin"},
+		{name: "the pinned release", pin: `{"release": "` + e2eUbuntuRelease + `"}`, kept: true},
+		{name: "another release", pin: `{"release": "release-20200101"}`},
+		{name: "a record that doesn't parse", pin: `{"release":`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			images := filepath.Join(t.TempDir(), "images")
+			if tc.pin != "" {
+				if err := os.MkdirAll(images, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(ubuntuPin(images), []byte(tc.pin), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := repin(images); err != nil {
+				t.Fatalf("repin: %v", err)
+			}
+			_, err := os.Stat(ubuntuPin(images))
+			if kept := err == nil; kept != tc.kept {
+				t.Errorf("pin kept: %v, want %v (stat: %v)", kept, tc.kept, err)
+			}
+		})
+	}
+}

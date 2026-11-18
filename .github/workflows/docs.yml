@@ -57,10 +57,10 @@ jobs:
           persist-credentials: false
           # Full history, for each page's last updated date.
           fetch-depth: 0
-      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         with:
-          version: 2026.11.8
-          install_args: go hugo-extended node markdownlint-cli2 vale lychee
+          version: 2026.11.10
+          install_args: go hugo node markdownlint-cli2 vale lychee
           # The workflow publishes, so no job in it reads a cache another run could have written.
           cache: false
       # It draws the diagrams first (docs:diagrams), which the build below uses too.
@@ -89,10 +89,10 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         with:
-          version: 2026.11.8
-          install_args: go hugo-extended node
+          version: 2026.11.10
+          install_args: go hugo node
           # What's published is built from no cache.
           cache: false
       # The diagrams, drawn before the build (docs/render-diagrams.mjs).
@@ -157,10 +157,11 @@ jobs:
           persist-credentials: false
           # Full history, for each page's last updated date.
           fetch-depth: 0
-      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         with:
-          version: 2026.11.8
-          install_args: go hugo-extended node
+          version: 2026.11.10
+          # No install_args: every tool in the tag's mise.toml, as a tag from before Hugo 0.170 names
+          # Hugo as hugo-extended.
           # What's published is built from no cache.
           cache: false
       # The tag's diagrams, drawn before the build, when its docs draw them (docs/render-diagrams.mjs);
