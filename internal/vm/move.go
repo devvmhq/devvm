@@ -50,7 +50,7 @@ func (r *recorded) at(d paths.Dirs, dir string) (*state.VM, error) {
 
 // here is the folder devvm runs in as moveHere matches a VM's against it:
 // its path and identity (platform.FolderID), and the two things a match
-// needs of it.
+// needs of it, all read from the folder opened once (hereOf).
 type here struct {
 	dir, id string
 	// unique: its identity is never a deleted folder's
@@ -66,26 +66,21 @@ type here struct {
 }
 
 // hereOf is the folder at dir, a physical path, as moveHere matches it,
-// its volume asked of e within volumeWaitMove; false when its identity
-// can't be read.
+// its volume asked of e within volumeWaitMove; false when it can't be read
+// from the folder opened with no link on its path (platform.StatFolder).
+// Its identity, whether that's its alone, its owner and its volume all come
+// from that one open folder, so the identity both matched and recorded
+// (finder.move's want) is the folder's whose owner was checked, and a name
+// swapped between two reads can't match one folder and record another.
 func (e *Env) hereOf(ctx context.Context, dir string) (here, bool) {
-	id, err := platform.FolderID(dir)
+	s, err := platform.StatFolder(dir)
 	if err != nil {
 		return here{}, false
 	}
-	h := here{dir: dir, id: id, unique: platform.UniqueFolderID(dir, id)}
-	// Read from the folder opened with no link, its identity is the one
-	// both matched and recorded (finder.move's want), so a name swapped
-	// between two reads can't match one folder and record another.
-	if s, err := platform.StatFolder(dir); err == nil {
-		h.id, h.unique, h.stat = s.ID, s.Unique, s
-		h.volume = sync.OnceValue(func() string { return e.volumeOf(ctx, s, volumeWaitMove) })
-	}
-	if fi, err := os.Stat(dir); err == nil {
-		uid, _, ok := platform.Owner(fi)
-		h.mine = ok && int(uid) == os.Getuid()
-	}
-	return h, true
+	return here{
+		dir: dir, id: s.ID, unique: s.Unique, mine: int(s.Owner) == os.Getuid(), stat: s,
+		volume: sync.OnceValue(func() string { return e.volumeOf(ctx, s, volumeWaitMove) }),
+	}, true
 }
 
 // movedFrom reports whether st is the VM of h's folder, which moved from
@@ -113,13 +108,9 @@ func (h here) same(st *state.VM) bool {
 		platform.MovedFolder(st.Folder(), st.FolderVolume(), h.stat, h.volume())
 }
 
-// movedAway reports whether st's folder is no longer at the path st
-// records, as to has it: nothing is there and its folder's disk is
-// (FolderGone), or a symlink there leads to to.
-func movedAway(st *state.VM, to string) bool { return awayAs(st, to, FolderOf) }
-
-// awayAs is movedAway with folder, which tells whether st's folder is
-// gone (FolderOf, Env.folderState).
+// awayAs reports whether st's folder is no longer at the path st records,
+// as to has it: nothing is there and its folder's disk is (folder, which
+// tells whether it's gone: Env.FolderOf), or a symlink there leads to to.
 func awayAs(st *state.VM, to string, folder func(*state.VM) FolderState) bool {
 	if fi, err := os.Lstat(st.Dir); err == nil {
 		if fi.Mode()&os.ModeSymlink == 0 {
@@ -151,7 +142,7 @@ func (e finder) moveHere(ctx context.Context, dir string, mv moves, rec *recorde
 	}
 	var found []*state.VM
 	for _, st := range sts {
-		folder := func(st *state.VM) FolderState { return e.folderState(ctx, st) }
+		folder := func(st *state.VM) FolderState { return e.FolderOf(ctx, st) }
 		if h.movedFrom(st, func(st *state.VM, to string) bool { return awayAs(st, to, folder) }) {
 			found = append(found, st)
 		}
@@ -217,7 +208,7 @@ func (e finder) adoptVM(ctx context.Context, name string, force bool) error {
 	if err := refuseUnfinished(vm, st); err != nil {
 		return err
 	}
-	if e.folderState(ctx, st) == FolderThere {
+	if e.FolderOf(ctx, st) == FolderThere {
 		return msg.AdoptFolderThere(st.Dir, vm)
 	}
 	if own, err := e.folderVM(dir); err != nil {

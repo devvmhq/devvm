@@ -79,6 +79,53 @@ func TestRecordFolder(t *testing.T) {
 	}
 }
 
+// A folder at its own path on a disk numbered anew is the recorded one only on the volume its
+// state records: on another, devvm takes it for another folder, launches nothing and records
+// nothing; when its volume can't be told, the device's rule alone decides, as before.
+func TestRenumberedOnAnotherVolume(t *testing.T) {
+	e, f, _ := upEnv(t, allNative())
+	v := &volumes{answer: "uuid:A"}
+	e.Volumes, e.VolumesOnly, e.volumes = v.look, true, new(volumeCache)
+	st := existingVM(t, e, Options{Network: "open"})
+	id := st.Folder()
+	if _, err := platform.StatFolder(st.Dir); err != nil {
+		t.Skipf("the folder can't be read with no link on its path: %v", err)
+	}
+	renumbered := stubtest.Renumbered(id)
+	launch := func(answer string, fail error) (*state.VM, error) {
+		t.Helper()
+		if err := st.Update(t.Context(), func(st *state.VM) error { st.SetFolder(renumbered, platform.VolumeOf("uuid:A", id)); return nil }); err != nil {
+			t.Fatal(err)
+		}
+		*v = volumes{answer: answer, fail: fail}
+		e.volumes = new(volumeCache)
+		stopVM(t, f, st)
+		err := (Launch{e}).Up(t.Context(), Options{})
+		got, rerr := state.ReadVM(e.Dirs, st.Name())
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		return got, err
+	}
+	if got, err := launch("uuid:B", nil); msg.IDOf(err) != "vm_other_folder" || got.Folder() != renumbered {
+		t.Errorf("on another volume: launched (%v), folder %q", err, got.Folder())
+	}
+	// recordFolder's own check, under the state's lock: nothing recorded on another volume.
+	e.volumes = new(volumeCache)
+	if err := e.starter.recordFolder(t.Context(), st); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := state.ReadVM(e.Dirs, st.Name()); got.Folder() != renumbered {
+		t.Errorf("recordFolder on another volume recorded %q", got.Folder())
+	}
+	if got, err := launch("", errors.New("diskutil hangs")); err != nil || got.Folder() != id {
+		t.Errorf("a failed lookup: %v, folder %q", msg.NamesOf(err), got.Folder())
+	}
+	if got, err := launch("uuid:A", nil); err != nil || got.Folder() != id {
+		t.Errorf("on its own volume: %v, folder %q", msg.NamesOf(err), got.Folder())
+	}
+}
+
 // A run's lookups: each mount once, none after one fails, but on after an unsupported one; a
 // folder's own volume (Linux's f_fsid) unless VolumesOnly; none for a read-only folder or one
 // whose identity isn't its alone.

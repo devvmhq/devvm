@@ -27,7 +27,7 @@ func TestStatFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	own := slices.Contains(fsidOwn(), fs.Type) && fs.Flags&unix.ST_RDONLY == 0
-	if s.ID != id || (s.Volume != "") != own {
+	if s.ID != id || (s.Volume != "") != own || int(s.Owner) != os.Getuid() {
 		t.Errorf("StatFolder = %+v on a file system of type %#x, FolderID %s", s, fs.Type, id)
 	}
 	if again, _ := StatFolder(dir); again != s {

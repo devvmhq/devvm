@@ -33,13 +33,29 @@ stdout '^folder_volume=uuid:EC5E5014-21A3-4154-ACE8-0C8C1C254852:[0-9]+:[0-9]+\.
 [darwin] stdout '^git\.made\.git_id='$GIT_ID'$'
 [darwin] stdout '^git\.mode=on$'
 
-# Moved, and renumbered again: found by its volume, and offered, never a
-# second VM. Without a terminal devvm refuses, naming devvm adopt.
+# Renumbered at its own path, but on another volume than the one
+# recorded, such as a copy of the disk mounted there: another folder,
+# refused, and nothing recorded. On its own volume it's the folder again.
 exec devvm stop
+renumber $APP_dir/vm.json
+cp $APP_dir/vm.json $WORK/renumbered.json
+env DEVVM_VOLUME=uuid:11111111-1111-1111-1111-111111111111
+stub_reset
+! exec devvm --no-input
+stderr '^devvm: vm_other_folder vm=devvm-app-[0-9a-f]{14} was=\S*/home/src/app$'
+cmp $APP_dir/vm.json $WORK/renumbered.json
+env DEVVM_VOLUME=uuid:EC5E5014-21A3-4154-ACE8-0C8C1C254852
+exec devvm stop
+
+# Moved, and renumbered again: devvm ls calls its old folder gone, by the
+# volume the state records, and it's found by its volume, and offered,
+# never a second VM. Without a terminal devvm refuses, naming devvm adopt.
 [darwin] exec chflags -R nouchg $HOME/src/app/.git
 exec mv $HOME/src/app $HOME/src/app-moved
 renumber $APP_dir/vm.json
 cd $HOME/src/app-moved
+exec devvm ls --json
+stdout '"folder": "\S*/home/src/app",\n\s*"folder_state": "gone"'
 stub_reset
 ! exec devvm --no-input
 stderr '^devvm: vm_moved_here vm=devvm-app-[0-9a-f]{14} was=\S*/home/src/app$'

@@ -55,13 +55,19 @@ type drop struct {
 // sitesWhere are f's functions, by siteName, with the first node in each
 // that what says breaks a rule (what isn't "").
 func sitesWhere(f srcFile, what func(ast.Node) string) map[string]drop {
+	return sitesWhereIn(f, func(*ast.FuncDecl) func(ast.Node) string { return what })
+}
+
+// sitesWhereIn is sitesWhere with what made for each function from its
+// declaration, for a rule that reads the function first (its locals).
+func sitesWhereIn(f srcFile, whatIn func(*ast.FuncDecl) func(ast.Node) string) map[string]drop {
 	sites := map[string]drop{}
 	for _, d := range f.ast.Decls {
 		fd, ok := d.(*ast.FuncDecl)
 		if !ok || fd.Body == nil {
 			continue
 		}
-		site := siteName(f, fd)
+		site, what := siteName(f, fd), whatIn(fd)
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
 			if _, seen := sites[site]; !seen && n != nil {
 				if w := what(n); w != "" {

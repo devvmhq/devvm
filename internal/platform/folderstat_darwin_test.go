@@ -38,7 +38,7 @@ func TestStatFolderAndVolumeUUID(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, _ := FolderID(dir)
-	if s.ID != id || s.Mount == "" || s.Device == "" || s.ReadOnly || s.Volume != "" {
+	if s.ID != id || s.Mount == "" || s.Device == "" || s.ReadOnly || s.Volume != "" || int(s.Owner) != os.Getuid() {
 		t.Fatalf("StatFolder = %+v, FolderID %s", s, id)
 	}
 	if !s.Unique {

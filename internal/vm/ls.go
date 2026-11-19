@@ -26,7 +26,7 @@ type Listed struct {
 	Learning time.Time
 	Backend  string
 	Folder   string
-	// FolderState is what's at Folder's path (FolderOf): a VM whose
+	// FolderState is what's at Folder's path (Env.FolderOf): a VM whose
 	// folder is gone or not connected is deleted only by name, with
 	// devvm rm VM.
 	FolderState FolderState
@@ -37,8 +37,9 @@ type Listed struct {
 // List lists the project VMs the backends' lists have, sorted by name
 // (ReadInventory, AllBackends): it fails as the inventory's Err does. A
 // VM whose state can't be read is listed with its status alone, as one
-// with no state is.
-func (inv *Inventory) List(ctx context.Context) ([]Listed, error) {
+// with no state is. Each VM's folder is e's (Env.FolderOf), so its run
+// looks each mount's volume up once.
+func (inv *Inventory) List(ctx context.Context, e *Env) ([]Listed, error) {
 	if err := inv.Err(); err != nil {
 		return nil, err
 	}
@@ -47,7 +48,7 @@ func (inv *Inventory) List(ctx context.Context) ([]Listed, error) {
 		if !k.Listed {
 			continue
 		}
-		l, err := listed(ctx, k)
+		l, err := e.listed(ctx, k)
 		if err != nil {
 			return nil, err
 		}
@@ -58,7 +59,7 @@ func (inv *Inventory) List(ctx context.Context) ([]Listed, error) {
 
 // listed is one VM's row, from its backend and its state: its status
 // alone for a state that can't be read.
-func listed(ctx context.Context, k Known) (Listed, error) {
+func (e *Env) listed(ctx context.Context, k Known) (Listed, error) {
 	in := k.Instance
 	l := Listed{Name: in.Name, Status: string(in.Status), Backend: k.Backend.Name(), FolderState: FolderThere}
 	st := k.State
@@ -66,7 +67,7 @@ func listed(ctx context.Context, k Known) (Listed, error) {
 		return l, nil
 	}
 	l.Image, l.Tools, l.Git, l.Folder = st.Image, tools.Names(st), gitprotect.Mode(st), st.Dir
-	l.FolderState, l.Links = FolderOf(st), len(linksOf(st).Links)
+	l.FolderState, l.Links = e.FolderOf(ctx, st), len(linksOf(st).Links)
 	if l.Image != "" {
 		l.From = st.From
 	}

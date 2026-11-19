@@ -63,19 +63,32 @@ func MayHaveMoved(wasID, recorded string, now FolderStat) bool {
 
 // OnRecordedDisk reports whether a folder whose device is dev and whose volume is vol ("" when
 // it can't be told) is on the disk that the folder recorded as wasID, on the volume recorded,
-// was on: the same volume when both are known, else the same device.
+// was on: the same volume when both are known, else the same device, or any disk for a record
+// that names no device, which can't tell another.
 func OnRecordedDisk(wasID, recorded, dev, vol string) bool {
 	if was := RecordedVolume(wasID, recorded); was != "" && vol != "" {
 		return vol == was
 	}
-	return dev == FolderDevice(wasID)
+	return folderDevice(wasID) == "" || dev == folderDevice(wasID)
+}
+
+// KeepsVolume reports whether vol, the volume of the folder at the path recorded for the folder
+// recorded as wasID, which SameFolder took for it on a disk numbered anew since (Renumbered), is
+// the volume recorded with it: the same volume, or none to compare, as for a state that records
+// none bound to it or a volume that can't be told ("" ), where the device's rule alone decides.
+// On another volume it's another folder that has the inode and birth time, such as a clone of
+// the disk mounted at the folder's own path.
+func KeepsVolume(wasID, recorded, vol string) bool {
+	was := RecordedVolume(wasID, recorded)
+	return was == "" || vol == "" || vol == was
 }
 
 // FolderStat is what identifies a folder and its volume, read from the folder opened with no
 // link on its path (StatFolder): its FolderID; whether that's its alone (UniqueFolderID);
 // whether its volume is mounted read-only, or is a snapshot; its mount point and the device
-// mounted there, by name (macOS, for VolumeUUID); and its volume, read in the process where the
-// system gives it ("fsid:…" on Linux's ext4, btrfs and ZFS), "" otherwise.
+// mounted there, by name (macOS, for VolumeUUID); its volume, read in the process where the
+// system gives it ("fsid:…" on Linux's ext4, btrfs and ZFS), "" otherwise; and its owner's
+// user ID, from the same read, so a folder's owner is never another folder's.
 type FolderStat struct {
 	ID       string
 	Unique   bool
@@ -83,4 +96,5 @@ type FolderStat struct {
 	Mount    string
 	Device   string
 	Volume   string
+	Owner    uint32
 }

@@ -9,12 +9,15 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 )
 
 // projectRenumbered: a project folder on a disk image of its own, which macOS numbers anew when
 // it's detached and attached again after another image: the VM records the folder's volume, and
 // once the folder has moved on that disk, devvm in it finds the VM by its volume, inode and
-// birth time, offering it rather than making a second VM. hdiutil needs no root.
+// birth time, offering it rather than making a second VM. The check first makes sure macOS gave
+// the disk another device number, attaching more images first until it does, and is skipped
+// when it never does. hdiutil needs no root.
 func projectRenumbered(s *S) {
 	s.Section("a moved folder on a disk numbered anew")
 	tmp, err := os.MkdirTemp("", "devvm-e2e-renumber-")
@@ -49,10 +52,8 @@ func projectRenumbered(s *S) {
 	}()
 	var vm, p, moved string
 	s.Check("a VM made for a folder on a disk image records the folder's volume", func() error {
-		for _, name := range []string{"a", "b"} {
-			if out, err := run("hdiutil", "create", "-size", "64m", "-fs", "APFS", "-volname", "e2e-"+name, "-type", "SPARSE", img(name)); err != nil {
-				return fmt.Errorf("hdiutil create: %w\n%s", err, out)
-			}
+		if out, err := run("hdiutil", "create", "-size", "64m", "-fs", "APFS", "-volname", "e2e-a", "-type", "SPARSE", img("a")); err != nil {
+			return fmt.Errorf("hdiutil create: %w\n%s", err, out)
 		}
 		d, err := attach("a", mnt)
 		if err != nil {
@@ -76,27 +77,65 @@ func projectRenumbered(s *S) {
 		_, err = s.Devvm(p, "stop")
 		return err
 	})
-	s.Check("the disk numbered anew and the folder moved: devvm finds the VM, and makes no second one", func() error {
-		if vm == "" {
-			return errors.New("no VM: the check before failed")
-		}
-		before := s.Paths.State(vm)["folder"]
-		for _, d := range disks {
-			if out, err := run("hdiutil", "detach", d); err != nil {
-				return fmt.Errorf("hdiutil detach: %w\n%s", err, out)
+	// renumber detaches the disks and attaches others before the folder's, one more each try,
+	// until macOS gives the folder's disk another device number than the one its state records:
+	// whether it did, within three tries.
+	renumber := func(before string) (bool, error) {
+		for try := 1; try <= 3; try++ {
+			for _, d := range disks {
+				if out, err := run("hdiutil", "detach", d); err != nil {
+					return false, fmt.Errorf("hdiutil detach: %w\n%s", err, out)
+				}
+			}
+			disks = nil
+			for i := range try {
+				name := fmt.Sprintf("b%d", i)
+				if _, err := os.Stat(img(name)); err != nil {
+					if out, err := run("hdiutil", "create", "-size", "64m", "-fs", "APFS", "-volname", "e2e-"+name, "-type", "SPARSE", img(name)); err != nil {
+						return false, fmt.Errorf("hdiutil create: %w\n%s", err, out)
+					}
+				}
+				at := filepath.Join(other, name)
+				if err := os.MkdirAll(at, 0o700); err != nil {
+					return false, err
+				}
+				d, err := attach(name, at)
+				if err != nil {
+					return false, err
+				}
+				disks = append(disks, d)
+			}
+			d, err := attach("a", mnt)
+			if err != nil {
+				return false, err
+			}
+			disks = append(disks, d)
+			var st syscall.Stat_t
+			if err := syscall.Stat(p, &st); err != nil {
+				return false, err
+			}
+			if dev, _, _ := strings.Cut(before, ":"); dev != fmt.Sprint(st.Dev) { // as FolderID writes it
+				return true, nil
 			}
 		}
-		disks = nil
-		db, err := attach("b", other)
-		if err != nil {
-			return err
+		return false, nil
+	}
+	const title = "the disk numbered anew and the folder moved: devvm finds the VM, and makes no second one"
+	var before string
+	renumbered, rerr := false, errors.New("no VM: the check before failed")
+	if vm != "" {
+		before = s.Paths.State(vm)["folder"]
+		renumbered, rerr = renumber(before)
+	}
+	if rerr == nil && !renumbered {
+		s.Skip(title, "macOS gave the folder's disk the device number it had, in three tries")
+		_, _ = s.Devvm(p, "rm", "--force", "--no-export")
+		return
+	}
+	s.Check(title, func() error {
+		if rerr != nil {
+			return rerr
 		}
-		disks = append(disks, db)
-		da, err := attach("a", mnt)
-		if err != nil {
-			return err
-		}
-		disks = append(disks, da)
 		moved = filepath.Join(mnt, "proj-moved")
 		if err := os.Rename(p, moved); err != nil {
 			return err

@@ -267,14 +267,10 @@ const (
 
 // FolderOf is the state of the project folder st records, as found within
 // folderWait: a folder whose disk doesn't answer (an NFS share that hangs)
-// is there, so it's never taken for gone.
-func FolderOf(st *state.VM) FolderState {
-	return folderWithin(st, func(st *state.VM) FolderState { return folderOf(st, platform.DeviceOf, parentVolume) }, folderWait)
-}
-
-// folderState is FolderOf with the volumes looked up through e (Env.Volumes),
-// its run's answers kept, for what moves or deletes a VM by it.
-func (e *Env) folderState(ctx context.Context, st *state.VM) FolderState {
+// is there, so it's never taken for gone. The volumes it compares are looked
+// up through e (Env.Volumes), each mount once a run, so devvm ls and devvm
+// space, which ask it of every VM, cost a lookup a mount, not one a VM.
+func (e *Env) FolderOf(ctx context.Context, st *state.VM) FolderState {
 	volume := func(dir string) string {
 		s, err := platform.StatFolder(dir)
 		if err != nil {
@@ -283,23 +279,6 @@ func (e *Env) folderState(ctx context.Context, st *state.VM) FolderState {
 		return e.volumeOf(ctx, s, volumeWaitLaunch)
 	}
 	return folderWithin(st, func(st *state.VM) FolderState { return folderOf(st, platform.DeviceOf, volume) }, folderWait)
-}
-
-// parentVolume is the volume of the folder at dir (platform.StatFolder), read in the process or
-// with diskutil within volumeWaitLaunch, as FolderOf asks it only of a VM that records its
-// folder's volume, for the first folder above its gone folder; "" when it can't be told.
-func parentVolume(dir string) string {
-	s, err := platform.StatFolder(dir)
-	if err != nil || s.Volume != "" || s.ReadOnly {
-		return s.Volume
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), volumeWaitLaunch) //nolint:forbidigo // FolderOf, which only shows, has no caller's ctx; folderWithin bounds it too
-	defer cancel()
-	v, err := platform.VolumeUUID(ctx, s)
-	if err != nil {
-		return "" // not told: FolderOf compares devices, as for a VM that records no volume
-	}
-	return v
 }
 
 // folderWait is how long FolderOf waits for a folder's disk.
@@ -321,11 +300,11 @@ func folderWithin(st *state.VM, of func(*state.VM) FolderState, wait time.Durati
 }
 
 // folderOf is FolderOf with device, which returns the device of what's at
-// a path (platform.DeviceOf), and volume, the volume of a folder
-// (parentVolume), test seams. The first folder above a gone folder is on
-// its disk when it's on the volume st records (platform.OnRecordedDisk),
-// whatever device number a boot gave it, or, for a state that records no
-// volume, on the device st records.
+// a path (platform.DeviceOf), and volume, the volume of a folder, test
+// seams. The first folder above a gone folder is on its disk when it's on
+// the volume st records (platform.OnRecordedDisk), whatever device number a
+// boot gave it, or, for a state that records no volume, on the device st
+// records, or any disk for a state that records no device.
 func folderOf(st *state.VM, device func(string) (string, error), volume func(string) string) FolderState {
 	if st.Dir == "" {
 		return FolderThere
@@ -334,7 +313,7 @@ func folderOf(st *state.VM, device func(string) (string, error), volume func(str
 		return FolderThere
 	}
 	recorded := platform.RecordedVolume(st.Folder(), st.FolderVolume()) != ""
-	for dir := filepath.Dir(st.Dir); platform.FolderDevice(st.Folder()) != ""; dir = filepath.Dir(dir) {
+	for dir := filepath.Dir(st.Dir); ; dir = filepath.Dir(dir) {
 		if dev, err := device(dir); err == nil {
 			vol := ""
 			if recorded {

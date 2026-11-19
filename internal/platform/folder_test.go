@@ -164,7 +164,7 @@ func TestVolPath(t *testing.T) {
 	}
 }
 
-// DeviceOf gives the device FolderID records, which FolderDevice reads.
+// DeviceOf gives the device FolderID records, which folderDevice reads.
 func TestDeviceOf(t *testing.T) {
 	dir := t.TempDir()
 	id, err := FolderID(dir)
@@ -172,15 +172,15 @@ func TestDeviceOf(t *testing.T) {
 		t.Fatal(err)
 	}
 	dev, err := DeviceOf(dir)
-	if err != nil || dev == "" || dev != FolderDevice(id) {
+	if err != nil || dev == "" || dev != folderDevice(id) {
 		t.Errorf("DeviceOf = %q, %v; FolderID = %q", dev, err, id)
 	}
 	if _, err := DeviceOf(filepath.Join(dir, "missing")); err == nil {
 		t.Error("DeviceOf of a missing path: no error")
 	}
 	for id, want := range map[string]string{"": "", "12": "", "12:34": "12", "12:34:5.6": "12"} {
-		if got := FolderDevice(id); got != want {
-			t.Errorf("FolderDevice(%q) = %q, want %q", id, got, want)
+		if got := folderDevice(id); got != want {
+			t.Errorf("folderDevice(%q) = %q, want %q", id, got, want)
 		}
 	}
 }

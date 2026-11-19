@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -15,35 +16,49 @@ import (
 // the inode number the deleted one had, so the birth time (where the file
 // system keeps one) tells them apart.
 func FolderID(path string) (string, error) {
-	return statxID(unix.AT_FDCWD, path, 0)
+	st, err := statx(unix.AT_FDCWD, path, 0)
+	if err != nil {
+		return "", err
+	}
+	return statxID(&st), nil
 }
 
-// openFolderID is the FolderID of the open folder f, and whether it's
-// its alone (UniqueFolderID), both read from f itself, so nothing put at
-// its path since it was opened counts.
-func openFolderID(f *os.File) (string, bool, error) {
-	id, err := statxID(int(f.Fd()), "", unix.AT_EMPTY_PATH)
+// openFolder is the open folder f as FolderStat has it, read from f
+// itself, so nothing put at its path since it was opened counts. Its
+// volume is "fsid:<f_fsid>" on a file system whose f_fsid is its own
+// (fsidOwn), mounted for writing, and "" elsewhere.
+func openFolder(f *os.File) (FolderStat, error) {
+	st, err := statx(int(f.Fd()), "", unix.AT_EMPTY_PATH)
 	if err != nil {
-		return "", false, err
+		return FolderStat{}, err
 	}
 	var fs unix.Statfs_t
 	if err := unix.Fstatfs(int(f.Fd()), &fs); err != nil {
-		return "", false, err
+		return FolderStat{}, err
 	}
-	return id, strings.Count(id, ":") == 2 && uniqueFS(fs.Type), nil
+	id := statxID(&st)
+	s := FolderStat{ID: id, Unique: strings.Count(id, ":") == 2 && uniqueFS(fs.Type), ReadOnly: fs.Flags&unix.ST_RDONLY != 0, Owner: st.Uid}
+	if !s.ReadOnly && fs.Fsid.Val != [2]int32{} && slices.Contains(fsidOwn(), fs.Type) {
+		s.Volume = fmt.Sprintf("fsid:%08x%08x", uint32(fs.Fsid.Val[0]), uint32(fs.Fsid.Val[1])) //nolint:gosec // G115: the ID's bits as they are, not a number's value
+	}
+	return s, nil
 }
 
-// statxID is the FolderID of what statx finds at dirfd, path and flags.
-func statxID(dirfd int, path string, flags int) (string, error) {
+// statx is what statx finds at dirfd, path and flags: its device, inode,
+// birth time and owner.
+func statx(dirfd int, path string, flags int) (unix.Statx_t, error) {
 	var st unix.Statx_t
-	if err := unix.Statx(dirfd, path, flags, unix.STATX_INO|unix.STATX_BTIME, &st); err != nil {
-		return "", err
-	}
+	err := unix.Statx(dirfd, path, flags, unix.STATX_INO|unix.STATX_BTIME|unix.STATX_UID, &st)
+	return st, err
+}
+
+// statxID is a statx's FolderID.
+func statxID(st *unix.Statx_t) string {
 	id := fmt.Sprintf("%d:%d", unix.Mkdev(st.Dev_major, st.Dev_minor), st.Ino)
 	if st.Mask&unix.STATX_BTIME != 0 {
 		id += fmt.Sprintf(":%d.%09d", st.Btime.Sec, st.Btime.Nsec)
 	}
-	return id, nil
+	return id
 }
 
 // zfsSuperMagic is OpenZFS's statfs type, which golang.org/x/sys lacks.

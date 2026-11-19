@@ -13,8 +13,10 @@ import (
 // ErrNoSecret is KeychainGet's error for an item that isn't there.
 var ErrNoSecret = errors.New("no such secret")
 
-// FolderDevice returns the device in a FolderID, "" when id has none.
-func FolderDevice(id string) string {
+// folderDevice returns the device in a FolderID, "" when id has none. Only
+// platform reads it: a boot can number an unchanged folder's device anew,
+// so what compares one is SameFolder's and OnRecordedDisk's.
+func folderDevice(id string) string {
 	dev, _, ok := strings.Cut(id, ":")
 	if !ok {
 		return ""
@@ -49,13 +51,8 @@ func SameFolder(wasDir, was, dir, id string) bool {
 	if wasDir != dir || !digits(wasDev) || !digits(dev) || wasRest != rest || strings.Count(id, ":") != 2 {
 		return false
 	}
-	f, hops, err := OpenNoLinks(dir)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = f.Close() }()
-	now, unique, err := openFolderID(f)
-	return err == nil && hops == 0 && unique && now == id
+	s, err := StatFolder(dir)
+	return err == nil && s.Unique && s.ID == id
 }
 
 // Renumbered reports whether id names the folder recorded as was
@@ -89,7 +86,7 @@ func DeviceOf(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dev := FolderDevice(DevIno(fi))
+	dev := folderDevice(DevIno(fi))
 	if dev == "" {
 		return "", errors.ErrUnsupported
 	}

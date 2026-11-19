@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/platform"
+	"github.com/devvmhq/devvm/internal/state"
 )
 
 // How long a lookup of a folder's volume waits (Env.Volumes, macOS's diskutil): a launch's, for
@@ -57,6 +58,23 @@ func (e *Env) volumeOf(ctx context.Context, s platform.FolderStat, wait time.Dur
 	}
 	c.got[key] = v
 	return v
+}
+
+// keepsVolume reports whether the folder at dir, whose identity is id, is on the volume st
+// records for its folder (platform.KeepsVolume), when it's st's folder at its own path on a
+// disk numbered anew since (platform.Renumbered), which a renumbering alone can't tell from a
+// clone of the disk mounted at that path. It's true for any other folder, which SameFolder
+// alone decides, and when the volume can't be told, as for a state that records none; false
+// when the folder at dir isn't the one id names any more.
+func (e *Env) keepsVolume(ctx context.Context, st *state.VM, dir, id string) bool {
+	if !platform.Renumbered(st.Dir, st.Folder(), dir, id) || platform.RecordedVolume(st.Folder(), st.FolderVolume()) == "" {
+		return true
+	}
+	s, err := platform.StatFolder(dir)
+	if err != nil || !platform.SameFolder(dir, id, dir, s.ID) {
+		return false
+	}
+	return platform.KeepsVolume(st.Folder(), st.FolderVolume(), e.volumeOf(ctx, s, volumeWaitMove))
 }
 
 // recordedVolume is what a state records of the volume of the folder at dir, whose identity is

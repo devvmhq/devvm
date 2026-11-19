@@ -87,19 +87,15 @@ func lsJSON(ls []vm.Listed) lsOutput {
 // listVMs lists the VMs every backend has, warning of each state file it
 // can't read.
 func listVMs(cmd *cobra.Command, a *app) ([]vm.Listed, error) {
-	dirs, err := a.dirs()
+	env, err := a.vmEnv()
 	if err != nil {
 		return nil, err
 	}
-	reg, err := a.registry()
+	inv, err := vm.ReadInventory(cmd.Context(), env.Dirs, env.Registry, vm.AllBackends)
 	if err != nil {
 		return nil, err
 	}
-	inv, err := vm.ReadInventory(cmd.Context(), dirs, reg, vm.AllBackends)
-	if err != nil {
-		return nil, err
-	}
-	ls, err := inv.List(cmd.Context())
+	ls, err := inv.List(cmd.Context(), env)
 	if err != nil {
 		return nil, err
 	}

@@ -395,7 +395,7 @@ func (e finder) parentVM(ctx context.Context) (*target, error) {
 		found, fst = &pf, pst
 		return false, nil
 	})
-	if err != nil || found == nil || !sameFolder(*found, fst) {
+	if err != nil || found == nil || !e.sameFolder(ctx, *found, fst) {
 		return nil, err
 	}
 	p, err := e.inspect(ctx, *found, fst)
@@ -440,7 +440,7 @@ func (e finder) parents(dir string, each func(project.Folder, *state.VM) (bool, 
 func (e finder) mountedBy(dir string) vmname.VM {
 	var vm vmname.VM
 	_ = e.parents(dir, func(pf project.Folder, pst *state.VM) (bool, error) {
-		if pst.Exists() && !isClone(pst) && sameFolder(pf, pst) {
+		if pst.Exists() && !isClone(pst) && madeFor(pf, pst) {
 			vm = pf.Name
 			return false, nil
 		}
@@ -458,7 +458,7 @@ func (e finder) mountedBy(dir string) vmname.VM {
 // the folder while devvm clone on makes it again.
 func (e finder) mountsRepo(dir string, self vmname.VM) vmname.VM {
 	mounts := func(f project.Folder, st *state.VM) bool {
-		return st.Exists() && !isClone(st) && sameFolder(f, st) && f.Name != self
+		return st.Exists() && !isClone(st) && madeFor(f, st) && f.Name != self
 	}
 	if f, st, err := e.state(dir, new(recorded)); err == nil && mounts(f, st) {
 		return f.Name
@@ -541,7 +541,7 @@ func (e finder) inspect(ctx context.Context, f project.Folder, st *state.VM) (*t
 		return nil, err
 	}
 	t := e.newTarget(f, st, b)
-	t.other = !sameFolder(f, st)
+	t.other = !e.sameFolder(ctx, f, st)
 	if err := t.refresh(ctx); err != nil {
 		return nil, err
 	}
@@ -570,10 +570,25 @@ func (e finder) inspect(ctx context.Context, f project.Folder, st *state.VM) (*t
 	return t, nil
 }
 
-// sameFolder reports whether the VM was made for this folder: its path,
-// and the folder itself (platform.SameFolder), on whichever device a
-// boot numbered its disk. A VM without state has no folder to differ.
-func sameFolder(f project.Folder, st *state.VM) bool {
+// sameFolder reports whether the VM was made for this folder (madeFor),
+// and, when a boot numbered its disk anew since, the folder is on the
+// volume the state records (Env.keepsVolume), so a clone of the disk
+// mounted at the folder's own path isn't taken for it.
+func (e finder) sameFolder(ctx context.Context, f project.Folder, st *state.VM) bool {
+	if !st.Exists() {
+		return true
+	}
+	id, err := platform.FolderID(f.Dir)
+	return err == nil && st.Dir == f.Dir && platform.SameFolder(st.Dir, st.Folder(), f.Dir, id) && e.keepsVolume(ctx, st, f.Dir, id)
+}
+
+// madeFor reports whether the VM was made for this folder: its path, and
+// the folder itself (platform.SameFolder), on whichever device a boot
+// numbered its disk. A VM without state has no folder to differ. It looks
+// up no volume, so it takes a folder that sameFolder wouldn't for a VM's,
+// which errs on the safe side for the warnings and the workspace clones
+// that ask which VM mounts a folder.
+func madeFor(f project.Folder, st *state.VM) bool {
 	if !st.Exists() {
 		return true
 	}

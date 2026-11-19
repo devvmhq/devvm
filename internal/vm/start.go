@@ -312,7 +312,9 @@ func folderChanged(st *state.VM) bool {
 // project folder has now, when a boot numbered the folder's disk anew since
 // it was recorded (platform.SameFolder), before its start mounts the folder
 // by it (startOnce, Want.ProjectID): the device's old number may be another
-// disk's now. It records the folder's volume with it (recordedVolume), and
+// disk's now, but never onto another volume than the one recorded
+// (platform.KeepsVolume), which is another folder. It records the folder's
+// volume with it (recordedVolume), and
 // for a folder that's the one recorded, the volume when the state records
 // none bound to it yet, as a state of an older devvm, at every launch until
 // it can, so a move with a renumbering is recognised from then on
@@ -335,8 +337,15 @@ func (s starter) recordFolder(ctx context.Context, st *state.VM) error {
 	if !renumbered && vol == "" {
 		return nil // no volume to record: today's identity stays, and the next launch asks again
 	}
+	// Renumbered onto another volume than the one recorded: another folder (folderChanged refuses it).
+	keeps := func(st *state.VM) bool {
+		return !renumbered || platform.KeepsVolume(st.Folder(), st.FolderVolume(), platform.RecordedVolume(id, vol))
+	}
+	if !keeps(st) {
+		return nil
+	}
 	return st.Update(ctx, func(st *state.VM) error {
-		if projectMount(st) == dir && platform.SameFolder(st.Dir, st.Folder(), dir, id) {
+		if projectMount(st) == dir && platform.SameFolder(st.Dir, st.Folder(), dir, id) && keeps(st) {
 			v := vol
 			if v == "" {
 				v = st.FolderVolume() // a renumbering keeps the inode and birth time it's bound to

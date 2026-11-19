@@ -60,7 +60,7 @@ func TestMovedFrom(t *testing.T) {
 	there := func(*state.VM, string) bool { return false }
 	other := func(st *state.VM, id string) *state.VM { c := *st; c.SetFolder(id, ""); return &c }
 	at := func(st *state.VM, dir string) *state.VM { c := *st; c.Dir = dir; return &c }
-	dev := platform.FolderDevice(made.Folder())
+	dev, _, _ := strings.Cut(made.Folder(), ":")
 	for _, tc := range []struct {
 		name string
 		h    here
@@ -155,8 +155,8 @@ func TestMovedAway(t *testing.T) {
 		{"a symlink to nothing", link("dangling", filepath.Join(root, "none")), false},
 	} {
 		st := vmAt(tc.dir, id, "")
-		if got := movedAway(st, to); got != tc.want {
-			t.Errorf("%s: movedAway = %v, want %v", tc.name, got, tc.want)
+		if got := awayAs(st, to, func(st *state.VM) FolderState { return (&Env{}).FolderOf(t.Context(), st) }); got != tc.want {
+			t.Errorf("%s: awayAs = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }

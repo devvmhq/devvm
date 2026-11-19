@@ -190,7 +190,7 @@ func TestInventoryRows(t *testing.T) {
 	}
 	// devvm ls: what the backend has, a state it can't read with its
 	// status alone.
-	ls, err := inv.List(t.Context())
+	ls, err := inv.List(t.Context(), &Env{})
 	if err != nil {
 		t.Fatal(err)
 	}

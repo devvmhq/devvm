@@ -76,4 +76,31 @@ func TestMovedFolderAndRecordedDisk(t *testing.T) {
 			t.Errorf("OnRecordedDisk(%q, %q, %q) = %v, want %v", c.recorded, c.dev, c.vol, got, c.want)
 		}
 	}
+	// A record with no device can't tell another disk: the same disk, so the folder's gone.
+	for _, id := range []string{"", "12"} {
+		if !OnRecordedDisk(id, "", "7", "") {
+			t.Errorf("OnRecordedDisk(%q) with no device recorded = false", id)
+		}
+	}
+}
+
+// A folder at its own path on a disk numbered anew keeps the volume recorded for it when that's
+// the volume it's on, or when either can't be told; on another volume it's another folder.
+func TestKeepsVolume(t *testing.T) {
+	was, rec := "9:207:1794.5", "uuid:A:207:1794.5"
+	for _, c := range []struct {
+		recorded, vol string
+		want          bool
+	}{
+		{rec, "uuid:A", true},
+		{rec, "uuid:B", false},
+		{rec, "fsid:0a", false},
+		{rec, "", true},
+		{"", "uuid:B", true},
+		{"uuid:A:208:1794.5", "uuid:B", true}, // bound to another folder: no volume recorded
+	} {
+		if got := KeepsVolume(was, c.recorded, c.vol); got != c.want {
+			t.Errorf("KeepsVolume(%q, %q) = %v, want %v", c.recorded, c.vol, got, c.want)
+		}
+	}
 }

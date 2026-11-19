@@ -8,42 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
-
-// StatFolder is the folder at dir as FolderStat has it, read from the folder opened with no link
-// on its path (OpenNoLinks, none of the system's followed either), so nothing a VM puts at the
-// path, or above it, while devvm reads it counts. Its volume is VolumeUUID's, so Volume is "".
-func StatFolder(dir string) (FolderStat, error) {
-	f, hops, err := OpenNoLinks(dir)
-	if err != nil {
-		return FolderStat{}, err
-	}
-	defer func() { _ = f.Close() }()
-	if hops != 0 {
-		return FolderStat{}, fmt.Errorf("%s: a link on its path", dir)
-	}
-	var st unix.Stat_t
-	if err := unix.Fstat(int(f.Fd()), &st); err != nil {
-		return FolderStat{}, err
-	}
-	var fs unix.Statfs_t
-	if err := unix.Fstatfs(int(f.Fd()), &fs); err != nil {
-		return FolderStat{}, err
-	}
-	name := unix.ByteSliceToString(fs.Fstypename[:])
-	return FolderStat{
-		ID:       statID(&st),
-		Unique:   name == "apfs" || name == "hfs",
-		ReadOnly: fs.Flags&(unix.MNT_RDONLY|unix.MNT_SNAPSHOT) != 0,
-		Mount:    unix.ByteSliceToString(fs.Mntonname[:]),
-		Device:   filepath.Base(unix.ByteSliceToString(fs.Mntfromname[:])),
-	}, nil
-}
 
 // diskutil is macOS's tool for its disks, which devvm runs by its absolute path.
 const diskutil = "/usr/sbin/diskutil"

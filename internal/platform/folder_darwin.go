@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -28,20 +29,26 @@ func statID(st *unix.Stat_t) string {
 	return fmt.Sprintf("%d:%d:%d.%09d", st.Dev, st.Ino, st.Btim.Sec, st.Btim.Nsec)
 }
 
-// openFolderID is the FolderID of the open folder f, and whether it's
-// its alone (UniqueFolderID), both read from f itself, so nothing put at
-// its path since it was opened counts.
-func openFolderID(f *os.File) (string, bool, error) {
+// openFolder is the open folder f as FolderStat has it, read from f
+// itself, so nothing put at its path since it was opened counts. Its
+// volume is VolumeUUID's, so Volume is "".
+func openFolder(f *os.File) (FolderStat, error) {
 	var st unix.Stat_t
 	if err := unix.Fstat(int(f.Fd()), &st); err != nil {
-		return "", false, err
+		return FolderStat{}, err
 	}
 	var fs unix.Statfs_t
 	if err := unix.Fstatfs(int(f.Fd()), &fs); err != nil {
-		return "", false, err
+		return FolderStat{}, err
 	}
-	name := unix.ByteSliceToString(fs.Fstypename[:])
-	return statID(&st), name == "apfs" || name == "hfs", nil
+	return FolderStat{
+		ID:       statID(&st),
+		Unique:   uniqueFS(&fs),
+		ReadOnly: fs.Flags&(unix.MNT_RDONLY|unix.MNT_SNAPSHOT) != 0,
+		Mount:    unix.ByteSliceToString(fs.Mntonname[:]),
+		Device:   filepath.Base(unix.ByteSliceToString(fs.Mntfromname[:])),
+		Owner:    st.Uid,
+	}, nil
 }
 
 // UniqueFolderID reports whether id, the FolderID of the folder at path,
@@ -52,9 +59,11 @@ func openFolderID(f *os.File) (string, bool, error) {
 // again.
 func UniqueFolderID(path, id string) bool {
 	var st unix.Statfs_t
-	if strings.Count(id, ":") != 2 || unix.Statfs(path, &st) != nil {
-		return false
-	}
+	return strings.Count(id, ":") == 2 && unix.Statfs(path, &st) == nil && uniqueFS(&st)
+}
+
+// uniqueFS reports whether a statfs is APFS's or HFS+'s (UniqueFolderID).
+func uniqueFS(st *unix.Statfs_t) bool {
 	fs := unix.ByteSliceToString(st.Fstypename[:])
 	return fs == "apfs" || fs == "hfs"
 }

@@ -236,7 +236,7 @@ func space(ctx context.Context, a *app) (spaceReport, error) {
 		return r, err
 	}
 	r.Rows = append(r.Rows, dataRows...)
-	r.FolderGone, r.NotConnected = e.folderGone()
+	r.FolderGone, r.NotConnected = e.folderGone(ctx)
 	for _, row := range r.Rows {
 		r.Total += row.Size
 		r.GC += row.GC
@@ -474,15 +474,15 @@ func (e spaceEnv) vmFolders() []vm.Known {
 
 // folderGone are the VMs whose backend answered with them and whose
 // project folder is gone, then those whose folder is on a disk that isn't
-// connected, by name.
-func (e spaceEnv) folderGone() (gone, unconnected []goneVM) {
+// connected, by name (vm.Env.FolderOf, each mount's volume looked up once).
+func (e spaceEnv) folderGone(ctx context.Context) (gone, unconnected []goneVM) {
 	for _, k := range e.vmFolders() {
 		st := k.State
 		if k.Err != nil || !k.Listed || !e.answered[st.Backend] {
 			continue
 		}
 		g := goneVM{Backend: st.Backend, Name: k.Name, Folder: st.Dir}
-		switch vm.FolderOf(st) {
+		switch e.env.FolderOf(ctx, st) {
 		case vm.FolderGone:
 			gone = append(gone, g)
 		case vm.FolderNotConnected:

@@ -190,7 +190,7 @@ func (e Lifecycle) Rm(ctx context.Context, o RmOptions) error {
 
 // RmVM deletes the VM that name names, by its name or its ssh alias, when
 // it's this folder's (Rm) or its project folder is gone or not connected
-// (FolderOf); a
+// (Env.FolderOf); a
 // VM whose folder is still there is deleted from that folder. It asks
 // first, or deletes with --force, and refuses where it can't ask, as Rm
 // does. Its agents' history is exported
@@ -218,7 +218,7 @@ func (e Lifecycle) RmVM(ctx context.Context, name string, o RmOptions) error {
 			return e.Rm(ctx, o)
 		}
 	}
-	folder := e.folderState(ctx, st)
+	folder := e.FolderOf(ctx, st)
 	if folder == FolderThere {
 		return msg.RmVMFolderThere(st.Dir, vm)
 	}
@@ -292,7 +292,7 @@ func (e Lifecycle) stillGone(ctx context.Context, t *target, folder FolderState,
 	if err != nil {
 		return err
 	}
-	if st.ID != t.st.ID || e.folderState(ctx, st) != folder {
+	if st.ID != t.st.ID || e.FolderOf(ctx, st) != folder {
 		return msg.RmVMFolderThere(t.st.Dir, vm)
 	}
 	if !running {

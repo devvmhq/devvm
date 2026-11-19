@@ -94,7 +94,7 @@ func TestFolderOf(t *testing.T) {
 	if err := os.Remove(id); err != nil {
 		t.Fatal(err)
 	}
-	if got := FolderOf(vmAt(id, rec, "")); got != FolderGone {
+	if got := (&Env{}).FolderOf(t.Context(), vmAt(id, rec, "")); got != FolderGone {
 		t.Errorf("FolderOf a deleted folder = %v", got)
 	}
 }
@@ -199,5 +199,49 @@ func list(t *testing.T, d paths.Dirs, reg *backend.Registry) ([]Listed, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return inv.List(t.Context())
+	return inv.List(t.Context(), &Env{})
+}
+
+// devvm ls asks each mount's volume once a run, through the run's lookups (Env.Volumes): two VMs
+// whose gone folders were in one folder, on the volume each records, cost one lookup, and both
+// are gone, whatever device number their disk has now.
+func TestListLooksUpVolumesOnce(t *testing.T) {
+	d := paths.Dirs{Data: t.TempDir()}
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, err := platform.StatFolder(parent); err != nil || !s.Unique {
+		t.Skipf("no folder identity of its own here: %+v, %v", s, err)
+	}
+	lima := backendtest.New("lima", nil)
+	for _, name := range []vmname.VM{"devvm-a-0123456789abc4", "devvm-b-0123456789abc3"} {
+		vmState(t, d, name, func(st *state.VM) error {
+			st.Backend, st.Dir = "lima", filepath.Join(parent, name.String())
+			st.SetFolder("1:5:1.2", "uuid:A:5:1.2") // recorded on device 1, renumbered since
+			return nil
+		})
+		lima.Instances[name] = backend.Instance{Name: name, Status: backend.StatusStopped}
+	}
+	reg, err := backend.NewRegistry(lima)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv, err := ReadInventory(t.Context(), d, reg, AllBackends)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := &volumes{answer: "uuid:A"}
+	got, err := inv.List(t.Context(), &Env{Volumes: v.look, VolumesOnly: true, volumes: new(volumeCache)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range got {
+		if l.FolderState != FolderGone {
+			t.Errorf("%s: %s, want gone", l.Name, l.FolderState)
+		}
+	}
+	if len(got) != 2 || v.calls != 1 {
+		t.Errorf("%d VMs, %d lookups, want 2 and 1", len(got), v.calls)
+	}
 }

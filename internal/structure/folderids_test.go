@@ -33,44 +33,63 @@ func folderIDOperand(e ast.Expr, locals map[string]bool) bool {
 }
 
 // folderIDLocals are the names in body that a folder's identity is assigned
-// to (folderIDOperand), by := or =, or declared with, so a comparison of
-// one, which reads like any string's, is still found.
+// to (folderIDOperand), by := or =, or declared with, or one of those
+// names, however many assignments on, so a comparison of one, which reads
+// like any string's, is still found.
 func folderIDLocals(body *ast.BlockStmt) map[string]bool {
 	locals := map[string]bool{}
-	ast.Inspect(body, func(n ast.Node) bool {
-		var lhs, rhs []ast.Expr
-		switch n := n.(type) {
-		case *ast.AssignStmt:
-			lhs, rhs = n.Lhs, n.Rhs
-		case *ast.ValueSpec:
-			for _, id := range n.Names {
-				lhs = append(lhs, id)
+	for grew := true; grew; {
+		grew = false
+		ast.Inspect(body, func(n ast.Node) bool {
+			var lhs, rhs []ast.Expr
+			switch n := n.(type) {
+			case *ast.AssignStmt:
+				lhs, rhs = n.Lhs, n.Rhs
+			case *ast.ValueSpec:
+				for _, id := range n.Names {
+					lhs = append(lhs, id)
+				}
+				rhs = n.Values
+			default:
+				return true
 			}
-			rhs = n.Values
-		default:
+			for i, l := range lhs {
+				id, ok := l.(*ast.Ident)
+				switch {
+				case !ok || locals[id.Name]:
+				case len(lhs) == len(rhs) && folderIDOperand(rhs[i], locals),
+					// id, err := FolderID(dir): the call's first result.
+					i == 0 && len(rhs) == 1 && folderIDOperand(rhs[0], locals):
+					locals[id.Name], grew = true, true
+				}
+			}
 			return true
-		}
-		for i, l := range lhs {
-			id, ok := l.(*ast.Ident)
-			switch {
-			case !ok:
-			case len(lhs) == len(rhs) && folderIDOperand(rhs[i], nil),
-				// id, err := FolderID(dir): the call's first result.
-				i == 0 && len(rhs) == 1 && folderIDOperand(rhs[0], nil):
-				locals[id.Name] = true
-			}
-		}
-		return true
-	})
+		})
+	}
 	return locals
 }
 
 // comparesOne is how n compares a folder's identity (folderIDOperand, with
-// locals), but with "": == or !=, a switch on one, or strings.EqualFold,
-// strings.Compare, slices.Contains or slices.Index with one; "" for none.
+// locals), but with "": == or !=, a switch on one, strings.EqualFold,
+// strings.Compare, slices.Contains or slices.Index with one, or a map
+// keyed by one, indexed or in a literal (where a key that's a bare name
+// counts only in a map's: elsewhere it's a struct's field); "" for none.
 func comparesOne(n ast.Node, locals map[string]bool) string {
 	is := func(e ast.Expr) bool { return folderIDOperand(e, locals) }
 	switch n := n.(type) {
+	case *ast.IndexExpr:
+		if is(n.Index) {
+			return "keys a map by a folder's identity"
+		}
+	case *ast.CompositeLit:
+		_, isMap := n.Type.(*ast.MapType)
+		for _, el := range n.Elts {
+			if kv, ok := el.(*ast.KeyValueExpr); ok && is(kv.Key) {
+				if _, name := kv.Key.(*ast.Ident); isMap || !name {
+					return "keys a map by a folder's identity"
+				}
+			}
+		}
 	case *ast.BinaryExpr:
 		if n.Op != token.EQL && n.Op != token.NEQ || emptyString(n.X) || emptyString(n.Y) {
 			return ""
@@ -111,23 +130,10 @@ func comparesFolderIDs(owner string) func(srcFile) map[string]drop {
 		if f.dir == owner {
 			return nil
 		}
-		sites := map[string]drop{}
-		for _, d := range f.ast.Decls {
-			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Body == nil {
-				continue
-			}
-			site, locals := siteName(f, fd), folderIDLocals(fd.Body)
-			ast.Inspect(fd.Body, func(n ast.Node) bool {
-				if _, seen := sites[site]; !seen && n != nil {
-					if w := comparesOne(n, locals); w != "" {
-						sites[site] = drop{n, w}
-					}
-				}
-				return true
-			})
-		}
-		return sites
+		return sitesWhereIn(f, func(fd *ast.FuncDecl) func(ast.Node) string {
+			locals := folderIDLocals(fd.Body)
+			return func(n ast.Node) string { return comparesOne(n, locals) }
+		})
 	}
 }
 
@@ -187,6 +193,41 @@ func folderIDCases() []ruleCase {
 			files: file("func moved(dir, want string) bool { id := p.FolderID(dir); return id != want }\n"),
 			r:     owner,
 			want:  &want{ruleFolderIDs, "list a/a.go: moved in exactFolderIDs"},
+		},
+		{
+			name:  "a local assigned from such a local, compared",
+			files: file("func moved(dir, want string) bool { id := p.FolderID(dir); was := id; var again = was; return again != want }\n"),
+			r:     owner,
+			want:  &want{ruleFolderIDs, "list a/a.go: moved in exactFolderIDs"},
+		},
+		{
+			name:  "a map keyed by one",
+			files: file("func seen(st VM, m map[string]bool) bool { return m[st.Folder] }\n"),
+			r:     owner,
+			want:  &want{ruleFolderIDs, "list a/a.go: seen in exactFolderIDs"},
+		},
+		{
+			name:  "a map keyed by a local",
+			files: file("func seen(dir string, m map[string]bool) { id, _ := p.FolderID(dir); m[id] = true }\n"),
+			r:     owner,
+			want:  &want{ruleFolderIDs, "list a/a.go: seen in exactFolderIDs"},
+		},
+		{
+			name:  "a map literal keyed by one",
+			files: file("func byID(st VM) map[string]VM { return map[string]VM{st.Folder: st} }\n"),
+			r:     owner,
+			want:  &want{ruleFolderIDs, "list a/a.go: byID in exactFolderIDs"},
+		},
+		{
+			name:  "a map literal keyed by a local",
+			files: file("func byID(dir string, st VM) map[string]VM { id, _ := p.FolderID(dir); return map[string]VM{id: st} }\n"),
+			r:     owner,
+			want:  &want{ruleFolderIDs, "list a/a.go: byID in exactFolderIDs"},
+		},
+		{
+			name:  "a struct literal's field named as a local, and a slice indexed by a number",
+			files: file("type T struct{ id string }\n\nfunc mk(dir string, ids []string) (T, string) { id := p.FolderID(dir); n := 0; return T{id: id}, ids[n] }\n"),
+			r:     owner,
 		},
 		{
 			name:  "a switch on a device",
