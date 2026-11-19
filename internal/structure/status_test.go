@@ -62,6 +62,11 @@ func slowCall(f srcFile, n ast.Node) string {
 			if id, ok := call.Args[2].(*ast.Ident); ok && id.Name == "nil" {
 				return "waits for a lock showing nothing"
 			}
+			if sel, ok := call.Args[2].(*ast.SelectorExpr); ok && sel.Sel.Name == "NoWait" {
+				if x, ok := sel.X.(*ast.Ident); ok && x.Name == pkg {
+					return "waits for a lock showing nothing"
+				}
+			}
 		}
 	}
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok && (sel.Sel.Name == "Output" || sel.Sel.Name == "Attach") {
@@ -168,6 +173,13 @@ func statusCases() []ruleCase {
 			name: "a folder's lock's wait that shows nothing",
 			files: map[string]string{"a/a.go": "package a\n\nimport (\n\t\"context\"\n\n\t\"github.com/devvmhq/devvm/internal/platform\"\n)\n\n" +
 				"func lock(ctx context.Context) (func(), error) { return platform.LockDir(ctx, \"x\", nil) }\n"},
+			r:    on,
+			want: &want{ruleStatus, "list a/a.go: lock in statusSites"},
+		},
+		{
+			name: "a lock's wait that says it never waits",
+			files: map[string]string{"a/a.go": "package a\n\nimport (\n\t\"context\"\n\n\t\"github.com/devvmhq/devvm/internal/platform\"\n)\n\n" +
+				"func lock(ctx context.Context) (func(), error) { return platform.LockFile(ctx, \"x\", platform.NoWait) }\n"},
 			r:    on,
 			want: &want{ruleStatus, "list a/a.go: lock in statusSites"},
 		},

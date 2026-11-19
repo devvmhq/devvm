@@ -158,6 +158,20 @@ type Env struct {
 	leftovers     Leftovers
 }
 
+// gitSerial is .git protection's Serial: it runs f holding devvm's git
+// lock (paths.Dirs.GitLock), waiting for another devvm that holds it under
+// a status line of r's (git_lock_waiting).
+func gitSerial(d paths.Dirs, r msg.Reporter) func(context.Context, func() error) error {
+	return func(ctx context.Context, f func() error) error {
+		unlock, err := platform.LockFile(ctx, d.GitLock(), msg.Waiting(r.Status, msg.GitLockWaiting()))
+		if err != nil {
+			return err
+		}
+		defer unlock()
+		return f()
+	}
+}
+
 // wire makes e's parts (Env's unexported fields), each over e itself,
 // and returns e: NewEnv's, and every Env a test makes.
 func wire(e *Env) *Env {
@@ -199,14 +213,7 @@ func NewEnv(d paths.Dirs, assets fs.FS, self, version string, reg *backend.Regis
 			}
 			return inv.GitKeeper(vm)
 		}
-		p.Serial = func(ctx context.Context, f func() error) error {
-			unlock, err := platform.LockFile(ctx, d.GitLock(), msg.Waiting(r.Status, msg.GitLockWaiting()))
-			if err != nil {
-				return err
-			}
-			defer unlock()
-			return f()
-		}
+		p.Serial = gitSerial(d, r)
 		return p
 	}
 	e.Links = func(st *state.VM) ([]GuestLink, error) { return guestLinks(d, st) }

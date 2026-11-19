@@ -10,6 +10,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/ui"
@@ -44,6 +45,7 @@ func NewRoot(u *ui.UI) *cobra.Command {
 			u.SetFlags(f)
 			if a.testOverrides().LockOrder {
 				state.CheckLockOrder()
+				platform.CheckWaiting()
 			}
 			if wantsJSON(cmd) {
 				u.DataOnly() // stdout is the JSON's alone

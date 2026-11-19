@@ -4,11 +4,12 @@ import "context"
 
 // Waiting is the wait for a lock (platform.Waiting) that shows label on a
 // status line of status, a Reporter's Status, while devvm waits for
-// another devvm that holds the lock, and never when it's free; nil for a
-// nil status, which shows nothing.
+// another devvm that holds the lock, and never when it's free. A nil
+// status, as in a process with no UI, shows nothing, but the wait is
+// never nil, which a test build refuses (platform.CheckWaiting).
 func Waiting(status func(M) func(), label M) func() func() {
 	if status == nil {
-		return nil
+		return func() func() { return func() {} }
 	}
 	return func() func() { return status(label) }
 }

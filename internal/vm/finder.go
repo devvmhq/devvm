@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -161,7 +162,7 @@ func (n need) check(t *target) error {
 	case n.has == hasMachine && !t.exists, (n.has == hasVM || n.has == hasMade) && !there:
 		return noVM(t.f.Dir)
 	case n.name == "" && there && t.unread != nil:
-		return msg.VMFolderUnreadable(t.f.Dir, t.f.Name, t.unread.Error()).Because(t.unread)
+		return folderUnreadable(t.f.Dir, t.f.Name, t.unread)
 	case (n.folder || n.has == hasMade) && there && t.other:
 		return msg.VMOtherFolder(t.f.Name, t.st.Dir)
 	case n.has == hasMade && pending:
@@ -406,7 +407,7 @@ func (e finder) parentVM(ctx context.Context) (*target, error) {
 		return nil, err
 	}
 	if same, err := e.sameFolder(ctx, *found, fst); err != nil {
-		return nil, msg.VMFolderUnreadable(found.Dir, found.Name, err.Error()).Because(err)
+		return nil, folderUnreadable(found.Dir, found.Name, err)
 	} else if !same {
 		return nil, nil
 	}
@@ -581,6 +582,18 @@ func (e finder) inspect(ctx context.Context, f project.Folder, st *state.VM) (*t
 	}
 	t.agent = e.agentSocket(mode)
 	return t, nil
+}
+
+// folderUnreadable is vm_folder_unreadable for the folder dir of the VM
+// vm, which err says devvm can't open or read: its why is err's reason
+// alone when err is about dir itself, as an open's is, since the message
+// names dir already.
+func folderUnreadable(dir string, vm vmname.VM, err error) error {
+	why := err.Error()
+	if pe, ok := errors.AsType[*fs.PathError](err); ok && filepath.Clean(pe.Path) == filepath.Clean(dir) {
+		why = pe.Err.Error()
+	}
+	return msg.VMFolderUnreadable(dir, vm, why).Because(err)
 }
 
 // sameFolder reports whether the VM was made for this folder (madeFor),

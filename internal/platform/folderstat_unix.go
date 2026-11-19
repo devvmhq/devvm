@@ -2,7 +2,7 @@
 
 package platform
 
-import "fmt"
+import "io/fs"
 
 // StatFolder is the folder at dir as FolderStat has it, read from the folder opened with no link
 // on its path (OpenNoLinks, none of the system's followed either), so nothing a VM puts at the
@@ -14,7 +14,7 @@ func StatFolder(dir string) (FolderStat, error) {
 	}
 	defer func() { _ = f.Close() }()
 	if hops != 0 {
-		return FolderStat{}, fmt.Errorf("%s: a link on its path", dir)
+		return FolderStat{}, &fs.PathError{Op: "open", Path: dir, Err: ErrLinkOnPath}
 	}
 	return openFolder(f)
 }

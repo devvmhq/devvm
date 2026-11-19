@@ -1460,6 +1460,10 @@ other = "{{.vm}} forwards {{.ports}}"
 [ports_forwarding]
 other = "From now on, {{.vm}} forwards {{.ports}}. devvm closed the connections that were open to its ports."
 
+[ports_restarting]
+description = "a status step: devvm ports starts the running VM's port forwarder again with the VM's new ports"
+other = "starting {{.vm}}'s port forwarder again"
+
 [ports_default]
 other = "new VMs forward {{.ports}}"
 

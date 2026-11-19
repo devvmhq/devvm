@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/agents"
@@ -381,21 +382,22 @@ func TestUnreadableFolder(t *testing.T) {
 	if _, err := platform.StatFolder(e.Dir); err == nil {
 		t.Skip("an unreadable folder still opens here, as for root")
 	}
-	want := "vm_folder_unreadable dir=" + e.Dir + " vm=" + vm.String() + " why="
+	// The message names the folder once: why is the system's reason alone.
+	want := "vm_folder_unreadable dir=" + e.Dir + " vm=" + vm.String() + " why=" + syscall.EACCES.Error()
 	for name, run := range map[string]func() error{
 		"launch": func() error { return (Launch{e}).Up(t.Context(), Options{}) },
 		"adopt":  func() error { return (Lifecycle{e}).Adopt(t.Context(), "", true) },
 		"rm":     func() error { return (Lifecycle{e}).Rm(t.Context(), RmOptions{Force: true}) },
 	} {
-		if err := run(); !strings.HasPrefix(msg.NamesOf(err), want) {
-			t.Errorf("%s: %v, want %s…", name, msg.NamesOf(err), want)
+		if err := run(); msg.NamesOf(err) != want {
+			t.Errorf("%s: %v, want %s", name, msg.NamesOf(err), want)
 		}
 	}
 	// From a subfolder, the parent's VM is refused the same way, naming the parent.
 	web := e.Dir
 	sub := subfolder(t, e, web, "src/lib")
-	if err := (Launch{e}).Up(t.Context(), Options{}); !strings.HasPrefix(msg.NamesOf(err), want) {
-		t.Errorf("in %s: %v, want %s…", sub, msg.NamesOf(err), want)
+	if err := (Launch{e}).Up(t.Context(), Options{}); msg.NamesOf(err) != want {
+		t.Errorf("in %s: %v, want %s", sub, msg.NamesOf(err), want)
 	}
 	if err := os.Chmod(web, 0o700); err != nil { //nolint:gosec // a folder's own mode, back
 		t.Fatal(err)

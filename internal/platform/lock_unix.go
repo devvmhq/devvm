@@ -73,6 +73,7 @@ func LockHeld(path string) (bool, error) {
 // again lockTick apart until ctx ends; waiting, if any, is called once it
 // finds the lock held, and what it returned once the wait ends.
 func lockFile(ctx context.Context, path string, how int, waiting Waiting) (unlock func(), err error) {
+	checkWaiting(waiting)
 	var end func()
 	defer func() {
 		if end != nil {
@@ -101,6 +102,7 @@ func lockFile(ctx context.Context, path string, how int, waiting Waiting) (unloc
 // (Waiting) says so. It never makes the folder: one that isn't there is
 // os.ErrNotExist. Its descriptor isn't inherited (close on exec).
 func LockDir(ctx context.Context, dir string, waiting Waiting) (unlock func(), err error) {
+	checkWaiting(waiting)
 	var end func()
 	defer func() {
 		if end != nil {

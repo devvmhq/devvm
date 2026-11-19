@@ -1,16 +1,43 @@
 package lima
 
 import (
+	"context"
 	"errors"
 	"os"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/ubuntu"
 )
+
+// PinOrigin's wait for the Ubuntu pin's lock, held as by another devvm's
+// first build, shows ubuntu_pin_waiting, and a Ctrl-C ends it with
+// nothing asked or pinned.
+func TestPinOriginWaits(t *testing.T) {
+	l, _, _ := testLima(t, "darwin")
+	fi := &testFinder{releases: []string{"release-20260301"}}
+	l.Ubuntu = fi
+	if err := os.MkdirAll(l.Dirs.ImageLocks(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := platform.LockFile(t.Context(), l.Dirs.UbuntuPinLock(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute) // a wait that shows nothing fails, never hangs
+	defer cancel()
+	var said msg.Recorder
+	l.Reporter = &msg.Fake{OnStatus: func(m msg.M) { said.Add(m); cancel() }}
+	if _, err := l.PinOrigin(ctx, nil, backend.PinNewest); !errors.Is(err, context.Canceled) || !slices.Equal(said.Names(), []string{"ubuntu_pin_waiting"}) || len(fi.asked) != 0 {
+		t.Errorf("held: %v, showed %q, asked %q", err, said.Names(), fi.asked)
+	}
+}
 
 // PinOrigin pins the newest release when none is pinned, again on
 // PinNewest, and the newest older than the one pinned on PinOlder; a

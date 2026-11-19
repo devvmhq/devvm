@@ -518,6 +518,40 @@ func TestBuiltNeedsNoBuild(t *testing.T) {
 	}
 }
 
+// The waits for the package cache's lock and the rebuild counters', held
+// as by another devvm, show their labels (packages_waiting,
+// rebuilds_waiting), and a Ctrl-C ends each wait with nothing changed.
+func TestImageLocksWait(t *testing.T) {
+	b, _ := testEnv(t)
+	for _, c := range []struct {
+		lock, want string
+		run        func(context.Context) error
+	}{
+		{b.Dirs.PackagesLock(), "packages_waiting", func(ctx context.Context) error {
+			return (Images{b}).DeletePackages(ctx, StalePackages{Sets: []string{"k"}})
+		}},
+		{b.Dirs.RebuildsLock(), "rebuilds_waiting", func(ctx context.Context) error {
+			return (Builds{b}).bumpRebuild(ctx, "foo")
+		}},
+	} {
+		if err := os.MkdirAll(b.Dirs.ImageLocks(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		unlock, err := platform.LockFile(t.Context(), c.lock, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute) // a wait that shows nothing fails, never hangs
+		var said msg.Recorder
+		fake(b).OnStatus = func(m msg.M) { said.Add(m); cancel() }
+		if err := c.run(ctx); !errors.Is(err, context.Canceled) || !slices.Equal(said.Names(), []string{c.want}) {
+			t.Errorf("%s held: %v, showed %q", c.want, err, said.Names())
+		}
+		cancel()
+		unlock()
+	}
+}
+
 // An image another devvm is building (no record, its lock held) is left
 // alone: a build of it waits, saying so, rebuild and Delete don't delete
 // it, and it's listed as building. Once its lock is free, it's a

@@ -2,12 +2,19 @@ package vm
 
 import (
 	"context"
+	"errors"
+	"os"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/devvmhq/devvm/internal/backend/backendtest"
+	"github.com/devvmhq/devvm/internal/gitprotect"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
+	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/sshagent"
 )
 
@@ -26,6 +33,29 @@ func underStatus(f *backendtest.Fake, fake *msg.Fake) *[]string {
 		}
 	}
 	return &off
+}
+
+// .git protection's waits for devvm's git lock, held as by another devvm,
+// show git_lock_waiting, and a Ctrl-C ends the wait with nothing run.
+func TestGitLockWaits(t *testing.T) {
+	d := paths.Dirs{Data: t.TempDir()}
+	if err := os.MkdirAll(d.Run(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := platform.LockFile(t.Context(), d.GitLock(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute) // a wait that shows nothing fails, never hangs
+	defer cancel()
+	var showed msg.Recorder
+	f := &msg.Fake{OnStatus: func(m msg.M) { showed.Add(m); cancel() }}
+	ran := false
+	err = gitSerial(d, f)(ctx, func() error { ran = true; return nil })
+	if !errors.Is(err, context.Canceled) || ran || !slices.Equal(showed.Names(), []string{"git_lock_waiting"}) {
+		t.Errorf("held: %v, ran %v, showed %q", err, ran, showed.Names())
+	}
 }
 
 // ssh-add, on the user's agent or devvm's own, never runs under a status
@@ -94,6 +124,30 @@ func TestCommandStatusLines(t *testing.T) {
 			{"network", func(ctx context.Context) error { _, err := (Net{e}).Network(ctx); return err }},
 			{"tools", func(ctx context.Context) error { _, err := (Tools{e}).List(ctx); return err }},
 			{"git-protect", func(ctx context.Context) error { _, err := (Settings{e}).GitProtect(ctx); return err }},
+			{"ports 3000", func(ctx context.Context) error { return (Settings{e}).SetPorts(ctx, PortsChange{List: "3000"}) }},
+			{"ports add", func(ctx context.Context) error {
+				return (Settings{e}).SetPorts(ctx, PortsChange{Op: "add", List: "4000"})
+			}},
+			{"size --cpus 2", func(ctx context.Context) error { return (Settings{e}).SetSize(ctx, Size{CPUs: "2"}, false) }},
+			{"network open", func(ctx context.Context) error {
+				return (Net{e}).SetTier(ctx, netpolicy.TierOpen, "devvm network open")
+			}},
+			{"network allowlist", func(ctx context.Context) error {
+				return (Net{e}).SetTier(ctx, netpolicy.TierAllowlist, "devvm network allowlist")
+			}},
+			{"network transparent off", func(ctx context.Context) error {
+				return (Settings{e}).SetTransparent(ctx, "off", "devvm network transparent off")
+			}},
+			{"network transparent on", func(ctx context.Context) error {
+				return (Settings{e}).SetTransparent(ctx, "on", "devvm network transparent on")
+			}},
+			{"network learn", func(ctx context.Context) error { return (Net{e}).Learn(ctx, "devvm network learn") }},
+			{"network allow", func(ctx context.Context) error {
+				return (Net{e}).PolicyChange(ctx, []string{"example.com"}, RuleChange{})
+			}},
+			{"git-protect off", func(ctx context.Context) error { return (Settings{e}).SetGitProtect(ctx, gitprotect.Off) }},
+			{"git-protect on", func(ctx context.Context) error { return (Settings{e}).SetGitProtect(ctx, gitprotect.On) }},
+			{"ssh-agent off", func(ctx context.Context) error { return (Settings{e}).SetSSHAgent(ctx, sshagent.Off) }},
 			{"history export", func(ctx context.Context) error { return (Lifecycle{e}).Export(ctx, "") }},
 			{"stop", func(ctx context.Context) error { return (Lifecycle{e}).Stop(ctx) }},
 			{"rm", func(ctx context.Context) error { return (Lifecycle{e}).Rm(ctx, RmOptions{Force: true}) }},

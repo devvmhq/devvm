@@ -92,7 +92,7 @@ func openNoLinks(path string, follow func(link, dir *unix.Stat_t) bool) (*os.Fil
 			return nil, 0, &os.PathError{Op: "open", Path: path, Err: err}
 		case last || unix.Fstat(fd, &dir) != nil || !follow(st, &dir):
 			_ = unix.Close(fd)
-			return nil, 0, fmt.Errorf("%s: %w", path, ErrLinkOnPath)
+			return nil, 0, &os.PathError{Op: "open", Path: path, Err: ErrLinkOnPath}
 		}
 		if hops++; hops > linkHops {
 			_ = unix.Close(fd)

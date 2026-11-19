@@ -3,6 +3,8 @@
 package platform
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -58,6 +60,20 @@ func TestStatFolderUnique(t *testing.T) {
 	}
 	if _, err := StatFolder(filepath.Join(dir, "missing")); err == nil {
 		t.Error("a missing folder's stat")
+	}
+	// A link on the folder's path is refused, the error about the folder, as an open's is, so a
+	// message that names the folder takes its reason alone.
+	if err := os.Symlink(dir, filepath.Join(dir, "via")); err != nil {
+		t.Fatal(err)
+	}
+	via := filepath.Join(dir, "via", "x")
+	if err := os.Mkdir(filepath.Join(dir, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := StatFolder(via); err == nil {
+		t.Error("a folder through a link: stat")
+	} else if pe, ok := errors.AsType[*fs.PathError](err); !ok || pe.Path != via {
+		t.Errorf("a folder through a link: %v, not a PathError about it", err)
 	}
 	switch runtime.GOOS {
 	case "linux":

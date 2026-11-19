@@ -15,6 +15,8 @@ import (
 	"time"
 	"unicode"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/testbuild"
 )
@@ -64,6 +66,10 @@ func private(a netip.Addr) bool { return a.IsPrivate() } // want forbidigo
 func reveals(s redact.Secret) string { return s.Reveal() } // want forbidigo
 
 func chmods() error { return os.Chmod("f", 0o600) } // want forbidigo
+
+func flocks(f *os.File) error { return syscall.Flock(int(f.Fd()), syscall.LOCK_EX) } // want forbidigo
+
+func unixFlocks(f *os.File) error { return unix.Flock(int(f.Fd()), unix.LOCK_EX) } // want forbidigo
 
 func chtimes(t time.Time) error { return os.Chtimes("f", t, t) } // want forbidigo
 

@@ -276,6 +276,7 @@ func devvmVars() map[string]string {
 		"internal/structure.update":               "a test flag, set on go test's command line",
 		"internal/leaktest.allowed":               table,
 		"internal/state.held":                     "the state locks this process's goroutines hold, which test builds check the order of: the locks are the process's",
+		"internal/platform.waitingChecked":        "whether this process's locks refuse a nil Waiting, which test builds turn on: the locks are the process's",
 	}
 }
 

@@ -585,7 +585,7 @@ func (a Allocator) Build(ctx context.Context, vm vmname.VM, was int) (int, func(
 			return err
 		}
 		// A new file: no other process has it, so the lock is had at once.
-		if unlock, err = platform.LockFile(ctx, rec, nil); err != nil {
+		if unlock, err = platform.LockFile(ctx, rec, platform.NoWait); err != nil {
 			_ = os.Remove(rec)
 		}
 		return err

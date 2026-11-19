@@ -4063,6 +4063,11 @@ func PortsRefused(count int, ports string, vm vmname.VM) M {
 	return M{id: "ports_refused", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"ports", ports}, {"vm", string(vm)}}}
 }
 
+// PortsRestarting is [ports_restarting]: "starting {{.vm}}'s port forwarder again"
+func PortsRestarting(vm vmname.VM) M {
+	return M{id: "ports_restarting", vals: []val{{"vm", string(vm)}}}
+}
+
 // PortsRmAll is [ports_rm_all]: "Every port is forwarded, so none can be removed. Set the ones to keep instead, as in devvm ports 5173,8000-8010."
 func PortsRmAll() M {
 	return M{id: "ports_rm_all"}
@@ -6506,6 +6511,7 @@ var specs = map[string]spec{
 	"ports_list_needed":               {fields: []string{"value"}},
 	"ports_now":                       {fields: []string{"ports", "vm"}},
 	"ports_refused":                   {plural: true, fields: []string{"count", "ports", "vm"}},
+	"ports_restarting":                {fields: []string{"vm"}},
 	"ports_rm_all":                    {},
 	"ports_ssh_limit":                 {fields: []string{"held", "limit", "others", "vms"}},
 	"ports_ssh_limit_all":             {fields: []string{"limit", "vms"}},

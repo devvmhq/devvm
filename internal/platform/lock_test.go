@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"testing"
 	"testing/synctest"
@@ -55,50 +56,63 @@ func TestLockFile(t *testing.T) {
 // what it returned once the wait ends, with the lock got or given up; a
 // free lock calls neither, shared or not.
 func TestLockFileWaiting(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "x.lock")
-	waits, ends := 0, 0
-	waiting := func() func() {
-		waits++
-		return func() { ends++ }
-	}
-	unlock, err := LockFile(t.Context(), path, waiting)
-	if err != nil || waits != 0 || ends != 0 {
-		t.Fatalf("a free lock: %v, waits %d, ends %d", err, waits, ends)
-	}
-	for _, shared := range []bool{false, true} {
+	synctest.Test(t, func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "x.lock")
+		var waitMu sync.Mutex
+		waits, ends := 0, 0
+		waiting := func() func() {
+			waitMu.Lock()
+			defer waitMu.Unlock()
+			waits++
+			return func() { waitMu.Lock(); ends++; waitMu.Unlock() }
+		}
+		unlock, err := LockFile(t.Context(), path, waiting)
+		if err != nil || waits != 0 || ends != 0 {
+			t.Fatalf("a free lock: %v, waits %d, ends %d", err, waits, ends)
+		}
+		for _, shared := range []bool{false, true} {
+			waits, ends = 0, 0
+			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+			lock := LockFile
+			if shared {
+				lock = LockFileShared
+			}
+			if _, err := lock(ctx, path, waiting); !errors.Is(err, context.DeadlineExceeded) || waits != 1 || ends != 1 {
+				t.Errorf("held, shared %v: %v, waits %d, ends %d", shared, err, waits, ends)
+			}
+			cancel()
+		}
+		// Got once let go: the wait ends then, not before.
 		waits, ends = 0, 0
-		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-		lock := LockFile
-		if shared {
-			lock = LockFileShared
+		got := make(chan error, 1)
+		go func() {
+			u, err := LockFile(t.Context(), path, waiting)
+			if err == nil {
+				u()
+			}
+			got <- err
+		}()
+		synctest.Wait()
+		// Only the file's lock, which the race detector can't see, orders this read before the
+		// goroutine's end, so both go through waitMu.
+		waitMu.Lock()
+		w, e := waits, ends
+		waitMu.Unlock()
+		if w != 1 || e != 0 {
+			t.Errorf("waiting: waits %d, ends %d", w, e)
 		}
-		if _, err := lock(ctx, path, waiting); !errors.Is(err, context.DeadlineExceeded) || waits != 1 || ends != 1 {
-			t.Errorf("held, shared %v: %v, waits %d, ends %d", shared, err, waits, ends)
+		unlock()
+		if err := <-got; err != nil || ends != 1 {
+			t.Errorf("got once let go: %v, ends %d", err, ends)
 		}
-		cancel()
-	}
-	// Got once let go: the wait ends then.
-	waits, ends = 0, 0
-	got := make(chan error, 1)
-	started := make(chan struct{})
-	go func() {
-		u, err := LockFile(t.Context(), path, func() func() { close(started); return func() { ends++ } })
-		if err == nil {
-			u()
+		waits = 0
+		shared, err := LockFileShared(t.Context(), path, waiting)
+		if err != nil || waits != 0 {
+			t.Errorf("a free shared lock: %v, waits %d", err, waits)
+		} else {
+			shared()
 		}
-		got <- err
-	}()
-	<-started
-	unlock()
-	if err := <-got; err != nil || ends != 1 {
-		t.Errorf("got once let go: %v, ends %d", err, ends)
-	}
-	shared, err := LockFileShared(t.Context(), path, waiting)
-	if err != nil || waits != 0 {
-		t.Errorf("a free shared lock: %v, waits %d", err, waits)
-	} else {
-		shared()
-	}
+	})
 }
 
 // A folder's lock is held by one at a time, as a file's is: another waits
@@ -167,6 +181,43 @@ func TestLockDir(t *testing.T) {
 			t.Error("LockDir made the folder")
 		}
 	})
+}
+
+// Once CheckWaiting runs, as in a test build, a lock taken with a nil
+// Waiting panics, a file's and a folder's, before it takes the lock; NoWait
+// and a Waiting of a status line pass. Before it, nil passes, as in the
+// tests' own locks.
+func TestCheckWaiting(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.lock")
+	t.Cleanup(func() { waitingChecked.Store(false) })
+	panics := func(f func() (func(), error)) (p any) {
+		defer func() { p = recover() }()
+		if unlock, err := f(); err == nil {
+			unlock()
+		}
+		return nil
+	}
+	nilFile := func() (func(), error) { return LockFile(t.Context(), path, nil) }
+	if p := panics(nilFile); p != nil {
+		t.Errorf("unchecked, nil: %v", p)
+	}
+	CheckWaiting()
+	for name, f := range map[string]func() (func(), error){
+		"a file's":   nilFile,
+		"a shared":   func() (func(), error) { return LockFileShared(t.Context(), path, nil) },
+		"a folder's": func() (func(), error) { return LockDir(t.Context(), dir, nil) },
+	} {
+		if p := panics(f); p == nil {
+			t.Errorf("checked, %s with nil: no panic", name)
+		}
+	}
+	shown := func() func() { return func() {} }
+	for name, w := range map[string]Waiting{"NoWait": NoWait, "a status line": shown} {
+		if p := panics(func() (func(), error) { return LockFile(t.Context(), path, w) }); p != nil {
+			t.Errorf("checked, %s: %v", name, p)
+		}
+	}
 }
 
 // A holder may remove the lock file before it lets go: one waiting for

@@ -253,7 +253,9 @@ func (e Settings) SetPorts(ctx context.Context, c PortsChange) error {
 		e.Info(msg.PortsNow(list, vm))
 		return nil
 	}
+	end := e.Status(msg.PortsRestarting(vm))
 	e.forwards().Start(ctx, b, st)
+	end()
 	e.Info(msg.PortsForwarding(list, vm))
 	return nil
 }

@@ -145,6 +145,8 @@ linters:
           msg: change a file through what opened it (os.File's Chmod, Chown and Truncate, or an os.Root's methods), never by its path, which a VM can swap for a link between the open and the change; a path only devvm writes, such as a socket it just made, says why in a nolint.
         - pattern: ^netip\.Addr\.IsPrivate$
           msg: ask proxy.Public whether an address is on the internet, the one table of the ranges that aren't.
+        - pattern: ^(syscall|unix)\.Flock$
+          msg: take a lock with internal/platform's LockFile, LockFileShared or LockDir, which wait until the context ends and show their wait (platform.Waiting); a blocking flock waits for ever and shows nothing.
         - pattern: ^msg\.StatusOf$
           msg: show a lock's wait through the Reporter your constructor takes (msg.Waiting with its Status); only internal/state and internal/trust, which take none, read the run's status from the context.
         - pattern: ^redact\.Secret\.Reveal$
@@ -245,6 +247,12 @@ linters:
       - path: ^internal/(state|trust|msg)/|_test\.go$
         linters: [forbidigo]
         text: msg\.StatusOf
+      # platform's locks themselves; the proxy's log rotation's (the proxy
+      # imports the standard library alone); test stubs; and tests, which
+      # hold locks as another devvm would.
+      - path: ^internal/(platform|stubtest)/|^internal/proxy/rotate\.go$|_test\.go$
+        linters: [forbidigo]
+        text: (syscall|unix)\.Flock
       # state's own writer; the proxy's (standard library only); the
       # message generator (a leaf); test stubs; and tests' fixtures.
       - path: ^internal/(state|proxy|msg/gen|stubtest)/|_test\.go$

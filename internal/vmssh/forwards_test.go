@@ -67,6 +67,25 @@ func testForwards(t *testing.T) (*Forwards, *[][]string, *msg.Recorder) {
 	return f, &starts, warned
 }
 
+// A VM's forwarder's lock, held as by another devvm, is waited for under
+// forwarder_waiting, naming the VM, and a Ctrl-C ends the wait.
+func TestForwardsLockWaits(t *testing.T) {
+	vm := vmname.VM("devvm-a-0123456789abcd")
+	f := Forwards{Dirs: paths.Dirs{Data: t.TempDir()}}
+	unlock, err := f.Lock(t.Context(), vm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute) // a wait that shows nothing fails, never hangs
+	defer cancel()
+	var said msg.Recorder
+	f.Reporter = &msg.Fake{OnStatus: func(m msg.M) { said.Add(m); cancel() }}
+	if _, err := f.Lock(ctx, vm); !errors.Is(err, context.Canceled) || !slices.Equal(said.Names(), []string{"forwarder_waiting vm=" + vm.String()}) {
+		t.Errorf("held: %v, showed %q", err, said.Names())
+	}
+}
+
 // A forwarder's log that an earlier one left past its cap is rotated as
 // the next starts.
 func TestForwardsRunTrimsLog(t *testing.T) {

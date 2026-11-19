@@ -1,14 +1,18 @@
 package secrets
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/state"
@@ -28,6 +32,29 @@ func stripeDef(t *testing.T, d Def) Secret {
 		t.Fatal(msg.NamesOf(err))
 	}
 	return sec
+}
+
+// A save of a secret of yours waits for your secrets' lock, held as by
+// another devvm, showing custom_secrets_waiting, and a Ctrl-C ends the
+// wait with nothing saved.
+func TestYoursLockWaits(t *testing.T) {
+	s, kc := testStore(t, true, nil)
+	if err := state.PrivateDir(s.Dirs.Data); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := platform.LockFile(t.Context(), s.Dirs.CustomSecretsLock(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute) // a wait that shows nothing fails, never hangs
+	defer cancel()
+	var said msg.Recorder
+	s.Reporter = &msg.Fake{OnStatus: func(m msg.M) { said.Add(m); cancel() }}
+	err = YoursOf(s).Save(ctx, stripeDef(t, Def{}), redact.NewSecret("sk_test_x"))
+	if !errors.Is(err, context.Canceled) || !slices.Equal(said.Names(), []string{"custom_secrets_waiting"}) || len(kc) != 0 {
+		t.Errorf("held: %v, showed %q, saved %d", err, said.Names(), len(kc))
+	}
 }
 
 // Your secrets in the store: the value where the known secrets' are, under

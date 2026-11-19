@@ -45,7 +45,8 @@ type Overrides struct {
 	// lookup fail.
 	Volume string
 	// LockOrder, in every test build, checks the order the state's
-	// locks are taken in (state.CheckLockOrder).
+	// locks are taken in (state.CheckLockOrder), and that every lock's
+	// wait shows (platform.CheckWaiting).
 	LockOrder bool
 }
 
