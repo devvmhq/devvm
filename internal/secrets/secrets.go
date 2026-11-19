@@ -192,7 +192,7 @@ func SaveLogins(ctx context.Context, s *Store, logins []Login) error {
 			if err := state.PrivateDir(dir); err != nil {
 				return err
 			}
-			unlock, err := agentlogin.LockLogin(file, loginWaiting(s, l.Kind))
+			unlock, err := agentlogin.LockLogin(ctx, file, loginWaiting(s, l.Kind))
 			if err != nil {
 				return err
 			}
@@ -258,11 +258,11 @@ func (s *Store) captureFile(agent, salt string) agentlogin.File {
 // CaptureRequest returns a token request a VM's proxy captures the reply
 // to, for the agent's login (proxy.Capturer's Request): its body as it
 // goes on, or the reply the VM gets instead (agentlogin.File.CaptureRequest).
-func (s *Store) CaptureRequest(agent, salt, ctype string, body []byte) (out, answer []byte, err error) {
+func (s *Store) CaptureRequest(ctx context.Context, agent, salt, ctype string, body []byte) (out, answer []byte, err error) {
 	if !isLogin(agent) {
 		return nil, nil, msg.NoSecret(agent)
 	}
-	return s.captureFile(agent, salt).CaptureRequest(ctype, body)
+	return s.captureFile(agent, salt).CaptureRequest(ctx, ctype, body)
 }
 
 // Capture saves the agent's login in reply, its token endpoint's answer to
@@ -271,13 +271,16 @@ func (s *Store) CaptureRequest(agent, salt, ctype string, body []byte) (out, ans
 // placeholders ending in salt. Claude Code's login is captured its own way
 // (Claude.capture).
 func (s *Store) Capture(ctx context.Context, agent, salt, ctype string, req, reply []byte) ([]byte, error) {
+	// The endpoint has given its reply, so the exchange's deadline doesn't end the save.
+	ctx, cancel := agentlogin.AfterReply(ctx)
+	defer cancel()
 	if err := s.loginsDir(ctx, agent); err != nil {
 		return nil, err
 	}
 	if vm, ok, err := ClaudeOf(s).capture(ctx, agent, salt, ctype, req, reply); ok {
 		return vm, err
 	}
-	return s.captureFile(agent, salt).Capture(ctype, req, reply)
+	return s.captureFile(agent, salt).Capture(ctx, ctype, req, reply)
 }
 
 // loginsDir readies the agent's logins folder in devvm's store: the
@@ -300,7 +303,7 @@ func (s *Store) SaveKey(ctx context.Context, kind, provider string, key redact.S
 	if err := s.loginsDir(ctx, kind); err != nil {
 		return err
 	}
-	return s.login(kind, "").SetKey(provider, key)
+	return s.login(kind, "").SetKey(ctx, provider, key)
 }
 
 // LoginSum is a hash of the agent's login file in devvm's store, "" when
@@ -551,7 +554,7 @@ func (s *Store) Save(ctx context.Context, name string, value redact.Secret) erro
 		return s.save(ctx, name, value)
 	}
 	c := ClaudeOf(s)
-	unlock, err := c.lock()
+	unlock, err := c.lock(ctx)
 	if err != nil {
 		return err
 	}

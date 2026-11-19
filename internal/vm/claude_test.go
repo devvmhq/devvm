@@ -363,7 +363,7 @@ func TestAgentSaveClaudePlugins(t *testing.T) {
 	if !slices.Equal(f.added, []string{"cache/v/SKILL.md"}) || !slices.Equal(f.changed, []string{"known_marketplaces.json"}) || len(f.removed) != 0 {
 		t.Errorf("plugins = added %q, changed %q, removed %q", f.added, f.changed, f.removed)
 	}
-	if err := st.apply(t.Context(), p); err != nil {
+	if err := st.applyAll(t.Context(), []agentPlan{p}); err != nil {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{"cache/m/SKILL.md", "marketplaces/m/README.md", "cache/v/SKILL.md"} {

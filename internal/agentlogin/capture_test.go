@@ -1,6 +1,7 @@
 package agentlogin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/agents"
@@ -52,7 +54,7 @@ func readStore(t *testing.T, f File) map[string]any {
 // capture is f.Capture, its reply to the VM decoded, checked to hold none of secrets.
 func capture(t *testing.T, f File, ctype string, req, rep []byte, secrets ...string) map[string]any {
 	t.Helper()
-	out, err := f.Capture(ctype, req, rep)
+	out, err := f.Capture(t.Context(), ctype, req, rep)
 	must(t, err)
 	for _, s := range secrets {
 		if strings.Contains(string(out), s) {
@@ -73,6 +75,37 @@ func openaiTokens() (string, string) {
 		jwtWith(time.Now().Add(time.Hour), map[string]any{"https://api.openai.com/auth": openaiAuth, "scp": "x"})
 }
 
+// A reply the endpoint has given is saved even when the login's lock is held past the exchange's
+// deadline, as by a refresh in another VM's proxy: the reply may have rotated the refresh token,
+// so giving up at the deadline would lose the login. The capture waits for the lock, and saves.
+func TestCaptureOutlivesItsDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		idToken, accessToken := openaiTokens()
+		f := storeFile(t, Codex, "auth.json")
+		must(t, os.MkdirAll(filepath.Dir(f.Path), 0o700))
+		unlock, err := LockLogin(t.Context(), f.Path, nil)
+		must(t, err)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		code := form("grant_type", grantCode, "code", "c", "client_id", openaiClientID, "code_verifier", "v")
+		rep := reply(map[string]any{"id_token": idToken, "access_token": accessToken, "refresh_token": "rt-real", "expires_in": 3600})
+		got := make(chan error, 1)
+		go func() {
+			_, err := f.Capture(ctx, formType, code, rep)
+			got <- err
+		}()
+		time.Sleep(time.Minute) // past the exchange's deadline, the lock still held
+		synctest.Wait()
+		unlock()
+		if err := <-got; err != nil {
+			t.Fatalf("held past the deadline: %v", err)
+		}
+		if rt := str(obj(readStore(t, f), "tokens"), "refresh_token"); rt != "rt-real" {
+			t.Errorf("the store's refresh token %q", rt)
+		}
+	})
+}
+
 // Codex's ChatGPT login, as codex login makes it: the code's reply saved in the store as Codex
 // keeps it, the VM given the placeholders its bindings name; then the API-key exchange, whose
 // id_token placeholder becomes the real one on its way out, and whose key is saved and replaced.
@@ -80,7 +113,7 @@ func TestCodexCapture(t *testing.T) {
 	idToken, accessToken := openaiTokens()
 	f := storeFile(t, Codex, "auth.json")
 	code := form("grant_type", grantCode, "code", "c", "client_id", openaiClientID, "code_verifier", "v")
-	if b, answer, err := f.CaptureRequest(formType, code); err != nil || string(b) != string(code) || answer != nil {
+	if b, answer, err := f.CaptureRequest(t.Context(), formType, code); err != nil || string(b) != string(code) || answer != nil {
 		t.Fatalf("the code's request = %q, %v; want it as it is", b, err)
 	}
 	vm := capture(t, f, formType, code, reply(map[string]any{
@@ -111,12 +144,12 @@ func TestCodexCapture(t *testing.T) {
 		return form("grant_type", grantExchange, "client_id", openaiClientID, "requested_token", apiKeyToken,
 			"subject_token", subject, "subject_token_type", idTokenType)
 	}
-	out, _, err := f.CaptureRequest(formType, exchange(vm["id_token"].(string)))
+	out, _, err := f.CaptureRequest(t.Context(), formType, exchange(vm["id_token"].(string)))
 	if q, _ := url.ParseQuery(string(out)); err != nil || q.Get("subject_token") != idToken || q.Get("requested_token") != apiKeyToken {
 		t.Fatalf("the exchange goes out as %q, %v", out, err)
 	}
 	for _, other := range []string{"", "x", openaiPlaceholder(redact.NewSecret(idToken), "another-vm")} {
-		if _, _, err := f.CaptureRequest(formType, exchange(other)); err == nil {
+		if _, _, err := f.CaptureRequest(t.Context(), formType, exchange(other)); err == nil {
 			t.Errorf("an exchange for %q went out", other)
 		}
 	}
@@ -133,7 +166,7 @@ func TestCodexCapture(t *testing.T) {
 	// The VM's own refresh (Codex's is JSON) carries managed: it goes nowhere, and the VM gets the
 	// store's login as placeholders again.
 	refresh, _ := json.Marshal(map[string]string{"grant_type": grantRefresh, "client_id": openaiClientID, "refresh_token": managed})
-	out, answer, err := f.CaptureRequest(jsonType, refresh)
+	out, answer, err := f.CaptureRequest(t.Context(), jsonType, refresh)
 	var again map[string]any
 	if err != nil || out != nil || json.Unmarshal(answer, &again) != nil || again["access_token"] != bs[1].Placeholder ||
 		again["refresh_token"] != managed || again["id_token"] != vm0["id_token"] || strings.Contains(string(answer), "rt-real") {
@@ -142,7 +175,7 @@ func TestCodexCapture(t *testing.T) {
 	// A refresh of another refresh token goes out, and its reply is captured: the store keeps only
 	// the newest refresh token, and the rest.
 	refresh, _ = json.Marshal(map[string]string{"grant_type": grantRefresh, "client_id": openaiClientID, "refresh_token": "rt-elsewhere"})
-	if b, answer, err := f.CaptureRequest(jsonType, refresh); err != nil || string(b) != string(refresh) || answer != nil {
+	if b, answer, err := f.CaptureRequest(t.Context(), jsonType, refresh); err != nil || string(b) != string(refresh) || answer != nil {
 		t.Errorf("another refresh: %q, %q, %v", b, answer, err)
 	}
 	capture(t, f, jsonType, refresh, reply(map[string]any{"access_token": "at-2", "refresh_token": "rt-2"}), "at-2", "rt-2")
@@ -194,14 +227,14 @@ func TestCaptureRefuses(t *testing.T) {
 		{"tokens that aren't strings", ClaudeOAuth, jsonType, []byte(`{"grant_type":"authorization_code"}`), reply(map[string]any{"access_token": 1, "refresh_token": 2})},
 	} {
 		f := storeFile(t, tc.kind, "auth.json")
-		if out, err := f.Capture(tc.ctype, tc.req, tc.reply); err == nil {
+		if out, err := f.Capture(t.Context(), tc.ctype, tc.req, tc.reply); err == nil {
 			t.Errorf("%s: captured, the VM given %s", tc.name, out)
 		}
 		if _, err := os.Stat(f.Path); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s: the store's file is there: %v", tc.name, err)
 		}
 	}
-	if _, err := (File{Kind: "other", Path: filepath.Join(t.TempDir(), "x")}).Capture(formType, code, reply(map[string]any{"access_token": "a"})); err == nil {
+	if _, err := (File{Kind: "other", Path: filepath.Join(t.TempDir(), "x")}).Capture(t.Context(), formType, code, reply(map[string]any{"access_token": "a"})); err == nil {
 		t.Error("a login of no agent's captured")
 	}
 }
@@ -239,7 +272,7 @@ func TestOpencodeCapture(t *testing.T) {
 	// The VM's own refresh, with managed or with its copy's refresh token, the access token's
 	// placeholder, is answered with the placeholders.
 	for _, rt := range []string{managed, ph} {
-		if out, answer, err := f.CaptureRequest(formType, form("grant_type", grantRefresh, "refresh_token", rt)); err != nil || out != nil ||
+		if out, answer, err := f.CaptureRequest(t.Context(), formType, form("grant_type", grantRefresh, "refresh_token", rt)); err != nil || out != nil ||
 			!strings.Contains(string(answer), ph) || strings.Contains(string(answer), "rt-real") {
 			t.Errorf("the VM's refresh with %.20s: %q, %s, %v", rt, out, answer, err)
 		}
@@ -462,7 +495,7 @@ func FuzzCapture(f *testing.F) {
 			}
 		}
 		fl := File{Kind: kinds[int(kind)%len(kinds)], Path: filepath.Join(t.TempDir(), "logins", "auth.json"), Salt: salt}
-		out, err := fl.Capture(ctype, req, rep)
+		out, err := fl.Capture(t.Context(), ctype, req, rep)
 		if err != nil {
 			if _, serr := os.Stat(fl.Path); !errors.Is(serr, os.ErrNotExist) {
 				t.Fatalf("refused (%v), and the store was written", err)

@@ -15,6 +15,9 @@ func LockFile(context.Context, string, Waiting) (func(), error) { return nil, no
 // LockFileShared is unsupported here.
 func LockFileShared(context.Context, string, Waiting) (func(), error) { return nil, noLock() }
 
+// LockDir is unsupported here.
+func LockDir(context.Context, string, Waiting) (func(), error) { return nil, noLock() }
+
 // LockHeld is unsupported here.
 func LockHeld(string) (bool, error) { return false, noLock() }
 

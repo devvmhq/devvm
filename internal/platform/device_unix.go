@@ -3,10 +3,20 @@
 package platform
 
 import (
+	"errors"
 	"io/fs"
 	"strconv"
 	"syscall"
 )
+
+// Writable reports whether this process may write the folder dir, as the
+// system judges it (access(2)), its ACLs and a network or FUSE file
+// system's own answer included, which a folder's mode bits alone don't
+// show; true when the system can't tell.
+func Writable(dir string) bool {
+	err := syscall.Access(dir, 0x2) // W_OK
+	return err == nil || !errors.Is(err, syscall.EACCES) && !errors.Is(err, syscall.EPERM) && !errors.Is(err, syscall.EROFS)
+}
 
 // Links is how many names the file fi describes has (its link count): 1
 // when the system can't tell.

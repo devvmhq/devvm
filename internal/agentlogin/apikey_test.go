@@ -1,6 +1,7 @@
 package agentlogin
 
 import (
+	"context"
 	"encoding/json"
 	"slices"
 	"strings"
@@ -24,8 +25,8 @@ func TestSetKey(t *testing.T) {
 	}
 
 	c := storeFile(t, Codex, ".codex/auth.json")
-	must(t, c.lockStoreWrite(map[string]any{"tokens": map[string]any{"access_token": "at"}}))
-	must(t, c.SetKey("", redact.NewSecret("sk-test")))
+	must(t, c.lockStoreWrite(t.Context(), map[string]any{"tokens": map[string]any{"access_token": "at"}}))
+	must(t, c.SetKey(t.Context(), "", redact.NewSecret("sk-test")))
 	m := readStore(t, c)
 	if str(m, "OPENAI_API_KEY") != "sk-test" || str(m, "auth_mode") != "apikey" || m["tokens"] != nil {
 		t.Errorf("Codex's login: %v", m)
@@ -35,8 +36,8 @@ func TestSetKey(t *testing.T) {
 	}
 
 	o := storeFile(t, Opencode, "auth.json")
-	must(t, o.lockStoreWrite(map[string]any{"openai": map[string]any{"type": "oauth", "access": "a", "refresh": "r", "expires": 1}}))
-	must(t, o.SetKey("anthropic", redact.NewSecret("sk-ant")))
+	must(t, o.lockStoreWrite(t.Context(), map[string]any{"openai": map[string]any{"type": "oauth", "access": "a", "refresh": "r", "expires": 1}}))
+	must(t, o.SetKey(t.Context(), "anthropic", redact.NewSecret("sk-ant")))
 	m = readStore(t, o)
 	if e := obj(m, "anthropic"); str(e, "type") != "api" || str(e, "key") != "sk-ant" || str(obj(m, "openai"), "refresh") != "r" {
 		t.Errorf("opencode's login: %v", m)
@@ -48,7 +49,7 @@ func TestSetKey(t *testing.T) {
 	}{
 		{c, "anthropic", "k"}, {o, "", "k"}, {o, "lmstudio", "k"}, {c, "", " "}, {c, "", "a\nb"},
 	} {
-		if err := bad.f.SetKey(bad.provider, redact.NewSecret(bad.key)); err == nil {
+		if err := bad.f.SetKey(t.Context(), bad.provider, redact.NewSecret(bad.key)); err == nil {
 			t.Errorf("SetKey(%s, %q, %q) took it", bad.f.Kind, bad.provider, bad.key)
 		}
 	}
@@ -65,11 +66,11 @@ func TestSetKey(t *testing.T) {
 func TestOpencodeImport(t *testing.T) {
 	o := storeFile(t, Opencode, "auth.json")
 	access := jwtWith(time.Now().Add(time.Hour), map[string]any{"email": "a@example.com"})
-	must(t, o.lockStoreWrite(map[string]any{
+	must(t, o.lockStoreWrite(t.Context(), map[string]any{
 		"lmstudio": map[string]any{"type": "api", "key": "lms-kept"},
 		"openai":   map[string]any{"type": "oauth", "access": access, "refresh": "rt-secret", "expires": 1, "accountId": "acct-1"},
 	}))
-	must(t, o.SetKey("anthropic", redact.NewSecret("sk-ant-secret")))
+	must(t, o.SetKey(t.Context(), "anthropic", redact.NewSecret("sk-ant-secret")))
 	o.Salt = "s4lt"
 	c, err := o.VMCopy()
 	must(t, err)
@@ -146,9 +147,9 @@ func TestProviderKeys(t *testing.T) {
 		}
 		for _, id := range KeyProviders(kind) {
 			f := storeFile(t, kind, "auth.json")
-			must(t, f.lockStoreWrite(map[string]any{}))
+			must(t, f.lockStoreWrite(t.Context(), map[string]any{}))
 			key := id + "-e2efake-key"
-			must(t, f.SetKey(id, redact.NewSecret(key)))
+			must(t, f.SetKey(t.Context(), id, redact.NewSecret(key)))
 			f.Salt = "s1"
 			ph := prefix[id] + "devvm-proxy-managed-" + kind + "-" + id + "-s1"
 			bs := bindings(t, f)
@@ -177,8 +178,8 @@ func TestProviderKeys(t *testing.T) {
 }
 
 // lockStoreWrite writes m as f's login, its folder made.
-func (f File) lockStoreWrite(m map[string]any) error {
-	unlock, err := f.lockStore()
+func (f File) lockStoreWrite(ctx context.Context, m map[string]any) error {
+	unlock, err := f.lockStore(ctx)
 	if err != nil {
 		return err
 	}
@@ -195,26 +196,26 @@ func TestChatGPT(t *testing.T) {
 	if _, ok, err := c.ChatGPT(); ok || err != nil {
 		t.Errorf("no file: %v, %v", ok, err)
 	}
-	must(t, c.lockStoreWrite(map[string]any{"tokens": map[string]any{
+	must(t, c.lockStoreWrite(t.Context(), map[string]any{"tokens": map[string]any{
 		"id_token": jwtWith(exp, map[string]any{"email": "a@b.test"}), "access_token": jwtWith(exp, nil),
 	}}))
 	if e, ok, err := c.ChatGPT(); e != "a@b.test" || !ok || err != nil {
 		t.Errorf("Codex: %q, %v, %v", e, ok, err)
 	}
-	must(t, c.SetKey("", redact.NewSecret("sk-test")))
+	must(t, c.SetKey(t.Context(), "", redact.NewSecret("sk-test")))
 	if _, ok, _ := c.ChatGPT(); ok {
 		t.Error("an API key read as a ChatGPT login")
 	}
 
 	o := storeFile(t, Opencode, "auth.json")
-	must(t, o.lockStoreWrite(map[string]any{"openai": map[string]any{
+	must(t, o.lockStoreWrite(t.Context(), map[string]any{"openai": map[string]any{
 		"type":   "oauth",
 		"access": jwtWith(exp, map[string]any{"https://api.openai.com/profile": map[string]any{"email": "o@b.test"}}),
 	}}))
 	if e, ok, err := o.ChatGPT(); e != "o@b.test" || !ok || err != nil {
 		t.Errorf("opencode: %q, %v, %v", e, ok, err)
 	}
-	must(t, o.lockStoreWrite(map[string]any{"openai": map[string]any{"type": "oauth", "access": "opaque"}}))
+	must(t, o.lockStoreWrite(t.Context(), map[string]any{"openai": map[string]any{"type": "oauth", "access": "opaque"}}))
 	if e, ok, _ := o.ChatGPT(); e != "" || !ok {
 		t.Errorf("opencode without claims: %q, %v", e, ok)
 	}

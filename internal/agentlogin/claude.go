@@ -123,7 +123,7 @@ func (f File) claudeOAuthGet(ctx context.Context, name string) (redact.Secret, e
 	if name != ClaudeOAuthName && name != ClaudeConnectorsName {
 		return redact.Secret{}, fmt.Errorf("no Claude Code login %q", name)
 	}
-	unlock, err := lockLogin(f.Path, f.Waiting)
+	unlock, err := lockLogin(ctx, f.Path, f.Waiting)
 	if errors.Is(err, os.ErrNotExist) {
 		return redact.Secret{}, ErrClaudeNoLogin
 	} else if err != nil {
@@ -271,24 +271,26 @@ func ClaudeToken(ctype string, req, reply []byte, placeholder string) (redact.Se
 }
 
 // LockFolder holds an exclusive lock on dir, a folder of logins, while one login replaces another
-// across files, and returns the unlock. It's another lock than a login file's own (lockLogin's,
-// on its folder), so its holder can take that one too. It shows waiting while it waits (lockLogin).
-func LockFolder(dir string, waiting func() (end func())) (func(), error) {
-	return lockLogin(filepath.Join(dir, "lock"), waiting)
+// across files, and returns the unlock. It's the lock of the folder itself, which a login file
+// directly in dir, such as Claude Code's .claude.json, shares (lockLogin), so its holder may take
+// only the locks of login files in the folders below dir, such as .claude/.credentials.json's.
+// It shows waiting while it waits, until ctx ends (lockLogin).
+func LockFolder(ctx context.Context, dir string, waiting func() (end func())) (func(), error) {
+	return lockLogin(ctx, filepath.Join(dir, "lock"), waiting)
 }
 
 // LockLogin holds the lock of the login file at path, on its folder, which
 // the proxy holds while it refreshes and writes the login back, so a
 // caller that reads the file and writes it again, or puts it back, never
-// loses a refresh made meanwhile. It shows waiting while it waits
-// (lockLogin), and returns the unlock.
-func LockLogin(path string, waiting func() (end func())) (func(), error) {
-	return lockLogin(path, waiting)
+// loses a refresh made meanwhile. It shows waiting while it waits, until
+// ctx ends (lockLogin), and returns the unlock.
+func LockLogin(ctx context.Context, path string, waiting func() (end func())) (func(), error) {
+	return lockLogin(ctx, path, waiting)
 }
 
 // Remove deletes f, the store's login file, under its lock: none there is no error.
-func (f File) Remove() error {
-	unlock, err := lockLogin(f.Path, f.Waiting)
+func (f File) Remove(ctx context.Context) error {
+	unlock, err := lockLogin(ctx, f.Path, f.Waiting)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	} else if err != nil {

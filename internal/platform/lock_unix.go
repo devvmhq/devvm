@@ -84,30 +84,59 @@ func lockFile(ctx context.Context, path string, how int, waiting Waiting) (unloc
 		if err != nil {
 			return nil, err
 		}
-		for {
-			got, err := flock(f, how)
-			if err != nil {
-				_ = f.Close()
-				return nil, err
-			}
-			if got {
-				break
-			}
-			if waiting != nil {
-				end = waiting()
-				waiting = nil
-			}
-			select {
-			case <-ctx.Done():
-				_ = f.Close()
-				return nil, ctx.Err()
-			case <-time.After(lockTick):
-			}
+		if err := waitLock(ctx, f, how, &waiting, &end); err != nil {
+			_ = f.Close()
+			return nil, err
 		}
 		if current(f, path) {
 			return func() { _ = f.Close() }, nil
 		}
 		_ = f.Close()
+	}
+}
+
+// LockDir holds an exclusive lock on the folder dir itself, as LockFile
+// holds one on a file, until unlock is called or the process ends,
+// waiting for another process that holds it until ctx ends, while waiting
+// (Waiting) says so. It never makes the folder: one that isn't there is
+// os.ErrNotExist. Its descriptor isn't inherited (close on exec).
+func LockDir(ctx context.Context, dir string, waiting Waiting) (unlock func(), err error) {
+	var end func()
+	defer func() {
+		if end != nil {
+			end()
+		}
+	}()
+	f, err := os.Open(dir) //nolint:gosec // a folder, locked, never read
+	if err != nil {
+		return nil, err
+	}
+	if err := waitLock(ctx, f, syscall.LOCK_EX, &waiting, &end); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return func() { _ = f.Close() }, nil
+}
+
+// waitLock takes the lock how says on f, trying again lockTick apart
+// until ctx ends. The first time it finds the lock held, it calls
+// *waiting, if any, sets it nil and keeps what it returned in *end, for
+// its caller to call once its wait is over.
+func waitLock(ctx context.Context, f *os.File, how int, waiting *Waiting, end *func()) error {
+	for {
+		got, err := flock(f, how)
+		if err != nil || got {
+			return err
+		}
+		if *waiting != nil {
+			*end = (*waiting)()
+			*waiting = nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(lockTick):
+		}
 	}
 }
 

@@ -3367,7 +3367,7 @@ other = "devvm left out {{.path}}, because it leads through a link and devvm cou
 
 [agent_import_undo_failed]
 description = "stores are the folders of agents' settings in devvm's store that weren't put back, comma-separated; why is what failed the import; undo is what failed putting them back; dirs are the staging folders that hold what wasn't put back"
-other = "Putting {{.stores}} back as they were failed ({{.undo}}) after the import failed ({{.why}}), so they may hold some of the new settings. Copy what you need from {{.dirs}}, which the next import deletes, then run devvm agent import again."
+other = "Putting {{.stores}} back as they were failed ({{.undo}}) after the import failed ({{.why}}), so they may hold some of the new settings. Copy what you need from {{.dirs}}, which the next import or save deletes, then run devvm agent import again."
 
 [agent_import_too_much]
 description = "folder is the agent's folder in the home folder"
@@ -3437,6 +3437,18 @@ other = "reading {{.vm}}'s agent settings"
 [agent_save_comparing]
 description = "a status step: devvm agent save compares what the VM sent with devvm's agent store"
 other = "comparing {{.vm}}'s agent settings with devvm's agent store"
+
+[agent_save_store_folder]
+description = "path is a folder of devvm's agent store where the VM has a file"
+other = "devvm's agent store has a folder at {{.path}}, where {{.vm}} has a file, so devvm saved nothing. Move the store's folder aside, then run devvm agent save again."
+
+[agent_save_store_file]
+description = "path is a file of devvm's agent store where the VM has a folder"
+other = "devvm's agent store has a file at {{.path}}, where {{.vm}} has a folder, so devvm saved nothing. Move the store's file aside, then run devvm agent save again."
+
+[agent_save_undo_failed]
+description = "stores are the folders of agents' settings in devvm's store that weren't put back, comma-separated; vm is the VM whose settings were being saved; why is what failed the save; undo is what failed putting them back; dirs are the staging folders that hold what wasn't put back"
+other = "Putting {{.stores}} back as they were failed ({{.undo}}) after saving {{.vm}}'s settings failed ({{.why}}), so they may hold some of them. Copy what you need from {{.dirs}}, which the next import or save deletes, then run devvm agent save again."
 
 [agent_settings_saved]
 other = "devvm saved {{.agent}}'s settings from {{.vm}} into {{.dir}}."

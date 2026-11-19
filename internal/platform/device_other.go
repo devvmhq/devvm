@@ -8,6 +8,10 @@ import "io/fs"
 // this system, always yes.
 func SameDevice(fs.FileInfo, fs.FileInfo) bool { return true }
 
+// Writable reports whether this process may write the folder: yes, as
+// this system can't tell.
+func Writable(string) bool { return true }
+
 // Links is how many names a file has: 1, as this system can't tell.
 func Links(fs.FileInfo) uint64 { return 1 }
 

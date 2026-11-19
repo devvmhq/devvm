@@ -36,17 +36,16 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/fetch"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/redact"
 	"github.com/devvmhq/devvm/internal/safefile"
@@ -234,24 +233,11 @@ func readJSON(path string) (map[string]any, error) {
 // would lose one result or get the login revoked. It returns the unlock. When another holds the
 // lock, it calls waiting, if any, before it waits, and what that returned once it has the lock,
 // so a run with a terminal shows a status line while it waits, and none when the lock is free.
-func lockLogin(path string, waiting func() (end func())) (func(), error) {
-	d, err := os.Open(filepath.Dir(path)) //nolint:forbidigo // a folder, locked, never read
-	if err != nil {
-		return nil, err
-	}
-	fd := int(d.Fd())
-	err = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
-	if errors.Is(err, syscall.EWOULDBLOCK) {
-		if waiting != nil {
-			defer waiting()()
-		}
-		err = syscall.Flock(fd, syscall.LOCK_EX) // held only while a login is read, refreshed and written
-	}
-	if err != nil {
-		_ = d.Close()
-		return nil, err
-	}
-	return func() { _ = syscall.Flock(fd, syscall.LOCK_UN); _ = d.Close() }, nil
+// The wait ends with ctx, as at Ctrl-C or a deadline, with ctx's error. It's the folder's own
+// lock (platform.LockDir), a flock of the folder as an older devvm took it, so a VM's proxy that
+// an older devvm started takes turns with this one.
+func lockLogin(ctx context.Context, path string, waiting func() (end func())) (func(), error) {
+	return platform.LockDir(ctx, filepath.Dir(path), waiting)
 }
 
 // writeJSON replaces path atomically, keeping it mode 600.
@@ -412,7 +398,7 @@ func codexVM(m map[string]any, salt string) (map[string]any, []string) {
 }
 
 func (f File) codexGet(ctx context.Context, name string) (redact.Secret, error) {
-	unlock, err := lockLogin(f.Path, f.Waiting)
+	unlock, err := lockLogin(ctx, f.Path, f.Waiting)
 	if err != nil {
 		return redact.Secret{}, err
 	}
@@ -540,7 +526,7 @@ func opencodeSplit(m map[string]any, pass []string) VMFile {
 }
 
 func (f File) opencodeGet(ctx context.Context, name string) (redact.Secret, error) {
-	unlock, err := lockLogin(f.Path, f.Waiting)
+	unlock, err := lockLogin(ctx, f.Path, f.Waiting)
 	if err != nil {
 		return redact.Secret{}, err
 	}

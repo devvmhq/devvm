@@ -393,7 +393,7 @@ func TestAgentImportLinkWalked(t *testing.T) {
 		f := &follower{im: im.AgentImport, budget: &linkBudget{walked: walked}, warned: map[string]bool{}}
 		h := &hostAgent{agent: "claude"}
 		l := &linkOut{p: "skills/x", path: filepath.Join(im.Dirs.Home, ".claude/skills/x"), target: dir, dir: true, root: dir}
-		if err := f.copy(h, l); err != nil {
+		if err := f.copy(t.Context(), h, l); err != nil {
 			t.Fatal(err)
 		}
 		h.close()
@@ -413,7 +413,7 @@ func TestAgentImportLinkWalked(t *testing.T) {
 	}
 	f := &follower{im: im.AgentImport, budget: &linkBudget{}, warned: map[string]bool{}}
 	h := &hostAgent{agent: "claude"}
-	if err := f.copy(h, &linkOut{p: "skills/big", path: filepath.Join(im.Dirs.Home, ".claude/skills/big"), target: big, dir: true, root: big}); err != nil {
+	if err := f.copy(t.Context(), h, &linkOut{p: "skills/big", path: filepath.Join(im.Dirs.Home, ".claude/skills/big"), target: big, dir: true, root: big}); err != nil {
 		t.Fatal(err)
 	}
 	h.close()
@@ -675,13 +675,62 @@ func TestOpenPhysical(t *testing.T) {
 	}
 }
 
+// A home folder below a link you can change, which a VM made with
+// --unsafe-folder on a folder that holds it could change: while a VM's
+// state can't be read, the import leaves out every agent folder below it,
+// naming the state; with every state readable, it copies them.
+func TestAgentImportHomeBelowALink(t *testing.T) {
+	for _, broken := range []bool{false, true} {
+		im := newImporter(t)
+		root := filepath.Dir(im.Dirs.Home)
+		write(t, root, map[string]string{"real/home/.claude/settings.json": "{}"})
+		link(t, root, "via", filepath.Join(root, "real"))
+		home := filepath.Join(root, "via", "home")
+		im.Dirs.Home = home
+		state := im.Dirs.VM("devvm-gone-0123456789abc5").State()
+		if broken {
+			write(t, filepath.Dir(state), map[string]string{filepath.Base(state): "not json"})
+		}
+		if err := im.Run(t.Context(), []string{"claude"}, true); err != nil {
+			t.Fatalf("broken %v: %v", broken, msg.NamesOf(err))
+		}
+		if copied := isFile(filepath.Join(agentStore(im.Dirs, "claude"), ".claude/settings.json")); copied == broken {
+			t.Errorf("broken %v: copied %v: %q", broken, copied, im.got)
+		}
+		warned := slices.Contains(im.got, "agent_import_link_unread_state path="+filepath.Join(home, ".claude")+" state="+state)
+		if warned != broken {
+			t.Errorf("broken %v: warned %v: %q", broken, warned, im.got)
+		}
+	}
+}
+
+// Only a link whose folders, up to /, are root's alone is one only root
+// can change: / is, on every host; the test's own folders, and a folder
+// root has that others may write, such as /tmp, aren't.
+func TestRootOnly(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("as root, no link is root's alone")
+	}
+	for hop, want := range map[string]bool{
+		"/devvm-test-link":                       true,
+		filepath.Join(t.TempDir(), "link"):       false,
+		"/tmp/devvm-test-link":                   false,
+		filepath.Join(t.TempDir(), "no", "link"): false,
+	} {
+		if got := rootOnly(hop); got != want {
+			t.Errorf("rootOnly(%s) = %v, want %v", hop, got, want)
+		}
+	}
+}
+
 // While a VM's state can't be read, devvm can't tell whether that VM's
 // project folder holds a link, so the import leaves out whatever it
 // would read through a link, naming the state, even with --follow-links:
 // a link out of an agent's folder, and an agent's folder that is a link,
-// its login with it. A link on the way to the home folder itself doesn't
-// count, as the test's home may be below one (macOS's /var). The control:
-// with every state readable, the same links are followed.
+// its login with it. A link on the way to the home folder that only root
+// can change doesn't count, as the test's home may be below one (macOS's
+// /var). The control: with every state readable, the same links are
+// followed.
 func TestAgentImportLinksUnreadState(t *testing.T) {
 	for _, broken := range []bool{false, true} {
 		im := newImporter(t)

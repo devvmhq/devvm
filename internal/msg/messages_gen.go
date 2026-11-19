@@ -198,7 +198,7 @@ func AgentImportTooMuch(agent string, folder string) M {
 	return M{id: "agent_import_too_much", vals: []val{{"agent", agent}, {"folder", folder}}}
 }
 
-// AgentImportUndoFailed is [agent_import_undo_failed]: "Putting {{.stores}} back as they were failed ({{.undo}}) after the import failed ({{.why}}), so they may hold some of the new settings. Copy what you need from {{.dirs}}, which the next import deletes, then run devvm agent import again."
+// AgentImportUndoFailed is [agent_import_undo_failed]: "Putting {{.stores}} back as they were failed ({{.undo}}) after the import failed ({{.why}}), so they may hold some of the new settings. Copy what you need from {{.dirs}}, which the next import or save deletes, then run devvm agent import again."
 func AgentImportUndoFailed(dirs string, stores string, undo string, why string) M {
 	return M{id: "agent_import_undo_failed", vals: []val{{"dirs", dirs}, {"stores", stores}, {"undo", undo}, {"why", why}}}
 }
@@ -463,9 +463,24 @@ func AgentSaveStoreChanged(vm vmname.VM) M {
 	return M{id: "agent_save_store_changed", vals: []val{{"vm", string(vm)}}}
 }
 
+// AgentSaveStoreFile is [agent_save_store_file]: "devvm's agent store has a file at {{.path}}, where {{.vm}} has a folder, so devvm saved nothing. Move the store's file aside, then run devvm agent save again."
+func AgentSaveStoreFile(path string, vm vmname.VM) M {
+	return M{id: "agent_save_store_file", vals: []val{{"path", path}, {"vm", string(vm)}}}
+}
+
+// AgentSaveStoreFolder is [agent_save_store_folder]: "devvm's agent store has a folder at {{.path}}, where {{.vm}} has a file, so devvm saved nothing. Move the store's folder aside, then run devvm agent save again."
+func AgentSaveStoreFolder(path string, vm vmname.VM) M {
+	return M{id: "agent_save_store_folder", vals: []val{{"path", path}, {"vm", string(vm)}}}
+}
+
 // AgentSaveTooMuch is [agent_save_too_much]: "{{.vm}} sent more than devvm saves at once, so devvm saved nothing. Take out what the agents' settings folders don't need, such as a plugin's build files."
 func AgentSaveTooMuch(vm vmname.VM) M {
 	return M{id: "agent_save_too_much", vals: []val{{"vm", string(vm)}}}
+}
+
+// AgentSaveUndoFailed is [agent_save_undo_failed]: "Putting {{.stores}} back as they were failed ({{.undo}}) after saving {{.vm}}'s settings failed ({{.why}}), so they may hold some of them. Copy what you need from {{.dirs}}, which the next import or save deletes, then run devvm agent save again."
+func AgentSaveUndoFailed(dirs string, stores string, undo string, vm vmname.VM, why string) M {
+	return M{id: "agent_save_undo_failed", vals: []val{{"dirs", dirs}, {"stores", stores}, {"undo", undo}, {"vm", string(vm)}, {"why", why}}}
 }
 
 // AgentSaveUnparsed is [agent_save_unparsed]: "devvm left out {{.path}} in {{.vm}}, because it isn't a settings file devvm can read."
@@ -5771,7 +5786,10 @@ var specs = map[string]spec{
 	"agent_save_refused":              {},
 	"agent_save_runs":                 {},
 	"agent_save_store_changed":        {fields: []string{"vm"}},
+	"agent_save_store_file":           {fields: []string{"path", "vm"}},
+	"agent_save_store_folder":         {fields: []string{"path", "vm"}},
 	"agent_save_too_much":             {fields: []string{"vm"}},
+	"agent_save_undo_failed":          {fields: []string{"dirs", "stores", "undo", "vm", "why"}},
 	"agent_save_unparsed":             {fields: []string{"path", "vm"}},
 	"agent_save_unsafe":               {fields: []string{"path", "vm"}},
 	"agent_save_withheld":             {fields: []string{"path", "vm"}},

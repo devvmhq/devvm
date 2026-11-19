@@ -481,7 +481,7 @@ func TestCapture(t *testing.T) {
 	var excluded []string
 	s.ExcludeFromBackup = func(_ context.Context, dir string) error { excluded = append(excluded, dir); return nil }
 	code := []byte("grant_type=authorization_code&code=c")
-	if b, answer, err := s.CaptureRequest("codex", "salt", "", code); err != nil || string(b) != string(code) || answer != nil {
+	if b, answer, err := s.CaptureRequest(t.Context(), "codex", "salt", "", code); err != nil || string(b) != string(code) || answer != nil {
 		t.Errorf("CaptureRequest = %q, %q, %v", b, answer, err)
 	}
 	tok := "eyJhbGciOiJub25lIn0.eyJleHAiOjF9.sig"
@@ -504,7 +504,7 @@ func TestCapture(t *testing.T) {
 		t.Errorf("kept out of backups: %q", excluded)
 	}
 	for _, f := range []func() error{
-		func() error { _, _, err := s.CaptureRequest("aider", "salt", "", code); return err },
+		func() error { _, _, err := s.CaptureRequest(t.Context(), "aider", "salt", "", code); return err },
 		func() error { _, err := s.Capture(t.Context(), "aider", "salt", "", code, reply); return err },
 	} {
 		if err := f(); msg.NamesOf(err) != "no_secret secret=aider" {

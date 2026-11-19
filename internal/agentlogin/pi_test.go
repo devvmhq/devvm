@@ -132,12 +132,12 @@ func TestPiSetKey(t *testing.T) {
 		t.Errorf("KeyProviders(pi) = %v", got)
 	}
 	p := storeFile(t, Pi, ".pi/agent/auth.json")
-	must(t, p.lockStoreWrite(map[string]any{
+	must(t, p.lockStoreWrite(t.Context(), map[string]any{
 		"openai":   map[string]any{"type": "api_key", "key": "old", "env": map[string]any{"OPENAI_ORG": "org-1"}},
 		"lmstudio": map[string]any{"type": "api_key", "key": "lms"},
 	}))
-	must(t, p.SetKey("openai", redact.NewSecret("sk-new")))
-	must(t, p.SetKey("anthropic", redact.NewSecret("sk-ant")))
+	must(t, p.SetKey(t.Context(), "openai", redact.NewSecret("sk-new")))
+	must(t, p.SetKey(t.Context(), "anthropic", redact.NewSecret("sk-ant")))
 	m := readStore(t, p)
 	switch e := obj(m, "openai"); {
 	case str(e, "type") != "api_key" || str(e, "key") != "sk-new" || str(obj(e, "env"), "OPENAI_ORG") != "org-1":
@@ -145,7 +145,7 @@ func TestPiSetKey(t *testing.T) {
 	case str(obj(m, "anthropic"), "key") != "sk-ant" || str(obj(m, "lmstudio"), "key") != "lms":
 		t.Errorf("pi's login: %v", m)
 	}
-	if err := p.SetKey("lmstudio", redact.NewSecret("k")); err == nil {
+	if err := p.SetKey(t.Context(), "lmstudio", redact.NewSecret("k")); err == nil {
 		t.Error("SetKey(pi, lmstudio) took it")
 	}
 	if bs, _ := p.Bindings(); len(bs) != 2 {

@@ -55,13 +55,13 @@ func (c Claude) Login(ctx context.Context) (string, error) {
 
 // lock holds the lock of the Claude Code logins folder in devvm's store
 // while one Claude Code login replaces the other, and returns the unlock.
-func (c Claude) lock() (func(), error) {
+func (c Claude) lock(ctx context.Context) (func(), error) {
 	// The folder of its .claude.json: devvm's store of Claude Code's logins.
 	dir := filepath.Dir(LoginFile(c.s.Dirs, agents.Claude))
 	if err := state.PrivateDir(dir); err != nil {
 		return nil, err
 	}
-	return agentlogin.LockFolder(dir, loginWaiting(c.s, agents.Claude))
+	return agentlogin.LockFolder(ctx, dir, loginWaiting(c.s, agents.Claude))
 }
 
 // saveToken saves a Claude Code token and takes the OAuth login away,
@@ -70,7 +70,7 @@ func (c Claude) saveToken(ctx context.Context, value redact.Secret) error {
 	if err := c.s.save(ctx, ClaudeToken, value); err != nil {
 		return err
 	}
-	return c.s.login(agents.ClaudeOAuth, "").Remove()
+	return c.s.login(agents.ClaudeOAuth, "").Remove(ctx)
 }
 
 // capture is Store.Capture for Claude Code, ok false for another agent.
@@ -84,7 +84,7 @@ func (c Claude) capture(ctx context.Context, agent, salt, ctype string, req, rep
 	if agent != agents.Claude {
 		return nil, false, nil
 	}
-	unlock, err := c.lock()
+	unlock, err := c.lock(ctx) // AfterReply's, from Store.Capture
 	if err != nil {
 		return nil, true, err
 	}
@@ -101,7 +101,7 @@ func (c Claude) capture(ctx context.Context, agent, salt, ctype string, req, rep
 		}
 		return vm, true, c.saveToken(ctx, tok)
 	}
-	vm, err = c.s.captureFile(agent, salt).Capture(ctype, req, reply)
+	vm, err = c.s.captureFile(agent, salt).Capture(ctx, ctype, req, reply)
 	if err != nil {
 		return nil, true, err
 	}

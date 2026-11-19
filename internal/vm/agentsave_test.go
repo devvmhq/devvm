@@ -407,7 +407,7 @@ func TestAgentSavePlanAndApply(t *testing.T) {
 		}
 	}
 
-	if err := st.apply(t.Context(), p); err != nil {
+	if err := st.applyAll(t.Context(), []agentPlan{p}); err != nil {
 		t.Fatal(err)
 	}
 	for rel, want := range map[string]string{
@@ -477,7 +477,7 @@ func TestAgentSaveLinkedStore(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = st.apply(t.Context(), p)
+		err = st.applyAll(t.Context(), []agentPlan{p})
 		if want := "agent_store_link link=" + link; msg.NamesOf(err) != want {
 			t.Errorf("a link at %s: %v, want %s", at, msg.NamesOf(err), want)
 		}

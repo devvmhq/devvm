@@ -1,6 +1,7 @@
 package platform
 
-// Waiting is what a wait for a lock shows (LockFile, LockFileShared): it's
+// Waiting is what a wait for a lock shows (LockFile, LockFileShared,
+// LockDir): it's
 // called once, when another process holds the lock, never when it's free,
 // and the func it returns once the wait ends, with the lock got or not.
 // Each caller with a terminal passes a status line of its own, a label

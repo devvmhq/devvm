@@ -156,8 +156,8 @@ func devvm() rules {
 			{
 				// Agents' logins hold their tokens: the package that reads,
 				// refreshes and writes them knows nothing of VMs or the UI.
-				name: "internal/agentlogin imports only internal/agents, internal/fetch, internal/jsonc, internal/proxy, internal/redact, internal/safefile and internal/state",
-				from: []string{"internal/agentlogin"}, exceptTo: []string{"internal/agents", "internal/fetch", "internal/jsonc", "internal/proxy", "internal/redact", "internal/safefile", "internal/state"},
+				name: "internal/agentlogin imports only internal/agents, internal/fetch, internal/jsonc, internal/platform, internal/proxy, internal/redact, internal/safefile and internal/state",
+				from: []string{"internal/agentlogin"}, exceptTo: []string{"internal/agents", "internal/fetch", "internal/jsonc", "internal/platform", "internal/proxy", "internal/redact", "internal/safefile", "internal/state"},
 				to: []string{"..."},
 			},
 			{

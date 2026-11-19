@@ -572,9 +572,10 @@ func TestAgentImportLinkedStoreOfAnother(t *testing.T) {
 	}
 }
 
-// pruneStore and makeStoreDir, which an import's every write goes through
-// (clearKind's included), reach the store from devvm's config folder,
-// never through a link, so what a link leads to keeps everything.
+// openStoreDir and makeStoreDir, which an import's and a save's every
+// write goes through (clearKind's and pruneIn's included), reach the store
+// from devvm's config folder, never through a link, so what a link leads
+// to keeps everything.
 func TestStoreOpsRefuseLinks(t *testing.T) {
 	config := t.TempDir()
 	victim := t.TempDir()
@@ -586,8 +587,11 @@ func TestStoreOpsRefuseLinks(t *testing.T) {
 	if err := os.Symlink(victim, store); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := errors.AsType[storeLink](pruneStore(config, store, map[string]bool{})); !ok {
-		t.Error("pruneStore: no storeLink")
+	if r, err := openStoreDir(config, store); err == nil {
+		_ = r.Close()
+		t.Error("openStoreDir: opened through a link")
+	} else if _, ok := errors.AsType[storeLink](err); !ok {
+		t.Errorf("openStoreDir: %v, not a storeLink", err)
 	}
 	for _, dir := range []string{store, filepath.Join(store, ".claude")} {
 		if r, err := makeStoreDir(config, dir); err == nil {

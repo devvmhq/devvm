@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -98,9 +99,14 @@ func (sv saver) plans(agents []string) ([]agentPlan, error) {
 	return plans, nil
 }
 
-// applyAll puts every plan into the store, holding the store's lock
-// (lockStore), once every plan's paths are checked (checkPlan), so a link
-// on the way to any agent's fails the save before it changes any. It runs
+// applyAll puts every plan into the store, all or nothing, holding the
+// store's lock (lockStore), once every plan's paths are checked
+// (checkPlan), so a link on the way to any agent's fails the save before
+// it changes any. Each plan's files are written whole into a staging
+// folder of its agent's store first (stage), then put in place (apply),
+// and the .claude.json subset saved last, under its login's lock, as an
+// import's logins are (applyStages): a failure after the first change
+// puts back every agent's store, and the logins, as they were. It runs
 // under a status line, as it copies and runs git on each marketplace's
 // config.
 func (sv saver) applyAll(ctx context.Context, plans []agentPlan) error {
@@ -115,14 +121,42 @@ func (sv saver) applyAll(ctx context.Context, plans []agentPlan) error {
 	}
 	g := newStoreGuard(sv.Dirs.Config)
 	for _, p := range plans {
-		if err := checkPlan(g, p); err != nil {
+		if err := checkPlan(g, p, sv.s.vm); err != nil {
 			return storeErr(err)
 		}
 	}
-	for _, p := range plans {
-		if err := sv.apply(ctx, p); err != nil {
-			return err
+	var all []*storeStage
+	defer func() {
+		for _, s := range all {
+			s.discard()
 		}
+	}()
+	planOf := map[*storeStage]agentPlan{}
+	var logins []secrets.Login
+	for _, p := range plans {
+		s, err := sv.stage(p)
+		if err != nil {
+			return storeErr(err)
+		}
+		if s != nil {
+			all = append(all, s)
+			planOf[s] = p
+		}
+		if p.claude != nil {
+			logins = append(logins, secrets.Login{Kind: agents.Claude, Data: p.claude})
+		}
+	}
+	err = applyStages(ctx, stageSet{
+		dirs: sv.Dirs, secrets: sv.Proxy.Secrets, all: all, logins: logins,
+		apply: func(s *storeStage) error { return applyPlan(s, planOf[s]) },
+		undoFailed: func(dirs, stores, undo, why string) msg.M {
+			return msg.AgentSaveUndoFailed(dirs, stores, undo, sv.s.vm, why)
+		},
+	})
+	if err != nil {
+		return err
+	}
+	for _, p := range plans {
 		sv.Info(msg.AgentSettingsSaved(p.agent, p.store, sv.s.vm))
 		var written []string
 		for _, d := range p.folders {
@@ -461,9 +495,13 @@ type storeFile struct {
 }
 
 // storeFiles returns what's in a folder of the store but folders, by its
-// path relative to it; none when it isn't there.
+// path relative to it; none when it isn't there, or isn't a folder, which
+// the save then refuses (sameKind).
 func storeFiles(dir string) (map[string]storeFile, error) {
 	have := map[string]storeFile{}
+	if fi, err := os.Lstat(dir); err == nil && !fi.IsDir() {
+		return have, nil
+	}
 	root, err := safefile.OpenRoot(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return have, nil
@@ -525,30 +563,122 @@ func fileMode(exec bool) os.FileMode {
 	return 0o600
 }
 
-// apply puts p into the store: each settings file written whole, each
-// folder's files written whole and what the folder in the store has that
-// the VM's doesn't taken out, but what was left out and anything of a
-// seed's folder, so the folders VMs mount stay the same folders; the
-// .claude.json subset as the store's. A link on the way to anything it
-// writes fails it, naming the link (storeGuard), and nothing is written
-// through one.
-func (sv saver) apply(ctx context.Context, p agentPlan) error {
-	if err := sv.applySettings(p); err != nil {
-		return storeErr(err)
+// stage writes p's settings files, and its folders' files, whole into a
+// new staging folder of its agent's store (newStage), not yet in place,
+// after taking out what killed imports and saves left there
+// (sweepStages); nil for a plan with none, such as one of the .claude.json
+// subset alone.
+func (sv saver) stage(p agentPlan) (_ *storeStage, err error) {
+	config := sv.Dirs.Config
+	if err := sweepStages(config, p.store); err != nil {
+		return nil, err
 	}
-	if p.claude != nil {
-		return sv.Proxy.Secrets.SaveLogin(ctx, agents.Claude, p.claude)
+	if len(p.files) == 0 && len(p.folders) == 0 {
+		return nil, nil
+	}
+	s, err := newStage(sv.Reporter, config, p.store, p.agent)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			s.discard()
+		}
+	}()
+	if err := s.root.Mkdir(s.tmp, 0o700); err != nil {
+		return nil, err
+	}
+	files := slices.Clone(p.files)
+	for _, d := range p.folders {
+		files = append(files, d.files...)
+	}
+	for _, f := range files {
+		if err := state.WriteFileIn(s.root, filepath.Join(s.tmp, filepath.FromSlash(f.rel)), f.data, fileMode(f.exec)); err != nil {
+			return nil, err
+		}
+	}
+	return s, nil
+}
+
+// applyPlan puts p, which s staged, in place in the store, through the
+// one root that newStage opened, keeping each change's undo, as
+// AgentImport.apply does: each settings file renamed into place, the one
+// it replaces kept aside as a hard link; each folder made where it isn't;
+// and what a folder in the store has that the VM's doesn't moved aside,
+// but what was left out and anything of a seed's folder, so the folders
+// VMs mount stay the same folders. What's aside goes once the save is
+// done (discard). A link or another kind of file where a folder or a
+// file goes is moved aside too, never followed, though checkPlan fails
+// the save first on a link on the way.
+func applyPlan(s *storeStage, p agentPlan) error {
+	if err := s.root.Mkdir(path.Join(s.tmp, asideDir), 0o700); err != nil {
+		return err
+	}
+	put := func(rel string) error {
+		if err := s.clearKind(rel, false); err != nil {
+			return err
+		}
+		if err := s.mkdirAll(path.Dir(rel)); err != nil {
+			return err
+		}
+		return s.replace(path.Join(s.tmp, rel), rel)
+	}
+	dir := func(rel string) error {
+		if err := s.clearKind(rel, true); err != nil {
+			return err
+		}
+		return s.mkdirAll(rel)
+	}
+	for _, f := range p.files {
+		if err := put(f.rel); err != nil {
+			return err
+		}
+	}
+	for _, d := range p.folders {
+		if err := dir(d.rel); err != nil {
+			return err
+		}
+		in := func(rel string) string { return strings.TrimPrefix(rel, d.rel+"/") }
+		keep := map[string]bool{}
+		for _, sub := range d.dirs {
+			if err := dir(sub); err != nil {
+				return err
+			}
+			markKept(keep, in(sub))
+		}
+		for _, f := range d.files {
+			if err := put(f.rel); err != nil {
+				return err
+			}
+			markKept(keep, in(f.rel))
+		}
+		for _, k := range d.kept {
+			markKept(keep, in(k))
+		}
+		if d.seed {
+			continue
+		}
+		if err := s.pruneFolder(d.rel, keep); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // checkPlan checks every path in the store that p would write
 // (storeGuard), so a link fails the save before it writes p. The save
-// checks every plan's first, before it applies any.
-func checkPlan(g *storeGuard, p agentPlan) error {
+// checks every plan's first, before it applies any. vm is the VM whose
+// settings p saves.
+func checkPlan(g *storeGuard, p agentPlan, vm vmname.VM) error {
 	in := func(rel string) string { return filepath.Join(p.store, filepath.FromSlash(rel)) }
+	file := func(rel string) error {
+		if err := g.file(in(rel)); err != nil {
+			return err
+		}
+		return sameKind(in(rel), false, vm)
+	}
 	for _, f := range p.files {
-		if err := g.file(in(f.rel)); err != nil {
+		if err := file(f.rel); err != nil {
 			return err
 		}
 	}
@@ -557,9 +687,12 @@ func checkPlan(g *storeGuard, p agentPlan) error {
 			if err := g.folder(in(dir)); err != nil {
 				return err
 			}
+			if err := sameKind(in(dir), true, vm); err != nil {
+				return err
+			}
 		}
 		for _, f := range d.files {
-			if err := g.file(in(f.rel)); err != nil {
+			if err := file(f.rel); err != nil {
 				return err
 			}
 		}
@@ -567,52 +700,20 @@ func checkPlan(g *storeGuard, p agentPlan) error {
 	return nil
 }
 
-// applySettings puts p's settings files and folders into the store, as
-// apply says.
-func (sv saver) applySettings(p agentPlan) error {
-	if err := checkPlan(newStoreGuard(sv.Dirs.Config), p); err != nil || len(p.files) == 0 && len(p.folders) == 0 {
-		return err
+// sameKind fails the save when the store has a folder at path where the
+// save writes a file of vm's (dir false, agent_save_store_folder), or a
+// file where it makes a folder (agent_save_store_file): putting one in the
+// other's place would take out what the store has there, which the diff
+// doesn't show. Nothing there, or a link or another kind of file, which
+// the write replaces without following, passes.
+func sameKind(path string, dir bool, vm vmname.VM) error {
+	// An error is nothing there, or a part above that isn't a folder, which the write fails on.
+	fi, err := os.Lstat(path)
+	if err == nil && dir && fi.Mode().IsRegular() {
+		return msg.AgentSaveStoreFile(path, vm)
 	}
-	root, err := makeStoreDir(sv.Dirs.Config, p.store)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = root.Close() }()
-	write := func(rel string, data []byte, exec bool) error {
-		return state.WriteFileIn(root, filepath.FromSlash(rel), data, fileMode(exec))
-	}
-	mkdir := func(rel string) error { return root.MkdirAll(filepath.FromSlash(rel), 0o700) }
-	for _, f := range p.files {
-		if err := write(f.rel, f.data, f.exec); err != nil {
-			return err
-		}
-	}
-	for _, d := range p.folders {
-		if err := mkdir(d.rel); err != nil {
-			return err
-		}
-		keep := map[string]bool{}
-		for _, dir := range d.dirs {
-			if err := mkdir(dir); err != nil {
-				return err
-			}
-			markKept(keep, strings.TrimPrefix(dir, d.rel+"/"))
-		}
-		for _, f := range d.files {
-			if err := write(f.rel, f.data, f.exec); err != nil {
-				return err
-			}
-			markKept(keep, strings.TrimPrefix(f.rel, d.rel+"/"))
-		}
-		for _, k := range d.kept {
-			markKept(keep, strings.TrimPrefix(k, d.rel+"/"))
-		}
-		if d.seed {
-			continue
-		}
-		if err := pruneStore(sv.Dirs.Config, filepath.Join(p.store, filepath.FromSlash(d.rel)), keep); err != nil {
-			return err
-		}
+	if err == nil && !dir && fi.IsDir() {
+		return msg.AgentSaveStoreFolder(path, vm)
 	}
 	return nil
 }

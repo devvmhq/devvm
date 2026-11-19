@@ -3,6 +3,7 @@ package agentlogin
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -83,7 +84,7 @@ func OpencodeImport(vmCopy []byte) ([]byte, error) {
 // ChatGPT login gone; for one with a key for each provider
 // (agents.ProviderKeys) as provider's entry, of KeyProviders, the other
 // providers kept (a pi entry's env too).
-func (f File) SetKey(provider string, key redact.Secret) error {
+func (f File) SetKey(ctx context.Context, provider string, key redact.Secret) error {
 	if key.TrimSpace().Empty() || strings.ContainsAny(key.Reveal(), "\r\n") { //nolint:forbidigo // the key's check before it's saved
 		return errors.New("the API key is empty or more than one line")
 	}
@@ -97,7 +98,7 @@ func (f File) SetKey(provider string, key redact.Secret) error {
 	default:
 		return errKeyProvider
 	}
-	unlock, err := f.lockStore()
+	unlock, err := f.lockStore(ctx)
 	if err != nil {
 		return err
 	}

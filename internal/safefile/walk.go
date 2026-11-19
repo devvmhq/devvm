@@ -1,6 +1,7 @@
 package safefile
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/fs"
@@ -36,15 +37,20 @@ const (
 // a VM filled with millions of entries costs a walk no more than b.Max entries and a batch,
 // where fs.WalkDir reads a folder whole before it looks at any bound. It stops with ErrTooMany
 // too at a folder more than walkMaxDepth below root, or a path longer than walkMaxPath. fsys
-// opens a folder as an fs.ReadDirFile, as os.DirFS, an os.Root's FS and a Root's FS do.
-func Walk(fsys fs.FS, root string, b *Bound, fn fs.WalkDirFunc) error {
+// opens a folder as an fs.ReadDirFile, as os.DirFS, an os.Root's FS and a Root's FS do. It
+// stops with ctx's error once ctx ends, as at Ctrl-C or a deadline, before it reads a folder or
+// its next batch.
+func Walk(ctx context.Context, fsys fs.FS, root string, b *Bound, fn fs.WalkDirFunc) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	info, err := fs.Stat(fsys, root)
 	if err != nil {
 		err = fn(root, nil, err)
 	} else if b.Seen++; b.Seen > b.Max {
 		return ErrTooMany
 	} else {
-		err = walk(fsys, root, fs.FileInfoToDirEntry(info), 0, b, fn)
+		err = walk(ctx, fsys, root, fs.FileInfoToDirEntry(info), 0, b, fn)
 	}
 	if errors.Is(err, fs.SkipDir) || errors.Is(err, fs.SkipAll) {
 		return nil
@@ -54,7 +60,7 @@ func Walk(fsys fs.FS, root string, b *Bound, fn fs.WalkDirFunc) error {
 
 // walk is Walk below its root: fn on the entry d at name, depth below the root, then on what's
 // in it when it's a folder.
-func walk(fsys fs.FS, name string, d fs.DirEntry, depth int, b *Bound, fn fs.WalkDirFunc) error {
+func walk(ctx context.Context, fsys fs.FS, name string, d fs.DirEntry, depth int, b *Bound, fn fs.WalkDirFunc) error {
 	if depth > walkMaxDepth || len(name) > walkMaxPath {
 		return ErrTooMany
 	}
@@ -64,9 +70,11 @@ func walk(fsys fs.FS, name string, d fs.DirEntry, depth int, b *Bound, fn fs.Wal
 		}
 		return err
 	}
-	es, err := readDir(fsys, name, b)
+	es, err := readDir(ctx, fsys, name, b)
 	if errors.Is(err, ErrTooMany) {
 		return err
+	} else if done := ctx.Err(); done != nil {
+		return done
 	} else if err != nil {
 		// As fs.WalkDir does: fn on the folder again, with the error.
 		if err = fn(name, d, err); err != nil {
@@ -77,7 +85,7 @@ func walk(fsys fs.FS, name string, d fs.DirEntry, depth int, b *Bound, fn fs.Wal
 		}
 	}
 	for _, e := range es {
-		if err := walk(fsys, path.Join(name, e.Name()), e, depth+1, b, fn); err != nil {
+		if err := walk(ctx, fsys, path.Join(name, e.Name()), e, depth+1, b, fn); err != nil {
 			if errors.Is(err, fs.SkipDir) {
 				break // the rest of this folder skipped
 			}
@@ -88,8 +96,12 @@ func walk(fsys fs.FS, name string, d fs.DirEntry, depth int, b *Bound, fn fs.Wal
 }
 
 // readDir reads the folder name in fsys a batch at a time, counting each entry in b, and returns
-// its entries sorted by name, or ErrTooMany once b.Seen passes b.Max.
-func readDir(fsys fs.FS, name string, b *Bound) ([]fs.DirEntry, error) {
+// its entries sorted by name, or ErrTooMany once b.Seen passes b.Max, or ctx's error once ctx
+// ends.
+func readDir(ctx context.Context, fsys fs.FS, name string, b *Bound) ([]fs.DirEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f, err := fsys.Open(name)
 	if err != nil {
 		return nil, err
@@ -101,6 +113,9 @@ func readDir(fsys fs.FS, name string, b *Bound) ([]fs.DirEntry, error) {
 	}
 	var es []fs.DirEntry
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		batch, err := d.ReadDir(walkBatch)
 		if b.Seen += len(batch); b.Seen > b.Max {
 			return nil, ErrTooMany

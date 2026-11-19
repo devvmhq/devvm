@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/fetch"
@@ -525,36 +526,58 @@ func TestClaudeCopy(t *testing.T) {
 
 // One lookup at a time per login folder: a second waits until the first has written back,
 // showing its waiting once it finds the lock held, which ends once it has it; a free lock shows
-// none.
+// none. A wait ends with its context too, a deadline's or a cancel's, as at Ctrl-C.
 func TestLockLogin(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "auth.json")
-	waits, ends := 0, 0
-	waiting := func() func() {
-		waits++
-		return func() { ends++ }
-	}
-	unlock, err := lockLogin(p, waiting)
-	if err != nil || waits != 0 {
-		t.Fatalf("a free lock: %v, waits %d", err, waits)
-	}
-	got := make(chan bool)
-	go func() {
-		u, err := lockLogin(p, waiting)
-		if err == nil {
-			u()
+	synctest.Test(t, func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "auth.json")
+		waits, ends := 0, 0
+		waiting := func() func() {
+			waits++
+			return func() { ends++ }
 		}
-		got <- true
-	}()
-	select {
-	case <-got:
-		t.Fatal("a second lock didn't wait")
-	case <-time.After(200 * time.Millisecond):
-	}
-	unlock()
-	<-got
-	if waits != 1 || ends != 1 {
-		t.Errorf("held: waits %d, ends %d", waits, ends)
-	}
+		unlock, err := lockLogin(t.Context(), p, waiting)
+		if err != nil || waits != 0 {
+			t.Fatalf("a free lock: %v, waits %d", err, waits)
+		}
+		got := make(chan error, 1)
+		go func() {
+			u, err := lockLogin(t.Context(), p, waiting)
+			if err == nil {
+				u()
+			}
+			got <- err
+		}()
+		synctest.Wait()
+		select {
+		case err := <-got:
+			t.Fatalf("a second lock didn't wait: %v", err)
+		default:
+		}
+		unlock()
+		if err := <-got; err != nil || waits != 1 || ends != 1 {
+			t.Errorf("held: %v, waits %d, ends %d", err, waits, ends)
+		}
+		unlock, err = LockLogin(t.Context(), p, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer unlock()
+		ctx, cancel := context.WithTimeout(t.Context(), time.Hour)
+		defer cancel()
+		if _, err := LockLogin(ctx, p, nil); !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("held past a deadline: %v", err)
+		}
+		ctx, cancel = context.WithCancel(t.Context())
+		go func() {
+			_, err := LockFolder(ctx, filepath.Dir(p), nil) // the same folder's lock
+			got <- err
+		}()
+		synctest.Wait()
+		cancel()
+		if err := <-got; !errors.Is(err, context.Canceled) {
+			t.Errorf("held, cancelled: %v", err)
+		}
+	})
 }
 
 // An MCP server's host goes into the allowlist: only a DNS name, on 443.

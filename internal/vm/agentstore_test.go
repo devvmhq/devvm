@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/devvmhq/devvm/internal/agentlogin"
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
@@ -307,12 +308,219 @@ func TestAgentImportUndoFails(t *testing.T) {
 	}
 }
 
+// newFailingSave is a save of Claude Code's and Codex's settings, in that
+// order, into a store that has older ones: Claude Code's a changed file,
+// a folder whose old.md the save takes out, and its .claude.json, a login;
+// Codex's a changed file.
+func newFailingSave(t *testing.T) (st *saveTest, plans []agentPlan) {
+	t.Helper()
+	st = newSaveTest(t, saveTar(t, true,
+		te{name: ".claude/CLAUDE.md", data: "new"},
+		te{name: ".claude/skills/"},
+		te{name: ".claude/skills/a.md", data: "a"},
+		te{name: saveOwn + "/claude.json", data: `{"theme": "light"}`},
+		te{name: ".codex/AGENTS.md", data: "new"},
+	), "claude", "codex")
+	write(t, st.store("claude"), map[string]string{".claude/CLAUDE.md": "old", ".claude/skills/old.md": "old"})
+	write(t, st.store("codex"), map[string]string{".codex/AGENTS.md": "old"})
+	if err := st.Proxy.Secrets.SaveLogin(t.Context(), agents.Claude, []byte(`{"theme": "dark"}`)); err != nil {
+		t.Fatal(err)
+	}
+	plans, err := st.plans([]string{"claude", "codex"})
+	if err != nil || len(plans) != 2 || plans[0].claude == nil {
+		t.Fatalf("plans: %v, %+v", err, plans)
+	}
+	return st, plans
+}
+
+// saveOldLogin is the login a failed save leaves (newFailingSave): as it
+// was before it.
+const saveOldLogin = `{"theme": "dark"}`
+
+// saveOldStores are the stores a failed save leaves (newFailingSave), as
+// storeTree lists them: as they were before it.
+func saveOldStores() []string {
+	return []string{"claude/.claude", "claude/.claude/CLAUDE.md=old", "claude/.claude/skills", "claude/.claude/skills/old.md=old", "codex/.codex", "codex/.codex/AGENTS.md=old"}
+}
+
+// A save whose store can't take what it staged, at a file's rename (Codex's,
+// after Claude Code's settings went in place) or at the .claude.json
+// login, saved last, leaves every agent's store and the login as they
+// were, and no staging folder. The control: the same save with nothing
+// failing puts them all in place.
+func TestAgentSaveApplyFailsWhole(t *testing.T) {
+	for _, fail := range []string{"", "rename", "login"} {
+		st, plans := newFailingSave(t)
+		claude, codex := st.store("claude"), st.store("codex")
+		locked := filepath.Join(codex, ".codex")
+		switch fail {
+		case "rename":
+			if os.Geteuid() == 0 {
+				continue // root writes what it can't
+			}
+			if err := os.Chmod(locked, 0o500); err != nil { //nolint:gosec // G302: a folder, read-only to its owner
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) //nolint:gosec // G302: a folder, writable again for its cleanup
+		case "login":
+			st.Proxy.Secrets.ExcludeFromBackup = func(context.Context, string) error { return errors.New("no more") }
+		}
+		err := st.applyAll(t.Context(), plans)
+		_ = os.Chmod(locked, 0o700) //nolint:gosec // G302: a folder, writable again
+		login := readFile(t, secrets.LoginFile(st.Dirs, agents.Claude))
+		want := []string{"claude/.claude", "claude/.claude/CLAUDE.md=new", "claude/.claude/skills", "claude/.claude/skills/a.md=a", "codex/.codex", "codex/.codex/AGENTS.md=new"}
+		if fail == "" {
+			if err != nil || login == saveOldLogin {
+				t.Errorf("nothing fails: %v, login %s", msg.NamesOf(err), login)
+			}
+		} else {
+			want = saveOldStores()
+			if err == nil || login != saveOldLogin {
+				t.Errorf("%s fails: %v, login %s", fail, err, login)
+			}
+		}
+		if got := storeTree(t, claude, codex); !slices.Equal(got, want) {
+			t.Errorf("%q fails: the store has %q, want %q", fail, got, want)
+		}
+	}
+}
+
+// A save never puts a file where the store has a folder, or a folder where
+// it has a file, which would take out what the store has there without the
+// diff showing it: it saves nothing and names the store's path, the
+// store as it was. The control: the same save into a store without them.
+func TestAgentSaveKindChanged(t *testing.T) {
+	for _, c := range []struct {
+		have      map[string]string
+		id, under string // the message, and the store's path it names, relative to the store
+	}{
+		{have: nil},
+		{have: map[string]string{".claude/CLAUDE.md/mine": "store's"}, id: "agent_save_store_folder", under: ".claude/CLAUDE.md"},
+		{have: map[string]string{".claude/skills": "store's"}, id: "agent_save_store_file", under: ".claude/skills"},
+	} {
+		have := c.have
+		st := newSaveTest(t, saveTar(t, true,
+			te{name: ".claude/CLAUDE.md", data: "new"},
+			te{name: ".claude/skills/"},
+			te{name: ".claude/skills/a.md", data: "a"},
+		), "claude")
+		store := st.store("claude")
+		write(t, store, have)
+		before := storeTree(t, store)
+		plans, err := st.plans([]string{"claude"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = st.applyAll(t.Context(), plans)
+		if have == nil {
+			if err != nil {
+				t.Errorf("no swap: %v", msg.NamesOf(err))
+			}
+			continue
+		}
+		if want := c.id + " path=" + filepath.Join(store, filepath.FromSlash(c.under)) + " vm=vm"; msg.NamesOf(err) != want {
+			t.Errorf("%v: %v, want %s", have, msg.NamesOf(err), want)
+		}
+		if got := storeTree(t, store); !slices.Equal(got, before) {
+			t.Errorf("%v: the store changed: %q, was %q", have, got, before)
+		}
+	}
+}
+
+// A save whose undo fails too, as Codex's store can't be written once the
+// login fails, still puts back Claude Code's store and says so
+// (agent_save_undo_failed), naming the store it couldn't put back and its
+// staging folder, which it keeps; the next save takes it out.
+func TestAgentSaveUndoFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes what it can't")
+	}
+	st, plans := newFailingSave(t)
+	claude, codex := st.store("claude"), st.store("codex")
+	locked := filepath.Join(codex, ".codex")
+	st.Proxy.Secrets.ExcludeFromBackup = func(context.Context, string) error {
+		if err := os.Chmod(locked, 0o500); err != nil { //nolint:gosec // G302: a folder, read-only to its owner, so the undo can't put config.toml back
+			t.Fatal(err)
+		}
+		return errors.New("no more")
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) //nolint:gosec // G302: a folder, writable again for its cleanup
+	err := st.applyAll(t.Context(), plans)
+	_ = os.Chmod(locked, 0o700) //nolint:gosec // G302: a folder, writable again
+	if msg.IDOf(err) != "agent_save_undo_failed" || !strings.Contains(msg.NamesOf(err), " stores="+codex+" ") || !strings.Contains(msg.NamesOf(err), " vm=vm ") {
+		t.Fatalf("undo failed: %v", msg.NamesOf(err))
+	}
+	if got, want := storeTree(t, claude), saveOldStores()[:4]; !slices.Equal(got, want) {
+		t.Errorf("Claude Code's store %q, want it put back, %q", got, want)
+	}
+	kept, _ := filepath.Glob(filepath.Join(codex, stagePrefix+"*"))
+	if len(kept) != 1 || !strings.Contains(msg.NamesOf(err), "dirs="+kept[0]+" ") {
+		t.Errorf("the staging folder kept: %q, %v", kept, msg.NamesOf(err))
+	}
+	st.Proxy.Secrets.ExcludeFromBackup = func(context.Context, string) error { return nil }
+	s, err := st.stage(plans[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(codex, stagePrefix+"*")); len(left) != 1 || left[0] == kept[0] {
+		t.Errorf("the next save's stage left %q, want only its own", left)
+	}
+	s.discard()
+}
+
+// A save writes the .claude.json login under its lock, the one a VM's
+// proxy holds while it refreshes a login: held, the save waits under a
+// status line (agent_login_waiting), the login as it was meanwhile, then
+// saves. A Ctrl-C while it waits ends the wait, and the save leaves the
+// stores as they were.
+func TestAgentSaveLoginLock(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		st, plans := newFailingSave(t)
+		file := secrets.LoginFile(st.Dirs, agents.Claude)
+		unlock, err := agentlogin.LockLogin(t.Context(), file, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(unlock)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		waits, before := 0, ""
+		fake, _ := st.Reporter.(*msg.Fake)
+		fake.OnStatus = func(m msg.M) {
+			if m.ID() != "agent_login_waiting" {
+				return
+			}
+			if waits++; waits == 1 {
+				before = readFile(t, file)
+				if cancelled {
+					cancel()
+				} else {
+					unlock()
+				}
+			}
+		}
+		err = st.applyAll(ctx, plans)
+		after := readFile(t, file)
+		if waits != 1 || before != saveOldLogin {
+			t.Errorf("cancelled %v: waited %d times, the login then %s", cancelled, waits, before)
+		}
+		if cancelled {
+			got := storeTree(t, st.store("claude"), st.store("codex"))
+			if !errors.Is(err, context.Canceled) || after != saveOldLogin || !slices.Equal(got, saveOldStores()) {
+				t.Errorf("cancelled: %v, login %s, stores %q", err, after, got)
+			}
+		} else if err != nil || after == saveOldLogin {
+			t.Errorf("let go: %v, login %s", msg.NamesOf(err), after)
+		}
+	}
+}
+
 // An interrupted run's cleanup never takes the staging folder out while
 // the apply runs: the apply holds the stage's lock throughout, its logins'
 // save included. A cleanup that ran first, before the apply, leaves it
 // nothing to put in place, and the store as it was.
 func TestAgentImportInterruptedApply(t *testing.T) {
-	setup := func(t *testing.T) (*importer, *importStage, *hostAgent, *[]func(context.Context)) {
+	setup := func(t *testing.T) (*importer, *storeStage, *hostAgent, *[]func(context.Context)) {
 		im := newImporter(t)
 		write(t, agentStore(im.Dirs, "codex"), map[string]string{".codex/config.toml": "old"})
 		write(t, im.Dirs.Home, map[string]string{".codex/config.toml": "new", ".codex/auth.json": `{"OPENAI_API_KEY": "k"}`})
@@ -345,7 +553,7 @@ func TestAgentImportInterruptedApply(t *testing.T) {
 			}
 			return nil
 		}
-		if err := im.applyAll(t.Context(), []*importStage{s}, []*hostAgent{h}); err != nil || !held {
+		if err := im.applyAll(t.Context(), []*storeStage{s}, []*hostAgent{h}); err != nil || !held {
 			t.Errorf("applied: %v, the stage's lock held through the logins %v", msg.NamesOf(err), held)
 		}
 		(*cleanups)[0](t.Context())
@@ -356,7 +564,7 @@ func TestAgentImportInterruptedApply(t *testing.T) {
 	t.Run("first", func(t *testing.T) {
 		im, s, h, cleanups := setup(t)
 		(*cleanups)[0](t.Context())
-		if err := im.applyAll(t.Context(), []*importStage{s}, []*hostAgent{h}); !errors.Is(err, context.Canceled) {
+		if err := im.applyAll(t.Context(), []*storeStage{s}, []*hostAgent{h}); !errors.Is(err, context.Canceled) {
 			t.Errorf("applied after the cleanup: %v", err)
 		}
 		if got := readFile(t, filepath.Join(agentStore(im.Dirs, "codex"), ".codex/config.toml")); got != "old" || im.Secrets.HasLogin("codex") {

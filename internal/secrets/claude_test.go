@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
@@ -36,6 +38,38 @@ func bindingNames(t *testing.T, s *Store, st *state.VM) []string {
 		names = append(names, b.Name)
 	}
 	return names
+}
+
+// A Claude Code login whose reply the endpoint has given is saved even when the lock of Claude
+// Code's logins is held past the exchange's deadline, as by a devvm agent save: the reply may
+// have rotated the refresh token, so giving up at the deadline would lose the login.
+func TestClaudeCaptureOutlivesItsDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, _ := testStore(t, true, nil)
+		dir := filepath.Dir(LoginFile(s.Dirs, agents.Claude))
+		if err := state.PrivateDir(dir); err != nil {
+			t.Fatal(err)
+		}
+		unlock, err := agentlogin.LockFolder(t.Context(), dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		login := []byte(`{"grant_type":"authorization_code","code":"c","client_id":"x"}`)
+		got := make(chan error, 1)
+		go func() {
+			_, err := s.Capture(ctx, "claude", "salt", "application/json", login,
+				[]byte(`{"access_token":"sk-ant-oat01-oauth","refresh_token":"sk-ant-ort01-r","scope":"user:inference"}`))
+			got <- err
+		}()
+		time.Sleep(time.Minute) // past the exchange's deadline, the lock still held
+		synctest.Wait()
+		unlock()
+		if err := <-got; err != nil || !s.HasLogin(agents.ClaudeOAuth) {
+			t.Errorf("held past the deadline: %v, saved %v", err, s.HasLogin(agents.ClaudeOAuth))
+		}
+	})
 }
 
 // devvm keeps one Claude Code login, the newest: setup-token's token, captured, is the claude

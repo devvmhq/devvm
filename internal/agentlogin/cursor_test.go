@@ -24,26 +24,26 @@ import (
 func TestCursorCapture(t *testing.T) {
 	f := File{Kind: agents.Cursor, Path: filepath.Join(t.TempDir(), "auth.json"), Salt: salt}
 	poll := "uuid=u-1&verifier=v-1"
-	out, answer, err := f.CaptureRequest(formType, []byte(poll))
+	out, answer, err := f.CaptureRequest(t.Context(), formType, []byte(poll))
 	if err != nil || string(out) != poll || answer != nil {
 		t.Fatalf("CaptureRequest(poll) = %q, %q, %v", out, answer, err)
 	}
 	for _, req := range []string{"uuid=u-1", "verifier=v-1", "grant_type=authorization_code&code=c", "grant_type=refresh_token&refresh_token=" + managed} {
-		if _, _, err := f.CaptureRequest(formType, []byte(req)); !errors.Is(err, errGrant) {
+		if _, _, err := f.CaptureRequest(t.Context(), formType, []byte(req)); !errors.Is(err, errGrant) {
 			t.Errorf("CaptureRequest(%s) = %v", req, err)
 		}
 	}
-	if _, err := f.Capture(formType, []byte(poll), []byte(`{"accessToken":"at-only"}`)); err == nil {
+	if _, err := f.Capture(t.Context(), formType, []byte(poll), []byte(`{"accessToken":"at-only"}`)); err == nil {
 		t.Error("a reply without a refresh token was saved")
 	}
-	if _, err := f.Capture(formType, []byte(poll), []byte(`{"xaiAccessToken":"x","xaiRefreshToken":"y"}`)); err == nil {
+	if _, err := f.Capture(t.Context(), formType, []byte(poll), []byte(`{"xaiAccessToken":"x","xaiRefreshToken":"y"}`)); err == nil {
 		t.Error("an xAI sign-in's reply was saved")
 	}
 	if _, err := os.Stat(f.Path); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("a refused reply wrote the store's login: %v", err)
 	}
 	at := jwtWith(time.Now().Add(time.Hour), map[string]any{"sub": "auth0|1"})
-	vm, err := f.Capture(formType, []byte(poll), []byte(`{"accessToken":"`+at+`","refreshToken":"rt-real","selectedTeamId":7}`))
+	vm, err := f.Capture(t.Context(), formType, []byte(poll), []byte(`{"accessToken":"`+at+`","refreshToken":"rt-real","selectedTeamId":7}`))
 	must(t, err)
 	var got map[string]any
 	must(t, json.Unmarshal(vm, &got))

@@ -62,13 +62,13 @@ func tokenRequest(x proxy.Exchange) (ctype string, body []byte) {
 
 // Request is the token request's body as it goes on, or the reply the VM
 // gets instead. A GET's query goes on as the proxy read it, with no body.
-func (c Capturer) Request(_ context.Context, x proxy.Exchange) (out, answer []byte, err error) {
+func (c Capturer) Request(ctx context.Context, x proxy.Exchange) (out, answer []byte, err error) {
 	_, salt, agent, err := c.vm(x)
 	if err != nil {
 		return nil, nil, err
 	}
 	ctype, body := tokenRequest(x)
-	out, answer, err = c.Secrets.CaptureRequest(agent, salt, ctype, body)
+	out, answer, err = c.Secrets.CaptureRequest(ctx, agent, salt, ctype, body)
 	if x.Method == http.MethodGet {
 		out = nil
 	}

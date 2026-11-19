@@ -57,7 +57,7 @@ func slowCall(f srcFile, n ast.Node) string {
 			return c.what
 		}
 	}
-	if pkg := importName(f, "github.com/devvmhq/devvm/internal/platform"); pkg != "" && (name == pkg+".LockFile" || name == pkg+".LockFileShared") {
+	if pkg := importName(f, "github.com/devvmhq/devvm/internal/platform"); pkg != "" && (name == pkg+".LockFile" || name == pkg+".LockFileShared" || name == pkg+".LockDir") {
 		if len(call.Args) == 3 {
 			if id, ok := call.Args[2].(*ast.Ident); ok && id.Name == "nil" {
 				return "waits for a lock showing nothing"
@@ -161,6 +161,13 @@ func statusCases() []ruleCase {
 			name: "a lock's wait that shows nothing",
 			files: map[string]string{"a/a.go": "package a\n\nimport (\n\t\"context\"\n\n\tp \"github.com/devvmhq/devvm/internal/platform\"\n)\n\n" +
 				"func lock(ctx context.Context) (func(), error) { return p.LockFile(ctx, \"x\", nil) }\n"},
+			r:    on,
+			want: &want{ruleStatus, "list a/a.go: lock in statusSites"},
+		},
+		{
+			name: "a folder's lock's wait that shows nothing",
+			files: map[string]string{"a/a.go": "package a\n\nimport (\n\t\"context\"\n\n\t\"github.com/devvmhq/devvm/internal/platform\"\n)\n\n" +
+				"func lock(ctx context.Context) (func(), error) { return platform.LockDir(ctx, \"x\", nil) }\n"},
 			r:    on,
 			want: &want{ruleStatus, "list a/a.go: lock in statusSites"},
 		},

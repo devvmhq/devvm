@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -97,6 +99,74 @@ func TestLockFileWaiting(t *testing.T) {
 	} else {
 		shared()
 	}
+}
+
+// A folder's lock is held by one at a time, as a file's is: another waits
+// for it, showing its wait once, until its context ends, a deadline or a
+// cancel, and gets it once it's let go. It's the lock a plain flock of the
+// folder takes, as an older devvm's proxy takes it. A folder that isn't
+// there isn't made.
+func TestLockDir(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		dir := t.TempDir()
+		unlock, err := LockDir(t.Context(), dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		waits, ends := 0, 0
+		waiting := func() func() {
+			waits++
+			return func() { ends++ }
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		if _, err := LockDir(ctx, dir, waiting); !errors.Is(err, context.DeadlineExceeded) || waits != 1 || ends != 1 {
+			t.Errorf("held, to a deadline: %v, waits %d, ends %d", err, waits, ends)
+		}
+		cancel()
+		ctx, cancel = context.WithCancel(t.Context())
+		got := make(chan error, 1)
+		go func() {
+			_, err := LockDir(ctx, dir, nil)
+			got <- err
+		}()
+		synctest.Wait()
+		cancel()
+		if err := <-got; !errors.Is(err, context.Canceled) {
+			t.Errorf("held, cancelled: %v", err)
+		}
+		go func() {
+			u, err := LockDir(t.Context(), dir, nil)
+			if err == nil {
+				u()
+			}
+			got <- err
+		}()
+		synctest.Wait()
+		unlock()
+		if err := <-got; err != nil {
+			t.Errorf("once let go: %v", err)
+		}
+		d, err := os.Open(dir) //nolint:gosec // G304: the test's own temp folder
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = d.Close() }()
+		if err := syscall.Flock(int(d.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel = context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		if _, err := LockDir(ctx, dir, nil); !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("held by a plain flock: %v", err)
+		}
+		missing := filepath.Join(dir, "no")
+		if _, err := LockDir(t.Context(), missing, nil); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a missing folder: %v", err)
+		}
+		if _, err := os.Stat(missing); err == nil {
+			t.Error("LockDir made the folder")
+		}
+	})
 }
 
 // A holder may remove the lock file before it lets go: one waiting for

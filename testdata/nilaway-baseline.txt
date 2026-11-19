@@ -41,7 +41,6 @@ bounds internal/tools/tools.go: - tools/tools.go: result 1 of `ParseToolFile()` 
 checked internal/trust/ca.go: - trust/ca.go: result 0 of `GenerateKey()` lacking guarding; accessed field `PublicKey` via the assignment(s): - `ecdsa.GenerateKey(...)` to `key` at trust/ca.go
 bounds internal/ui/pick.go: - ui/pick.go: unassigned variable `out` returned from `lines()` in position 0 - ui/pick.go: result 0 of `lines()` sliced into via the assignment(s): - `p.lines()` to `all` at ui/pick.go
 bounds internal/ui/table.go: - ui/table.go: unassigned variable `widths` sliced into
-bounds internal/vm/agentimport.go: - vm/agentimport.go: unassigned variable `all` passed as arg `all` to `applyAll()` - vm/agentimport.go: function parameter `all` sliced into
 mapkey internal/vm/agentlinks.go: - vm/agentlinks.go: deep read from local variable `owner` lacking guarding; passed as arg `h` to `copy()` - vm/agentlinks.go: function parameter `h` accessed field `roots`
 bounds internal/vm/agentlinks.go: - vm/agentlinks.go: unassigned variable `roots` returned from `linkRoots()` in position 0 - vm/agentlinks.go: result 0 of `linkRoots()` sliced into via the assignment(s): - `im.linkRoots()` to `roots` at vm/agentlinks.go
 mapkey internal/vm/agentsave.go: - vm/agentsave.go: deep read from field `entries` lacking guarding; accessed field `data` via the assignment(s): - `sv.s.entries[n]` to `e` at vm/agentsave.go

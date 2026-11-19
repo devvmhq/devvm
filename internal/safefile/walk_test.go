@@ -3,6 +3,7 @@
 package safefile
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -91,7 +92,7 @@ func TestWalkAsWalkDir(t *testing.T) {
 			return tc.stop(p, d)
 		})
 		b := &Bound{Max: 100}
-		gotErr := Walk(fsys, tc.root, b, func(p string, d fs.DirEntry, _ error) error {
+		gotErr := Walk(t.Context(), fsys, tc.root, b, func(p string, d fs.DirEntry, _ error) error {
 			got = append(got, p)
 			return tc.stop(p, d)
 		})
@@ -100,12 +101,12 @@ func TestWalkAsWalkDir(t *testing.T) {
 		}
 	}
 	b := &Bound{Max: 100}
-	if err := Walk(fsys, ".", b, func(string, fs.DirEntry, error) error { return nil }); err != nil || b.Seen != 11 {
+	if err := Walk(t.Context(), fsys, ".", b, func(string, fs.DirEntry, error) error { return nil }); err != nil || b.Seen != 11 {
 		t.Errorf("counted %d entries (%v), want the root and 10", b.Seen, err)
 	}
 	// A root that isn't there is fn's to judge, as fs.WalkDir's is.
 	var gotErr error
-	err := Walk(fsys, "nowhere", &Bound{Max: 1}, func(_ string, _ fs.DirEntry, err error) error { gotErr = err; return err })
+	err := Walk(t.Context(), fsys, "nowhere", &Bound{Max: 1}, func(_ string, _ fs.DirEntry, err error) error { gotErr = err; return err })
 	if !errors.Is(err, fs.ErrNotExist) || !errors.Is(gotErr, fs.ErrNotExist) {
 		t.Errorf("no root: %v, fn got %v", err, gotErr)
 	}
@@ -135,7 +136,7 @@ func TestWalkBound(t *testing.T) {
 	}
 	read = 0
 	b := &Bound{Max: 100}
-	err := Walk(countFS{fsys, &read}, "many", b, func(p string, _ fs.DirEntry, _ error) error {
+	err := Walk(t.Context(), countFS{fsys, &read}, "many", b, func(p string, _ fs.DirEntry, _ error) error {
 		if p != "many" {
 			met++
 		}
@@ -145,14 +146,78 @@ func TestWalkBound(t *testing.T) {
 		t.Errorf("past the bound: %v, read %d entries, fn met %d", err, read, met)
 	}
 	b = &Bound{Max: n + 1}
-	if err := Walk(fsys, "many", b, func(string, fs.DirEntry, error) error { return nil }); err != nil || b.Seen != n+1 {
+	if err := Walk(t.Context(), fsys, "many", b, func(string, fs.DirEntry, error) error { return nil }); err != nil || b.Seen != n+1 {
 		t.Errorf("at the bound: %v, seen %d", err, b.Seen)
 	}
 	b = &Bound{Max: n + 1}
-	_ = Walk(fsys, "many", b, func(string, fs.DirEntry, error) error { return nil })
-	if err := Walk(fsys, "many", b, func(string, fs.DirEntry, error) error { return nil }); !errors.Is(err, ErrTooMany) {
+	_ = Walk(t.Context(), fsys, "many", b, func(string, fs.DirEntry, error) error { return nil })
+	if err := Walk(t.Context(), fsys, "many", b, func(string, fs.DirEntry, error) error { return nil }); !errors.Is(err, ErrTooMany) {
 		t.Errorf("a second walk on a spent bound: %v", err)
 	}
+}
+
+// A walk ends with its context, as at Ctrl-C or a deadline: one whose
+// context has ended reads nothing, and one cancelled as it goes reads no
+// folder, or batch of one, after that, and meets nothing more.
+func TestWalkCancelled(t *testing.T) {
+	const n = 4 * walkBatch
+	fsys := fstest.MapFS{"a/x": {}, "b/x": {}}
+	for i := range n {
+		fsys["many/"+strconv.Itoa(i)] = &fstest.MapFile{}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	read, met := 0, 0
+	err := Walk(ctx, countFS{fsys, &read}, ".", &Bound{Max: 10 * n}, func(string, fs.DirEntry, error) error { met++; return nil })
+	if !errors.Is(err, context.Canceled) || read != 0 || met != 0 {
+		t.Errorf("an ended context: %v, read %d entries, met %d", err, read, met)
+	}
+	ctx, cancel = context.WithCancel(t.Context())
+	defer cancel()
+	read = 0
+	var got []string
+	err = Walk(ctx, countFS{fsys, &read}, ".", &Bound{Max: 10 * n}, func(p string, _ fs.DirEntry, _ error) error {
+		got = append(got, p)
+		if p == "a" {
+			cancel()
+		}
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) || !slices.Equal(got, []string{".", "a"}) || read != 3 {
+		t.Errorf("cancelled at a: %v, met %q, read %d entries, want the root's 3", err, got, read)
+	}
+	ctx, cancel = context.WithCancel(t.Context())
+	defer cancel()
+	read = 0
+	err = Walk(ctx, countFS{batchFS{fsys, cancel}, &read}, "many", &Bound{Max: 10 * n}, func(string, fs.DirEntry, error) error { return nil })
+	if !errors.Is(err, context.Canceled) || read != walkBatch {
+		t.Errorf("cancelled after a batch: %v, read %d entries, want one batch's %d", err, read, walkBatch)
+	}
+}
+
+// batchFS is fsys whose folders call cancel once they've handed out a
+// batch.
+type batchFS struct {
+	fsys   fs.FS
+	cancel func()
+}
+
+func (c batchFS) Open(name string) (fs.File, error) {
+	f, err := c.fsys.Open(name)
+	if d, ok := f.(fs.ReadDirFile); ok && err == nil {
+		return batchDir{d, c.cancel}, nil
+	}
+	return f, err
+}
+
+type batchDir struct {
+	fs.ReadDirFile
+	cancel func()
+}
+
+func (d batchDir) ReadDir(n int) ([]fs.DirEntry, error) {
+	defer d.cancel()
+	return d.ReadDirFile.ReadDir(n)
 }
 
 // A chain of folders deeper than walkMaxDepth, or a path longer than
@@ -171,7 +236,7 @@ func TestWalkDepth(t *testing.T) {
 		{"one deeper", chain(walkMaxDepth+1, "a"), false},
 		{"a long path", chain(walkMaxPath/200+1, strings.Repeat("a", 200)), false},
 	} {
-		err := Walk(tc.fsys, ".", &Bound{Max: 1000}, func(_ string, _ fs.DirEntry, err error) error { return err })
+		err := Walk(t.Context(), tc.fsys, ".", &Bound{Max: 1000}, func(_ string, _ fs.DirEntry, err error) error { return err })
 		if (err == nil) != tc.ok || !tc.ok && !errors.Is(err, ErrTooMany) {
 			t.Errorf("%s: %v", tc.name, err)
 		}
@@ -205,7 +270,7 @@ func TestWalkErrors(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(shut, 0o700) }) //nolint:gosec // G302: a folder, readable again for its cleanup
 	for _, skip := range []bool{false, true} {
 		var met []string
-		err := Walk(os.DirFS(dir), ".", &Bound{Max: 10}, func(p string, _ fs.DirEntry, err error) error {
+		err := Walk(t.Context(), os.DirFS(dir), ".", &Bound{Max: 10}, func(p string, _ fs.DirEntry, err error) error {
 			if err != nil {
 				met = append(met, p+" failed")
 				if skip {
@@ -224,7 +289,7 @@ func TestWalkErrors(t *testing.T) {
 			t.Errorf("skip %v: met %q (%v), want %q", skip, met, err, want)
 		}
 	}
-	err := Walk(noDirFS{tree()}, ".", &Bound{Max: 10}, func(_ string, _ fs.DirEntry, err error) error { return err })
+	err := Walk(t.Context(), noDirFS{tree()}, ".", &Bound{Max: 10}, func(_ string, _ fs.DirEntry, err error) error { return err })
 	if err == nil {
 		t.Error("a folder opened as a file: listed")
 	}
@@ -275,7 +340,7 @@ func TestWalkRoot(t *testing.T) {
 	must(t, err)
 	defer func() { _ = r.Close() }()
 	var got []string
-	err = Walk(r.FS(), ".", &Bound{Max: 10}, func(p string, d fs.DirEntry, err error) error {
+	err = Walk(t.Context(), r.FS(), ".", &Bound{Max: 10}, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

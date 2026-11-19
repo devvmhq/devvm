@@ -25,6 +25,7 @@ package agentlogin
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,6 +109,19 @@ func captureOf(agent string) (captureFormat, string, bool) {
 		}
 	}
 	return nil, "", false
+}
+
+// replySave is how long saving a login whose reply the endpoint has given may take
+// (AfterReply).
+const replySave = 2 * time.Minute
+
+// AfterReply is the context that saving a login takes once the endpoint has given its reply,
+// which may have rotated the refresh token: ctx's values without its end, so the exchange's
+// deadline never loses the login while the save waits for a lock that a refresh holds, bounded
+// by replySave of its own, so a holder that stalls, such as a Keychain that asks, never holds
+// the save for ever.
+func AfterReply(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), replySave)
 }
 
 // CaptureKind is the kind of the agent's login file that a login the proxy captures goes in: its
@@ -291,12 +305,13 @@ func readLogin(path string) (map[string]any, error) {
 	return m, err
 }
 
-// lockStore readies f's folder in the store and holds its lock (lockLogin).
-func (f File) lockStore() (func(), error) {
+// lockStore readies f's folder in the store and holds its lock (lockLogin), waiting until ctx
+// ends.
+func (f File) lockStore(ctx context.Context) (func(), error) {
 	if err := state.PrivateDir(filepath.Dir(f.Path)); err != nil {
 		return nil, err
 	}
-	return lockLogin(f.Path, f.Waiting)
+	return lockLogin(ctx, f.Path, f.Waiting)
 }
 
 // CaptureRequest returns a token request's body as it goes on to the agent's endpoint, f the
@@ -305,7 +320,7 @@ func (f File) lockStore() (func(), error) {
 // login, whose refresh token is managed, goes nowhere: answer is the reply the VM gets, the
 // store's login as placeholders, since the host refreshes it. A request whose reply can't be
 // captured is refused, and so is an exchange for another id_token.
-func (f File) CaptureRequest(ctype string, body []byte) (out, answer []byte, err error) {
+func (f File) CaptureRequest(ctx context.Context, ctype string, body []byte) (out, answer []byte, err error) {
 	t, err := parseTokenRequest(ctype, body)
 	if err != nil {
 		return nil, nil, err
@@ -317,7 +332,7 @@ func (f File) CaptureRequest(ctype string, body []byte) (out, answer []byte, err
 	if t.grant() != grantExchange && !refresh {
 		return body, nil, nil
 	}
-	unlock, err := f.lockStore()
+	unlock, err := f.lockStore(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -367,12 +382,13 @@ func openaiManagedReply(at, id redact.Secret, salt string) ([]byte, error) {
 }
 
 // Capture saves the login in reply, the agent's endpoint's success for the token request req (of
-// Content-Type ctype), in f, the store's login file, in the agent's own format, under its lock: a
+// Content-Type ctype), in f, the store's login file, in the agent's own format, under its lock,
+// waited for with AfterReply's context: a
 // code's replaces the login there, a refresh's or an exchange's adds to it, and the store keeps
 // only the newest refresh token. It returns the reply the VM gets: placeholders ending in f.Salt in
 // place of the tokens, no refresh token, and an expiry at farFuture. A reply without the tokens a
 // login needs is refused, and nothing is saved.
-func (f File) Capture(ctype string, req, reply []byte) ([]byte, error) {
+func (f File) Capture(ctx context.Context, ctype string, req, reply []byte) ([]byte, error) {
 	t, err := parseTokenRequest(ctype, req)
 	if err != nil {
 		return nil, err
@@ -388,7 +404,9 @@ func (f File) Capture(ctype string, req, reply []byte) ([]byte, error) {
 	if !ok {
 		return nil, f.errKind()
 	}
-	unlock, err := f.lockStore()
+	ctx, cancel := AfterReply(ctx)
+	defer cancel()
+	unlock, err := f.lockStore(ctx)
 	if err != nil {
 		return nil, err
 	}

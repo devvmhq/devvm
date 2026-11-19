@@ -86,28 +86,28 @@ func TestClaudeCapture(t *testing.T) {
 	}
 	// The VM's own refresh, with its managed refresh token, is answered with the placeholder.
 	refresh := []byte(`{"grant_type":"refresh_token","refresh_token":"devvm-proxy-managed","client_id":"x","scope":"user:inference"}`)
-	if out, answer, err := f.CaptureRequest(jsonType, refresh); err != nil || out != nil || !strings.Contains(string(answer), ph) ||
+	if out, answer, err := f.CaptureRequest(t.Context(), jsonType, refresh); err != nil || out != nil || !strings.Contains(string(answer), ph) ||
 		strings.Contains(string(answer), "real") || !strings.Contains(string(answer), "user:profile") {
 		t.Errorf("the VM's refresh: %q, %s, %v", out, answer, err)
 	}
 	// A refresh with another token goes on, and its reply adds to the login.
 	other := []byte(`{"grant_type":"refresh_token","refresh_token":"sk-ant-ort01-other","client_id":"x"}`)
-	if out, answer, err := f.CaptureRequest(jsonType, other); err != nil || string(out) != string(other) || answer != nil {
+	if out, answer, err := f.CaptureRequest(t.Context(), jsonType, other); err != nil || string(out) != string(other) || answer != nil {
 		t.Errorf("another refresh: %q, %s, %v", out, answer, err)
 	}
 	capture(t, f, jsonType, other, reply(map[string]any{"access_token": "sk-ant-oat01-new", "expires_in": 3600}), "sk-ant-oat01-new") //nolint:gosec // a test's fake token
 	if o := obj(readStore(t, f), "claudeAiOauth"); str(o, "accessToken") != "sk-ant-oat01-new" || str(o, "refreshToken") != "sk-ant-ort01-real" {
 		t.Errorf("after the refresh: %v", o)
 	}
-	must(t, f.Remove())
+	must(t, f.Remove(t.Context()))
 	if _, err := os.Stat(f.Path); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("after Remove: %v", err)
 	}
-	must(t, f.Remove())
+	must(t, f.Remove(t.Context()))
 	if ok, err := f.ClaudeLogin(); ok || err != nil {
 		t.Errorf("ClaudeLogin with none = %v, %v", ok, err)
 	}
-	if out, _, err := f.CaptureRequest(jsonType, refresh); err == nil {
+	if out, _, err := f.CaptureRequest(t.Context(), jsonType, refresh); err == nil {
 		t.Errorf("the VM's refresh with no login answered: %s", out)
 	}
 	if bs := bindings(t, File{Kind: ClaudeOAuth, Path: writeFile(t, map[string]any{})}); len(bs) != 0 {

@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -224,7 +226,7 @@ func (im AgentImport) linkRoots() ([]string, error) {
 // (follower.copy). One a VM could have chosen (projectFolders.chosen) is left
 // out with a warning, whatever allows it. folders are the VMs' folders
 // the import read at its start.
-func (im AgentImport) followLinks(all []*hostAgent, folders *projectFolders) error {
+func (im AgentImport) followLinks(ctx context.Context, all []*hostAgent, folders *projectFolders) error {
 	var out []*linkOut
 	owner := map[*linkOut]*hostAgent{}
 	for _, h := range all {
@@ -274,7 +276,7 @@ func (im AgentImport) followLinks(all []*hostAgent, folders *projectFolders) err
 		follow = append(follow, l)
 	}
 	for _, l := range follow {
-		if err := f.copy(owner[l], l); err != nil {
+		if err := f.copy(ctx, owner[l], l); err != nil {
 			return err
 		}
 	}
@@ -320,13 +322,10 @@ type projectVM struct {
 // projectFolders is what devvm agent import knows of the VMs' project folders,
 // as it read them at its start: each VM's (vms), and the states it
 // couldn't read (unread), each by its path, whose VMs' folders it can't
-// check, and the links on the way to the home folder itself (homeHops),
-// which no project folder can hold, as devvm refuses one that holds the
-// home folder.
+// check.
 type projectFolders struct {
-	vms      []projectVM
-	unread   []string
-	homeHops []string
+	vms    []projectVM
+	unread []string
 }
 
 // readProjectFolders reads the VMs devvm has, each with its project folder,
@@ -335,9 +334,6 @@ type projectFolders struct {
 // or a VM's vm.json.
 func readProjectFolders(d paths.Dirs) (*projectFolders, []msg.M) {
 	f := &projectFolders{}
-	if _, hops, err := linkHops(d.Home); err == nil {
-		f.homeHops = hops // else every link counts
-	}
 	inv, err := ReadStates(d)
 	if err != nil {
 		f.unread = []string{d.VMs()}
@@ -362,10 +358,13 @@ func readProjectFolders(d paths.Dirs) (*projectFolders, []msg.M) {
 // through the links hops (linkHops'), when a VM could have chosen where it
 // leads, and whether there is one: when it leads through a link in a VM's
 // project folder to a place outside it (throughVM,
-// agent_import_link_via_vm), or through any link but those on the way to
-// the home folder while a VM's state can't be read, as devvm can't tell
-// whether that VM's project folder holds it
-// (agent_import_link_unread_state). A nil f knows of no VM.
+// agent_import_link_via_vm), or through any link you could change while a
+// VM's state can't be read, as devvm can't tell whether that VM's project
+// folder holds it (agent_import_link_unread_state): the links on the way
+// to the home folder count too, as a project folder may hold one, such as
+// a VM made with --unsafe-folder on a folder that holds the home folder. A link
+// that only root can change (rootOnly), such as macOS's /var or Fedora
+// Silverblue's /home, doesn't count. A nil f knows of no VM.
 func (f *projectFolders) chosen(path, target string, hops []string) (msg.M, bool) {
 	if f == nil {
 		return msg.M{}, false
@@ -373,10 +372,37 @@ func (f *projectFolders) chosen(path, target string, hops []string) (msg.M, bool
 	if vm := throughVM(f.vms, target, hops); vm != "" {
 		return msg.AgentImportLinkViaVM(path, vm), true
 	}
-	if len(f.unread) > 0 && slices.ContainsFunc(hops, func(h string) bool { return !slices.Contains(f.homeHops, h) }) {
+	if len(f.unread) > 0 && slices.ContainsFunc(hops, func(h string) bool { return !rootOnly(h) }) {
 		return msg.AgentImportLinkUnreadState(path, strings.Join(f.unread, ", ")), true
 	}
 	return msg.M{}, false
+}
+
+// rootOnly reports whether only root can change where the link at hop,
+// a physical path (linkHops'), leads: every folder above it, up to /, is
+// root's, no one else may write it by its mode bits, and the system says
+// you may not write it either (platform.Writable, which an ACL counts in),
+// and devvm doesn't run as root. A
+// VM changes this machine's files only as you, through its mounts, so no
+// VM can change such a link, whatever its project folder holds. Changing
+// a link takes writing the folder it's in, or one above, to move that
+// folder away.
+func rootOnly(hop string) bool {
+	if os.Getuid() == 0 {
+		return false
+	}
+	for dir := filepath.Dir(hop); ; dir = filepath.Dir(dir) {
+		fi, err := os.Lstat(dir)
+		if err != nil || !fi.IsDir() || fi.Mode().Perm()&0o022 != 0 {
+			return false
+		}
+		if uid, _, ok := platform.Owner(fi); !ok || uid != 0 || platform.Writable(dir) {
+			return false // the mode bits aside, an ACL or a FUSE file system may let you write it
+		}
+		if dir == filepath.Dir(dir) {
+			return true
+		}
+	}
 }
 
 // warnProjectsInside warns of each VM whose project folder is inside the
@@ -474,8 +500,8 @@ func (f *follower) projects(path, target string, dir bool) []msg.M {
 // folder's folders and files, a link in it read as the file it leads to
 // in l.root, and any other link in it left out with a warning. A link
 // whose files would pass the import's bounds is left out whole, with a
-// warning.
-func (f *follower) copy(h *hostAgent, l *linkOut) error {
+// warning. Its walk ends with ctx (safefile.Walk).
+func (f *follower) copy(ctx context.Context, h *hostAgent, l *linkOut) error {
 	root, err := openPhysical(l.root)
 	if err != nil {
 		return err
@@ -492,7 +518,7 @@ func (f *follower) copy(h *hostAgent, l *linkOut) error {
 	}
 	// The entries of every link followed count together, as the walk reads each.
 	entries := safefile.Bound{Max: linkMaxEntries, Seen: f.budget.entries}
-	if err := safefile.Walk(root.FS(), ls.base, &entries, ls.visit); err != nil {
+	if err := safefile.Walk(ctx, root.FS(), ls.base, &entries, ls.visit); err != nil {
 		if errors.Is(err, errTooMany) || errors.Is(err, safefile.ErrTooMany) {
 			// What it read counts against the walks' own bound (linkMaxWalked).
 			f.budget.walked += entries.Seen - f.budget.entries
