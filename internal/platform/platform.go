@@ -46,13 +46,35 @@ func SameFolder(wasDir, was, dir, id string) bool {
 	if was == id {
 		return true
 	}
-	wasDev, wasRest, _ := strings.Cut(was, ":")
-	dev, rest, _ := strings.Cut(id, ":")
-	if wasDir != dir || !digits(wasDev) || !digits(dev) || wasRest != rest || strings.Count(id, ":") != 2 {
+	if !renumberedID(wasDir, was, dir, id) {
 		return false
 	}
 	s, err := StatFolder(dir)
 	return err == nil && s.Unique && s.ID == id
+}
+
+// SameOpenFolder is SameFolder for the folder s describes, as StatFolder
+// read it at dir from the folder opened with no link on its path, so it
+// opens nothing again: a caller that has s compares with it, once.
+func SameOpenFolder(wasDir, was, dir string, s FolderStat) bool {
+	if was == "" || s.ID == "" {
+		return false
+	}
+	return was == s.ID || s.Unique && renumberedID(wasDir, was, dir, s.ID)
+}
+
+// RecordedAs reports whether s's ID is was, the ID recorded, byte for
+// byte: the folder SameOpenFolder took for the recorded one, on the
+// device it was recorded on, not one numbered anew since.
+func RecordedAs(was string, s FolderStat) bool { return was != "" && was == s.ID }
+
+// renumberedID reports whether id could be the folder recorded as was on
+// another device, by the IDs alone: at the same path, with the same inode
+// and birth time.
+func renumberedID(wasDir, was, dir, id string) bool {
+	wasDev, wasRest, _ := strings.Cut(was, ":")
+	dev, rest, _ := strings.Cut(id, ":")
+	return wasDir == dir && digits(wasDev) && digits(dev) && wasRest == rest && strings.Count(id, ":") == 2
 }
 
 // Renumbered reports whether id names the folder recorded as was

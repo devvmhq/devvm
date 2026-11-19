@@ -55,7 +55,7 @@ func TestMovedFrom(t *testing.T) {
 	}
 	unfinished := *made
 	unfinished.Created = time.Time{}
-	h := here{dir: "/new/web", id: made.Folder(), unique: true, mine: true}
+	h := here{dir: "/new/web", mine: true, stat: platform.FolderStat{ID: made.Folder(), Unique: true}}
 	gone := func(*state.VM, string) bool { return true }
 	there := func(*state.VM, string) bool { return false }
 	other := func(st *state.VM, id string) *state.VM { c := *st; c.SetFolder(id, ""); return &c }
@@ -72,9 +72,9 @@ func TestMovedFrom(t *testing.T) {
 		{"the old folder still there", h, made, there, false},
 		{"a copy: another inode", h, other(made, dev+":999999999"), gone, false},
 		{"the same inode on another device", h, other(made, "1"+made.Folder()), gone, false},
-		{"an identity that may be a deleted folder's", here{dir: h.dir, id: h.id, mine: true}, made, gone, false},
-		{"another user's folder", here{dir: h.dir, id: h.id, unique: true}, made, gone, false},
-		{"no identity", here{dir: h.dir, unique: true, mine: true}, other(made, ""), gone, false},
+		{"an identity that may be a deleted folder's", here{dir: h.dir, mine: true, stat: platform.FolderStat{ID: h.stat.ID}}, made, gone, false},
+		{"another user's folder", here{dir: h.dir, stat: h.stat}, made, gone, false},
+		{"no identity", here{dir: h.dir, mine: true, stat: platform.FolderStat{Unique: true}}, other(made, ""), gone, false},
 		{"already this folder's", h, at(made, h.dir), gone, false},
 		{"no folder recorded", h, at(made, ""), gone, false},
 		{"a --clone VM", h, clone, gone, false},
@@ -89,6 +89,7 @@ func TestMovedFrom(t *testing.T) {
 	// dev, on volume A, which is looked up only once the rest matches.
 	_, rest, _ := strings.Cut(made.Folder(), ":")
 	renumbered := func(vol string) *state.VM { c := *made; c.SetFolder("1"+made.Folder(), vol); return &c }
+	unchecked := func(vol string) *state.VM { c := *made; c.SetFolderUnchecked(made.Folder(), vol); return &c }
 	asked := 0
 	on := func(vol string, ro bool) here {
 		v := h
@@ -96,7 +97,6 @@ func TestMovedFrom(t *testing.T) {
 		v.volume = func() string { asked++; return vol }
 		return v
 	}
-	split := func(v here) here { v.id = "77:12345:1.0"; return v }
 	for _, tc := range []struct {
 		name  string
 		h     here
@@ -109,12 +109,59 @@ func TestMovedFrom(t *testing.T) {
 		{"renumbered, on a read-only volume or a snapshot", on("uuid:A", true), renumbered("uuid:A:" + rest), false, 0},
 		{"a volume bound to another folder, as an older devvm's move leaves it", on("uuid:A", false), renumbered("uuid:A:1:" + rest), false, 0},
 		{"renumbered, with no volume recorded", on("uuid:A", false), renumbered(""), false, 0},
-		// The identity it would record isn't the one it matched, as a name swapped between two reads leaves it.
-		{"matched by one read, another identity to record", split(on("uuid:A", false)), renumbered("uuid:A:" + rest), false, 0},
+		// Recorded unchecked: the identity as recorded matches only on the volume recorded.
+		{"unchecked, on its volume", on("uuid:A", false), unchecked("uuid:A:" + rest), true, 1},
+		{"unchecked, on another volume", on("uuid:B", false), unchecked("uuid:A:" + rest), false, 1},
 	} {
 		asked = 0
 		if got := tc.h.movedFrom(tc.st, gone); got != tc.want || asked != tc.asked {
 			t.Errorf("%s: movedFrom = %v, asked %d, want %v, %d", tc.name, got, asked, tc.want, tc.asked)
+		}
+	}
+}
+
+// A move whose volume lookup failed keeps the volume recorded, bound to the
+// folder's inode and birth time, which a move keeps, unchecked, so a later
+// launch checks it; one that read the volume records it, checked; one to
+// another folder, whose inode differs, records none.
+func TestRecordMoveVolume(t *testing.T) {
+	e, _, _ := upEnv(t, allNative())
+	st := existingVM(t, e, Options{Network: "open"})
+	id := st.Folder()
+	bound := platform.VolumeOf("uuid:A", id)
+	other := "1:999:1.0"
+	for _, tc := range []struct {
+		name, id, vol, wantVol   string
+		unchecked, wantUnchecked bool
+	}{
+		{"unchecked, its volume unread", id, "", bound, true, true},
+		{"checked, its volume unread", id, "", bound, false, true},
+		{"its volume read", id, platform.VolumeOf("uuid:A", id), bound, true, false},
+		{"another folder, its volume unread", other, "", "", false, false},
+	} {
+		if err := st.Update(t.Context(), func(st *state.VM) error {
+			if tc.unchecked {
+				st.SetFolderUnchecked(id, bound)
+			} else {
+				st.SetFolder(id, bound)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		cur, err := state.ReadVM(e.Dirs, st.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := recordMove(t.Context(), cur, cur.Dir, tc.id, tc.vol, false); err != nil {
+			t.Fatal(msg.NamesOf(err))
+		}
+		got, err := state.ReadVM(e.Dirs, st.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.FolderVolume() != tc.wantVol || got.FolderUnchecked() != tc.wantUnchecked {
+			t.Errorf("%s: volume %q, unchecked %v, want %q, %v", tc.name, got.FolderVolume(), got.FolderUnchecked(), tc.wantVol, tc.wantUnchecked)
 		}
 	}
 }

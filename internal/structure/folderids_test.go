@@ -73,8 +73,9 @@ func folderIDLocals(body *ast.BlockStmt) map[string]bool {
 // locals), but with "": == or !=, a switch on one, strings.EqualFold,
 // strings.Compare, slices.Contains or slices.Index with one, or a map
 // keyed by one, indexed or in a literal (where a key that's a bare name
-// counts only in a map's: elsewhere it's a struct's field); "" for none.
-func comparesOne(n ast.Node, locals map[string]bool) string {
+// counts only in a map's, its type written out or one of named, the named
+// map types: elsewhere it's a struct's field); "" for none.
+func comparesOne(n ast.Node, locals map[string]bool, named namedMaps) string {
 	is := func(e ast.Expr) bool { return folderIDOperand(e, locals) }
 	switch n := n.(type) {
 	case *ast.IndexExpr:
@@ -82,13 +83,8 @@ func comparesOne(n ast.Node, locals map[string]bool) string {
 			return "keys a map by a folder's identity"
 		}
 	case *ast.CompositeLit:
-		_, isMap := n.Type.(*ast.MapType)
-		for _, el := range n.Elts {
-			if kv, ok := el.(*ast.KeyValueExpr); ok && is(kv.Key) {
-				if _, name := kv.Key.(*ast.Ident); isMap || !name {
-					return "keys a map by a folder's identity"
-				}
-			}
+		if keysBy(n.Elts, named.is(n.Type), is) || elidedKeys(n.Elts, elemOf(n.Type), named, is) {
+			return "keys a map by a folder's identity"
 		}
 	case *ast.BinaryExpr:
 		if n.Op != token.EQL && n.Op != token.NEQ || emptyString(n.X) || emptyString(n.Y) {
@@ -116,23 +112,118 @@ func comparesOne(n ast.Node, locals map[string]bool) string {
 	return ""
 }
 
+// keysBy reports whether a literal's elements, elts, have a key that is a
+// folder's identity (is): any such key in a map's (isMap), and elsewhere
+// one that isn't a bare name, which is a struct's field.
+func keysBy(elts []ast.Expr, isMap bool, is func(ast.Expr) bool) bool {
+	for _, el := range elts {
+		if kv, ok := el.(*ast.KeyValueExpr); ok && is(kv.Key) {
+			if _, name := kv.Key.(*ast.Ident); isMap || !name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// elemOf is the type of a map's values or of a slice's or an array's
+// elements, through a pointer's, nil for any other type.
+func elemOf(t ast.Expr) ast.Expr {
+	if star, ok := t.(*ast.StarExpr); ok {
+		t = star.X
+	}
+	switch t := t.(type) {
+	case *ast.MapType:
+		return t.Value
+	case *ast.ArrayType:
+		return t.Elt
+	}
+	return nil
+}
+
+// elidedKeys reports whether a literal's elements, elts, of the type elem,
+// hold literals whose types are elided, at any depth, that key a map by a
+// folder's identity (keysBy), elem being a map's type (named.is) or a
+// pointer to one.
+func elidedKeys(elts []ast.Expr, elem ast.Expr, named namedMaps, is func(ast.Expr) bool) bool {
+	if elem == nil {
+		return false
+	}
+	t := elem
+	if star, ok := t.(*ast.StarExpr); ok {
+		t = star.X
+	}
+	for _, el := range elts {
+		if kv, ok := el.(*ast.KeyValueExpr); ok {
+			el = kv.Value
+		}
+		lit, ok := el.(*ast.CompositeLit)
+		if !ok || lit.Type != nil {
+			continue
+		}
+		if keysBy(lit.Elts, named.is(t), is) || elidedKeys(lit.Elts, elemOf(t), named, is) {
+			return true
+		}
+	}
+	return false
+}
+
 // emptyString is whether e is the literal "".
 func emptyString(e ast.Expr) bool {
 	lit, ok := e.(*ast.BasicLit)
 	return ok && lit.Kind == token.STRING && (lit.Value == `""` || lit.Value == "``")
 }
 
+// namedMaps are the names of a module's types whose type is a map's, by
+// name alone, from every package, as the check reads no types: a type of
+// that name anywhere counts.
+type namedMaps map[string]bool
+
+// mapTypes are m's named map types.
+func mapTypes(m *module) namedMaps {
+	named := namedMaps{}
+	for _, f := range m.files {
+		ast.Inspect(f.ast, func(n ast.Node) bool {
+			if ts, ok := n.(*ast.TypeSpec); ok {
+				if _, isMap := ts.Type.(*ast.MapType); isMap {
+					named[ts.Name.Name] = true
+				}
+			}
+			return true
+		})
+	}
+	return named
+}
+
+// is reports whether t, a composite literal's type, is a map's: written
+// out, or one of named by its name, in this package or another's.
+func (named namedMaps) is(t ast.Expr) bool {
+	switch t := t.(type) {
+	case *ast.MapType:
+		return true
+	case *ast.Ident:
+		return named[t.Name]
+	case *ast.SelectorExpr:
+		return named[t.Sel.Name]
+	case *ast.IndexExpr: // a generic named type, M[K]
+		return named.is(t.X)
+	case *ast.IndexListExpr: // M[K, V]
+		return named.is(t.X)
+	}
+	return false
+}
+
 // comparesFolderIDs are f's functions, by siteName, that compare a
 // folder's identity (comparesOne), each with its first such comparison;
 // none in owner, the package folder that compares them.
-func comparesFolderIDs(owner string) func(srcFile) map[string]drop {
+func comparesFolderIDs(owner string, named namedMaps) func(srcFile) map[string]drop {
 	return func(f srcFile) map[string]drop {
 		if f.dir == owner {
 			return nil
 		}
 		return sitesWhereIn(f, func(fd *ast.FuncDecl) func(ast.Node) string {
 			locals := folderIDLocals(fd.Body)
-			return func(n ast.Node) string { return comparesOne(n, locals) }
+			return func(n ast.Node) string { return comparesOne(n, locals, named) }
 		})
 	}
 }
@@ -146,7 +237,7 @@ func checkFolderIDs(m *module, r rules) []violation {
 	if r.folderIDOwner == "" {
 		return nil
 	}
-	return siteRule{ruleFolderIDs, "exactFolderIDs", r.exactFolderIDs, comparesFolderIDs(r.folderIDOwner), "compare with platform.SameFolder", "no comparison of a folder's identity"}.check(m)
+	return siteRule{ruleFolderIDs, "exactFolderIDs", r.exactFolderIDs, comparesFolderIDs(r.folderIDOwner, mapTypes(m)), "compare with platform.SameFolder or SameOpenFolder", "no comparison of a folder's identity"}.check(m)
 }
 
 // folderIDCases break and keep folder-ids.
@@ -270,6 +361,62 @@ func folderIDCases() []ruleCase {
 		{
 			name:  "a comparison in a test",
 			files: map[string]string{"a/a_test.go": "package a\n\ntype VM struct{ Folder string }\n\nfunc same(st VM, id string) bool { return st.Folder == id }\n"},
+			r:     owner,
+		},
+	}
+}
+
+// folderIDMapCases break and keep folder-ids with literals of named map
+// types, written out or elided.
+func folderIDMapCases() []ruleCase {
+	file := func(body string) map[string]string {
+		return map[string]string{"a/a.go": "package a\n\nimport \"example.com/m/p\"\n\ntype VM struct{ Dir, Folder string }\n\n" + body}
+	}
+	owner := rules{folderIDOwner: "p"}
+	want := &want{ruleFolderIDs, "list a/a.go: byID in exactFolderIDs"}
+	return []ruleCase{
+		{
+			name:  "a literal of a named map type keyed by a local",
+			files: file("type IDs map[string]VM\n\nfunc byID(dir string, st VM) IDs { id, _ := p.FolderID(dir); return IDs{id: st} }\n"),
+			r:     owner,
+			want:  want,
+		},
+		{
+			name: "a literal of another package's named map type keyed by a local",
+			files: map[string]string{
+				"p/p.go": "package p\n\ntype IDs map[string]bool\n\nfunc FolderID(string) (string, error) { return \"\", nil }\n",
+				"a/a.go": "package a\n\nimport \"example.com/m/p\"\n\nfunc byID(dir string) p.IDs { id, _ := p.FolderID(dir); return p.IDs{id: true} }\n",
+			},
+			r:    owner,
+			want: want,
+		},
+		{
+			name:  "a literal of a generic named map type keyed by a local",
+			files: file("type IDs[V any] map[string]V\n\nfunc byID(dir string, st VM) IDs[VM] { id, _ := p.FolderID(dir); return IDs[VM]{id: st} }\n"),
+			r:     owner,
+			want:  want,
+		},
+		{
+			name:  "a map's elided literal of a named map type keyed by a local",
+			files: file("type IDs map[string]VM\n\nfunc byID(dir string, st VM) map[string]IDs { id, _ := p.FolderID(dir); return map[string]IDs{\"a\": {id: st}} }\n"),
+			r:     owner,
+			want:  want,
+		},
+		{
+			name:  "elided two levels down, a map of slices of a named map type",
+			files: file("type IDs map[string]VM\n\nfunc byID(dir string, st VM) map[string][]IDs { id, _ := p.FolderID(dir); return map[string][]IDs{\"a\": {{id: st}}} }\n"),
+			r:     owner,
+			want:  want,
+		},
+		{
+			name:  "elided pointers to a named map type",
+			files: file("type IDs map[string]VM\n\nfunc byID(dir string, st VM) []*IDs { id, _ := p.FolderID(dir); return []*IDs{{id: st}} }\n"),
+			r:     owner,
+			want:  want,
+		},
+		{
+			name:  "a slice's elided struct literals with a field named as a local",
+			files: file("type T struct{ id string }\n\nfunc byID(dir string) []T { id := p.FolderID(dir); return []T{{id: id}} }\n"),
 			r:     owner,
 		},
 	}

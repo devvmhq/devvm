@@ -49,18 +49,16 @@ func (r *recorded) at(d paths.Dirs, dir string) (*state.VM, error) {
 }
 
 // here is the folder devvm runs in as moveHere matches a VM's against it:
-// its path and identity (platform.FolderID), and the two things a match
-// needs of it, all read from the folder opened once (hereOf).
+// its path, and what a match needs of it, all read from the folder opened
+// once (hereOf).
 type here struct {
-	dir, id string
-	// unique: its identity is never a deleted folder's
-	// (platform.UniqueFolderID), so a match is this folder, not one that
-	// got a deleted folder's inode number.
-	unique bool
-	mine   bool // this user owns it
-	// stat is the folder read with no link on its path (platform.StatFolder),
-	// and volume its volume, looked up once, when a state could record it
-	// (platform.MayHaveMoved); nil for none.
+	dir  string
+	mine bool // this user owns it
+	// stat is the folder read with no link on its path (platform.StatFolder):
+	// its identity, and whether that's its alone (Unique), never a deleted
+	// folder's, so a match is this folder, not one that got a deleted
+	// folder's inode number. volume is its volume, looked up once, when a
+	// state could record it (platform.MayHaveMoved); nil for none.
 	stat   platform.FolderStat
 	volume func() string
 }
@@ -78,33 +76,35 @@ func (e *Env) hereOf(ctx context.Context, dir string) (here, bool) {
 		return here{}, false
 	}
 	return here{
-		dir: dir, id: s.ID, unique: s.Unique, mine: int(s.Owner) == os.Getuid(), stat: s,
+		dir: dir, mine: int(s.Owner) == os.Getuid(), stat: s,
 		volume: sync.OnceValue(func() string { return e.volumeOf(ctx, s, volumeWaitMove) }),
 	}, true
 }
 
 // movedFrom reports whether st is the VM of h's folder, which moved from
 // the path st records: the folder itself (its identity, the device
-// included, as platform.SameFolder has it at another path), unique and
-// this user's, at another path, and nothing left at the old one (away).
-// The VM's creation finished, and it mounts its folder: a --clone VM
-// keeps its clone at the old path, in the VM, so it never moves. A copy
-// of the folder is another folder, so it never matches.
+// included, as platform.SameOpenFolder has it at another path), unique
+// and this user's, at another path, and nothing left at the old one
+// (away). The VM's creation finished, and it mounts its folder: a --clone
+// VM keeps its clone at the old path, in the VM, so it never moves. A
+// copy of the folder is another folder, so it never matches.
 func (h here) movedFrom(st *state.VM, away func(st *state.VM, to string) bool) bool {
-	return h.unique && h.mine && st.Dir != "" && st.Dir != h.dir && st.Finished() && !isClone(st) &&
+	return h.stat.Unique && h.mine && st.Dir != "" && st.Dir != h.dir && st.Finished() && !isClone(st) &&
 		h.same(st) && away(st, h.dir)
 }
 
 // same reports whether h's folder is the one st records: its identity as
-// recorded (platform.SameFolder), or, on a disk numbered anew since, its
-// volume as recorded with its inode and birth time (platform.MovedFolder),
-// whose volume is looked up only when the rest matches.
+// recorded (platform.SameOpenFolder, from the folder hereOf opened, so it
+// opens nothing again), or, on a disk numbered anew since, its volume as
+// recorded with its inode and birth time (platform.MovedFolder), whose
+// volume is looked up only when the rest matches. A record whose volume
+// is unchecked (state.VM.FolderUnchecked) matches only on that volume, so
+// a move never records a folder whose volume no launch checked.
 func (h here) same(st *state.VM) bool {
-	if platform.SameFolder(st.Dir, st.Folder(), h.dir, h.id) {
+	if platform.SameOpenFolder(st.Dir, st.Folder(), h.dir, h.stat) && !st.FolderUnchecked() {
 		return true
 	}
-	return h.volume != nil && platform.SameFolder(h.dir, h.id, h.dir, h.stat.ID) &&
-		platform.MayHaveMoved(st.Folder(), st.FolderVolume(), h.stat) &&
+	return h.volume != nil && platform.MayHaveMoved(st.Folder(), st.FolderVolume(), h.stat) &&
 		platform.MovedFolder(st.Folder(), st.FolderVolume(), h.stat, h.volume())
 }
 
@@ -170,7 +170,7 @@ func (e finder) moveHere(ctx context.Context, dir string, mv moves, rec *recorde
 			return project.Folder{}, none, nil
 		}
 	}
-	if err := e.move(ctx, st, dir, h.id, false); err != nil {
+	if err := e.move(ctx, st, dir, h.stat.ID, false); err != nil {
 		return project.Folder{}, nil, err
 	}
 	e.Info(msg.VMAdopted(dir, vm))
@@ -302,11 +302,12 @@ func (e finder) stopForMove(ctx context.Context, st *state.VM) error {
 }
 
 // recordMove records dir, whose identity is id, on the volume vol
-// (platform.VolumeOf, "" for none), as st's project folder, under its
-// lock, refusing a state whose folder changed since it was read
-// (create_running), and the path the agents' state is under (movedTo),
-// which the VM's next setup moves to dir; fresh clears .git's protection
-// record.
+// (platform.VolumeOf, "" for none: the volume st records, when it's
+// bound to id's inode and birth time, is kept, unchecked), as st's
+// project folder, under its lock, refusing a state whose folder changed
+// since it was read (create_running), and the path the agents' state is
+// under (movedTo), which the VM's next setup moves to dir; fresh clears
+// .git's protection record.
 func recordMove(ctx context.Context, st *state.VM, dir, id, vol string, fresh bool) error {
 	was, wasID := st.Dir, st.Folder()
 	return st.Update(ctx, func(st *state.VM) error {
@@ -314,7 +315,12 @@ func recordMove(ctx context.Context, st *state.VM, dir, id, vol string, fresh bo
 			return msg.CreateRunning(st.Name())
 		}
 		st.Dir = dir
-		st.SetFolder(id, vol)
+		if recorded := st.FolderVolume(); vol == "" && platform.RecordedVolume(id, recorded) != "" {
+			// Its volume unread, which a move keeps bound, as it keeps the inode and birth time: still to check.
+			st.SetFolderUnchecked(id, recorded)
+		} else {
+			st.SetFolder(id, vol)
+		}
 		if err := edit(st, movedSection, func(m *movedInVM) error { *m = movedTo(*m, was, dir); return nil }); err != nil {
 			return err
 		}

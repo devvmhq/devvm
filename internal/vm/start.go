@@ -314,46 +314,75 @@ func folderChanged(st *state.VM) bool {
 // by it (startOnce, Want.ProjectID): the device's old number may be another
 // disk's now, but never onto another volume than the one recorded
 // (platform.KeepsVolume), which is another folder. It records the folder's
-// volume with it (recordedVolume), and
-// for a folder that's the one recorded, the volume when the state records
-// none bound to it yet, as a state of an older devvm, at every launch until
-// it can, so a move with a renumbering is recognised from then on
-// (platform.MovedFolder). Whatever else differs is left for folderChanged to
-// refuse, and a state another devvm changed meanwhile is compared again
-// under the lock.
+// volume with it, and for a folder that's the one recorded, the volume
+// when the state records none bound to it yet, as a state of an older
+// devvm, at every launch until it can, so a move with a renumbering is
+// recognised from then on (platform.MovedFolder). A renumbered folder
+// whose volume can't be read this time is recorded unchecked
+// (state.VM.SetFolderUnchecked), so each launch reads its volume again,
+// and the finder compares it (Env.keepsVolume), until one can. The folder
+// is opened once. Whatever else differs is left for folderChanged and the
+// finder to refuse, and a state another devvm changed meanwhile is
+// compared again under the lock.
 func (s starter) recordFolder(ctx context.Context, st *state.VM) error {
 	dir := projectMount(st)
 	if dir == "" {
 		return nil
 	}
-	// A folder whose identity can't be read is folderChanged's to refuse.
-	id, _ := platform.FolderID(dir)
-	renumbered := platform.Renumbered(st.Dir, st.Folder(), dir, id)
-	unbound := platform.RecordedVolume(st.Folder(), st.FolderVolume()) == "" && platform.SameFolder(st.Dir, st.Folder(), dir, id)
-	if !renumbered && !unbound {
-		return nil
+	// A folder that can't be read, or isn't the one recorded, is folderChanged's to refuse.
+	fs, err := platform.StatFolder(dir)
+	if err != nil || !platform.SameOpenFolder(st.Dir, st.Folder(), dir, fs) {
+		return nil //nolint:nilerr // folderChanged refuses the folder, naming it, before the start mounts it
 	}
-	vol := s.recordedVolume(ctx, dir, id, volumeWaitLaunch)
-	if !renumbered && vol == "" {
-		return nil // no volume to record: today's identity stays, and the next launch asks again
+	if platform.RecordedAs(st.Folder(), fs) && !st.FolderUnchecked() && platform.RecordedVolume(st.Folder(), st.FolderVolume()) != "" {
+		return nil // as recorded, its volume with it
 	}
-	// Renumbered onto another volume than the one recorded: another folder (folderChanged refuses it).
-	keeps := func(st *state.VM) bool {
-		return !renumbered || platform.KeepsVolume(st.Folder(), st.FolderVolume(), platform.RecordedVolume(id, vol))
-	}
-	if !keeps(st) {
+	vol := s.volumeOf(ctx, fs, volumeWaitLaunch)
+	if folderRecord(st, fs, vol) == nil {
 		return nil
 	}
 	return st.Update(ctx, func(st *state.VM) error {
-		if projectMount(st) == dir && platform.SameFolder(st.Dir, st.Folder(), dir, id) && keeps(st) {
-			v := vol
-			if v == "" {
-				v = st.FolderVolume() // a renumbering keeps the inode and birth time it's bound to
-			}
-			st.SetFolder(id, v)
+		if projectMount(st) != dir || !platform.SameOpenFolder(st.Dir, st.Folder(), dir, fs) {
+			return nil
+		}
+		if set := folderRecord(st, fs, vol); set != nil {
+			set(st)
 		}
 		return nil
 	})
+}
+
+// folderRecord is how recordFolder records the folder fs describes, which
+// SameOpenFolder took for st's, on the volume vol ("" when it can't be
+// told), nil for no change: its identity, renumbered or not, with its
+// volume when st records none bound to it; renumbered on the volume
+// recorded, with that volume, checked; renumbered with its volume unread,
+// unchecked, with the volume recorded, which a renumbering keeps bound, as
+// it keeps the inode and birth time. On another volume than the one
+// recorded, it's another folder, and nothing is recorded.
+func folderRecord(st *state.VM, fs platform.FolderStat, vol string) func(*state.VM) {
+	renumbered := !platform.RecordedAs(st.Folder(), fs)
+	recorded := st.FolderVolume()
+	switch {
+	case platform.RecordedVolume(st.Folder(), recorded) == "":
+		v := platform.VolumeOf(vol, fs.ID)
+		if v == "" && !renumbered {
+			return nil // no volume to record: today's identity stays, and the next launch asks again
+		}
+		if v == "" {
+			v = recorded
+		}
+		return func(st *state.VM) { st.SetFolder(fs.ID, v) }
+	case vol == "":
+		if !renumbered {
+			return nil // still unchecked, as recorded
+		}
+		return func(st *state.VM) { st.SetFolderUnchecked(fs.ID, recorded) }
+	case !platform.KeepsVolume(st.Folder(), recorded, vol):
+		return nil
+	default:
+		return func(st *state.VM) { st.SetFolder(fs.ID, platform.VolumeOf(vol, fs.ID)) }
+	}
 }
 
 // nextStartChanges lists what a running VM, as in is, gets only at its

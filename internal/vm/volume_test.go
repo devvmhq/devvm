@@ -68,14 +68,138 @@ func TestRecordFolder(t *testing.T) {
 	if got := launch("uuid:B", nil); got.FolderVolume() != platform.VolumeOf("uuid:B", id) {
 		t.Errorf("recorded at its next launch: %q", got.FolderVolume())
 	}
-	// Renumbered, its lookup failing: the new device recorded, the bound volume kept.
+	// Renumbered, its lookup failing: the new device recorded, the bound volume kept, unchecked.
 	set(stubtest.Renumbered(id), platform.VolumeOf("uuid:B", id))
-	if got := launch("", errors.New("diskutil hangs")); got.Folder() != id || got.FolderVolume() != platform.VolumeOf("uuid:B", id) {
-		t.Errorf("renumbered: %q %q", got.Folder(), got.FolderVolume())
+	if got := launch("", errors.New("diskutil hangs")); got.Folder() != id || got.FolderVolume() != platform.VolumeOf("uuid:B", id) || !got.FolderUnchecked() {
+		t.Errorf("renumbered: %q %q, unchecked %v", got.Folder(), got.FolderVolume(), got.FolderUnchecked())
+	}
+	// Unchecked, its lookup failing again: launched, still unchecked.
+	if got := launch("", errors.New("diskutil hangs")); !got.FolderUnchecked() || v.calls == 0 {
+		t.Errorf("unchecked, a failed lookup: unchecked %v, asked %d", got.FolderUnchecked(), v.calls)
+	}
+	// Unchecked, then read on its volume: checked.
+	if got := launch("uuid:B", nil); got.FolderUnchecked() || got.FolderVolume() != platform.VolumeOf("uuid:B", id) {
+		t.Errorf("checked: unchecked %v, volume %q", got.FolderUnchecked(), got.FolderVolume())
 	}
 	// Recorded and bound: no lookup at all.
 	if launch("uuid:C", nil); v.calls != 0 {
 		t.Errorf("looked up %d times for a bound volume", v.calls)
+	}
+}
+
+// A renumbered folder recorded while its volume couldn't be read stays to check: a later launch
+// that reads it on another volume than the one recorded takes it for another folder, as it
+// would have at the renumbering, and records nothing.
+func TestUncheckedOnAnotherVolume(t *testing.T) {
+	e, f, _ := upEnv(t, allNative())
+	v := &volumes{answer: "uuid:A"}
+	e.Volumes, e.VolumesOnly, e.volumes = v.look, true, new(volumeCache)
+	st := existingVM(t, e, Options{Network: "open"})
+	id := st.Folder()
+	if _, err := platform.StatFolder(st.Dir); err != nil {
+		t.Skipf("the folder can't be read with no link on its path: %v", err)
+	}
+	if err := st.Update(t.Context(), func(st *state.VM) error {
+		st.SetFolder(stubtest.Renumbered(id), platform.VolumeOf("uuid:A", id))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	launch := func(answer string, fail error) (*state.VM, error) {
+		t.Helper()
+		*v = volumes{answer: answer, fail: fail}
+		e.volumes = new(volumeCache)
+		stopVM(t, f, st)
+		err := (Launch{e}).Up(t.Context(), Options{})
+		got, rerr := state.ReadVM(e.Dirs, st.Name())
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		return got, err
+	}
+	if got, err := launch("", errors.New("diskutil hangs")); err != nil || !got.FolderUnchecked() {
+		t.Fatalf("renumbered, a failed lookup: %v, unchecked %v", msg.NamesOf(err), got.FolderUnchecked())
+	}
+	got, err := launch("uuid:B", nil)
+	if msg.IDOf(err) != "vm_other_folder" || !got.FolderUnchecked() || got.FolderVolume() != platform.VolumeOf("uuid:A", id) {
+		t.Errorf("on another volume: launched (%v), unchecked %v, volume %q", err, got.FolderUnchecked(), got.FolderVolume())
+	}
+}
+
+// keepsVolume looks a folder's volume up only when it must: renumbered, unchecked, or free to read
+// (Linux's f_fsid), so on Linux a folder on another volume than the one recorded is another
+// folder even on the device it was recorded on, as a copy with a volume ID of its own mounted at
+// its path can be.
+func TestKeepsVolume(t *testing.T) {
+	const id = "16777230:12345:1700000000.000000001"
+	renumbered := "9" + id
+	v := &volumes{answer: "uuid:B"}
+	for _, tc := range []struct {
+		name           string
+		folder, volume string
+		unchecked      bool
+		s              platform.FolderStat
+		want           bool
+		asked          int
+	}{
+		{"as recorded, on a Mac: no lookup", id, platform.VolumeOf("uuid:A", id), false, platform.FolderStat{ID: id, Unique: true}, true, 0},
+		{"renumbered on another volume", renumbered, platform.VolumeOf("uuid:A", id), false, platform.FolderStat{ID: id, Unique: true}, false, 1},
+		{"unchecked on another volume", id, platform.VolumeOf("uuid:A", id), true, platform.FolderStat{ID: id, Unique: true}, false, 1},
+		{"no volume recorded", renumbered, "", false, platform.FolderStat{ID: id, Unique: true}, true, 0},
+		{"as recorded, on Linux, on its volume", id, platform.VolumeOf("fsid:0a", id), false, platform.FolderStat{ID: id, Unique: true, Volume: "fsid:0a"}, true, 0},
+		{"as recorded, on Linux, on another volume", id, platform.VolumeOf("fsid:0a", id), false, platform.FolderStat{ID: id, Unique: true, Volume: "fsid:0b"}, false, 0},
+	} {
+		*v = volumes{answer: "uuid:B"}
+		e := &Env{Volumes: v.look, volumes: new(volumeCache)}
+		st := new(state.VM)
+		if tc.unchecked {
+			st.SetFolderUnchecked(tc.folder, tc.volume)
+		} else {
+			st.SetFolder(tc.folder, tc.volume)
+		}
+		if got := e.keepsVolume(t.Context(), st, tc.s); got != tc.want || v.calls != tc.asked {
+			t.Errorf("%s: keepsVolume = %v, asked %d, want %v, %d", tc.name, got, v.calls, tc.want, tc.asked)
+		}
+	}
+}
+
+// recordFolder compares again under the state's lock: when another devvm recorded another volume
+// for the folder since this one read the state, the volume this one read isn't recorded over it.
+func TestRecordFolderUnderLock(t *testing.T) {
+	e, _, _ := upEnv(t, allNative())
+	v := &volumes{answer: "uuid:A"}
+	e.Volumes, e.VolumesOnly, e.volumes = v.look, true, new(volumeCache)
+	st := existingVM(t, e, Options{Network: "open"})
+	id := st.Folder()
+	if _, err := platform.StatFolder(st.Dir); err != nil {
+		t.Skipf("the folder can't be read with no link on its path: %v", err)
+	}
+	if err := st.Update(t.Context(), func(st *state.VM) error {
+		st.SetFolder(stubtest.Renumbered(id), platform.VolumeOf("uuid:A", id))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := state.ReadVM(e.Dirs, st.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another devvm records volume B since.
+	if err := st.Update(t.Context(), func(st *state.VM) error {
+		st.SetFolder(stubtest.Renumbered(id), platform.VolumeOf("uuid:B", id))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.starter.recordFolder(t.Context(), stale); err != nil {
+		t.Fatal(err)
+	}
+	got, err := state.ReadVM(e.Dirs, st.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Folder() != stubtest.Renumbered(id) || got.FolderVolume() != platform.VolumeOf("uuid:B", id) {
+		t.Errorf("recorded over another devvm's record: %q %q", got.Folder(), got.FolderVolume())
 	}
 }
 

@@ -156,7 +156,10 @@ type VM struct {
 	// folder is the project folder's identity (platform.FolderID), to
 	// notice it was replaced, and folderVolume the volume it was on, bound
 	// to it (platform.VolumeOf), "" for none: SetFolder writes both.
+	// folderUnchecked is whether folder is a renumbered folder's ID that
+	// was recorded without its volume read (SetFolderUnchecked).
 	folder, folderVolume string
+	folderUnchecked      bool
 	// file is its folder's files; Dir "" for a name whose folder is
 	// another VM's (ReadVM), which is never written.
 	file   paths.VM
@@ -176,6 +179,7 @@ type core struct {
 	Dir       string    `json:"dir"`
 	Folder    string    `json:"folder,omitempty"`
 	Volume    string    `json:"folder_volume,omitempty"`
+	Unchecked bool      `json:"folder_unchecked,omitempty"`
 	Backend   string    `json:"backend"`
 	BackendAt string    `json:"backend_at,omitempty"`
 	Created   time.Time `json:"created,omitzero"`
@@ -184,7 +188,7 @@ type core struct {
 
 // coreFields are the names of core's fields, which no section takes.
 func coreFields() []string {
-	return []string{"version", "id", "name", "alias", "image", "chain", "from", "dir", "folder", "folder_volume", "backend", "backend_at", "created", "made_by"}
+	return []string{"version", "id", "name", "alias", "image", "chain", "from", "dir", "folder", "folder_volume", "folder_unchecked", "backend", "backend_at", "created", "made_by"}
 }
 
 // New is a new VM's state, not written yet: Create writes it, once its
@@ -278,7 +282,7 @@ func (v *VM) decode(data []byte) error {
 	*v = VM{
 		ID: c.ID, Alias: c.Alias, Image: c.Image, Chain: c.Chain, From: c.From, Dir: c.Dir,
 		Backend: c.Backend, BackendAt: c.BackendAt, Created: c.Created, MadeBy: c.MadeBy,
-		folder: c.Folder, folderVolume: c.Volume, name: name, sections: all, file: v.file, claims: v.claims, exists: true,
+		folder: c.Folder, folderVolume: c.Volume, folderUnchecked: c.Unchecked, name: name, sections: all, file: v.file, claims: v.claims, exists: true,
 	}
 	return nil
 }
@@ -288,7 +292,7 @@ func (v *VM) decode(data []byte) error {
 func (v *VM) encode() ([]byte, error) {
 	c, err := json.Marshal(core{
 		Version: vmVersion, ID: v.ID, Name: v.name.String(), Alias: v.Alias, Image: v.Image, Chain: v.Chain, From: v.From,
-		Dir: v.Dir, Folder: v.folder, Volume: v.folderVolume, Backend: v.Backend, BackendAt: v.BackendAt, Created: v.Created, MadeBy: v.MadeBy,
+		Dir: v.Dir, Folder: v.folder, Volume: v.folderVolume, Unchecked: v.folderUnchecked, Backend: v.Backend, BackendAt: v.BackendAt, Created: v.Created, MadeBy: v.MadeBy,
 	})
 	if err != nil {
 		return nil, err
@@ -331,8 +335,22 @@ func (v *VM) FolderVolume() string { return v.folderVolume }
 
 // SetFolder records the project folder's identity, id, and its volume,
 // vol (platform.VolumeOf, "" for none), together: the one way either is
-// written.
-func (v *VM) SetFolder(id, vol string) { v.folder, v.folderVolume = id, vol }
+// written. The volume counts as checked.
+func (v *VM) SetFolder(id, vol string) {
+	v.folder, v.folderVolume, v.folderUnchecked = id, vol, false
+}
+
+// SetFolderUnchecked records id, the identity a renumbered project
+// folder has now, with vol, the volume recorded before, which wasn't
+// read this time: the folder's volume stays to check (FolderUnchecked)
+// until a launch reads it.
+func (v *VM) SetFolderUnchecked(id, vol string) {
+	v.folder, v.folderVolume, v.folderUnchecked = id, vol, true
+}
+
+// FolderUnchecked reports whether Folder is a renumbered folder's
+// identity recorded without its volume read (SetFolderUnchecked).
+func (v *VM) FolderUnchecked() bool { return v.folderUnchecked }
 
 // Exists reports whether the VM has a state file.
 func (v *VM) Exists() bool { return v.exists }

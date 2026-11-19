@@ -345,6 +345,27 @@ func TestWarnAgentFolders(t *testing.T) {
 	up(other, Options{Network: "open"}, "project_agent_folder dir="+other+" folders="+claude)
 }
 
+// A parent folder's VM still mounts a nested folder when code in that VM
+// takes away the parent's read permission, which the host needs to open
+// it but not to reach the folder: the check falls back to the folder's
+// stat, so the VM can't hide from mountedBy.
+func TestMountedByUnreadableParent(t *testing.T) {
+	e, _, _ := upEnv(t, allNative())
+	web := e.Dir
+	webVM := existingVM(t, e, Options{Network: "open"}).Name()
+	lib := subfolder(t, e, web, "src/lib")
+	if err := os.Chmod(web, 0o300); err != nil { //nolint:gosec // a folder: search without read, as a VM could leave it
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(web, 0o700) }) //nolint:gosec // a folder's own mode, back for the cleanup
+	if _, err := platform.StatFolder(web); err == nil {
+		t.Skip("an unreadable folder still opens here, as for root")
+	}
+	if got := (finder{e}).mountedBy(lib); got != webVM {
+		t.Errorf("mountedBy with the parent unreadable = %q, want %q", got, webVM)
+	}
+}
+
 func vmNames(t *testing.T, e *Env) []vmname.VM {
 	t.Helper()
 	ns, err := state.VMNames(e.Dirs)

@@ -571,19 +571,20 @@ func (e finder) inspect(ctx context.Context, f project.Folder, st *state.VM) (*t
 }
 
 // sameFolder reports whether the VM was made for this folder (madeFor),
-// and, when a boot numbered its disk anew since, the folder is on the
-// volume the state records (Env.keepsVolume), so a clone of the disk
-// mounted at the folder's own path isn't taken for it.
+// on the volume the state records (Env.keepsVolume), so a clone of the
+// disk mounted at the folder's own path isn't taken for it. The folder is
+// opened once.
 func (e finder) sameFolder(ctx context.Context, f project.Folder, st *state.VM) bool {
 	if !st.Exists() {
 		return true
 	}
-	id, err := platform.FolderID(f.Dir)
-	return err == nil && st.Dir == f.Dir && platform.SameFolder(st.Dir, st.Folder(), f.Dir, id) && e.keepsVolume(ctx, st, f.Dir, id)
+	// A folder that can't be opened isn't taken for the VM's: the launch is refused.
+	s, ok, _ := madeForOpen(f, st)
+	return ok && e.keepsVolume(ctx, st, s)
 }
 
 // madeFor reports whether the VM was made for this folder: its path, and
-// the folder itself (platform.SameFolder), on whichever device a boot
+// the folder itself (platform.SameOpenFolder), on whichever device a boot
 // numbered its disk. A VM without state has no folder to differ. It looks
 // up no volume, so it takes a folder that sameFolder wouldn't for a VM's,
 // which errs on the safe side for the warnings and the workspace clones
@@ -592,6 +593,21 @@ func madeFor(f project.Folder, st *state.VM) bool {
 	if !st.Exists() {
 		return true
 	}
+	if _, ok, err := madeForOpen(f, st); err == nil {
+		return ok
+	}
+	// A folder that can't be opened, as one whose read permission code in
+	// a VM that mounts it took away, is judged by its stat, which needs
+	// only search permission, so no VM hides from the checks that ask
+	// which VM mounts a folder.
 	id, err := platform.FolderID(f.Dir)
 	return err == nil && st.Dir == f.Dir && platform.SameFolder(st.Dir, st.Folder(), f.Dir, id)
+}
+
+// madeForOpen is madeFor for a VM with state, with the folder as it read
+// it once, opened with no link on its path (platform.StatFolder), and the
+// error when it can't be read so.
+func madeForOpen(f project.Folder, st *state.VM) (platform.FolderStat, bool, error) {
+	s, err := platform.StatFolder(f.Dir)
+	return s, err == nil && st.Dir == f.Dir && platform.SameOpenFolder(st.Dir, st.Folder(), f.Dir, s), err
 }

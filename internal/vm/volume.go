@@ -30,7 +30,7 @@ type volumeCache struct {
 // process (Linux), else Env.Volumes', within wait, asked once a run for each mount; "" when it
 // can't be told, which matches nothing and records nothing.
 func (e *Env) volumeOf(ctx context.Context, s platform.FolderStat, wait time.Duration) string {
-	if s.ReadOnly || !s.Unique || e.Volumes == nil || s.Volume != "" && !e.VolumesOnly {
+	if volumeFree(e, s) {
 		return s.Volume
 	}
 	c := e.volumes
@@ -60,19 +60,27 @@ func (e *Env) volumeOf(ctx context.Context, s platform.FolderStat, wait time.Dur
 	return v
 }
 
-// keepsVolume reports whether the folder at dir, whose identity is id, is on the volume st
-// records for its folder (platform.KeepsVolume), when it's st's folder at its own path on a
-// disk numbered anew since (platform.Renumbered), which a renumbering alone can't tell from a
-// clone of the disk mounted at that path. It's true for any other folder, which SameFolder
-// alone decides, and when the volume can't be told, as for a state that records none; false
-// when the folder at dir isn't the one id names any more.
-func (e *Env) keepsVolume(ctx context.Context, st *state.VM, dir, id string) bool {
-	if !platform.Renumbered(st.Dir, st.Folder(), dir, id) || platform.RecordedVolume(st.Folder(), st.FolderVolume()) == "" {
+// volumeFree reports whether volumeOf tells s's volume without asking e's Volumes, so it costs
+// nothing: on Linux, where the system gives it in the process, and wherever there's none to ask
+// for (read-only, not unique, no Volumes). It's a function, not a method, as Env has the most
+// methods the structure test allows.
+func volumeFree(e *Env, s platform.FolderStat) bool {
+	return s.ReadOnly || !s.Unique || e.Volumes == nil || s.Volume != "" && !e.VolumesOnly
+}
+
+// keepsVolume reports whether the folder s describes, which SameOpenFolder took for st's
+// folder, is on the volume st records for it (platform.KeepsVolume), which a renumbering alone
+// can't tell from a clone of the disk mounted at the folder's path. It looks the volume up when
+// the folder's disk was numbered anew since it was recorded, when the record's volume wasn't
+// checked since a renumbering (state.VM.FolderUnchecked), and at every launch where it costs
+// nothing (volumeFree: Linux). It's true when the state records no volume, or the volume can't
+// be told.
+func (e *Env) keepsVolume(ctx context.Context, st *state.VM, s platform.FolderStat) bool {
+	if platform.RecordedVolume(st.Folder(), st.FolderVolume()) == "" {
 		return true
 	}
-	s, err := platform.StatFolder(dir)
-	if err != nil || !platform.SameFolder(dir, id, dir, s.ID) {
-		return false
+	if platform.RecordedAs(st.Folder(), s) && !st.FolderUnchecked() && !volumeFree(e, s) {
+		return true
 	}
 	return platform.KeepsVolume(st.Folder(), st.FolderVolume(), e.volumeOf(ctx, s, volumeWaitMove))
 }
@@ -82,7 +90,7 @@ func (e *Env) keepsVolume(ctx context.Context, st *state.VM, dir, id string) boo
 // that's the folder id names, its identity its alone; "" otherwise.
 func (e *Env) recordedVolume(ctx context.Context, dir, id string, wait time.Duration) string {
 	s, err := platform.StatFolder(dir)
-	if err != nil || !platform.SameFolder(dir, id, dir, s.ID) {
+	if err != nil || !platform.RecordedAs(id, s) {
 		return "" // no volume a launch could vouch for: none recorded, and today's rule applies
 	}
 	return platform.VolumeOf(e.volumeOf(ctx, s, wait), s.ID)

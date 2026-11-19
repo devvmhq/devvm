@@ -122,6 +122,25 @@ func TestSameFolder(t *testing.T) {
 		if got, want := Renumbered(tc.wasDir, tc.was, tc.at, tc.now), tc.want && tc.was != tc.now; got != want {
 			t.Errorf("%s: Renumbered = %v, want %v", tc.name, got, want)
 		}
+		// The open folder's read, where the caller read the folder's own ID: the same answer,
+		// without opening it again, and RecordedAs only for the ID as recorded.
+		if tc.now != id || tc.at != dir {
+			continue
+		}
+		s, err := StatFolder(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := SameOpenFolder(tc.wasDir, tc.was, tc.at, s); got != tc.want {
+			t.Errorf("%s: SameOpenFolder = %v, want %v", tc.name, got, tc.want)
+		}
+		if got, want := RecordedAs(tc.was, s), tc.name == "as recorded" || tc.name == "moved, as recorded"; got != want {
+			t.Errorf("%s: RecordedAs = %v, want %v", tc.name, got, want)
+		}
+	}
+	// A folder whose ID may be a deleted folder's never matches on another device.
+	if SameOpenFolder(dir, renumbered, dir, FolderStat{ID: id}) {
+		t.Error("SameOpenFolder took an ID that isn't the folder's alone")
 	}
 	if runtime.GOOS == "darwin" && !unique {
 		t.Errorf("a folder on APFS: its ID %q isn't its alone", id)

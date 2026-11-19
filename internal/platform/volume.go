@@ -73,8 +73,9 @@ func OnRecordedDisk(wasID, recorded, dev, vol string) bool {
 }
 
 // KeepsVolume reports whether vol, the volume of the folder at the path recorded for the folder
-// recorded as wasID, which SameFolder took for it on a disk numbered anew since (Renumbered), is
-// the volume recorded with it: the same volume, or none to compare, as for a state that records
+// recorded as wasID, which SameFolder took for it, is the volume recorded with it, as a launch
+// checks it on a disk numbered anew since (Renumbered), for a record whose volume is unchecked,
+// and on Linux at every launch: the same volume, or none to compare, as for a state that records
 // none bound to it or a volume that can't be told ("" ), where the device's rule alone decides.
 // On another volume it's another folder that has the inode and birth time, such as a clone of
 // the disk mounted at the folder's own path.
