@@ -133,6 +133,11 @@ func AgentImportLinkTooBig(path string) M {
 	return M{id: "agent_import_link_too_big", vals: []val{{"path", path}}}
 }
 
+// AgentImportLinkUnreadState is [agent_import_link_unread_state]: "devvm left out {{.path}}, because it leads through a link and devvm couldn't read {{.state}}, so it can't tell whether a VM's project folder holds the link. Run devvm doctor, which names what's wrong, then run devvm agent import again."
+func AgentImportLinkUnreadState(path string, state string) M {
+	return M{id: "agent_import_link_unread_state", vals: []val{{"path", path}, {"state", state}}}
+}
+
 // AgentImportLinkViaVM is [agent_import_link_via_vm]: "devvm left out the link {{.path}}, because it leads through a link in {{.vm}}'s project folder to a place outside it, which {{.vm}} could have chosen."
 func AgentImportLinkViaVM(path string, vm vmname.VM) M {
 	return M{id: "agent_import_link_via_vm", vals: []val{{"path", path}, {"vm", string(vm)}}}
@@ -188,9 +193,14 @@ func AgentImportStatesUnread(path string, why string) M {
 	return M{id: "agent_import_states_unread", vals: []val{{"path", path}, {"why", why}}}
 }
 
-// AgentImportTooMuch is [agent_import_too_much]: "{{.folder}} holds more of {{.agent}}'s settings than one import copies, 20,000 files, folders and links, 128 MiB or a file of 16 MiB, so devvm imported nothing. Take out what the folder doesn't need, such as a plugin's build files, then run devvm agent import again."
+// AgentImportTooMuch is [agent_import_too_much]: "{{.folder}} holds more of {{.agent}}'s settings than one import copies, 20,000 files, folders and links, 128 MiB, a file of 16 MiB, folders 128 deep or a path of 4,096 bytes, so devvm imported nothing. Take out what the folder doesn't need, such as a plugin's build files, then run devvm agent import again."
 func AgentImportTooMuch(agent string, folder string) M {
 	return M{id: "agent_import_too_much", vals: []val{{"agent", agent}, {"folder", folder}}}
+}
+
+// AgentImportUndoFailed is [agent_import_undo_failed]: "Putting {{.stores}} back as they were failed ({{.undo}}) after the import failed ({{.why}}), so they may hold some of the new settings. Copy what you need from {{.dirs}}, which the next import deletes, then run devvm agent import again."
+func AgentImportUndoFailed(dirs string, stores string, undo string, why string) M {
+	return M{id: "agent_import_undo_failed", vals: []val{{"dirs", dirs}, {"stores", stores}, {"undo", undo}, {"why", why}}}
 }
 
 // AgentKeyChanged is [agent_key_changed]: "{{.key}} isn't the key you added to devvm's SSH agent any more, so devvm didn't load it. If you replaced it, run devvm ssh-agent add {{.key}}."
@@ -443,6 +453,11 @@ func AgentSaveRuns() M {
 	return M{id: "agent_save_runs"}
 }
 
+// AgentSaveStoreChanged is [agent_save_store_changed]: "The agent store changed after devvm showed what differs, so nothing of {{.vm}}'s was saved. Run devvm agent save again to see what differs now."
+func AgentSaveStoreChanged(vm vmname.VM) M {
+	return M{id: "agent_save_store_changed", vals: []val{{"vm", string(vm)}}}
+}
+
 // AgentSaveTooMuch is [agent_save_too_much]: "{{.vm}} sent more than devvm saves at once, so devvm saved nothing. Take out what the agents' settings folders don't need, such as a plugin's build files."
 func AgentSaveTooMuch(vm vmname.VM) M {
 	return M{id: "agent_save_too_much", vals: []val{{"vm", string(vm)}}}
@@ -501,6 +516,11 @@ func AgentStoreLink(link string) M {
 // AgentStoreSaving is [agent_store_saving]: "saving into devvm's agent store"
 func AgentStoreSaving() M {
 	return M{id: "agent_store_saving"}
+}
+
+// AgentStoreWaiting is [agent_store_waiting]: "waiting for another devvm to finish writing devvm's agent store"
+func AgentStoreWaiting() M {
+	return M{id: "agent_store_waiting"}
 }
 
 // AgentUnloadFailed is [agent_unload_failed]: "Removing {{.key}} from devvm's SSH agent failed, so devvm kept it on the list of keys it loads. Run devvm ssh-agent rm {{.key}} again."
@@ -5620,6 +5640,7 @@ var specs = map[string]spec{
 	"agent_import_link_project":       {fields: []string{"path", "vm"}},
 	"agent_import_link_refused":       {fields: []string{"path", "target"}},
 	"agent_import_link_too_big":       {fields: []string{"path"}},
+	"agent_import_link_unread_state":  {fields: []string{"path", "state"}},
 	"agent_import_link_via_vm":        {fields: []string{"path", "vm"}},
 	"agent_import_none":               {fields: []string{"agent"}},
 	"agent_import_nothing":            {},
@@ -5632,6 +5653,7 @@ var specs = map[string]spec{
 	"agent_import_root_refused":       {fields: []string{"dir", "place"}},
 	"agent_import_states_unread":      {fields: []string{"path", "why"}},
 	"agent_import_too_much":           {fields: []string{"agent", "folder"}},
+	"agent_import_undo_failed":        {fields: []string{"dirs", "stores", "undo", "why"}},
 	"agent_key_changed":               {fields: []string{"key"}},
 	"agent_key_copy_failed":           {fields: []string{"agent", "vm"}},
 	"agent_key_empty":                 {},
@@ -5682,6 +5704,7 @@ var specs = map[string]spec{
 	"agent_save_reading":              {fields: []string{"vm"}},
 	"agent_save_refused":              {},
 	"agent_save_runs":                 {},
+	"agent_save_store_changed":        {fields: []string{"vm"}},
 	"agent_save_too_much":             {fields: []string{"vm"}},
 	"agent_save_unparsed":             {fields: []string{"path", "vm"}},
 	"agent_save_unsafe":               {fields: []string{"path", "vm"}},
@@ -5694,6 +5717,7 @@ var specs = map[string]spec{
 	"agent_start_failed":              {fields: []string{"sock"}},
 	"agent_store_link":                {fields: []string{"link"}},
 	"agent_store_saving":              {},
+	"agent_store_waiting":             {},
 	"agent_unload_failed":             {fields: []string{"key"}},
 	"agents_help":                     {},
 	"already_stopped":                 {fields: []string{"vm"}},

@@ -380,6 +380,48 @@ func TestAgentImportLinkBounds(t *testing.T) {
 	}
 }
 
+// The walks of every link read at most linkMaxWalked entries in all,
+// those of links left out for the bounds included: a link left out
+// counts what it read, and once the walks have read that much, a link
+// is left out unread, with the same warning; before, it's copied.
+func TestAgentImportLinkWalked(t *testing.T) {
+	im := newImporter(t)
+	dir := paths.Physical(t.TempDir())
+	write(t, dir, map[string]string{"a.md": "a"})
+	for _, walked := range []int{linkMaxWalked - 1, linkMaxWalked} {
+		im.got = nil
+		f := &follower{im: im.AgentImport, budget: &linkBudget{walked: walked}, warned: map[string]bool{}}
+		h := &hostAgent{agent: "claude"}
+		l := &linkOut{p: "skills/x", path: filepath.Join(im.Dirs.Home, ".claude/skills/x"), target: dir, dir: true, root: dir}
+		if err := f.copy(h, l); err != nil {
+			t.Fatal(err)
+		}
+		h.close()
+		if spent := walked >= linkMaxWalked; spent != (len(h.files) == 0) || spent != im.said("agent_import_link_too_big", l.path) {
+			t.Errorf("walked %d: files %q, said %q", walked, h.files, im.got)
+		}
+		if walked < linkMaxWalked && f.budget.walked != walked+2 {
+			t.Errorf("walked %d: counted %d after a folder of one file", walked, f.budget.walked)
+		}
+	}
+	// A link left out for the bounds counts what it read.
+	big := paths.Physical(t.TempDir())
+	for i := range linkMaxEntries {
+		if err := os.WriteFile(filepath.Join(big, strconv.Itoa(i)), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := &follower{im: im.AgentImport, budget: &linkBudget{}, warned: map[string]bool{}}
+	h := &hostAgent{agent: "claude"}
+	if err := f.copy(h, &linkOut{p: "skills/big", path: filepath.Join(im.Dirs.Home, ".claude/skills/big"), target: big, dir: true, root: big}); err != nil {
+		t.Fatal(err)
+	}
+	h.close()
+	if f.budget.entries != 0 || f.budget.walked < linkMaxEntries {
+		t.Errorf("a link left out: entries %d, walked %d", f.budget.entries, f.budget.walked)
+	}
+}
+
 // A file that grows past the bounds after it was listed fails the
 // import as it's read.
 func TestLinkSourceGrown(t *testing.T) {
@@ -630,5 +672,62 @@ func TestOpenPhysical(t *testing.T) {
 	if r, err := openPhysical(filepath.Join(dir, "via/sub")); err == nil {
 		_ = r.Close()
 		t.Error("opened through a link")
+	}
+}
+
+// While a VM's state can't be read, devvm can't tell whether that VM's
+// project folder holds a link, so the import leaves out whatever it
+// would read through a link, naming the state, even with --follow-links:
+// a link out of an agent's folder, and an agent's folder that is a link,
+// its login with it. A link on the way to the home folder itself doesn't
+// count, as the test's home may be below one (macOS's /var). The control:
+// with every state readable, the same links are followed.
+func TestAgentImportLinksUnreadState(t *testing.T) {
+	for _, broken := range []bool{false, true} {
+		im := newImporter(t)
+		home := im.Dirs.Home
+		im.FollowLinks = true
+		write(t, home, map[string]string{
+			".claude/settings.json": "{}", "elsewhere/x/SKILL.md": "# x",
+			"dotfiles/codex/config.toml": "model = \"x\"\n", "dotfiles/codex/auth.json": `{"OPENAI_API_KEY": "k"}`,
+			"dotfiles/opencode-data/auth.json": `{"openai": {"type": "api", "key": "k"}}`,
+		})
+		link(t, home, ".claude/skills/x", filepath.Join(home, "elsewhere/x"))
+		link(t, home, ".codex", filepath.Join(home, "dotfiles/codex"))
+		// opencode's login is outside its folder, behind a link of its own.
+		link(t, home, ".local/share/opencode", filepath.Join(home, "dotfiles/opencode-data"))
+		state := im.Dirs.VM("devvm-gone-0123456789abc5").State()
+		if broken {
+			write(t, filepath.Dir(state), map[string]string{filepath.Base(state): "not json"})
+		}
+		if err := im.Run(t.Context(), []string{"claude", "codex", "opencode"}, true); err != nil {
+			t.Fatalf("broken %v: %v", broken, msg.NamesOf(err))
+		}
+		skill := filepath.Join(agentStore(im.Dirs, "claude"), ".claude/skills/x/SKILL.md")
+		codex := filepath.Join(agentStore(im.Dirs, "codex"), ".codex/config.toml")
+		copied := []bool{isFile(skill), isFile(codex), im.Secrets.HasLogin("codex"), im.Secrets.HasLogin("opencode")}
+		if want := []bool{!broken, !broken, !broken, !broken}; !slices.Equal(copied, want) {
+			t.Errorf("broken %v: the link's skill, the linked folder's file, its login and opencode's login copied %v, want %v: %q", broken, copied, want, im.got)
+		}
+		if !isFile(filepath.Join(agentStore(im.Dirs, "claude"), ".claude/settings.json")) {
+			t.Errorf("broken %v: what no link leads to isn't copied: %q", broken, im.got)
+		}
+		var warned []string
+		for _, g := range im.got {
+			if strings.HasPrefix(g, "agent_import_link_unread_state") {
+				warned = append(warned, g)
+			}
+		}
+		var want []string
+		if broken {
+			want = []string{
+				"agent_import_link_unread_state path=" + filepath.Join(home, ".codex") + " state=" + state,
+				"agent_import_link_unread_state path=" + filepath.Join(home, ".local/share/opencode/auth.json") + " state=" + state,
+				"agent_import_link_unread_state path=" + filepath.Join(home, ".claude/skills/x") + " state=" + state,
+			}
+		}
+		if !slices.Equal(warned, want) {
+			t.Errorf("broken %v: warned %q, want %q", broken, warned, want)
+		}
 	}
 }

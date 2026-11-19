@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
 	"github.com/devvmhq/devvm/internal/agents"
@@ -68,9 +69,9 @@ type hostAgent struct {
 	safe   *safefile.Root
 	listed map[string]listedFile
 	read   int64 // the bytes read of listed's files so far, at most saveMaxBytes
-	// entries counts every entry the import's walk of the folder met,
+	// entries counts every entry the import's walk of the folder read,
 	// links, sockets and the like included, at most saveMaxEntries.
-	entries int
+	entries safefile.Bound
 }
 
 // listedFile is a file of an agent's folder as the import listed it: rel,
@@ -145,7 +146,7 @@ func (h *hostAgent) tooMuch() bool {
 		}
 		bytes += l.fi.Size()
 	}
-	return h.entries > saveMaxEntries || bytes > saveMaxBytes
+	return h.entries.Seen > saveMaxEntries || bytes > saveMaxBytes
 }
 
 // grew counts n bytes more in the copy of the file p, of size bytes, than
@@ -243,15 +244,15 @@ func (im AgentImport) Run(ctx context.Context, names []string, force bool) error
 // opencode and copies what links lead to.
 func (im AgentImport) readAll(ctx context.Context, names []string, all *[]*hostAgent) error {
 	defer im.Status(msg.AgentImportReading())()
-	vms := im.warnProjectsInside(names)
+	folders := im.warnProjectsInside(names)
 	for _, a := range names {
-		h, err := im.read(ctx, a, vms)
+		h, err := im.read(ctx, a, folders)
 		if err != nil {
 			return err
 		}
 		*all = append(*all, h)
 	}
-	return im.followLinks(*all, vms)
+	return im.followLinks(*all, folders)
 }
 
 // confirm asks before an import replaces what the store has of the
@@ -288,8 +289,10 @@ func (im AgentImport) inStore(agent string) bool {
 // through its folder there as a root, so a link that leads out of the
 // folder is never followed here: such a link goes in h.out, for
 // followLinks, and a link to a folder inside it is left out with a
-// warning. A login file that's a link is left out too, always.
-func (im AgentImport) read(ctx context.Context, agent string, vms []projectVM) (*hostAgent, error) {
+// warning. A login file that's a link is left out too, always. A path a
+// VM could have chosen where it leads (projectFolders.chosen), the folder's or
+// the login's, is left out with a warning, the login with its folder.
+func (im AgentImport) read(ctx context.Context, agent string, folders *projectFolders) (*hostAgent, error) {
 	h := &hostAgent{agent: agent}
 	home := im.Dirs.Home
 	folder := agents.Of(agent).Folder
@@ -298,11 +301,11 @@ func (im AgentImport) read(ctx context.Context, agent string, vms []projectVM) (
 	// that a link in a VM's project folder leads out of it, as one that holds the agent's folder
 	// could, is that VM's choice, so the folder is left out.
 	target, hops, lerr := linkHops(path)
-	vm := throughVM(vms, target, hops)
-	if vm != "" {
-		im.Warn(msg.AgentImportLinkViaVM(path, vm))
+	m, chosen := folders.chosen(path, target, hops)
+	if lerr == nil && chosen {
+		im.Warn(m)
 	}
-	if fi, err := os.Stat(target); lerr == nil && vm == "" && err == nil && fi.IsDir() {
+	if fi, err := os.Stat(target); lerr == nil && !chosen && err == nil && fi.IsDir() {
 		if h.root, err = os.OpenRoot(target); err != nil {
 			return nil, err
 		}
@@ -337,7 +340,7 @@ func (im AgentImport) read(ctx context.Context, agent string, vms []projectVM) (
 		return h, nil
 	}
 	login := filepath.Join(home, filepath.FromSlash(secrets.LoginRel(agent)))
-	if vm != "" && paths.Within(login, path) {
+	if lerr == nil && chosen && paths.Within(login, path) {
 		return h, nil // in the folder that the VM's link leads elsewhere, left out with it
 	}
 	fi, err := os.Lstat(login)
@@ -357,8 +360,8 @@ func (im AgentImport) read(ctx context.Context, agent string, vms []projectVM) (
 	// that a VM swaps in on its way since then fails the read rather than lead elsewhere.
 	ltarget, lhops, err := linkHops(login)
 	if err == nil {
-		if lvm := throughVM(vms, ltarget, lhops); lvm != "" {
-			im.Warn(msg.AgentImportLinkViaVM(login, lvm))
+		if m, ok := folders.chosen(login, ltarget, lhops); ok {
+			im.Warn(m)
 			return h, nil
 		}
 		h.login, err = claudeHostLogin(agent, ltarget)
@@ -434,6 +437,9 @@ func (im AgentImport) readSettings(h *hostAgent, folder string) error {
 			inner = append(inner, in)
 		}
 	}
+	// Every entry counts, whatever it is, as the walk reads each, so it
+	// stops at the bound, never reading a folder whole first.
+	h.entries = safefile.Bound{Max: saveMaxEntries}
 	for _, in := range inner {
 		fi, err := h.root.Lstat(filepath.FromSlash(in))
 		switch {
@@ -442,26 +448,27 @@ func (im AgentImport) readSettings(h *hostAgent, folder string) error {
 		case err != nil:
 			return err
 		case fi.Mode()&fs.ModeSymlink != 0:
-			h.entries++
+			if h.entries.Seen++; h.entries.Seen > h.entries.Max {
+				return errFolderTooMany
+			}
 			im.listEntry(h, home, in, fs.FileInfoToDirEntry(fi))
 			continue
 		}
-		err = fs.WalkDir(h.root.FS(), in, func(p string, d fs.DirEntry, err error) error {
+		// Through the folder opened one folder at a time, whose FS opens a folder only as what
+		// it listed, never a link or a FIFO a VM swapped in for it (safefile.ErrSwapped).
+		err = safefile.Walk(h.safe.FS(), in, &h.entries, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
 			if agents.MachineOwn(folder + "/" + p) {
 				return skipEntry(d)
 			}
-			// Every entry counts, whatever it is, as the walk meets each.
-			if h.entries++; h.entries > saveMaxEntries {
-				// Stopped at the bound, though WalkDir has read the folder it's in whole.
-				return errFolderTooMany
-			}
 			im.listEntry(h, home, p, d)
 			return nil
 		})
-		if err != nil {
+		if errors.Is(err, safefile.ErrTooMany) {
+			return errFolderTooMany
+		} else if err != nil {
 			return err
 		}
 	}
@@ -561,20 +568,28 @@ func linkToSetting(agent, home, p string) (string, bool) {
 	return target, ok
 }
 
-// save puts what the agents found have into the store. Their settings are
-// read and written whole into a staging folder of each agent's store
-// first (stage), so a file that fails to read, or that passes the bounds,
-// fails the import with the store as it was. Then they replace the
-// store's in place (apply): each file renamed into place, then whatever
-// the store has that the home folder doesn't taken out, so the folders VMs
-// mount stay the same folders. A file where the store has a folder, or a
-// folder where it has a file, replaces it, as when a link that led to a
-// folder now leads to a file. Their logins replace the store's last. A
+// save puts what the agents found have into the store, all or nothing,
+// holding the store's lock (lockStore). Their settings are read and
+// written whole into a staging folder of each agent's store first
+// (stage), so a file that fails to read, or that passes the bounds, fails
+// the import with the store as it was. Then they replace the store's in
+// place (apply): each file renamed into place, then whatever the store
+// has that the home folder doesn't moved aside, so the folders VMs mount
+// stay the same folders. A file where the store has a folder, or a folder
+// where it has a file, replaces it, as when a link that led to a folder
+// now leads to a file. Their logins replace the store's last, all or none
+// (secrets.SaveLogins). A failure after the first change, a rename
+// or a login, puts back every agent's store as it was (applied.undo). A
 // link on the way to an agent's folder in the store fails it before
 // anything changes (storeGuard). It runs under a status line, as it
 // copies and runs git on each marketplace's config.
 func (im AgentImport) save(ctx context.Context, found []*hostAgent) error {
 	defer im.Status(msg.AgentStoreSaving())()
+	unlock, err := lockStore(ctx, im.Dirs, im.Reporter)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	var all []*importStage
 	defer func() {
 		for _, s := range all {
@@ -590,27 +605,81 @@ func (im AgentImport) save(ctx context.Context, found []*hostAgent) error {
 			all = append(all, s)
 		}
 	}
-	// Interrupted while it staged, the import puts nothing in place.
-	if err := ctx.Err(); err != nil {
+	if err := im.applyAll(ctx, all, found); err != nil {
 		return err
 	}
 	for _, s := range all {
-		if err := im.apply(s); err != nil {
-			return storeErr(err)
-		}
+		im.Info(msg.AgentSettingsImported(s.h.agent, agentStore(im.Dirs, s.h.agent)))
 		folder := agents.Of(s.h.agent).Folder
 		warnMarketplaceSecrets(ctx, im, agentStore(im.Dirs, s.h.agent), marketplaceFiles(folder, s.h.files))
 	}
 	for _, h := range found {
-		if !h.hasLog {
-			continue
+		if h.hasLog {
+			im.Info(msg.AgentLoginImported(h.agent, secrets.LoginFile(im.Dirs, h.agent)))
 		}
-		if err := im.Secrets.SaveLogin(ctx, h.agent, h.login); err != nil {
-			return err
-		}
-		im.Info(msg.AgentLoginImported(h.agent, secrets.LoginFile(im.Dirs, h.agent)))
 	}
 	return nil
+}
+
+// applyAll puts every stage in place (apply), then saves the logins
+// found, all or none, and on a failure undoes every stage's changes,
+// failing with agent_import_undo_failed, which keeps the staging folder
+// of what it couldn't put back, when that fails too. It holds every
+// stage's lock throughout, so an interrupted run's cleanup, which may
+// run meanwhile, waits until the store is whole again; interrupted
+// before it starts, it puts nothing in place.
+func (im AgentImport) applyAll(ctx context.Context, all []*importStage, found []*hostAgent) error {
+	for _, s := range all {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for _, s := range all {
+		if s.gone {
+			return context.Canceled // its cleanup took the staging folder out
+		}
+	}
+	var logins []secrets.Login
+	for _, h := range found {
+		if h.hasLog {
+			logins = append(logins, secrets.Login{Kind: h.agent, Data: h.login})
+		}
+	}
+	var err error
+	done := 0
+	for _, s := range all {
+		if err = im.apply(s); err != nil {
+			break
+		}
+		done++
+	}
+	if err == nil {
+		if err = secrets.SaveLogins(ctx, im.Secrets, logins); err == nil {
+			return nil
+		}
+	}
+	err = storeErr(err)
+	// Every stage that changed anything is put back, the one that failed
+	// included, whichever of them fails to be; each that fails keeps its
+	// staging folder, which holds what wasn't put back.
+	var undos []error
+	var stores, kept []string
+	for i := min(done, len(all)-1); i >= 0; i-- {
+		s := all[i]
+		if undo := s.undo(); undo != nil {
+			s.keep = true
+			undos = append(undos, undo)
+			stores = append(stores, agentStore(im.Dirs, s.h.agent))
+			kept = append(kept, s.tmpPath(im.Dirs))
+		}
+	}
+	if len(undos) > 0 {
+		undo := errors.Join(undos...)
+		return msg.AgentImportUndoFailed(strings.Join(kept, ", "), strings.Join(stores, ", "), undo.Error(), err.Error()).Because(errors.Join(err, undo))
+	}
+	return err
 }
 
 // importStage is an agent's settings written into a staging folder of
@@ -624,6 +693,28 @@ type importStage struct {
 	// remove takes out the cleanup that takes the staging folder out of
 	// an interrupted run (stage).
 	remove func()
+	// mu is held by the apply (applyAll) and by that cleanup, which sets
+	// gone once it took the staging folder out, so neither runs while the
+	// other does.
+	mu   *sync.Mutex
+	gone bool
+	// done is what apply changed in the store, each change's undo, and
+	// aside counts what it moved aside into the staging folder's replaced
+	// folder (asideDir). keep keeps the staging folder at discard: it
+	// holds what an undo that failed couldn't put back.
+	done  []func() error
+	aside int
+	keep  bool
+}
+
+// asideDir is the folder of an import's staging folder that apply moves
+// what it replaces or takes out of the store into, until the import is
+// done: no setting's folder has its name.
+const asideDir = "replaced"
+
+// tmpPath is the staging folder's path.
+func (s *importStage) tmpPath(d paths.Dirs) string {
+	return filepath.Join(agentStore(d, s.h.agent), s.tmp)
 }
 
 // stagePrefix starts the name of an import's staging folder in an agent's
@@ -655,13 +746,15 @@ func sweepStages(config, store string) error {
 	return nil
 }
 
-// discard takes the staging folder out, with what's left in it, and
-// closes the store; a second call does nothing.
+// discard takes the staging folder out, with what's left in it, unless
+// keep, and closes the store; a second call does nothing.
 func (s *importStage) discard() {
 	if s.root == nil {
 		return
 	}
-	_ = s.root.RemoveAll(s.tmp) // best effort: the next import's sweepStages takes out what's left
+	if !s.keep {
+		_ = s.root.RemoveAll(s.tmp) // best effort: the next import's sweepStages takes out what's left
+	}
 	_ = s.root.Close()
 	s.root = nil
 	s.remove() // its cleanup would only do what this RemoveAll did
@@ -691,14 +784,22 @@ func (im AgentImport) stage(h *hostAgent) (_ *importStage, err error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &importStage{h: h, root: root, tmp: stagePrefix + rand.Text()}
+	s := &importStage{h: h, root: root, tmp: stagePrefix + rand.Text(), mu: &sync.Mutex{}}
 	// An interrupted run's cleanups may run while stage or apply still does,
-	// so this one reaches the staging folder through a root of its own.
-	tmp := s.tmp
+	// so this one reaches the staging folder through a root of its own, and
+	// waits for an apply that started (applyAll), which leaves the store
+	// whole, to end.
+	tmp, mu := s.tmp, s.mu
 	s.remove = im.AddCleanup(func(context.Context) {
 		if !im.Interrupted() {
 			return
 		}
+		mu.Lock()
+		defer mu.Unlock()
+		if s.keep {
+			return // it holds what an undo couldn't put back
+		}
+		s.gone = true
 		if r, err := openStoreDir(config, store); err == nil && r != nil {
 			_ = r.RemoveAll(tmp) // best effort, as discard's
 			_ = r.Close()
@@ -723,37 +824,133 @@ func (im AgentImport) stage(h *hostAgent) (_ *importStage, err error) {
 }
 
 // apply puts what s staged in place in the agent's store, as save says,
-// through the one root that stage opened.
+// through the one root that stage opened, keeping each change's undo
+// (s.done): what it replaces or takes out is moved aside into the
+// staging folder (asideDir), a file it replaces kept there as a hard link,
+// so the file is replaced in one rename, and the folders it makes are
+// noted. Nothing it replaces goes until the import is done (discard).
 func (im AgentImport) apply(s *importStage) error {
 	folder := agents.Of(s.h.agent).Folder
 	keep := map[string]bool{}
+	if err := s.root.Mkdir(filepath.Join(s.tmp, asideDir), 0o700); err != nil {
+		return err
+	}
 	for _, p := range s.h.dirs {
 		rel := path.Join(folder, p)
-		if err := clearKind(s.root, rel, true); err != nil {
+		if err := s.clearKind(rel, true); err != nil {
 			return err
 		}
-		if err := s.root.MkdirAll(filepath.FromSlash(rel), 0o700); err != nil {
+		if err := s.mkdirAll(rel); err != nil {
 			return err
 		}
 		markKept(keep, rel)
 	}
 	for _, p := range s.h.files {
 		rel := path.Join(folder, p)
-		if err := clearKind(s.root, rel, false); err != nil {
+		if err := s.clearKind(rel, false); err != nil {
 			return err
 		}
-		if err := s.root.MkdirAll(filepath.FromSlash(path.Dir(rel)), 0o700); err != nil {
+		if err := s.mkdirAll(path.Dir(rel)); err != nil {
 			return err
 		}
-		if err := s.root.Rename(filepath.Join(s.tmp, filepath.FromSlash(rel)), filepath.FromSlash(rel)); err != nil {
+		if err := s.replace(path.Join(s.tmp, rel), rel); err != nil {
 			return err
 		}
 		markKept(keep, rel)
 	}
-	if err := pruneIn(s.root, keep); err != nil { // the staging folder too, kept by nothing
+	keep[s.tmp] = true
+	return pruneIn(s.root, keep, s.tmp, s.moveAside)
+}
+
+// undo puts back what apply changed, the last change first, going on
+// past a change it can't undo, and returns what failed; none when apply
+// changed nothing.
+func (s *importStage) undo() error {
+	var errs []error
+	for i := len(s.done) - 1; i >= 0; i-- {
+		errs = append(errs, s.done[i]())
+	}
+	s.done = nil
+	return errors.Join(errs...)
+}
+
+// moveAside moves what's at rel in the store, relative to it, into the
+// staging folder's asideDir, for undo to move back.
+func (s *importStage) moveAside(rel string) error {
+	s.aside++
+	to := path.Join(s.tmp, asideDir, strconv.Itoa(s.aside))
+	if err := s.root.Rename(filepath.FromSlash(rel), filepath.FromSlash(to)); err != nil {
 		return err
 	}
-	im.Info(msg.AgentSettingsImported(s.h.agent, agentStore(im.Dirs, s.h.agent)))
+	s.done = append(s.done, func() error { return s.root.Rename(filepath.FromSlash(to), filepath.FromSlash(rel)) })
+	return nil
+}
+
+// clearKind moves aside what's at rel in the store, relative to it, when
+// it isn't a folder (dir) or a regular file (!dir), so a folder can be
+// made or a file put there. A link, which only a hand-made store could
+// have, goes too, never followed.
+func (s *importStage) clearKind(rel string, dir bool) error {
+	fi, err := s.root.Lstat(filepath.FromSlash(rel))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return err
+	case dir && fi.IsDir(), !dir && fi.Mode().IsRegular():
+		return nil
+	}
+	return s.moveAside(rel)
+}
+
+// mkdirAll makes the folder rel in the store, relative to it, with the
+// folders above it that aren't there (0700), each one's undo taking it
+// out again.
+func (s *importStage) mkdirAll(rel string) error {
+	var missing []string
+	for p := rel; p != "." && p != "/"; p = path.Dir(p) {
+		_, err := s.root.Lstat(filepath.FromSlash(p))
+		if err == nil {
+			break
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		missing = append(missing, p)
+	}
+	for _, p := range slices.Backward(missing) {
+		if err := s.root.Mkdir(filepath.FromSlash(p), 0o700); err != nil {
+			return err
+		}
+		s.done = append(s.done, func() error { return s.root.Remove(filepath.FromSlash(p)) })
+	}
+	return nil
+}
+
+// replace renames from, a staged file, to rel in the store, both relative
+// to it, where clearKind left nothing or a regular file: that file is
+// kept as a hard link in the staging folder's asideDir first, so the
+// rename replaces it at once and undo can put it back.
+func (s *importStage) replace(from, rel string) error {
+	src, dst := filepath.FromSlash(from), filepath.FromSlash(rel)
+	_, err := s.root.Lstat(dst)
+	if errors.Is(err, fs.ErrNotExist) {
+		if err := s.root.Rename(src, dst); err != nil {
+			return err
+		}
+		s.done = append(s.done, func() error { return s.root.Remove(dst) })
+		return nil
+	} else if err != nil {
+		return err
+	}
+	s.aside++
+	old := filepath.Join(s.tmp, asideDir, strconv.Itoa(s.aside))
+	if err := s.root.Link(dst, old); err != nil {
+		return err
+	}
+	if err := s.root.Rename(src, dst); err != nil {
+		return err
+	}
+	s.done = append(s.done, func() error { return s.root.Rename(old, dst) })
 	return nil
 }
 
@@ -827,24 +1024,6 @@ func (im AgentImport) stageFile(s *importStage, folder, p string) error {
 	return state.WriteFileIn(s.root, filepath.Join(s.tmp, folder, filepath.FromSlash(p)), out, mode)
 }
 
-// clearKind takes out what's at p in the store, relative to it, through
-// root, the store opened from devvm's config folder (makeStoreDir), when
-// it isn't a folder (dir) or a regular file (!dir), so a folder can be
-// made or a file put there. A link, which only a hand-made store could
-// have, goes too, never followed.
-func clearKind(root *os.Root, p string, dir bool) error {
-	fi, err := root.Lstat(filepath.FromSlash(p))
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return nil
-	case err != nil:
-		return err
-	case dir && fi.IsDir(), !dir && fi.Mode().IsRegular():
-		return nil
-	}
-	return root.RemoveAll(filepath.FromSlash(p))
-}
-
 // renamePrefix replaces the folder from, as JSON writes it in a string,
 // with to, where it starts a path.
 func renamePrefix(data []byte, from, to string) []byte {
@@ -876,20 +1055,23 @@ func pruneStore(config, store string, keep map[string]bool) error {
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	return pruneIn(root, keep)
+	return pruneIn(root, keep, "", func(p string) error { return root.RemoveAll(filepath.FromSlash(p)) })
 }
 
-// pruneIn takes out what's in root, a folder of the store opened as
-// pruneStore opens one, that isn't kept.
-func pruneIn(root *os.Root, keep map[string]bool) error {
+// pruneIn takes what's in root, a folder of the store opened as
+// pruneStore opens one, that isn't kept, out with take, each by its path
+// relative to root, but nothing of the folder skip.
+func pruneIn(root *os.Root, keep map[string]bool, skip string, take func(string) error) error {
 	return fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
 		switch {
 		case err != nil:
 			return err
+		case p == skip:
+			return fs.SkipDir
 		case p == "." || keep[p]:
 			return nil
 		}
-		if err := root.RemoveAll(filepath.FromSlash(p)); err != nil {
+		if err := take(p); err != nil {
 			return err
 		}
 		if d.IsDir() {

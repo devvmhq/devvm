@@ -389,7 +389,8 @@ func closeRead(f *File, err error) ([]byte, error) {
 	return f.ReadAll(64)
 }
 
-// A Root's FS opens only regular files, and lists and stats what's there without opening it.
+// A Root's FS opens regular files, and folders to list but never through a link at the name's
+// end, and lists and stats what's there without opening it.
 func TestRootFS(t *testing.T) {
 	t.Parallel()
 	dir, _ := folder(t)
@@ -403,12 +404,28 @@ func TestRootFS(t *testing.T) {
 	if b, err := fs.ReadFile(fsys, "link"); err != nil || string(b) != "file\n" {
 		t.Errorf("ReadFile(link) = %q, %v", b, err)
 	}
-	for _, name := range []string{"fifo", "sub", "."} {
+	for _, name := range []string{"fifo", "sublink"} {
 		if err := within(t, name, func() error { _, err := fsys.Open(name); return err }); !errors.Is(err, ErrNotRegular) {
 			t.Errorf("Open(%s) = %v, want ErrNotRegular", name, err)
 		}
 	}
-	for _, name := range []string{"out", "/etc/passwd", "../x"} {
+	for _, name := range []string{"sub", "."} {
+		f, err := fsys.Open(name)
+		must(t, err)
+		d, ok := f.(fs.ReadDirFile)
+		if !ok {
+			t.Fatalf("Open(%s) isn't a folder to list", name)
+		}
+		es, err := d.ReadDir(1)
+		if err != nil || len(es) != 1 {
+			t.Errorf("Open(%s)'s first entry: %v, %v", name, es, err)
+		}
+		if _, err := f.Read(make([]byte, 1)); err == nil {
+			t.Errorf("Open(%s) read as a file", name)
+		}
+		_ = f.Close()
+	}
+	for _, name := range []string{"out", "outdir", "/etc/passwd", "../x"} {
 		if _, err := fsys.Open(name); err == nil {
 			t.Errorf("Open(%s) opened", name)
 		}

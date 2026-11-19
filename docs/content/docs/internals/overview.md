@@ -260,6 +260,7 @@ Every lock devvm takes is an OS file lock on an open file, which the system lets
 | `tools.lock` | a devvm [writing to the share](images.md#building-tools) or swapping the tools lock |
 | `making.lock` | each devvm making a VM or giving one new shared tools, shared, and `devvm gc --tool-images --force`, alone ([cleaning up](images.md#listing-and-cleaning-up)) |
 | `groups.lock` | a devvm [joining or leaving a group](design.md#groups), or working its links out again |
+| `agents.lock` | a devvm writing the agent store: [an import, a save, or a start cleaning Claude Code's plugins](agents.md#importing) |
 | `custom-secrets.lock` | a devvm [saving or deleting a secret of yours, or binding a VM to one](network.md#where-secrets-are-saved) |
 | `retention.lock` | the devvm applying the [retention settings](../using/settings.md#retention) |
 

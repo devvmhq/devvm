@@ -147,7 +147,7 @@ func TestAgentImportClaudePlugins(t *testing.T) {
 // A link among its entries goes, never what it leads to, and a store whose plugins folder is a
 // link, which only a hand-made store has, is left as it is.
 func TestCleanSeeds(t *testing.T) {
-	d := paths.Dirs{Config: t.TempDir()}
+	d := paths.Dirs{Config: t.TempDir(), Data: t.TempDir()}
 	plugins := filepath.Join(agentStore(d, agents.Claude), ".claude/plugins")
 	claudePluginsHost(t, plugins, "/home/u")
 	outside := t.TempDir()
@@ -159,7 +159,7 @@ func TestCleanSeeds(t *testing.T) {
 	write(t, plugins, map[string]string{".known_marketplaces.json.tmp-123": "{}"})
 	var warned msg.Recorder
 	e := &Env{Dirs: d, Reporter: &msg.Fake{OnWarn: warned.Add}}
-	if err := e.cleanSeeds([]string{"claude"}); err != nil {
+	if err := e.cleanSeeds(t.Context(), []string{"claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(plugins, ".known_marketplaces.json.tmp-123")); err != nil {
@@ -189,13 +189,13 @@ func TestCleanSeeds(t *testing.T) {
 		t.Error("the link's target went")
 	}
 	warned.Reset()
-	if err := e.cleanSeeds([]string{"claude"}); err != nil || len(warned.Names()) > 0 {
+	if err := e.cleanSeeds(t.Context(), []string{"claude"}); err != nil || len(warned.Names()) > 0 {
 		t.Errorf("again: %v, warned %q", err, warned.Names())
 	}
 
 	// No store at all.
-	e = &Env{Dirs: paths.Dirs{Config: t.TempDir()}, Reporter: &msg.Fake{OnWarn: warned.Add}}
-	if err := e.cleanSeeds([]string{"claude"}); err != nil || len(warned.Names()) > 0 {
+	e = &Env{Dirs: paths.Dirs{Config: t.TempDir(), Data: t.TempDir()}, Reporter: &msg.Fake{OnWarn: warned.Add}}
+	if err := e.cleanSeeds(t.Context(), []string{"claude"}); err != nil || len(warned.Names()) > 0 {
 		t.Errorf("no store: %v, warned %q", err, warned.Names())
 	}
 }
@@ -207,7 +207,7 @@ func TestCleanSeeds(t *testing.T) {
 // what could be is taken out and named.
 func TestCleanSeedsFails(t *testing.T) {
 	for _, at := range []string{"agents/claude", "agents/claude/.claude", "agents/claude/.claude/plugins"} {
-		d := paths.Dirs{Config: t.TempDir()}
+		d := paths.Dirs{Config: t.TempDir(), Data: t.TempDir()}
 		host := t.TempDir()
 		claudePluginsHost(t, filepath.Join(host, ".claude/plugins"), host)
 		target := filepath.Join(host, strings.TrimPrefix(strings.TrimPrefix(at, "agents/claude"), "/"))
@@ -219,12 +219,12 @@ func TestCleanSeedsFails(t *testing.T) {
 		}
 		var warned msg.Recorder
 		e := &Env{Dirs: d, Reporter: &msg.Fake{OnWarn: warned.Add}}
-		err := e.cleanSeeds([]string{"claude"})
+		err := e.cleanSeeds(t.Context(), []string{"claude"})
 		if want := "agent_seed_link agent=Claude Code dir=" + filepath.Join(agentStore(d, agents.Claude), ".claude/plugins") +
 			" keep=known_marketplaces.json, marketplaces, cache link=" + filepath.Join(d.Config, at); msg.NamesOf(err) != want || len(warned.Names()) > 0 {
 			t.Errorf("a link at %s: %v, warned %q", at, msg.NamesOf(err), warned.Names())
 		}
-		if err := e.cleanSeeds([]string{"codex"}); err != nil || !slices.Equal(warned.IDs(), []string{"agent_seed_link"}) {
+		if err := e.cleanSeeds(t.Context(), []string{"codex"}); err != nil || !slices.Equal(warned.IDs(), []string{"agent_seed_link"}) {
 			t.Errorf("a link at %s, a VM without Claude Code: %v, warned %q", at, err, warned.Names())
 		}
 		if readFile(t, filepath.Join(host, ".claude/plugins/data/p-m/state.json")) == "" {
@@ -235,7 +235,7 @@ func TestCleanSeedsFails(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root removes what it can't write")
 	}
-	d := paths.Dirs{Config: t.TempDir()}
+	d := paths.Dirs{Config: t.TempDir(), Data: t.TempDir()}
 	plugins := filepath.Join(agentStore(d, agents.Claude), ".claude/plugins")
 	write(t, plugins, map[string]string{"data/p/state.json": "{}", "installed_plugins.json": "{}", "mcpb/b/m.json": "{}"})
 	locked := filepath.Join(plugins, "mcpb/b")
@@ -245,7 +245,7 @@ func TestCleanSeedsFails(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) //nolint:gosec // G302: a folder, writable again for its cleanup
 	var warned msg.Recorder
 	e := &Env{Dirs: d, Reporter: &msg.Fake{OnWarn: warned.Add}}
-	err := e.cleanSeeds([]string{"claude"})
+	err := e.cleanSeeds(t.Context(), []string{"claude"})
 	if msg.IDOf(err) != "agent_seed_clean_failed" {
 		t.Errorf("an entry that can't go: %v", msg.NamesOf(err))
 	}

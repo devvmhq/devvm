@@ -53,7 +53,7 @@ from := copyFrom(r.fd, fi.Size(), 2*r.limit)
 if err := copyAtomic(r.path+".1", io.NewSectionReader(r.fd, from, fi.Size()-from), 0o600); err != nil {
 ```
 
-**Guard:** `safefile`'s reads and `fetch.ReadCapped` have their caps, the structure test's `read-limits` rule fails on an `io.ReadAll` outside tests whose reader isn't an `io.LimitReader` made in the call, unless `unboundedReads` lists its function with why, and tests keep the bounds that reviews found: `TestRotateCopiesAHugeLog`, `TestInLongLine`, `TestLongSecrets`, `TestRotateLockHeld`, `TestNixLockWaits`, `TestBounded`, and `FuzzBrokerFrames` and `FuzzFrameStreams` for the broker's frames. A new input is review only.
+**Guard:** `safefile`'s reads and `fetch.ReadCapped` have their caps, `safefile.Walk` reads a folder in batches and stops at its bound on the entries it reads (`TestWalkBound`), where `fs.WalkDir` reads each folder whole first, the structure test's `read-limits` rule fails on an `io.ReadAll` outside tests whose reader isn't an `io.LimitReader` made in the call, unless `unboundedReads` lists its function with why, and tests keep the bounds that reviews found: `TestRotateCopiesAHugeLog`, `TestInLongLine`, `TestLongSecrets`, `TestRotateLockHeld`, `TestNixLockWaits`, `TestBounded`, and `FuzzBrokerFrames` and `FuzzFrameStreams` for the broker's frames. A new input is review only.
 
 ## Treat what a VM can write as hostile
 

@@ -3248,6 +3248,10 @@ other = "reading this machine's agent settings and logins"
 description = "a status step: devvm agent import or save writes into devvm's agent store and checks each marketplace's git config"
 other = "saving into devvm's agent store"
 
+[agent_store_waiting]
+description = "a status step: devvm agent import, devvm agent save or a start waits while another devvm writes devvm's agent store"
+other = "waiting for another devvm to finish writing devvm's agent store"
+
 [agent_settings_imported]
 other = "devvm imported {{.agent}}'s settings into {{.dir}}."
 
@@ -3305,9 +3309,17 @@ other = "The link {{.path}} leads into {{.vm}}'s project folder, so {{.vm}} can 
 [agent_import_link_via_vm]
 other = "devvm left out the link {{.path}}, because it leads through a link in {{.vm}}'s project folder to a place outside it, which {{.vm}} could have chosen."
 
+[agent_import_link_unread_state]
+description = "path is what devvm agent import left out: a link, or an agent's folder or login reached through one; state is a VM's state file it couldn't read, or the folder of the VMs' states"
+other = "devvm left out {{.path}}, because it leads through a link and devvm couldn't read {{.state}}, so it can't tell whether a VM's project folder holds the link. Run devvm doctor, which names what's wrong, then run devvm agent import again."
+
+[agent_import_undo_failed]
+description = "stores are the folders of agents' settings in devvm's store that weren't put back, comma-separated; why is what failed the import; undo is what failed putting them back; dirs are the staging folders that hold what wasn't put back"
+other = "Putting {{.stores}} back as they were failed ({{.undo}}) after the import failed ({{.why}}), so they may hold some of the new settings. Copy what you need from {{.dirs}}, which the next import deletes, then run devvm agent import again."
+
 [agent_import_too_much]
 description = "folder is the agent's folder in the home folder"
-other = "{{.folder}} holds more of {{.agent}}'s settings than one import copies, 20,000 files, folders and links, 128 MiB or a file of 16 MiB, so devvm imported nothing. Take out what the folder doesn't need, such as a plugin's build files, then run devvm agent import again."
+other = "{{.folder}} holds more of {{.agent}}'s settings than one import copies, 20,000 files, folders and links, 128 MiB, a file of 16 MiB, folders 128 deep or a path of 4,096 bytes, so devvm imported nothing. Take out what the folder doesn't need, such as a plugin's build files, then run devvm agent import again."
 
 [agent_import_states_unread]
 description = "path is a VM's state file, or the folder of the VMs' states, that devvm agent import couldn't read; why is the error"
@@ -3361,6 +3373,10 @@ other = "devvm agent save shows what changed and asks before it saves. Run it in
 
 [nothing_saved]
 other = "nothing saved"
+
+[agent_save_store_changed]
+description = "vm is the VM whose settings devvm agent save would have saved"
+other = "The agent store changed after devvm showed what differs, so nothing of {{.vm}}'s was saved. Run devvm agent save again to see what differs now."
 
 [agent_save_reading]
 description = "a status step: devvm agent save reads the agents' settings from the VM"

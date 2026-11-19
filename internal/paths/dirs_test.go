@@ -136,6 +136,7 @@ func TestFiles(t *testing.T) {
 		{d.ShareLock(), "/d/tools.lock"},
 		{d.RetentionLock(), "/d/retention.lock"},
 		{d.GroupsLock(), "/d/groups.lock"},
+		{d.AgentStoreLock(), "/d/agents.lock"},
 		{d.DefaultLima(), "/d/lima"},
 	}
 	for _, tt := range tests {

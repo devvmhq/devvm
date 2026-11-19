@@ -275,6 +275,12 @@ func ClaudeToken(ctype string, req, reply []byte, placeholder string) (redact.Se
 // on its folder), so its holder can take that one too.
 func LockFolder(dir string) (func(), error) { return lockLogin(filepath.Join(dir, "lock")) }
 
+// LockLogin holds the lock of the login file at path, on its folder, which
+// the proxy holds while it refreshes and writes the login back, so a
+// caller that reads the file and writes it again, or puts it back, never
+// loses a refresh made meanwhile. It returns the unlock.
+func LockLogin(path string) (func(), error) { return lockLogin(path) }
+
 // Remove deletes f, the store's login file, under its lock: none there is no error.
 func (f File) Remove() error {
 	unlock, err := lockLogin(f.Path)

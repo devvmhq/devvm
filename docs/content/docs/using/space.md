@@ -122,6 +122,7 @@ Only you can read it, because each time devvm runs, it makes this folder and the
 | `oci-build.lock` | an empty file that the devvm building a base from a container image on Lima locks, so that one such build runs at a time | it stays, and takes no space |
 | `tools.lock` | an empty file that the devvm building shared tools or updating the tools lock locks, so that one at a time writes to `tools/` | it stays, and takes no space |
 | `groups.lock` | an empty file that each devvm joining or leaving a [group](links.md#groups), or changing a group's links, locks, so that they take turns | it stays, and takes no space |
+| `agents.lock` | an empty file that each devvm writing the [agent store](coding-agents.md#devvms-agent-store) locks, so that they take turns | it stays, and takes no space |
 | `making.lock` | an empty file that each devvm making a VM locks, so that `devvm gc --tool-images` can tell a VM is [being made](images.md#cleaning-up) | it stays, and takes no space |
 | `retention.lock` | an empty file that the devvm applying the [retention settings](settings.md#retention) locks, so that one at a time applies them | it stays, and takes no space |
 | `lima/` | devvm's own [Lima home](../backends/lima.md#devvms-lima-home), with its VMs and images, unless `DEVVM_LIMA_HOME` moves it | see [Lima](#lima) |

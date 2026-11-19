@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -97,12 +98,21 @@ func (sv saver) plans(agents []string) ([]agentPlan, error) {
 	return plans, nil
 }
 
-// applyAll puts every plan into the store, once every plan's paths are
-// checked (checkPlan), so a link on the way to any agent's fails the save
-// before it changes any. It runs under a status line, as it copies and
-// runs git on each marketplace's config.
+// applyAll puts every plan into the store, holding the store's lock
+// (lockStore), once every plan's paths are checked (checkPlan), so a link
+// on the way to any agent's fails the save before it changes any. It runs
+// under a status line, as it copies and runs git on each marketplace's
+// config.
 func (sv saver) applyAll(ctx context.Context, plans []agentPlan) error {
 	defer sv.Status(msg.AgentStoreSaving())()
+	unlock, err := lockStore(ctx, sv.Dirs, sv.Reporter)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := sv.unchanged(plans); err != nil {
+		return err
+	}
 	g := newStoreGuard(sv.Dirs.Config)
 	for _, p := range plans {
 		if err := checkPlan(g, p); err != nil {
@@ -124,6 +134,33 @@ func (sv saver) applyAll(ctx context.Context, plans []agentPlan) error {
 	}
 	return nil
 }
+
+// unchanged reads the store again under its lock and fails, saving
+// nothing (agent_save_store_changed), unless each of plans is what it
+// would plan now: another devvm, such as an import, may have changed the
+// store while the user read the diff, and the plans hold what the store
+// had, placeholders put back from it included. Planning again says
+// nothing (quiet), as the plans' warnings were said.
+func (sv saver) unchanged(plans []agentPlan) error {
+	env := *sv.Env
+	env.Reporter = quiet{sv.Reporter}
+	again := saver{Env: &env, s: sv.s, salt: sv.salt}
+	for _, p := range plans {
+		now, err := again.plan(p.agent)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(now, p) {
+			return msg.AgentSaveStoreChanged(sv.s.vm)
+		}
+	}
+	return nil
+}
+
+// quiet is a Reporter that says no warnings.
+type quiet struct{ msg.Reporter }
+
+func (quiet) Warn(msg.M) {}
 
 // agentsOf returns the agents of named the VM vm has among its shared
 // tools (names), each once, warning about each it doesn't have; with

@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -419,13 +420,29 @@ func agentMounts(d paths.Dirs, tools []string) (dirs, comma []string) {
 // step before the VM runs (starter.bringUp). A folder it can't clean
 // fails the start of a VM with that agent (has, the agents the VM has),
 // which would read the entries, and is a warning for any other VM
-// (agent_seed_clean_failed).
-func (e *Env) cleanSeeds(has []string) error {
+// (agent_seed_clean_failed). It takes them out holding the store's lock
+// (lockStore), once it has found any, so a start with nothing to clean
+// never waits for an import or a save.
+func (e *Env) cleanSeeds(ctx context.Context, has []string) error {
+	var unlock func()
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
+	lock := func() error {
+		if unlock != nil {
+			return nil
+		}
+		var err error
+		unlock, err = lockStore(ctx, e.Dirs, e.Reporter)
+		return err
+	}
 	for _, d := range agents.Defs {
 		store := agentStore(e.Dirs, d.Name)
 		for _, sd := range d.Seeds {
 			dir := filepath.Join(store, filepath.FromSlash(sd.Rel))
-			gone, err := cleanSeed(e.Dirs.Config, store, sd)
+			gone, err := cleanSeed(e.Dirs.Config, store, sd, lock)
 			if len(gone) > 0 {
 				e.Warn(msg.AgentSeedCleaned(d.Display, dir, shownList(gone)))
 			}
@@ -453,8 +470,21 @@ func (e *Env) cleanSeeds(has []string) error {
 // it, and no folder there means nothing mounted. A link among the
 // folder's entries is taken out, never followed. It leaves the temporary
 // files that devvm agent import and save write a seed's entries through
-// (seedTemp), regular files.
-func cleanSeed(config, store string, sd agents.Seed) ([]string, error) {
+// (seedTemp), regular files. Once it finds any to take out, it calls lock,
+// which holds the store's lock, and looks again under it.
+func cleanSeed(config, store string, sd agents.Seed, lock func() error) ([]string, error) {
+	if found, err := seedOwn(config, store, sd, false); err != nil || len(found) == 0 {
+		return nil, err
+	}
+	if err := lock(); err != nil {
+		return nil, err
+	}
+	return seedOwn(config, store, sd, true)
+}
+
+// seedOwn returns what of sd's folder in an agent's store is each
+// machine's own, as cleanSeed says, taking each out when take.
+func seedOwn(config, store string, sd agents.Seed, take bool) ([]string, error) {
 	dir, err := openStoreDir(config, filepath.Join(store, filepath.FromSlash(sd.Rel)))
 	if err != nil || dir == nil {
 		return nil, err
@@ -469,8 +499,10 @@ func cleanSeed(config, store string, sd agents.Seed) ([]string, error) {
 		if !agents.MachineOwn(sd.Rel+"/"+en.Name()) || en.Type().IsRegular() && seedTemp(sd, en.Name()) {
 			continue
 		}
-		if err := dir.RemoveAll(en.Name()); err != nil {
-			return gone, err
+		if take {
+			if err := dir.RemoveAll(en.Name()); err != nil {
+				return gone, err
+			}
 		}
 		gone = append(gone, en.Name())
 	}

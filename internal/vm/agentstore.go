@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -9,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/platform"
 )
 
 // devvm's agent store is below devvm's config folder, and only a hand-made
@@ -20,6 +23,27 @@ import (
 // through it opened from the config folder as a root, every part of its
 // path a folder (openStoreDir, makeStoreDir), so no write follows a link
 // out of it.
+
+// lockStore holds devvm's agent store lock (paths.Dirs.AgentStoreLock)
+// until unlock is called or the process ends, waiting for another devvm
+// that holds it until ctx ends, under a status line (agent_store_waiting)
+// only while it waits. Whatever writes the store holds it while it reads
+// what's there and writes: devvm agent import from its staging to its
+// logins, devvm agent save's writes and a start's clean of a seed's
+// folder (cleanSeeds), so no two of them change it at once. It's an OS
+// lock on a file, which the OS lets go of when the process holding it
+// ends, however it ends.
+func lockStore(ctx context.Context, d paths.Dirs, r msg.Reporter) (unlock func(), err error) {
+	if err := os.MkdirAll(d.Data, 0o700); err != nil {
+		return nil, err
+	}
+	var stop func()
+	unlock, err = platform.LockFileWaiting(ctx, d.AgentStoreLock(), 0, func() { stop = r.Status(msg.AgentStoreWaiting()) })
+	if stop != nil {
+		stop()
+	}
+	return unlock, err
+}
 
 // storeLink is the error for a link at path, on the way to a folder of
 // devvm's agent store (agent_store_link, agent_seed_link).

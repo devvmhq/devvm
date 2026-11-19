@@ -49,6 +49,7 @@ func slowCall(f srcFile, n ast.Node) string {
 		{"path/filepath", "Walk", "walks a folder"},
 		{"path/filepath", "WalkDir", "walks a folder"},
 		{"github.com/devvmhq/devvm/internal/hostsafety", "Walk", "walks a folder"},
+		{"github.com/devvmhq/devvm/internal/safefile", "Walk", "walks a folder"},
 		{"github.com/devvmhq/devvm/internal/platform", "VolumeUUID", "looks up a volume"},
 	} {
 		if pkg := importName(f, c.path); pkg != "" && name == pkg+"."+c.fn {

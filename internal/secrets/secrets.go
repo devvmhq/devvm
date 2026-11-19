@@ -160,6 +160,79 @@ func (s *Store) SaveLogin(ctx context.Context, kind string, data []byte) error {
 	return state.WriteFile(LoginFile(s.Dirs, kind), data)
 }
 
+// Login is a login file's data for SaveLogins: the agent's, or the kind
+// of login's.
+type Login struct {
+	Kind string
+	Data []byte
+}
+
+// loginMax is the most of a login file in devvm's store that devvm reads
+// to put it back (SaveLogins).
+const loginMax = 64 << 20
+
+// SaveLogins saves each login in s (Store.SaveLogin), all or none: before
+// it saves one, it reads the file it replaces, and when one fails, it puts
+// back the files it replaced and takes out those it made, the last saved
+// first, and returns the failure, with what failed putting one back. A
+// file there that it can't read whole, such as a link, fails it before it
+// saves any. It holds each login's lock (agentlogin.LockLogin) throughout,
+// as the proxy does while it refreshes one.
+func SaveLogins(ctx context.Context, s *Store, logins []Login) error {
+	type was struct {
+		file string
+		data []byte // nil: no file there
+	}
+	var olds []was
+	locked := map[string]bool{}
+	for _, l := range logins {
+		file := LoginFile(s.Dirs, l.Kind)
+		// Held throughout, so a refresh by a VM's proxy never lands between the read and a put-back.
+		if dir := filepath.Dir(file); !locked[dir] {
+			if err := state.PrivateDir(dir); err != nil {
+				return err
+			}
+			unlock, err := agentlogin.LockLogin(file)
+			if err != nil {
+				return err
+			}
+			defer unlock()
+			locked[dir] = true
+		}
+		data, err := safefile.Read(file, loginMax, safefile.Opts{})
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			data = nil
+		case err != nil:
+			return err
+		case data == nil:
+			data = []byte{}
+		}
+		olds = append(olds, was{file, data})
+	}
+	for i, l := range logins {
+		err := s.SaveLogin(ctx, l.Kind, l.Data)
+		if err == nil {
+			continue
+		}
+		for j := i; j >= 0; j-- { // the one that failed may have written its file
+			o := olds[j]
+			var undo error
+			if o.data == nil {
+				undo = os.Remove(o.file)
+				if errors.Is(undo, os.ErrNotExist) {
+					undo = nil
+				}
+			} else {
+				undo = state.WriteFile(o.file, o.data)
+			}
+			err = errors.Join(err, undo)
+		}
+		return err
+	}
+	return nil
+}
+
 // loginHosts are the hosts of the token endpoints a VM's agents log in at
 // (agentlogin.Endpoints), which its allowlist has: its proxy captures
 // logins at every VM's, but only these are allowed.

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/agentlogin"
@@ -321,6 +322,61 @@ func TestGet(t *testing.T) {
 	} {
 		if _, err := s.Get(ctx, b); msg.NamesOf(err) != `no_secret secret=`+msg.OneLine(b.Name) {
 			t.Errorf("Get(%+v) = %v", b, msg.NamesOf(err))
+		}
+	}
+}
+
+// SaveLogins saves all or none: when a login fails, the ones it saved
+// before are put back as they were, and one that wasn't there is taken
+// out again; a login file it can't read whole, a link, fails it before it
+// saves any. The control: with nothing failing, every login is saved.
+func TestSaveLogins(t *testing.T) {
+	agentOrder := []string{agents.Claude, agents.Codex, agents.Opencode, agents.Pi}
+	for _, fail := range []string{"", "pi", "link"} {
+		s, _ := testStore(t, false, nil)
+		if err := s.SaveLogin(t.Context(), agents.Claude, []byte("old")); err != nil {
+			t.Fatal(err)
+		}
+		if fail == "link" {
+			codex := LoginFile(s.Dirs, agents.Codex)
+			if err := os.MkdirAll(filepath.Dir(codex), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(LoginFile(s.Dirs, agents.Claude), codex); err != nil {
+				t.Fatal(err)
+			}
+		}
+		saved, held := 0, true
+		s.ExcludeFromBackup = func(context.Context, string) error {
+			// Each login's lock, the proxy's on its folder, is held while it's saved.
+			d, err := os.Open(filepath.Dir(LoginFile(s.Dirs, agentOrder[saved])))
+			if err == nil {
+				if syscall.Flock(int(d.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+					held = false
+				}
+				_ = d.Close()
+			}
+			if saved++; fail == "pi" && saved == 4 {
+				return errors.New("no more")
+			}
+			return nil
+		}
+		err := SaveLogins(t.Context(), s, []Login{
+			{agents.Claude, []byte("new")}, {agents.Codex, []byte("{}")}, {agents.Opencode, []byte("{}")}, {agents.Pi, []byte("{}")},
+		})
+		claude, _ := os.ReadFile(LoginFile(s.Dirs, agents.Claude))
+		have := []bool{s.HasLogin(agents.Opencode), s.HasLogin(agents.Pi)}
+		if fail == "" {
+			if err != nil || string(claude) != "new" || !slices.Equal(have, []bool{true, true}) || !s.HasLogin(agents.Codex) || !held {
+				t.Errorf("nothing fails: %v, claude %q, opencode and pi %v, locks held %v", err, claude, have, held)
+			}
+			continue
+		}
+		if err == nil || string(claude) != "old" || !slices.Equal(have, []bool{false, false}) {
+			t.Errorf("%s fails: %v, claude %q, opencode and pi %v", fail, err, claude, have)
+		}
+		if fi, err := os.Lstat(LoginFile(s.Dirs, agents.Codex)); fail == "pi" && err == nil || fail == "link" && (err != nil || fi.Mode()&os.ModeSymlink == 0) {
+			t.Errorf("%s fails: codex's login %v, %v", fail, fi, err)
 		}
 	}
 }

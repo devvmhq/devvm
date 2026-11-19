@@ -235,8 +235,9 @@ func (r *Root) ReadDir() ([]fs.DirEntry, error) { return fs.ReadDir(r.root.FS(),
 // Stat is what the root's own folder is, as it was opened.
 func (r *Root) Stat() (fs.FileInfo, error) { return r.root.Stat(".") }
 
-// FS is the root as an fs.FS: Open opens only regular files, following links in the root
-// (Follow); Stat and ReadDir read what's there, opening no file.
+// FS is the root as an fs.FS: Open opens regular files, following links in the root (Follow),
+// and folders, never through a link at the name's end, for Walk to list a batch at a time; Stat
+// and ReadDir read what's there, opening no file.
 func (r *Root) FS() fs.FS { return rootFS{r} }
 
 type rootFS struct{ r *Root }
@@ -245,11 +246,30 @@ func (f rootFS) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
 	}
+	if fi, err := f.r.root.Lstat(filepath.FromSlash(name)); err == nil && fi.IsDir() {
+		return f.openDir(name, fi)
+	}
 	file, err := f.r.Open(filepath.FromSlash(name), Opts{Follow: true})
 	if err != nil {
 		return nil, err
 	}
 	return file.File, nil
+}
+
+// openDir opens the folder at name, which Lstat found to be fi, and fails unless what it opened
+// is that folder (ErrSwapped), without waiting on a FIFO put in its place (noBlock). os.Root
+// follows a link at the name's end within the root whatever the flags, so the SameFile check
+// is what refuses a link put in its place since.
+func (f rootFS) openDir(name string, fi fs.FileInfo) (fs.File, error) {
+	d, err := f.r.root.OpenFile(filepath.FromSlash(name), os.O_RDONLY|noBlock|noFollow, 0)
+	if err != nil {
+		return nil, err
+	}
+	if got, err := d.Stat(); err != nil || !os.SameFile(fi, got) {
+		_ = d.Close()
+		return nil, &fs.PathError{Op: "open", Path: name, Err: ErrSwapped}
+	}
+	return d, nil
 }
 
 func (f rootFS) Stat(name string) (fs.FileInfo, error) { return fs.Stat(f.r.root.FS(), name) }

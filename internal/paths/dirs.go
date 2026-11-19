@@ -308,6 +308,11 @@ func (d Dirs) RetentionLock() string { return filepath.Join(d.Data, "retention.l
 // turns.
 func (d Dirs) GroupsLock() string { return filepath.Join(d.Data, "groups.lock") }
 
+// AgentStoreLock is the lock file each devvm writing the agent store
+// (AgentSettings, and the logins devvm agent import saves with them)
+// holds while it writes, so that they take turns.
+func (d Dirs) AgentStoreLock() string { return filepath.Join(d.Data, "agents.lock") }
+
 // Layers holds the user's own layers.
 func (d Dirs) Layers() string { return filepath.Join(d.Config, "layers") }
 

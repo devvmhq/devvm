@@ -120,7 +120,7 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 func (s starter) check(ctx context.Context, t *target, o upOpts) (mountsLater bool, err error) {
 	vm, st, b := t.f.Name, t.st, t.b
 	defer s.Status(msg.CheckingVM(vm))()
-	if err := s.cleanSeeds(image.AgentsOf(tools.Names(st))); err != nil {
+	if err := s.cleanSeeds(ctx, image.AgentsOf(tools.Names(st))); err != nil {
 		return false, err
 	}
 	if err := s.instance(ctx, t, o); err != nil {

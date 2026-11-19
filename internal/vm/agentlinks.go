@@ -35,6 +35,11 @@ const (
 	linkMaxBytes   = saveMaxBytes
 	linkMaxFile    = saveMaxFile
 	linkMaxEntries = saveMaxEntries
+	// linkMaxWalked is the most entries the walks of every link read,
+	// those left out for the bounds included: once they've read it, the
+	// rest are left out unread, so links that each pass the bounds can't
+	// make an import read without end.
+	linkMaxWalked = 4 * linkMaxEntries
 )
 
 // linkOut is a link among an agent's settings that leads out of its
@@ -126,10 +131,12 @@ type linkSource struct {
 }
 
 // linkBudget is what the import has copied through links so far:
-// entries listed and bytes, as listed (listed) and as read (read).
+// entries listed and bytes, as listed (listed) and as read (read); and
+// the entries every link's walk read (walked), at most about
+// linkMaxWalked.
 type linkBudget struct {
-	entries      int
-	listed, read int64
+	entries, walked int
+	listed, read    int64
 }
 
 // read reads s's file, the bytes it has left of linkMaxBytes, and at most
@@ -214,8 +221,10 @@ func (im AgentImport) linkRoots() ([]string, error) {
 // its own target; without, the import names them and asks, and a no, or
 // no way to ask, leaves each out with a warning naming --follow-links.
 // Each link followed is named, and its files listed in its agent's
-// (follower.copy). vms are the VMs the import read at its start.
-func (im AgentImport) followLinks(all []*hostAgent, vms []projectVM) error {
+// (follower.copy). One a VM could have chosen (projectFolders.chosen) is left
+// out with a warning, whatever allows it. folders are the VMs' folders
+// the import read at its start.
+func (im AgentImport) followLinks(all []*hostAgent, folders *projectFolders) error {
 	var out []*linkOut
 	owner := map[*linkOut]*hostAgent{}
 	for _, h := range all {
@@ -231,15 +240,15 @@ func (im AgentImport) followLinks(all []*hostAgent, vms []projectVM) error {
 	if err != nil {
 		return err
 	}
-	f := &follower{im: im, budget: &linkBudget{}, vms: vms, warned: map[string]bool{}}
+	f := &follower{im: im, budget: &linkBudget{}, folders: folders, warned: map[string]bool{}}
 	var follow, ask []*linkOut
 	for _, l := range out {
 		if place := refusedPlace(im.Dirs, l.target); place != "" {
 			im.Warn(msg.AgentImportLinkRefused(l.path, l.target))
 			continue
 		}
-		if vm := f.through(l); vm != "" {
-			im.Warn(msg.AgentImportLinkViaVM(l.path, vm))
+		if m, ok := folders.chosen(l.path, l.target, l.hops); ok {
+			im.Warn(m)
 			continue
 		}
 		if i := slices.IndexFunc(roots, func(r string) bool { return paths.Within(l.target, r) }); i >= 0 {
@@ -293,13 +302,13 @@ func (im AgentImport) askLinks(f *follower, ask []*linkOut) (bool, error) {
 
 // follower copies what the import follows links to, within its bounds
 // (budget), and warns once for each link and VM whose project folder it
-// reads from (warned). vms are the VMs the import read at its start
-// (warnProjectsInside).
+// reads from (warned). folders are the VMs' folders the import read at its
+// start (warnProjectsInside).
 type follower struct {
-	im     AgentImport
-	budget *linkBudget
-	vms    []projectVM
-	warned map[string]bool
+	im      AgentImport
+	budget  *linkBudget
+	folders *projectFolders
+	warned  map[string]bool
 }
 
 // projectVM is a VM's name and its project folder's physical path.
@@ -308,27 +317,66 @@ type projectVM struct {
 	dir  string
 }
 
-// projectVMs are the VMs devvm has, each with its project folder, and the
-// states it couldn't read, each a warning (agent_import_states_unread):
-// the VMs' folder, when it can't be read, or a VM's vm.json.
-func projectVMs(d paths.Dirs) ([]projectVM, []msg.M) {
+// projectFolders is what devvm agent import knows of the VMs' project folders,
+// as it read them at its start: each VM's (vms), and the states it
+// couldn't read (unread), each by its path, whose VMs' folders it can't
+// check, and the links on the way to the home folder itself (homeHops),
+// which no project folder can hold, as devvm refuses one that holds the
+// home folder.
+type projectFolders struct {
+	vms      []projectVM
+	unread   []string
+	homeHops []string
+}
+
+// readProjectFolders reads the VMs devvm has, each with its project folder,
+// and the states it couldn't read, each a warning
+// (agent_import_states_unread): the VMs' folder, when it can't be read,
+// or a VM's vm.json.
+func readProjectFolders(d paths.Dirs) (*projectFolders, []msg.M) {
+	f := &projectFolders{}
+	if _, hops, err := linkHops(d.Home); err == nil {
+		f.homeHops = hops // else every link counts
+	}
 	inv, err := ReadStates(d)
 	if err != nil {
-		return nil, []msg.M{msg.AgentImportStatesUnread(d.VMs(), err.Error())}
+		f.unread = []string{d.VMs()}
+		return f, []msg.M{msg.AgentImportStatesUnread(d.VMs(), err.Error())}
 	}
 	var unread []msg.M
 	for _, k := range inv.VMs {
 		if k.Err != nil {
+			f.unread = append(f.unread, k.Path)
 			unread = append(unread, msg.AgentImportStatesUnread(k.Path, k.Err.Error()))
 		}
 	}
-	var vms []projectVM
 	for _, r := range inv.Recorded() {
 		if r.Dir != "" {
-			vms = append(vms, projectVM{name: r.Name, dir: paths.Physical(r.Dir)})
+			f.vms = append(f.vms, projectVM{name: r.Name, dir: paths.Physical(r.Dir)})
 		}
 	}
-	return vms, unread
+	return f, unread
+}
+
+// chosen returns the warning that leaves out path, which leads to target
+// through the links hops (linkHops'), when a VM could have chosen where it
+// leads, and whether there is one: when it leads through a link in a VM's
+// project folder to a place outside it (throughVM,
+// agent_import_link_via_vm), or through any link but those on the way to
+// the home folder while a VM's state can't be read, as devvm can't tell
+// whether that VM's project folder holds it
+// (agent_import_link_unread_state). A nil f knows of no VM.
+func (f *projectFolders) chosen(path, target string, hops []string) (msg.M, bool) {
+	if f == nil {
+		return msg.M{}, false
+	}
+	if vm := throughVM(f.vms, target, hops); vm != "" {
+		return msg.AgentImportLinkViaVM(path, vm), true
+	}
+	if len(f.unread) > 0 && slices.ContainsFunc(hops, func(h string) bool { return !slices.Contains(f.homeHops, h) }) {
+		return msg.AgentImportLinkUnreadState(path, strings.Join(f.unread, ", ")), true
+	}
+	return msg.M{}, false
 }
 
 // warnProjectsInside warns of each VM whose project folder is inside the
@@ -337,21 +385,21 @@ func projectVMs(d paths.Dirs) ([]projectVM, []msg.M) {
 // import copies, and every VM with the agent then reads it. A state it
 // can't read, whose VM's folder it can't check, is a warning of its own
 // (agent_import_states_unread). It returns the VMs it checked, which read
-// takes too.
-func (im AgentImport) warnProjectsInside(names []string) []projectVM {
-	vms, unread := projectVMs(im.Dirs)
+// and followLinks take too.
+func (im AgentImport) warnProjectsInside(names []string) *projectFolders {
+	f, unread := readProjectFolders(im.Dirs)
 	for _, m := range unread {
 		im.Warn(m)
 	}
 	for _, a := range names {
 		folder := filepath.Join(im.Dirs.Home, agents.Of(a).Folder)
-		for _, v := range vms {
+		for _, v := range f.vms {
 			if overlapsAgent(v.dir, folder) {
 				im.Warn(msg.AgentImportProjectInside(v.dir, folder, v.name))
 			}
 		}
 	}
-	return vms
+	return f
 }
 
 // overlapsAgent reports whether dir, a project folder's physical path, is
@@ -385,12 +433,6 @@ func (e Launch) warnAgentFolders(t *target, clone bool) {
 	}
 }
 
-// through returns the VM, if any, whose project folder a link on l's way
-// is in (l.hops) while l's target isn't: that VM chose where l leads, so
-// l could lead to any file of this machine's, and it's left out, whatever
-// allows it.
-func (f *follower) through(l *linkOut) vmname.VM { return throughVM(f.vms, l.target, l.hops) }
-
 // throughVM returns the VM of vms, if any, whose project folder a link on
 // the way to target (hops, linkHops') is in while target isn't: that VM
 // chose where the path leads, so it could lead to any file of this
@@ -412,8 +454,11 @@ func throughVM(vms []projectVM, target string, hops []string) vmname.VM {
 // once for each link and VM: that VM can change what every VM's agent
 // reads from there. A --clone VM's folder is its clone's source.
 func (f *follower) projects(path, target string, dir bool) []msg.M {
+	if f.folders == nil {
+		return nil
+	}
 	var ms []msg.M
-	for _, v := range f.vms {
+	for _, v := range f.folders.vms {
 		key := path + "\x00" + v.name.String()
 		in := paths.In(target, v.dir) || dir && paths.In(v.dir, target)
 		if f.warned[key] || !in {
@@ -441,8 +486,16 @@ func (f *follower) copy(h *hostAgent, l *linkOut) error {
 		return err
 	}
 	ls := listing{f: f, root: root, l: l, base: filepath.ToSlash(rel), folder: agents.Of(h.agent).Folder}
-	if err := fs.WalkDir(root.FS(), ls.base, ls.visit); err != nil {
-		if errors.Is(err, errTooMany) {
+	if f.budget.walked >= linkMaxWalked {
+		f.im.Warn(msg.AgentImportLinkTooBig(l.path)) // the links left out already read as much as the walks may
+		return nil
+	}
+	// The entries of every link followed count together, as the walk reads each.
+	entries := safefile.Bound{Max: linkMaxEntries, Seen: f.budget.entries}
+	if err := safefile.Walk(root.FS(), ls.base, &entries, ls.visit); err != nil {
+		if errors.Is(err, errTooMany) || errors.Is(err, safefile.ErrTooMany) {
+			// What it read counts against the walks' own bound (linkMaxWalked).
+			f.budget.walked += entries.Seen - f.budget.entries
 			f.im.Warn(msg.AgentImportLinkTooBig(l.path))
 			return nil
 		}
@@ -460,7 +513,8 @@ func (f *follower) copy(h *hostAgent, l *linkOut) error {
 		h.files = append(h.files, p.in)
 		h.from[p.in] = linkSource{root: root, name: filepath.FromSlash(p.name), follow: p.follow, budget: f.budget, link: l.path}
 	}
-	f.budget.entries += ls.entries
+	f.budget.walked += entries.Seen - f.budget.entries
+	f.budget.entries = entries.Seen
 	f.budget.listed += ls.bytes
 	return nil
 }
@@ -474,16 +528,15 @@ var errTooMany = errors.New("past the bounds of what an import copies through li
 // the home folder) (in), with the warnings it gives once the link is
 // followed (warn).
 type listing struct {
-	f       *follower
-	root    *safefile.Root
-	l       *linkOut
-	base    string
-	folder  string
-	dirs    []string
-	files   []linkFile
-	warn    []msg.M
-	entries int
-	bytes   int64
+	f      *follower
+	root   *safefile.Root
+	l      *linkOut
+	base   string
+	folder string
+	dirs   []string
+	files  []linkFile
+	warn   []msg.M
+	bytes  int64
 }
 
 // linkFile is a file a listing found: in, its path in the agent's
@@ -514,10 +567,6 @@ func (ls *listing) visit(name string, d fs.DirEntry, err error) error {
 	}
 	if agents.MachineOwn(ls.folder + "/" + in) {
 		return skipEntry(d)
-	}
-	ls.entries++
-	if ls.f.budget.entries+ls.entries > linkMaxEntries {
-		return errTooMany
 	}
 	host := filepath.Join(ls.l.root, filepath.FromSlash(name))
 	switch {
