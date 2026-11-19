@@ -113,6 +113,11 @@ func AgentImportLinkNotFollowed(path string, target string) M {
 	return M{id: "agent_import_link_not_followed", vals: []val{{"path", path}, {"target", target}}}
 }
 
+// AgentImportLinkNotSetting is [agent_import_link_not_setting]: "devvm left out the link {{.path}}, because it leads to {{.target}}, which isn't one of the agent's settings."
+func AgentImportLinkNotSetting(path string, target string) M {
+	return M{id: "agent_import_link_not_setting", vals: []val{{"path", path}, {"target", target}}}
+}
+
 // AgentImportLinkProject is [agent_import_link_project]: "The link {{.path}} leads into {{.vm}}'s project folder, so {{.vm}} can change what every VM's agent reads. Follow links into it only when you trust {{.vm}}."
 func AgentImportLinkProject(path string, vm vmname.VM) M {
 	return M{id: "agent_import_link_project", vals: []val{{"path", path}, {"vm", string(vm)}}}
@@ -151,6 +156,11 @@ func AgentImportOpencodeFailed(reason string) M {
 // AgentImportOpencodeSkipped is [agent_import_opencode_skipped]: "devvm left out opencode's {{.label}} login for {{.provider}}, because VMs can't use it. Log in from a VM with devvm agent login opencode instead."
 func AgentImportOpencodeSkipped(label string, provider string) M {
 	return M{id: "agent_import_opencode_skipped", vals: []val{{"label", label}, {"provider", provider}}}
+}
+
+// AgentImportReadFailed is [agent_import_read_failed]: "{{.file}} couldn't be read ({{.why}}), so it isn't imported. If it changed while devvm read it, run devvm agent import again."
+func AgentImportReadFailed(file string, why string) M {
+	return M{id: "agent_import_read_failed", vals: []val{{"file", file}, {"why", why}}}
 }
 
 // AgentImportReplace is [agent_import_replace]: "Replace what devvm's agent store has of {{.agents}} with this machine's settings and logins?"
@@ -451,6 +461,11 @@ func AgentSettingsSaved(agent string, dir string, vm vmname.VM) M {
 // AgentStartFailed is [agent_start_failed]: "The SSH agent devvm runs didn't start at {{.sock}}."
 func AgentStartFailed(sock string) M {
 	return M{id: "agent_start_failed", vals: []val{{"sock", sock}}}
+}
+
+// AgentStoreLink is [agent_store_link]: "{{.link}} is a link, and devvm never writes its agent store through a link. Replace the link with a folder of its own, then run the command again."
+func AgentStoreLink(link string) M {
+	return M{id: "agent_store_link", vals: []val{{"link", link}}}
 }
 
 // AgentUnloadFailed is [agent_unload_failed]: "Removing {{.key}} from devvm's SSH agent failed, so devvm kept it on the list of keys it loads. Run devvm ssh-agent rm {{.key}} again."
@@ -5436,6 +5451,7 @@ var specs = map[string]spec{
 	"agent_import_link_followed":      {fields: []string{"path", "target"}},
 	"agent_import_link_left_out":      {fields: []string{"path"}},
 	"agent_import_link_not_followed":  {fields: []string{"path", "target"}},
+	"agent_import_link_not_setting":   {fields: []string{"path", "target"}},
 	"agent_import_link_project":       {fields: []string{"path", "vm"}},
 	"agent_import_link_refused":       {fields: []string{"path", "target"}},
 	"agent_import_link_too_big":       {fields: []string{"path"}},
@@ -5444,6 +5460,7 @@ var specs = map[string]spec{
 	"agent_import_nothing":            {},
 	"agent_import_opencode_failed":    {fields: []string{"reason"}},
 	"agent_import_opencode_skipped":   {fields: []string{"label", "provider"}},
+	"agent_import_read_failed":        {fields: []string{"file", "why"}},
 	"agent_import_replace":            {fields: []string{"agents"}},
 	"agent_import_root_refused":       {fields: []string{"dir", "place"}},
 	"agent_key_changed":               {fields: []string{"key"}},
@@ -5504,6 +5521,7 @@ var specs = map[string]spec{
 	"agent_settings_imported":         {fields: []string{"agent", "dir"}},
 	"agent_settings_saved":            {fields: []string{"agent", "dir", "vm"}},
 	"agent_start_failed":              {fields: []string{"sock"}},
+	"agent_store_link":                {fields: []string{"link"}},
 	"agent_unload_failed":             {fields: []string{"key"}},
 	"agents_help":                     {},
 	"already_stopped":                 {fields: []string{"vm"}},

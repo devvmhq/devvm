@@ -235,6 +235,126 @@ func TestAgentImportLinks(t *testing.T) {
 	}
 }
 
+// A link to a file inside the agent's folder is copied only when that file
+// is itself among the agent's settings, which the import would copy: one
+// into what of a seed's folder is this machine's own, such as a plugin's
+// data, or to its history or its login, is left out with a warning naming
+// where it leads. The control: a link to a settings file is a copy.
+func TestAgentImportLinksInsideToSettingsOnly(t *testing.T) {
+	im := newImporter(t)
+	home := im.Dirs.Home
+	write(t, home, map[string]string{
+		".claude/CLAUDE.md":                       "notes",
+		".claude/plugins/data/p/token.json":       "plugin data",
+		".claude/plugins/known_marketplaces.json": "{}",
+		".claude/plugins/cache/m/p/SKILL.md":      "# p",
+		".claude/projects/p/h.jsonl":              "history",
+		".claude/.credentials.json":               "login",
+		".claude/skills/s/SKILL.md":               "# s",
+	})
+	claude := filepath.Join(home, ".claude")
+	links := map[string]string{
+		"plugins/cache/m/p/data.json": "../../../data/p/token.json",
+		"skills/s/history.md":         "../../projects/p/h.jsonl",
+		"skills/s/login.md":           "../../.credentials.json",
+		"skills/s/notes.md":           "../../CLAUDE.md",
+		// Another spelling of a setting, which a file system that ignores case finds.
+		"skills/s/case.md": "../../claude.md",
+	}
+	for name, target := range links {
+		if err := os.Symlink(target, filepath.Join(claude, filepath.FromSlash(name))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := im.Run(t.Context(), []string{"claude"}, false); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	store := filepath.Join(agentStore(im.Dirs, "claude"), ".claude")
+	if got := readFile(t, filepath.Join(store, "skills/s/notes.md")); got != "notes" {
+		t.Errorf("a link to a settings file = %q", got)
+	}
+	for _, name := range []string{"plugins/cache/m/p/data.json", "skills/s/history.md", "skills/s/login.md"} {
+		if _, err := os.Lstat(filepath.Join(store, filepath.FromSlash(name))); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s copied: %v", name, err)
+		}
+		p := filepath.Join(claude, filepath.FromSlash(name))
+		target, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(im.got, "agent_import_link_not_setting path="+p+" target="+target) {
+			t.Errorf("no warning for %s: %q", name, im.got)
+		}
+	}
+	// Another spelling: on a file system that ignores case it leads to CLAUDE.md, and still
+	// isn't copied; on one that doesn't, it leads nowhere.
+	if _, err := os.Lstat(filepath.Join(store, "skills/s/case.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("case.md copied: %v", err)
+	}
+	if !slices.ContainsFunc(im.got, func(s string) bool { return strings.Contains(s, "path="+filepath.Join(claude, "skills/s/case.md")) }) {
+		t.Errorf("no warning for case.md: %q", im.got)
+	}
+}
+
+// What the import listed is what it reads: a link checked as leading to a
+// setting, then turned to the agent's login, a file turned into a link to
+// its history, and a folder turned into a link to the agent's folder, as
+// a VM whose project folder is in a settings folder could between the
+// listing and the read, fail the import, and the store gets none of them.
+// The control: the same import with nothing swapped copies each.
+func TestAgentImportSwappedAfterListing(t *testing.T) {
+	for _, swap := range []bool{false, true} {
+		im := newImporter(t)
+		home := im.Dirs.Home
+		claude := filepath.Join(home, ".claude")
+		write(t, home, map[string]string{
+			".claude/CLAUDE.md":                 "notes",
+			".claude/.credentials.json":         "SECRET LOGIN",
+			".claude/history.jsonl":             "SECRET HISTORY",
+			".claude/skills/vm/a.md":            "a",
+			".claude/skills/vm/d/history.jsonl": "d",
+		})
+		vm := filepath.Join(claude, "skills/vm")
+		if err := os.Symlink("../../CLAUDE.md", filepath.Join(vm, "x.md")); err != nil {
+			t.Fatal(err)
+		}
+		h, err := im.read(t.Context(), "claude")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if swap {
+			for name, target := range map[string]string{"x.md": "../../.credentials.json", "a.md": "../../history.jsonl", "d": "../.."} {
+				if err := os.RemoveAll(filepath.Join(vm, name)); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(vm, name)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		err = im.save(t.Context(), h)
+		h.close()
+		store := filepath.Join(agentStore(im.Dirs, "claude"), ".claude/skills/vm")
+		if !swap {
+			if err != nil || readFile(t, filepath.Join(store, "x.md")) != "notes" || readFile(t, filepath.Join(store, "a.md")) != "a" {
+				t.Errorf("nothing swapped: %v", err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Error("swapped: no error")
+		}
+		_ = filepath.WalkDir(agentStore(im.Dirs, "claude"), func(p string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() {
+				if got := readFile(t, p); strings.HasPrefix(got, "SECRET") {
+					t.Errorf("%s = %q", p, got)
+				}
+			}
+			return nil
+		})
+	}
+}
+
 // opencode's folder, which import copies whole, treats its links as the
 // other agents' folders do: one to a file inside is copied as that file,
 // and one out of the folder (after a no), or to a folder inside it, is
@@ -377,6 +497,97 @@ func TestAgentImportReplaces(t *testing.T) {
 	}
 	if slices.ContainsFunc(im.got, func(s string) bool { return strings.HasPrefix(s, "asked") }) {
 		t.Errorf("asked with force: %q", im.got)
+	}
+}
+
+// An import never writes devvm's agent store through a link, which only
+// a hand-made store could have: a link anywhere on the way to an agent's
+// folder in the store, from devvm's config folder down, fails the import,
+// naming it, before anything is written or taken out, so the folder the
+// link leads to keeps what it has, and the store has none of the import,
+// a settings file above a linked settings folder included.
+func TestAgentImportLinkedStore(t *testing.T) {
+	for _, at := range []string{"agents", "agents/claude", "agents/claude/.claude", "agents/claude/.claude/skills", "agents/claude/.claude/skills/s"} {
+		im := newImporter(t)
+		home := im.Dirs.Home
+		write(t, home, map[string]string{".claude/skills/s/SKILL.md": "# s", ".claude/settings.json": "{}"})
+		victim := t.TempDir()
+		write(t, victim, map[string]string{"keep.txt": "mine", ".claude/keep.txt": "mine", "claude/.claude/keep.txt": "mine"})
+		link := filepath.Join(im.Dirs.Config, filepath.FromSlash(at))
+		if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(victim, link); err != nil {
+			t.Fatal(err)
+		}
+		err := im.Run(t.Context(), []string{"claude"}, true)
+		if want := "agent_store_link link=" + link; msg.NamesOf(err) != want {
+			t.Errorf("a link at %s: %v, want %s", at, msg.NamesOf(err), want)
+		}
+		if _, err := os.Lstat(filepath.Join(agentStore(im.Dirs, "claude"), ".claude/settings.json")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a link at %s: the store changed: %v", at, err)
+		}
+		for _, f := range []string{"keep.txt", ".claude/keep.txt", "claude/.claude/keep.txt"} {
+			if got := readFile(t, filepath.Join(victim, filepath.FromSlash(f))); got != "mine" {
+				t.Errorf("a link at %s: %s = %q", at, f, got)
+			}
+		}
+		es, err := os.ReadDir(victim)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(es) != 3 {
+			t.Errorf("a link at %s: written through it: %v", at, es)
+		}
+	}
+}
+
+// With more than one agent, a link on the way to any one's store fails the
+// import before it changes any agent's: Claude Code's store stays empty
+// when Codex's is a link.
+func TestAgentImportLinkedStoreOfAnother(t *testing.T) {
+	im := newImporter(t)
+	write(t, im.Dirs.Home, map[string]string{".claude/settings.json": "{}", ".codex/config.toml": "x"})
+	victim := t.TempDir()
+	link := agentStore(im.Dirs, "codex")
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+	err := im.Run(t.Context(), []string{"claude", "codex"}, true)
+	if want := "agent_store_link link=" + link; msg.NamesOf(err) != want {
+		t.Errorf("err = %v, want %s", msg.NamesOf(err), want)
+	}
+	if _, err := os.Lstat(agentStore(im.Dirs, "claude")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Claude Code's store changed: %v", err)
+	}
+}
+
+// pruneStore and clearKind reach the store from devvm's config folder,
+// never through a link, so what a link leads to keeps everything.
+func TestStoreOpsRefuseLinks(t *testing.T) {
+	config := t.TempDir()
+	victim := t.TempDir()
+	write(t, victim, map[string]string{"keep.txt": "mine", "x/y": "mine"})
+	store := filepath.Join(config, "agents", "claude")
+	if err := os.MkdirAll(filepath.Dir(store), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, store); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := errors.AsType[storeLink](pruneStore(config, store, map[string]bool{})); !ok {
+		t.Error("pruneStore: no storeLink")
+	}
+	if _, ok := errors.AsType[storeLink](clearKind(config, store, "x", false)); !ok {
+		t.Error("clearKind: no storeLink")
+	}
+	for _, f := range []string{"keep.txt", "x/y"} {
+		if got := readFile(t, filepath.Join(victim, f)); got != "mine" {
+			t.Errorf("%s = %q", f, got)
+		}
 	}
 }
 

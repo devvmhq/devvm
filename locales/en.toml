@@ -3157,6 +3157,18 @@ other = "devvm imported {{.agent}}'s login into {{.file}}."
 [agent_import_link_left_out]
 other = "devvm left out the link {{.path}}, because it leads to a folder, to nothing, or out of the folder devvm reads it in."
 
+[agent_import_link_not_setting]
+description = "target is the file inside the agent's folder where the link leads, every link on the way resolved"
+other = "devvm left out the link {{.path}}, because it leads to {{.target}}, which isn't one of the agent's settings."
+
+[agent_import_read_failed]
+description = "file is a file in an agent's folder in the home folder; why is the error"
+other = "{{.file}} couldn't be read ({{.why}}), so it isn't imported. If it changed while devvm read it, run devvm agent import again."
+
+[agent_store_link]
+description = "link is a link on the way to a folder or file of devvm's agent store"
+other = "{{.link}} is a link, and devvm never writes its agent store through a link. Replace the link with a folder of its own, then run the command again."
+
 [agent_import_link_not_followed]
 description = "target is where the link leads, every link on the way resolved"
 other = "devvm left out the link {{.path}} to {{.target}}, which is outside the agent's folder. To copy what it leads to, run devvm agent import --follow-links."

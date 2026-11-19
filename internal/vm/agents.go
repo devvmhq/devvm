@@ -2,7 +2,6 @@ package vm
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -434,7 +433,7 @@ func (e *Env) cleanSeeds(has []string) error {
 				continue
 			}
 			m := msg.AgentSeedCleanFailed(d.Display, dir, shownList(sd.Entries), err.Error()).Because(err)
-			if l := (seedLink{}); errors.As(err, &l) {
+			if l, ok := errors.AsType[storeLink](err); ok {
 				m = msg.AgentSeedLink(d.Display, dir, shownList(sd.Entries), l.path).Because(err)
 			}
 			if slices.Contains(has, d.Name) {
@@ -448,50 +447,19 @@ func (e *Env) cleanSeeds(has []string) error {
 
 // cleanSeed takes out what of sd's folder in an agent's store, below
 // devvm's config folder config, is each machine's own (cleanSeeds), and
-// returns the names it took out. It reaches the folder through config as
-// a root, every part of its path below config a folder, never a link,
-// which only a hand-made store could have and which could lead to this
-// machine's own plugins folder: a link there is an error, as the VM's
-// mount follows it. A link among the folder's entries is taken out,
-// never followed. It leaves the temporary files that devvm agent import
-// and save write a seed's entries through (seedTemp), regular files.
+// returns the names it took out. It opens the folder through config
+// (openStoreDir), so a link on its path, which could lead to this
+// machine's own plugins folder, is an error, as the VM's mount follows
+// it, and no folder there means nothing mounted. A link among the
+// folder's entries is taken out, never followed. It leaves the temporary
+// files that devvm agent import and save write a seed's entries through
+// (seedTemp), regular files.
 func cleanSeed(config, store string, sd agents.Seed) ([]string, error) {
-	rel, err := filepath.Rel(config, filepath.Join(store, filepath.FromSlash(sd.Rel)))
-	if err != nil || !filepath.IsLocal(rel) {
-		return nil, fmt.Errorf("the agent store isn't in %s", config)
-	}
-	root, err := os.OpenRoot(config)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	defer func() { _ = root.Close() }()
-	var fi fs.FileInfo
-	at := ""
-	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
-		at = filepath.Join(at, part)
-		fi, err = root.Lstat(at)
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			return nil, nil
-		case err != nil:
-			return nil, err
-		case fi.Mode()&fs.ModeSymlink != 0:
-			return nil, seedLink{filepath.Join(config, at)}
-		case !fi.IsDir():
-			return nil, nil // no folder, so nothing mounted
-		}
-	}
-	dir, err := root.OpenRoot(rel)
-	if err != nil {
+	dir, err := openStoreDir(config, filepath.Join(store, filepath.FromSlash(sd.Rel)))
+	if err != nil || dir == nil {
 		return nil, err
 	}
 	defer func() { _ = dir.Close() }()
-	// The folder opened is the one checked, never a link put in its place since.
-	if here, err := dir.Stat("."); err != nil || !os.SameFile(fi, here) {
-		return nil, fmt.Errorf("%s changed while devvm read it", filepath.Join(config, rel))
-	}
 	es, err := fs.ReadDir(dir.FS(), ".")
 	if err != nil {
 		return nil, err
@@ -508,12 +476,6 @@ func cleanSeed(config, store string, sd agents.Seed) ([]string, error) {
 	}
 	return gone, nil
 }
-
-// seedLink is cleanSeed's error for a link at path, on the way to a seed's
-// folder (agent_seed_link).
-type seedLink struct{ path string }
-
-func (l seedLink) Error() string { return l.path + " is a link" }
 
 // seedTemp reports whether name, in sd's folder, is a temporary file that
 // one of its entries is written through (state.WriteFileMode's), which a

@@ -83,11 +83,24 @@ func (e AgentSave) Run(ctx context.Context, agents []string) error {
 		e.Info(msg.NothingSaved())
 		return nil
 	}
+	return sv.applyAll(ctx, plans)
+}
+
+// applyAll puts every plan into the store, once every plan's paths are
+// checked (checkPlan), so a link on the way to any agent's fails the save
+// before it changes any.
+func (sv saver) applyAll(ctx context.Context, plans []agentPlan) error {
+	g := newStoreGuard(sv.Dirs.Config)
+	for _, p := range plans {
+		if err := checkPlan(g, p); err != nil {
+			return storeErr(err)
+		}
+	}
 	for _, p := range plans {
 		if err := sv.apply(ctx, p); err != nil {
 			return err
 		}
-		e.Info(msg.AgentSettingsSaved(p.agent, p.store, vm))
+		sv.Info(msg.AgentSettingsSaved(p.agent, p.store, sv.s.vm))
 	}
 	return nil
 }
@@ -458,27 +471,83 @@ func fileMode(exec bool) os.FileMode {
 // folder's files written whole and what the folder in the store has that
 // the VM's doesn't taken out, but what was left out and anything of a
 // seed's folder, so the folders VMs mount stay the same folders; the
-// .claude.json subset as the store's.
+// .claude.json subset as the store's. A link on the way to anything it
+// writes fails it, naming the link (storeGuard), and nothing is written
+// through one.
 func (sv saver) apply(ctx context.Context, p agentPlan) error {
+	if err := sv.applySettings(p); err != nil {
+		return storeErr(err)
+	}
+	if p.claude != nil {
+		return sv.Proxy.Secrets.SaveLogin(ctx, agents.Claude, p.claude)
+	}
+	return nil
+}
+
+// checkPlan checks every path in the store that p would write
+// (storeGuard), so a link fails the save before it writes p. The save
+// checks every plan's first, before it applies any.
+func checkPlan(g *storeGuard, p agentPlan) error {
+	in := func(rel string) string { return filepath.Join(p.store, filepath.FromSlash(rel)) }
 	for _, f := range p.files {
-		if err := state.WriteFileMode(filepath.Join(p.store, filepath.FromSlash(f.rel)), f.data, fileMode(f.exec)); err != nil {
+		if err := g.file(in(f.rel)); err != nil {
 			return err
 		}
 	}
 	for _, d := range p.folders {
-		root := filepath.Join(p.store, filepath.FromSlash(d.rel))
-		if err := os.MkdirAll(root, 0o700); err != nil {
+		for _, dir := range append([]string{d.rel}, d.dirs...) {
+			if err := g.folder(in(dir)); err != nil {
+				return err
+			}
+		}
+		for _, f := range d.files {
+			if err := g.file(in(f.rel)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// applySettings puts p's settings files and folders into the store, as
+// apply says.
+func (sv saver) applySettings(p agentPlan) error {
+	g := newStoreGuard(sv.Dirs.Config)
+	if err := checkPlan(g, p); err != nil {
+		return err
+	}
+	write := func(rel string, data []byte, exec bool) error {
+		file := filepath.Join(p.store, filepath.FromSlash(rel))
+		if err := g.file(file); err != nil {
+			return err
+		}
+		return state.WriteFileMode(file, data, fileMode(exec))
+	}
+	mkdir := func(rel string) error {
+		dir := filepath.Join(p.store, filepath.FromSlash(rel))
+		if err := g.folder(dir); err != nil {
+			return err
+		}
+		return os.MkdirAll(dir, 0o700)
+	}
+	for _, f := range p.files {
+		if err := write(f.rel, f.data, f.exec); err != nil {
+			return err
+		}
+	}
+	for _, d := range p.folders {
+		if err := mkdir(d.rel); err != nil {
 			return err
 		}
 		keep := map[string]bool{}
 		for _, dir := range d.dirs {
-			if err := os.MkdirAll(filepath.Join(p.store, filepath.FromSlash(dir)), 0o700); err != nil {
+			if err := mkdir(dir); err != nil {
 				return err
 			}
 			markKept(keep, strings.TrimPrefix(dir, d.rel+"/"))
 		}
 		for _, f := range d.files {
-			if err := state.WriteFileMode(filepath.Join(p.store, filepath.FromSlash(f.rel)), f.data, fileMode(f.exec)); err != nil {
+			if err := write(f.rel, f.data, f.exec); err != nil {
 				return err
 			}
 			markKept(keep, strings.TrimPrefix(f.rel, d.rel+"/"))
@@ -489,12 +558,9 @@ func (sv saver) apply(ctx context.Context, p agentPlan) error {
 		if d.seed {
 			continue
 		}
-		if err := pruneStore(root, keep); err != nil {
+		if err := pruneStore(sv.Dirs.Config, filepath.Join(p.store, filepath.FromSlash(d.rel)), keep); err != nil {
 			return err
 		}
-	}
-	if p.claude != nil {
-		return sv.Proxy.Secrets.SaveLogin(ctx, agents.Claude, p.claude)
 	}
 	return nil
 }

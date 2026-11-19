@@ -57,6 +57,62 @@ type hostAgent struct {
 	out   []linkOut
 	from  map[string]linkSource
 	roots []*safefile.Root
+	// safe is its folder opened one folder at a time, never through a
+	// link (openPhysical), which listed's files are read through; listed
+	// is each file of files in the folder, by its path in files: the file
+	// it's read as and what it was when it was listed (listedFile).
+	safe   *safefile.Root
+	listed map[string]listedFile
+}
+
+// listedFile is a file of an agent's folder as the import listed it: rel,
+// its path in the folder, a link's resolved, and fi, what it was then. It's
+// read without following a link and must be that same file, so a VM whose
+// project folder is in the agent's folder can't swap a link or a folder
+// between the listing and the read.
+type listedFile struct {
+	rel string
+	fi  fs.FileInfo
+}
+
+// readListed reads the file l through safe, the agent's folder, opening
+// each folder on its way from its parent and the file itself without
+// following a link, and fails unless it's the file that was listed.
+func readListed(safe *safefile.Root, l listedFile) ([]byte, fs.FileInfo, error) {
+	parts := strings.Split(l.rel, "/")
+	dir := safe
+	for _, name := range parts[:len(parts)-1] {
+		next, err := dir.OpenDir(name)
+		if dir != safe {
+			_ = dir.Close()
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		dir = next
+	}
+	if dir != safe {
+		defer func() { _ = dir.Close() }()
+	}
+	f, err := dir.Open(parts[len(parts)-1], safefile.Opts{})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = f.Close() }()
+	if !os.SameFile(l.fi, f.Info) {
+		return nil, nil, errors.New(l.rel + " changed while devvm read it")
+	}
+	data, err := f.ReadAll(saveMaxBytes)
+	return data, f.Info, err
+}
+
+// list adds the file at p in the agent's folder to h's files, read as l.
+func (h *hostAgent) list(p string, l listedFile) {
+	if h.listed == nil {
+		h.listed = map[string]listedFile{}
+	}
+	h.files = append(h.files, p)
+	h.listed[p] = l
 }
 
 func (h *hostAgent) empty() bool { return len(h.dirs) == 0 && len(h.files) == 0 && !h.hasLog }
@@ -64,6 +120,9 @@ func (h *hostAgent) empty() bool { return len(h.dirs) == 0 && len(h.files) == 0 
 func (h *hostAgent) close() {
 	if h.root != nil {
 		_ = h.root.Close()
+	}
+	if h.safe != nil {
+		_ = h.safe.Close()
 	}
 	for _, r := range h.roots {
 		_ = r.Close()
@@ -111,6 +170,12 @@ func (im AgentImport) Run(ctx context.Context, names []string, force bool) error
 	}
 	if ok, err := im.confirm(found, force); err != nil || !ok {
 		return err
+	}
+	g := newStoreGuard(im.Dirs.Config)
+	for _, h := range found {
+		if err := im.checkStore(g, h); err != nil {
+			return storeErr(err)
+		}
 	}
 	for _, h := range found {
 		if err := im.save(ctx, h); err != nil {
@@ -160,6 +225,10 @@ func (im AgentImport) read(ctx context.Context, agent string) (*hostAgent, error
 	folder := agents.Of(agent).Folder
 	if fi, err := os.Stat(filepath.Join(home, folder)); err == nil && fi.IsDir() {
 		if h.root, err = os.OpenRoot(filepath.Join(home, folder)); err != nil {
+			return nil, err
+		}
+		if h.safe, err = openPhysical(paths.Physical(filepath.Join(home, folder))); err != nil {
+			h.close()
 			return nil, err
 		}
 		if err := im.readSettings(h, folder); err != nil {
@@ -318,20 +387,38 @@ func (im AgentImport) matchKinds(h *hostAgent, home string) {
 }
 
 // listEntry adds an entry of the agent's folder to h: a folder, a file,
-// or a link that leads to a file in the folder, read as that file. A link
-// out of the folder to a file or a folder goes in h.out (outLink); any
-// other link is left out with a warning; sockets and the like are left
-// out. The root refuses a link out of the folder, which Stat's error
-// says.
+// or a link that leads to a file in the folder, read as that file when
+// that file is one of the agent's settings (linkToSetting), and left out
+// with a warning naming where it leads when it isn't. A link out of the
+// folder to a file or a folder goes in h.out (outLink); any other link is
+// left out with a warning; sockets and the like are left out. The root
+// refuses a link out of the folder, which Stat's error says.
 func (im AgentImport) listEntry(h *hostAgent, home, p string, d fs.DirEntry) {
 	switch {
 	case d.IsDir():
 		h.dirs = append(h.dirs, p)
 	case d.Type().IsRegular():
-		h.files = append(h.files, p)
+		fi, err := d.Info()
+		if err != nil {
+			im.Warn(msg.AgentImportReadFailed(filepath.Join(home, filepath.FromSlash(p)), err.Error()))
+			return
+		}
+		h.list(p, listedFile{rel: p, fi: fi})
 	case d.Type()&fs.ModeSymlink != 0:
 		if fi, err := h.root.Stat(filepath.FromSlash(p)); err == nil && fi.Mode().IsRegular() {
-			h.files = append(h.files, p)
+			link := filepath.Join(home, filepath.FromSlash(p))
+			target, ok := linkToSetting(h.agent, home, p)
+			if target == "" {
+				im.Warn(msg.AgentImportLinkLeftOut(link)) // it changed since the root resolved it
+				return
+			}
+			rel, err := filepath.Rel(paths.Physical(home), target)
+			tfi, lerr := os.Lstat(target)
+			if !ok || err != nil || lerr != nil || !tfi.Mode().IsRegular() {
+				im.Warn(msg.AgentImportLinkNotSetting(link, target))
+				return
+			}
+			h.list(p, listedFile{rel: filepath.ToSlash(rel), fi: tfi})
 			return
 		}
 		if l, ok := outLink(home, p); ok {
@@ -342,40 +429,39 @@ func (im AgentImport) listEntry(h *hostAgent, home, p string, d fs.DirEntry) {
 	}
 }
 
+// linkToSetting returns where the link at p in the agent's folder home,
+// which leads to a file inside the folder, leads, with every link on the
+// way resolved, and reports whether that file is one of the agent's
+// settings (listedPath): what the import copies of the folder itself, so
+// a link never copies what it leaves out, such as the agent's history,
+// its login or what of a seed's folder is this machine's own
+// (agents.MachineOwn). The file is named as it's written, so a name that
+// differs only in case is no setting.
+func linkToSetting(agent, home, p string) (string, bool) {
+	target, _, err := linkHops(filepath.Join(home, filepath.FromSlash(p)))
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(paths.Physical(home), target)
+	if err != nil || !filepath.IsLocal(rel) {
+		return target, false
+	}
+	_, _, _, ok := listedPath([]string{agent}, agents.Of(agent).Folder+"/"+filepath.ToSlash(rel), false)
+	return target, ok
+}
+
 // save puts what h has into the store. Its settings replace the store's
 // in place: each file written whole, then whatever the store has that the
 // home folder doesn't taken out, so the folders VMs mount stay the same
 // folders. A file where the store has a folder, or a folder where it has
 // a file, replaces it, as when a link that led to a folder now leads to a
-// file. Its login replaces the store's.
+// file. Its login replaces the store's. A link on the way to the agent's
+// folder in the store fails it before anything changes (storeGuard).
 func (im AgentImport) save(ctx context.Context, h *hostAgent) error {
-	store := agentStore(im.Dirs, h.agent)
-	folder := agents.Of(h.agent).Folder
 	if len(h.dirs) > 0 || len(h.files) > 0 {
-		keep := map[string]bool{}
-		for _, p := range h.dirs {
-			if err := clearKind(store, path.Join(folder, p), true); err != nil {
-				return err
-			}
-			dir := filepath.Join(store, folder, filepath.FromSlash(p))
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				return err
-			}
-			markKept(keep, path.Join(folder, p))
+		if err := im.saveSettings(h); err != nil {
+			return storeErr(err)
 		}
-		for _, p := range h.files {
-			if err := clearKind(store, path.Join(folder, p), false); err != nil {
-				return err
-			}
-			if err := im.saveFile(h, store, folder, p); err != nil {
-				return err
-			}
-			markKept(keep, path.Join(folder, p))
-		}
-		if err := pruneStore(store, keep); err != nil {
-			return err
-		}
-		im.Info(msg.AgentSettingsImported(h.agent, store))
 	}
 	if h.hasLog {
 		if err := im.Secrets.SaveLogin(ctx, h.agent, h.login); err != nil {
@@ -386,24 +472,98 @@ func (im AgentImport) save(ctx context.Context, h *hostAgent) error {
 	return nil
 }
 
+// checkStore checks every path in the store that h's settings would be
+// written at (storeGuard), so a link fails the import before it writes
+// them. Run checks every agent's first, before it writes any.
+func (im AgentImport) checkStore(g *storeGuard, h *hostAgent) error {
+	store, folder := agentStore(im.Dirs, h.agent), agents.Of(h.agent).Folder
+	if len(h.dirs) == 0 && len(h.files) == 0 {
+		return nil
+	}
+	if err := g.folder(filepath.Join(store, filepath.FromSlash(folder))); err != nil {
+		return err
+	}
+	for _, p := range h.dirs {
+		if err := g.folder(filepath.Join(store, folder, filepath.FromSlash(p))); err != nil {
+			return err
+		}
+	}
+	for _, p := range h.files {
+		if err := g.file(filepath.Join(store, folder, filepath.FromSlash(p))); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// saveSettings puts h's settings into the store, as save says.
+func (im AgentImport) saveSettings(h *hostAgent) error {
+	config, store := im.Dirs.Config, agentStore(im.Dirs, h.agent)
+	folder := agents.Of(h.agent).Folder
+	g := newStoreGuard(config)
+	if err := im.checkStore(g, h); err != nil {
+		return err
+	}
+	keep := map[string]bool{}
+	for _, p := range h.dirs {
+		if err := clearKind(config, store, path.Join(folder, p), true); err != nil {
+			return err
+		}
+		dir := filepath.Join(store, folder, filepath.FromSlash(p))
+		if err := g.folder(dir); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+		markKept(keep, path.Join(folder, p))
+	}
+	for _, p := range h.files {
+		if err := clearKind(config, store, path.Join(folder, p), false); err != nil {
+			return err
+		}
+		if err := g.file(filepath.Join(store, folder, filepath.FromSlash(p))); err != nil {
+			return err
+		}
+		if err := im.saveFile(h, store, folder, p); err != nil {
+			return err
+		}
+		markKept(keep, path.Join(folder, p))
+	}
+	if err := pruneStore(config, store, keep); err != nil {
+		return err
+	}
+	im.Info(msg.AgentSettingsImported(h.agent, store))
+	return nil
+}
+
 // saveFile copies one settings file, p in the agent's folder, into the
 // store, keeping its owner's execute bit (a skill's script) but no other
 // user's write. Claude Code's plugin records name their folders by path,
 // so the copy names them in the store, where VMs mount them.
 // A file read through a link out of the folder (h.from) is read through
 // its root, as linkSource.read says.
+// readFile reads the settings file p in the agent's folder, which the
+// import listed: through a link's root (h.from), or as listed in the
+// folder itself (h.listed, readListed).
+func (im AgentImport) readFile(h *hostAgent, folder, p string) ([]byte, fs.FileInfo, error) {
+	if s, ok := h.from[p]; ok {
+		return s.read()
+	}
+	l, ok := h.listed[p]
+	if !ok {
+		return nil, nil, errors.New(p + " wasn't listed")
+	}
+	data, fi, err := readListed(h.safe, l)
+	if err != nil {
+		return nil, nil, msg.AgentImportReadFailed(filepath.Join(im.Dirs.Home, folder, filepath.FromSlash(p)), err.Error()).Because(err)
+	}
+	return data, fi, nil
+}
+
 func (im AgentImport) saveFile(h *hostAgent, store, folder, p string) error {
 	src := filepath.FromSlash(p)
-	var (
-		fi   fs.FileInfo
-		data []byte
-		err  error
-	)
-	if s, ok := h.from[p]; ok {
-		data, fi, err = s.read()
-	} else if fi, err = h.root.Stat(src); err == nil {
-		data, err = h.root.ReadFile(src)
-	}
+	data, fi, err := im.readFile(h, folder, p)
 	if err != nil {
 		return err
 	}
@@ -413,14 +573,13 @@ func (im AgentImport) saveFile(h *hostAgent, store, folder, p string) error {
 }
 
 // clearKind takes out what's at p in the store, relative to it, through
-// the store as a root, when it isn't a folder (dir) or a regular file
-// (!dir), so a folder can be made or a file written there. A link,
-// which only a hand-made store could have, goes too.
-func clearKind(store, p string, dir bool) error {
-	root, err := os.OpenRoot(store)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	} else if err != nil {
+// the store as a root reached from devvm's config folder (openStoreDir),
+// when it isn't a folder (dir) or a regular file (!dir), so a folder can
+// be made or a file written there. A link, which only a hand-made store
+// could have, goes too, never followed.
+func clearKind(config, store, p string, dir bool) error {
+	root, err := openStoreDir(config, store)
+	if err != nil || root == nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
@@ -458,11 +617,12 @@ func markKept(keep map[string]bool, p string) {
 	}
 }
 
-// pruneStore takes out what's in the store that isn't kept, through the
-// store as a root, so it never follows a link out of it.
-func pruneStore(store string, keep map[string]bool) error {
-	root, err := os.OpenRoot(store)
-	if err != nil {
+// pruneStore takes out what's in store, a folder of the store, that
+// isn't kept, through it as a root reached from devvm's config folder
+// (openStoreDir), so it never follows a link to the folder or out of it.
+func pruneStore(config, store string, keep map[string]bool) error {
+	root, err := openStoreDir(config, store)
+	if err != nil || root == nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()

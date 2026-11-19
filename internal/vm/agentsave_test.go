@@ -451,6 +451,81 @@ func TestAgentSavePlanAndApply(t *testing.T) {
 	}
 }
 
+// A save never writes devvm's agent store through a link, which only a
+// hand-made store could have: a link anywhere on the way to what it
+// writes, below devvm's config folder, fails the save, naming it, before
+// the store changes, and the folder the link leads to keeps what it has.
+func TestAgentSaveLinkedStore(t *testing.T) {
+	for _, at := range []string{"agents", "agents/claude", "agents/claude/.claude", "agents/claude/.claude/skills", "agents/claude/.claude/skills/s"} {
+		stream := saveTar(t, true,
+			te{name: ".claude/settings.json", data: "{}\n"},
+			te{name: ".claude/skills/"},
+			te{name: ".claude/skills/s/"},
+			te{name: ".claude/skills/s/SKILL.md", data: "# s\n"},
+		)
+		st := newSaveTest(t, stream, "claude")
+		victim := t.TempDir()
+		write(t, victim, map[string]string{"keep.txt": "mine"})
+		link := filepath.Join(st.Dirs.Config, filepath.FromSlash(at))
+		if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(victim, link); err != nil {
+			t.Fatal(err)
+		}
+		p, err := st.plan("claude")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = st.apply(t.Context(), p)
+		if want := "agent_store_link link=" + link; msg.NamesOf(err) != want {
+			t.Errorf("a link at %s: %v, want %s", at, msg.NamesOf(err), want)
+		}
+		if _, err := os.Lstat(filepath.Join(st.store("claude"), ".claude/settings.json")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a link at %s: the store changed before the save failed: %v", at, err)
+		}
+		es, err := os.ReadDir(victim)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(es) != 1 || readFile(t, filepath.Join(victim, "keep.txt")) != "mine" {
+			t.Errorf("a link at %s: written through it: %v", at, es)
+		}
+	}
+}
+
+// With more than one agent, a link on the way to any one's store fails the
+// save before it changes any agent's: Claude Code's settings stay out of
+// the store when Codex's store is a link.
+func TestAgentSaveLinkedStoreOfAnother(t *testing.T) {
+	stream := saveTar(t, true,
+		te{name: ".claude/settings.json", data: "{}\n"},
+		te{name: ".codex/config.toml", data: "model = 'x'\n"},
+	)
+	st := newSaveTest(t, stream, "claude", "codex")
+	link := st.store("codex")
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Fatal(err)
+	}
+	var plans []agentPlan
+	for _, a := range []string{"claude", "codex"} {
+		p, err := st.plan(a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plans = append(plans, p)
+	}
+	if err := st.applyAll(t.Context(), plans); msg.NamesOf(err) != "agent_store_link link="+link {
+		t.Errorf("err = %v", msg.NamesOf(err))
+	}
+	if _, err := os.Lstat(filepath.Join(st.store("claude"), ".claude/settings.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Claude Code's store changed: %v", err)
+	}
+}
+
 // The store's own folder, mounted and linked in the VM, is no change;
 // a settings file that doesn't parse, a link or another kind in place of
 // a file are left out with a warning.
