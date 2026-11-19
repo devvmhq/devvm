@@ -1,0 +1,47 @@
+# devvm 0.1.0's app and db VMs (testdata/v0.1.0/GOOS: see
+# fixture_v010.txtar): app links to the port db publishes, 5432, as
+# db.devvm.internal at 127.77.0.1. With db started first, app's launch
+# says nothing of a stopped target, starts its link session, which
+# carries the link at 0.1.0's address, and writes its links' list again
+# for this sandbox. The setup it sends app names the resolver a
+# confined VM's programs ask, and the paste folder, which 0.1.0's setup
+# didn't have.
+[!darwin] [!linux] skip 'a fixture for macOS and Linux only'
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+mkdir $HOME/src/db $HOME/src/app $HOME/src/web $HOME/src/scratch
+cd $HOME/src/app
+exec git init -q -b main
+exec git commit -q --allow-empty -m one
+fixture v0.1.0
+vm_name APP app
+vm_name DB db
+grep '"addr":"127\.77\.0\.1","port":5432,"target":"devvm-db-[0-9a-f]{14}"' $APP_dir/run/links.json
+
+cd $HOME/src/db
+exec devvm
+stdout '^==> starting what=devvm-db-[0-9a-f]{14}$'
+! stderr 'unreadable|corrupt|layout_|failed'
+
+cd $HOME/src/app
+exec devvm
+stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
+! stderr 'link_target_stopped|link_session_failed|link_port_taken'
+! stderr 'unreadable|corrupt|layout_|failed'
+exec sh -c 'for i in $(seq 60); do grep -qx "devvm links: 127\.77\.0\.1:5432: carried" "$APP_dir"/logs/links.log && exit 0; if p=$(cat "$APP_dir"/run/links.pid 2>/dev/null) && ! kill -0 "$p" 2>/dev/null; then echo "the session ended"; exit 1; fi; sleep 0.5; done; cat "$APP_dir"/logs/links.log; exit 1'
+exec sh -c 'kill -0 "$(cat "$APP_dir"/run/links.pid)"'
+# The link as 0.1.0 had it (as above), and the list written again: its
+# socket the session's own, in this sandbox's run folder.
+grep '^\{"version":1,"links":\[\{"hosts":\["db","db\.devvm\.internal"\],"addr":"127\.77\.0\.1","port":5432,"target":"devvm-db-[0-9a-f]{14}","socket":"' $APP_dir/run/links.json
+exec sh -c 's=$(sed -n "s/.*\"socket\":\"\([^\"]*\)\".*/\1/p" "$APP_dir/run/links.json") && test "$(dirname "$s")" = "$RUN" && test -S "$s"'
+
+# The setup app got: its resolver, as a confined VM's, and the paste
+# folder.
+exec tar -xOf $STUB_DIR/sync.tar vm
+stdout '^DEVVM_RESOLVER=''127\.0\.0\.1''$'
+stdout '^DEVVM_PASTE_DIR=''/tmp/devvm-paste''$'
+exec tar -xOf $STUB_DIR/sync.tar hosts
+stdout 'db\.devvm\.internal'
+
+exec devvm stop
+cd $HOME/src/db
+exec devvm stop
