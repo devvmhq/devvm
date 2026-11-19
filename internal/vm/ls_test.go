@@ -40,26 +40,46 @@ func TestFolderOf(t *testing.T) {
 		}
 		return "", fs.ErrNotExist
 	}
-	for _, c := range []struct {
-		dir, id string
-		want    FolderState
-	}{
-		{dir, "9:1", FolderThere},
-		{file, "9:1", FolderThere},
-		{"", "", FolderThere},
-		{gone, "7:5", FolderGone},
-		{deeper, "7:5:1.2", FolderGone},
-		{gone, "", FolderGone},
-		{gone, "9:5", FolderNotConnected},
-		{deeper, "9:5", FolderNotConnected},
-	} {
-		if got := folderOf(&state.VM{Dir: c.dir, Folder: c.id}, device); got != c.want {
-			t.Errorf("folderOf(%q, %q) = %v, want %v", c.dir, c.id, got, c.want)
+	// dir's volume is A, whatever its device's number; askedVolume says whether it was asked.
+	askedVolume := false
+	volume := func(path string) string {
+		askedVolume = true
+		if path == dir {
+			return "uuid:A"
 		}
+		return ""
+	}
+	for _, c := range []struct {
+		dir, id, vol string
+		want         FolderState
+	}{
+		{dir, "9:1", "", FolderThere},
+		{file, "9:1", "", FolderThere},
+		{"", "", "", FolderThere},
+		{gone, "7:5", "", FolderGone},
+		{deeper, "7:5:1.2", "", FolderGone},
+		{gone, "", "", FolderGone},
+		{gone, "9:5", "", FolderNotConnected},
+		{deeper, "9:5", "", FolderNotConnected},
+		// Recorded on device 9, volume A: the disk numbered 7 since is A, so the folder is gone.
+		{gone, "9:5:1.2", "uuid:A:5:1.2", FolderGone},
+		// On volume B: another disk is at 7, so the folder's isn't connected.
+		{gone, "9:5:1.2", "uuid:B:5:1.2", FolderNotConnected},
+		// A volume bound to another folder (an older devvm moved this one): devices, as before.
+		{gone, "9:5:1.2", "uuid:A:6:1.2", FolderNotConnected},
+	} {
+		if got := folderOf(vmAt(c.dir, c.id, c.vol), device, volume); got != c.want {
+			t.Errorf("folderOf(%q, %q, %q) = %v, want %v", c.dir, c.id, c.vol, got, c.want)
+		}
+	}
+	// No volume recorded: none is looked up.
+	askedVolume = false
+	if folderOf(vmAt(gone, "9:5:1.2", ""), device, volume); askedVolume {
+		t.Error("a volume looked up for a state that records none")
 	}
 	// A device that can't be read: gone, as nothing tells it apart.
 	broken := func(string) (string, error) { return "", errors.ErrUnsupported }
-	if got := folderOf(&state.VM{Dir: gone, Folder: "9:5"}, broken); got != FolderGone {
+	if got := folderOf(vmAt(gone, "9:5", ""), broken, volume); got != FolderGone {
 		t.Errorf("folderOf with no device = %v", got)
 	}
 	// The real device: a folder deleted from this disk is gone.
@@ -74,9 +94,16 @@ func TestFolderOf(t *testing.T) {
 	if err := os.Remove(id); err != nil {
 		t.Fatal(err)
 	}
-	if got := FolderOf(&state.VM{Dir: id, Folder: rec}); got != FolderGone {
+	if got := FolderOf(vmAt(id, rec, "")); got != FolderGone {
 		t.Errorf("FolderOf a deleted folder = %v", got)
 	}
+}
+
+// vmAt is a state whose project folder is dir, recorded as id on the volume vol.
+func vmAt(dir, id, vol string) *state.VM {
+	st := &state.VM{Dir: dir}
+	st.SetFolder(id, vol)
+	return st
 }
 
 // ls lists project VMs on every backend, from their state; images, build

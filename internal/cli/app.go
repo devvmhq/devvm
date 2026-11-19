@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"os"
 	"time"
 
@@ -163,6 +165,15 @@ func (a *app) vmEnv() (*vm.Env, error) {
 		e.Folder = a.folder.rule()
 		e.HistoryMax = a.testOverrides().HistoryMax
 		e.PasteWait = time.Duration(a.testOverrides().PasteWait) * time.Second
+		if v := a.testOverrides().Volume; v != "" {
+			e.VolumesOnly = true
+			e.Volumes = func(context.Context, platform.FolderStat) (string, error) {
+				if v == "fail" {
+					return "", errors.New("DEVVM_VOLUME=fail")
+				}
+				return v, nil
+			}
+		}
 		e.Proxy.SSHList = a.testOverrides().SSHList()
 		if r := a.testOverrides().Range(); r != (platform.PortRange{}) {
 			e.Proxy.PortRange = r

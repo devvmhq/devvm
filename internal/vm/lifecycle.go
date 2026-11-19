@@ -87,10 +87,12 @@ func (e Lifecycle) Adopt(ctx context.Context, name string, force bool) error {
 	if err != nil {
 		return err
 	}
+	vol := e.recordedVolume(ctx, t.f.Dir, id, volumeWaitMove)
 	// Its folder, and .git's protection set up as a new VM's at its next
 	// launch, at once.
 	err = st.Update(ctx, func(st *state.VM) error {
-		st.Dir, st.Folder = t.f.Dir, id
+		st.Dir = t.f.Dir
+		st.SetFolder(id, vol)
 		g, err := gitprotect.Of(st)
 		if err != nil {
 			return err
@@ -216,7 +218,7 @@ func (e Lifecycle) RmVM(ctx context.Context, name string, o RmOptions) error {
 			return e.Rm(ctx, o)
 		}
 	}
-	folder := FolderOf(st)
+	folder := e.folderState(ctx, st)
 	if folder == FolderThere {
 		return msg.RmVMFolderThere(st.Dir, vm)
 	}
@@ -290,7 +292,7 @@ func (e Lifecycle) stillGone(ctx context.Context, t *target, folder FolderState,
 	if err != nil {
 		return err
 	}
-	if st.ID != t.st.ID || FolderOf(st) != folder {
+	if st.ID != t.st.ID || e.folderState(ctx, st) != folder {
 		return msg.RmVMFolderThere(t.st.Dir, vm)
 	}
 	if !running {

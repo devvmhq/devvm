@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/gitprotect"
@@ -57,16 +58,29 @@ type here struct {
 	// got a deleted folder's inode number.
 	unique bool
 	mine   bool // this user owns it
+	// stat is the folder read with no link on its path (platform.StatFolder),
+	// and volume its volume, looked up once, when a state could record it
+	// (platform.MayHaveMoved); nil for none.
+	stat   platform.FolderStat
+	volume func() string
 }
 
-// hereOf is the folder at dir, a physical path, as moveHere matches it;
-// false when its identity can't be read.
-func hereOf(dir string) (here, bool) {
+// hereOf is the folder at dir, a physical path, as moveHere matches it,
+// its volume asked of e within volumeWaitMove; false when its identity
+// can't be read.
+func (e *Env) hereOf(ctx context.Context, dir string) (here, bool) {
 	id, err := platform.FolderID(dir)
 	if err != nil {
 		return here{}, false
 	}
 	h := here{dir: dir, id: id, unique: platform.UniqueFolderID(dir, id)}
+	// Read from the folder opened with no link, its identity is the one
+	// both matched and recorded (finder.move's want), so a name swapped
+	// between two reads can't match one folder and record another.
+	if s, err := platform.StatFolder(dir); err == nil {
+		h.id, h.unique, h.stat = s.ID, s.Unique, s
+		h.volume = sync.OnceValue(func() string { return e.volumeOf(ctx, s, volumeWaitMove) })
+	}
 	if fi, err := os.Stat(dir); err == nil {
 		uid, _, ok := platform.Owner(fi)
 		h.mine = ok && int(uid) == os.Getuid()
@@ -82,14 +96,31 @@ func hereOf(dir string) (here, bool) {
 // keeps its clone at the old path, in the VM, so it never moves. A copy
 // of the folder is another folder, so it never matches.
 func (h here) movedFrom(st *state.VM, away func(st *state.VM, to string) bool) bool {
-	return h.unique && h.mine && st.Dir != "" && st.Dir != h.dir && platform.SameFolder(st.Dir, st.Folder, h.dir, h.id) &&
-		st.Finished() && !isClone(st) && away(st, h.dir)
+	return h.unique && h.mine && st.Dir != "" && st.Dir != h.dir && st.Finished() && !isClone(st) &&
+		h.same(st) && away(st, h.dir)
+}
+
+// same reports whether h's folder is the one st records: its identity as
+// recorded (platform.SameFolder), or, on a disk numbered anew since, its
+// volume as recorded with its inode and birth time (platform.MovedFolder),
+// whose volume is looked up only when the rest matches.
+func (h here) same(st *state.VM) bool {
+	if platform.SameFolder(st.Dir, st.Folder(), h.dir, h.id) {
+		return true
+	}
+	return h.volume != nil && platform.SameFolder(h.dir, h.id, h.dir, h.stat.ID) &&
+		platform.MayHaveMoved(st.Folder(), st.FolderVolume(), h.stat) &&
+		platform.MovedFolder(st.Folder(), st.FolderVolume(), h.stat, h.volume())
 }
 
 // movedAway reports whether st's folder is no longer at the path st
 // records, as to has it: nothing is there and its folder's disk is
 // (FolderGone), or a symlink there leads to to.
-func movedAway(st *state.VM, to string) bool {
+func movedAway(st *state.VM, to string) bool { return awayAs(st, to, FolderOf) }
+
+// awayAs is movedAway with folder, which tells whether st's folder is
+// gone (FolderOf, Env.folderState).
+func awayAs(st *state.VM, to string, folder func(*state.VM) FolderState) bool {
 	if fi, err := os.Lstat(st.Dir); err == nil {
 		if fi.Mode()&os.ModeSymlink == 0 {
 			return false
@@ -97,7 +128,7 @@ func movedAway(st *state.VM, to string) bool {
 		resolved, err := filepath.EvalSymlinks(st.Dir)
 		return err == nil && resolved == to
 	}
-	return FolderOf(st) == FolderGone
+	return folder(st) == FolderGone
 }
 
 // moveHere finds, for dir, a folder without a VM, the VM made for it at
@@ -110,7 +141,7 @@ func movedAway(st *state.VM, to string) bool {
 // yes or devvm adopt --force.
 func (e finder) moveHere(ctx context.Context, dir string, mv moves, rec *recorded) (project.Folder, *state.VM, error) {
 	none := new(state.VM)
-	h, ok := hereOf(dir)
+	h, ok := e.hereOf(ctx, dir)
 	if !ok {
 		return project.Folder{}, none, nil
 	}
@@ -120,7 +151,8 @@ func (e finder) moveHere(ctx context.Context, dir string, mv moves, rec *recorde
 	}
 	var found []*state.VM
 	for _, st := range sts {
-		if h.movedFrom(st, movedAway) {
+		folder := func(st *state.VM) FolderState { return e.folderState(ctx, st) }
+		if h.movedFrom(st, func(st *state.VM, to string) bool { return awayAs(st, to, folder) }) {
 			found = append(found, st)
 		}
 	}
@@ -185,7 +217,7 @@ func (e finder) adoptVM(ctx context.Context, name string, force bool) error {
 	if err := refuseUnfinished(vm, st); err != nil {
 		return err
 	}
-	if FolderOf(st) == FolderThere {
+	if e.folderState(ctx, st) == FolderThere {
 		return msg.AdoptFolderThere(st.Dir, vm)
 	}
 	if own, err := e.folderVM(dir); err != nil {
@@ -256,7 +288,7 @@ func (e finder) move(ctx context.Context, st *state.VM, dir, want string, fresh 
 	if err := e.stopForMove(ctx, st); err != nil {
 		return err
 	}
-	return recordMove(ctx, st, dir, want, fresh)
+	return recordMove(ctx, st, dir, want, e.recordedVolume(ctx, dir, want, volumeWaitMove), fresh)
 }
 
 // stopForMove stops st's VM when it runs, as devvm stop does, with its
@@ -278,18 +310,20 @@ func (e finder) stopForMove(ctx context.Context, st *state.VM) error {
 	return e.writeSSHConfig(ctx)
 }
 
-// recordMove records dir, whose identity is id, as st's project folder,
-// under its lock, refusing a state whose folder changed since it was read
+// recordMove records dir, whose identity is id, on the volume vol
+// (platform.VolumeOf, "" for none), as st's project folder, under its
+// lock, refusing a state whose folder changed since it was read
 // (create_running), and the path the agents' state is under (movedTo),
 // which the VM's next setup moves to dir; fresh clears .git's protection
 // record.
-func recordMove(ctx context.Context, st *state.VM, dir, id string, fresh bool) error {
-	was, wasID := st.Dir, st.Folder
+func recordMove(ctx context.Context, st *state.VM, dir, id, vol string, fresh bool) error {
+	was, wasID := st.Dir, st.Folder()
 	return st.Update(ctx, func(st *state.VM) error {
-		if st.Dir != was || st.Folder != wasID {
+		if st.Dir != was || st.Folder() != wasID {
 			return msg.CreateRunning(st.Name())
 		}
-		st.Dir, st.Folder = dir, id
+		st.Dir = dir
+		st.SetFolder(id, vol)
 		if err := edit(st, movedSection, func(m *movedInVM) error { *m = movedTo(*m, was, dir); return nil }); err != nil {
 			return err
 		}

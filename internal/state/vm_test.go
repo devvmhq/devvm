@@ -53,7 +53,8 @@ func TestVMRoundTrip(t *testing.T) {
 	}
 	created := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	create(t, d, v, func(v *VM) {
-		v.Alias, v.Chain, v.From, v.Folder, v.BackendAt, v.Created, v.MadeBy = "devvm-p", "base=abc", "debian:12", "1:2:3", "/lima", created, "0.1.0"
+		v.Alias, v.Chain, v.From, v.BackendAt, v.Created, v.MadeBy = "devvm-p", "base=abc", "debian:12", "/lima", created, "0.1.0"
+		v.SetFolder("1:2:3.4", "uuid:EC5E5014-21A3-4154-ACE8-0C8C1C254852:2:3.4")
 		if err := SetSection(v, "count", counter{N: 3, Seen: []string{"a<b"}}); err != nil {
 			t.Fatal(err)
 		}
@@ -63,7 +64,7 @@ func TestVMRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if back.Name() != vmP || back.ID == "" || back.ID != v.ID || back.Alias != "devvm-p" || back.Chain != "base=abc" ||
-		back.From != "debian:12" || back.Folder != "1:2:3" || back.BackendAt != "/lima" || !back.Created.Equal(created) ||
+		back.From != "debian:12" || back.Folder() != "1:2:3.4" || back.FolderVolume() != "uuid:EC5E5014-21A3-4154-ACE8-0C8C1C254852:2:3.4" || back.BackendAt != "/lima" || !back.Created.Equal(created) ||
 		back.Image != "base" || back.Dir != "/p" || back.Backend != "lima" || back.MadeBy != "0.1.0" || !back.Exists() || !back.Finished() {
 		t.Errorf("read back %+v", back)
 	}

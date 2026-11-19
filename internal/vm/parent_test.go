@@ -81,7 +81,7 @@ func TestFolderChanged(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return &state.VM{Dir: dir, Folder: id}
+		return vmAt(dir, id, "")
 	}
 	inner := mk(filepath.Join(root, "app", "inner"))
 	same := stateOf(inner)

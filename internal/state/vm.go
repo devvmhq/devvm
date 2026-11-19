@@ -115,12 +115,11 @@ type VM struct {
 	ID string
 	// Alias is the name ssh and editors reach it by besides its own,
 	// chosen when it's made (sshconfig.ChooseAlias), and never again.
-	Alias  string
-	Image  string // the image the VM was made from: base, or its layers joined with +
-	Chain  string // its image's build chain
-	From   string // the image its base started from, if not the default
-	Dir    string // the project folder
-	Folder string // the project folder's identity (platform.FolderID), to notice it was replaced
+	Alias string
+	Image string // the image the VM was made from: base, or its layers joined with +
+	Chain string // its image's build chain
+	From  string // the image its base started from, if not the default
+	Dir   string // the project folder
 	// Backend is the backend running it; BackendAt where that backend
 	// kept it when it was made (backend.LocationOf), "" on a backend
 	// whose VMs can't move.
@@ -137,6 +136,10 @@ type VM struct {
 	// its hash (ReadHash), whatever name that backend gave it.
 	name     vmname.VM
 	sections map[string]json.RawMessage
+	// folder is the project folder's identity (platform.FolderID), to
+	// notice it was replaced, and folderVolume the volume it was on, bound
+	// to it (platform.VolumeOf), "" for none: SetFolder writes both.
+	folder, folderVolume string
 	// file is its folder's files; Dir "" for a name whose folder is
 	// another VM's (ReadVM), which is never written.
 	file   paths.VM
@@ -155,6 +158,7 @@ type core struct {
 	From      string    `json:"from,omitempty"`
 	Dir       string    `json:"dir"`
 	Folder    string    `json:"folder,omitempty"`
+	Volume    string    `json:"folder_volume,omitempty"`
 	Backend   string    `json:"backend"`
 	BackendAt string    `json:"backend_at,omitempty"`
 	Created   time.Time `json:"created,omitzero"`
@@ -163,7 +167,7 @@ type core struct {
 
 // coreFields are the names of core's fields, which no section takes.
 func coreFields() []string {
-	return []string{"version", "id", "name", "alias", "image", "chain", "from", "dir", "folder", "backend", "backend_at", "created", "made_by"}
+	return []string{"version", "id", "name", "alias", "image", "chain", "from", "dir", "folder", "folder_volume", "backend", "backend_at", "created", "made_by"}
 }
 
 // New is a new VM's state, not written yet: Create writes it, once its
@@ -255,9 +259,9 @@ func (v *VM) decode(data []byte) error {
 		delete(all, f)
 	}
 	*v = VM{
-		ID: c.ID, Alias: c.Alias, Image: c.Image, Chain: c.Chain, From: c.From, Dir: c.Dir, Folder: c.Folder,
+		ID: c.ID, Alias: c.Alias, Image: c.Image, Chain: c.Chain, From: c.From, Dir: c.Dir,
 		Backend: c.Backend, BackendAt: c.BackendAt, Created: c.Created, MadeBy: c.MadeBy,
-		name: name, sections: all, file: v.file, claims: v.claims, exists: true,
+		folder: c.Folder, folderVolume: c.Volume, name: name, sections: all, file: v.file, claims: v.claims, exists: true,
 	}
 	return nil
 }
@@ -267,7 +271,7 @@ func (v *VM) decode(data []byte) error {
 func (v *VM) encode() ([]byte, error) {
 	c, err := json.Marshal(core{
 		Version: vmVersion, ID: v.ID, Name: v.name.String(), Alias: v.Alias, Image: v.Image, Chain: v.Chain, From: v.From,
-		Dir: v.Dir, Folder: v.Folder, Backend: v.Backend, BackendAt: v.BackendAt, Created: v.Created, MadeBy: v.MadeBy,
+		Dir: v.Dir, Folder: v.folder, Volume: v.folderVolume, Backend: v.Backend, BackendAt: v.BackendAt, Created: v.Created, MadeBy: v.MadeBy,
 	})
 	if err != nil {
 		return nil, err
@@ -297,6 +301,21 @@ func (v *VM) encode() ([]byte, error) {
 
 // Name is the VM's name.
 func (v *VM) Name() vmname.VM { return v.name }
+
+// Folder is the project folder's identity (platform.FolderID), "" for
+// none recorded.
+func (v *VM) Folder() string { return v.folder }
+
+// FolderVolume is the volume the project folder was on, bound to its
+// identity as SetFolder recorded it (platform.VolumeOf), "" for none: a
+// record whose binding isn't Folder's, as an older devvm that moved the
+// folder leaves it, names no volume (platform.RecordedVolume).
+func (v *VM) FolderVolume() string { return v.folderVolume }
+
+// SetFolder records the project folder's identity, id, and its volume,
+// vol (platform.VolumeOf, "" for none), together: the one way either is
+// written.
+func (v *VM) SetFolder(id, vol string) { v.folder, v.folderVolume = id, vol }
 
 // Exists reports whether the VM has a state file.
 func (v *VM) Exists() bool { return v.exists }

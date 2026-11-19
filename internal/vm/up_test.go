@@ -84,8 +84,8 @@ func TestUp(t *testing.T) {
 	}
 	// Made and started with the folder itself, as its state records it,
 	// which a backend may mount it by.
-	if w, _ := start.Args[1].(backend.Want); st.Folder == "" || spec.ProjectID != st.Folder || w.ProjectID != st.Folder {
-		t.Errorf("the folder: made with %q, started with %q, recorded %q", spec.ProjectID, w.ProjectID, st.Folder)
+	if w, _ := start.Args[1].(backend.Want); st.Folder() == "" || spec.ProjectID != st.Folder() || w.ProjectID != st.Folder() {
+		t.Errorf("the folder: made with %q, started with %q, recorded %q", spec.ProjectID, w.ProjectID, st.Folder())
 	}
 	// Without network policy too, its ssh port is devvm's: recorded, made
 	// with it and started on it.

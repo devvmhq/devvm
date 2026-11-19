@@ -211,12 +211,12 @@ codex resume ID      # resume a session by its ID, wherever it started
 
 opencode keeps the sessions of a git repo by the repo's first commit, so they follow the folder without any change. In a folder that isn't a git repo, opencode keeps sessions by the folder's path, so they stay under the old path.
 
-devvm offers the move only when the folder at the new path is the folder the VM was made for, which devvm knows by its device, inode and birth time ([one VM per folder](../internals/security.md#one-vm-per-folder)), and when nothing is at the old path any more, or only a symlink to the new path. There's no offer in these cases:
+devvm offers the move only when the folder at the new path is the folder the VM was made for, which devvm knows by its device, inode and birth time, or by its volume, inode and birth time after a restart gave its disk another device number ([one VM per folder](../internals/security.md#one-vm-per-folder)), and when nothing is at the old path any more, or only a symlink to the new path. There's no offer in these cases:
 
 - **A copy:** a copy of the folder is another folder.
 - **Some file systems:** a folder on a file system that may give a new folder the inode number of a deleted one, such as a network share, a FUSE file system or a USB drive formatted with FAT or exFAT, never gets the offer. [One VM per folder](../internals/security.md#one-vm-per-folder) lists the file systems that do.
 - **Another user's folder:** devvm offers no VM for a folder that another user owns.
-- **Moved after a restart:** on macOS, a folder moved after a restart and before its VM started again gets no offer, because the restart may have given the folder's disk another device number. `devvm adopt VM` moves the VM to it.
+- **Moved after a restart, before its volume was recorded:** a VM records its folder's volume when it's made, adopted or moved, and a VM made before records it at its first launch that finds its folder. Until then, a folder moved after a restart gets no offer, because the restart may have given its disk another device number, and neither does a folder on a file system whose volume devvm can't tell, such as XFS or tmpfs on Linux. `devvm adopt VM` moves the VM to it.
 - **A `--clone` VM,** which keeps its own clone of the repo at the old path inside the VM.
 - **Several VMs:** when more than one VM was made for the folder at paths it had before, devvm moves none of them and names them, so you can choose one with `devvm adopt VM`.
 

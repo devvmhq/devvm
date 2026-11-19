@@ -3,7 +3,11 @@
 # anew, as macOS does: app's folder and .git are the ones 0.1.0
 # recorded, on another device. Its VM starts, with nothing refused or
 # called replaced, and its state records them on the device they're on
-# now.
+# now, with the folder's volume, which 0.1.0 didn't record
+# (DEVVM_VOLUME stands in for diskutil). Then the folder moves, and the
+# disks are numbered anew again: devvm in the folder at its new path
+# finds app's VM by its volume, inode and birth time, and makes no
+# second VM.
 [!darwin] [!linux] skip 'a fixture for macOS and Linux only'
 env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir $HOME/src/db $HOME/src/app $HOME/src/web $HOME/src/scratch
@@ -13,6 +17,8 @@ exec git commit -q --allow-empty -m one
 fixture v0.1.0
 vm_name APP app
 renumber $APP_dir/vm.json
+! grep folder_volume $APP_dir/vm.json
+env DEVVM_VOLUME=uuid:EC5E5014-21A3-4154-ACE8-0C8C1C254852
 
 stub_reset
 exec devvm
@@ -23,5 +29,25 @@ stdout '^limactl start --tty=false devvm-app-[0-9a-f]{14}$'
 stdout '^limactl shell --workdir \S*/home/src/app devvm-app-[0-9a-f]{14}$'
 vm_state $APP_dir/vm.json
 stdout '^folder='$FOLDER_ID'$'
+stdout '^folder_volume=uuid:EC5E5014-21A3-4154-ACE8-0C8C1C254852:[0-9]+:[0-9]+\.[0-9]+$'
 [darwin] stdout '^git\.made\.git_id='$GIT_ID'$'
 [darwin] stdout '^git\.mode=on$'
+
+# Moved, and renumbered again: found by its volume, and offered, never a
+# second VM. Without a terminal devvm refuses, naming devvm adopt.
+exec devvm stop
+[darwin] exec chflags -R nouchg $HOME/src/app/.git
+exec mv $HOME/src/app $HOME/src/app-moved
+renumber $APP_dir/vm.json
+cd $HOME/src/app-moved
+stub_reset
+! exec devvm --no-input
+stderr '^devvm: vm_moved_here vm=devvm-app-[0-9a-f]{14} was=\S*/home/src/app$'
+stub_calls
+! stdout 'limactl (create|clone)'
+# On another volume it's another folder: it gets a VM of its own.
+env DEVVM_VOLUME=uuid:00000000-0000-0000-0000-000000000000
+stub_reset
+exec devvm --no-input
+! stderr vm_moved_here
+stdout '^==> creating_from image=base vm=devvm-app-moved-[0-9a-f]{14}$'

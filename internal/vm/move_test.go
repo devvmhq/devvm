@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,12 +55,12 @@ func TestMovedFrom(t *testing.T) {
 	}
 	unfinished := *made
 	unfinished.Created = time.Time{}
-	h := here{dir: "/new/web", id: made.Folder, unique: true, mine: true}
+	h := here{dir: "/new/web", id: made.Folder(), unique: true, mine: true}
 	gone := func(*state.VM, string) bool { return true }
 	there := func(*state.VM, string) bool { return false }
-	other := func(st *state.VM, id string) *state.VM { c := *st; c.Folder = id; return &c }
+	other := func(st *state.VM, id string) *state.VM { c := *st; c.SetFolder(id, ""); return &c }
 	at := func(st *state.VM, dir string) *state.VM { c := *st; c.Dir = dir; return &c }
-	dev := platform.FolderDevice(made.Folder)
+	dev := platform.FolderDevice(made.Folder())
 	for _, tc := range []struct {
 		name string
 		h    here
@@ -70,7 +71,7 @@ func TestMovedFrom(t *testing.T) {
 		{"moved: the same folder, the old path gone", h, made, gone, true},
 		{"the old folder still there", h, made, there, false},
 		{"a copy: another inode", h, other(made, dev+":999999999"), gone, false},
-		{"the same inode on another device", h, other(made, "1"+made.Folder), gone, false},
+		{"the same inode on another device", h, other(made, "1"+made.Folder()), gone, false},
 		{"an identity that may be a deleted folder's", here{dir: h.dir, id: h.id, mine: true}, made, gone, false},
 		{"another user's folder", here{dir: h.dir, id: h.id, unique: true}, made, gone, false},
 		{"no identity", here{dir: h.dir, unique: true, mine: true}, other(made, ""), gone, false},
@@ -81,6 +82,39 @@ func TestMovedFrom(t *testing.T) {
 	} {
 		if got := tc.h.movedFrom(tc.st, tc.away); got != tc.want {
 			t.Errorf("%s: movedFrom = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+
+	// Moved, and its disk numbered anew since: recorded on device 1<dev>, on volume A, found on
+	// dev, on volume A, which is looked up only once the rest matches.
+	_, rest, _ := strings.Cut(made.Folder(), ":")
+	renumbered := func(vol string) *state.VM { c := *made; c.SetFolder("1"+made.Folder(), vol); return &c }
+	asked := 0
+	on := func(vol string, ro bool) here {
+		v := h
+		v.stat = platform.FolderStat{ID: made.Folder(), Unique: true, ReadOnly: ro}
+		v.volume = func() string { asked++; return vol }
+		return v
+	}
+	split := func(v here) here { v.id = "77:12345:1.0"; return v }
+	for _, tc := range []struct {
+		name  string
+		h     here
+		st    *state.VM
+		want  bool
+		asked int
+	}{
+		{"moved and renumbered: its volume as recorded", on("uuid:A", false), renumbered("uuid:A:" + rest), true, 1},
+		{"renumbered onto another volume", on("uuid:B", false), renumbered("uuid:A:" + rest), false, 1},
+		{"renumbered, on a read-only volume or a snapshot", on("uuid:A", true), renumbered("uuid:A:" + rest), false, 0},
+		{"a volume bound to another folder, as an older devvm's move leaves it", on("uuid:A", false), renumbered("uuid:A:1:" + rest), false, 0},
+		{"renumbered, with no volume recorded", on("uuid:A", false), renumbered(""), false, 0},
+		// The identity it would record isn't the one it matched, as a name swapped between two reads leaves it.
+		{"matched by one read, another identity to record", split(on("uuid:A", false)), renumbered("uuid:A:" + rest), false, 0},
+	} {
+		asked = 0
+		if got := tc.h.movedFrom(tc.st, gone); got != tc.want || asked != tc.asked {
+			t.Errorf("%s: movedFrom = %v, asked %d, want %v, %d", tc.name, got, asked, tc.want, tc.asked)
 		}
 	}
 }
@@ -120,7 +154,7 @@ func TestMovedAway(t *testing.T) {
 		{"a symlink elsewhere", link("toother", elsewhere), false},
 		{"a symlink to nothing", link("dangling", filepath.Join(root, "none")), false},
 	} {
-		st := &state.VM{Dir: tc.dir, Folder: id}
+		st := vmAt(tc.dir, id, "")
 		if got := movedAway(st, to); got != tc.want {
 			t.Errorf("%s: movedAway = %v, want %v", tc.name, got, tc.want)
 		}
@@ -173,7 +207,7 @@ func TestMoveHere(t *testing.T) {
 		t.Errorf("said %q", infos)
 	}
 	moved, err := state.ReadVM(e.Dirs, vm)
-	if id, _ := platform.FolderID(now); err != nil || moved.Dir != now || moved.Folder != id {
+	if id, _ := platform.FolderID(now); err != nil || moved.Dir != now || moved.Folder() != id {
 		t.Fatalf("its state: %+v, %v", moved, err)
 	}
 	if m := sectionOf[movedInVM](moved, movedSection); m.From != was {
@@ -367,8 +401,8 @@ func TestAdoptVM(t *testing.T) {
 	}
 	got, _ := state.ReadVM(e.Dirs, vm)
 	g, _ := gitprotect.Of(got)
-	if id, _ := platform.FolderID(cp); got.Dir != cp || got.Folder != id || g.Made.Protected || g.Made.GitID != "" {
-		t.Errorf("adopted: %s %s, .git %+v", got.Dir, got.Folder, g.Made)
+	if id, _ := platform.FolderID(cp); got.Dir != cp || got.Folder() != id || g.Made.Protected || g.Made.GitID != "" {
+		t.Errorf("adopted: %s %s, .git %+v", got.Dir, got.Folder(), g.Made)
 	}
 	// Here already: nothing to do.
 	if err := lc.Adopt(t.Context(), vm.String(), true); err != nil {

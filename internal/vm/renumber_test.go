@@ -20,10 +20,10 @@ func TestRenumberedFolder(t *testing.T) {
 	e, f, _ := upEnv(t, allNative())
 	st := existingVM(t, e, Options{Network: "open"})
 	stopVM(t, f, st)
-	id := st.Folder
+	id := st.Folder()
 	record := func(was string) {
 		t.Helper()
-		if err := st.Update(t.Context(), func(st *state.VM) error { st.Folder = was; return nil }); err != nil {
+		if err := st.Update(t.Context(), func(st *state.VM) error { st.SetFolder(was, st.FolderVolume()); return nil }); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -32,8 +32,8 @@ func TestRenumberedFolder(t *testing.T) {
 		t.Fatalf("its folder's device numbered anew: %v", msg.NamesOf(err))
 	}
 	got, err := state.ReadVM(e.Dirs, st.Name())
-	if err != nil || got.Folder != id {
-		t.Errorf("recorded %q, %v, want the folder's identity now, %q", got.Folder, err, id)
+	if err != nil || got.Folder() != id {
+		t.Errorf("recorded %q, %v, want the folder's identity now, %q", got.Folder(), err, id)
 	}
 	if w, _ := call(f, "Start").Args[1].(backend.Want); w.ProjectID != id {
 		t.Errorf("started mounting %q, want %q", w.ProjectID, id)

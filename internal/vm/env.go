@@ -95,6 +95,13 @@ type Env struct {
 	// (the registry's Host), checked before a new VM and each build; nil
 	// checks none.
 	FreeSpace func(path string) (uint64, error)
+	// Volumes is the volume of a folder (platform.VolumeUUID: macOS's
+	// diskutil), asked through volumes, its run's answers; nil asks none.
+	Volumes func(ctx context.Context, s platform.FolderStat) (string, error)
+	// VolumesOnly makes Volumes answer for every folder, Linux's f_fsid
+	// included: a test build's DEVVM_VOLUME, and tests.
+	VolumesOnly bool
+	volumes     *volumeCache
 	// HistoryMax is the most of an export of agents' history devvm
 	// keeps, in bytes; 0 is historyMax.
 	HistoryMax int
@@ -176,6 +183,7 @@ func NewEnv(d paths.Dirs, assets fs.FS, self, version string, reg *backend.Regis
 		SSHAdd:    func(ctx context.Context, args ...string) int { return sshAdd(ctx, r.Stderr(), args...) },
 		Reporter:  r,
 		PortInUse: platform.PortInUse, Forwarders: vmssh.NewForwards(d, reg.Review, self), PublicImage: from.NewLookup(d, r, tl.Proxy).Public, FreeSpace: reg.Host.FreeSpace,
+		Volumes: platform.VolumeUUID, volumes: new(volumeCache),
 	}
 	locker := sync.OnceValue(func() gitprotect.Locker { return gitprotect.HostLocker(canPin(reg)) })
 	e.Protector = func(dir string) *gitprotect.Protector {
@@ -261,7 +269,37 @@ const (
 // folderWait: a folder whose disk doesn't answer (an NFS share that hangs)
 // is there, so it's never taken for gone.
 func FolderOf(st *state.VM) FolderState {
-	return folderWithin(st, func(st *state.VM) FolderState { return folderOf(st, platform.DeviceOf) }, folderWait)
+	return folderWithin(st, func(st *state.VM) FolderState { return folderOf(st, platform.DeviceOf, parentVolume) }, folderWait)
+}
+
+// folderState is FolderOf with the volumes looked up through e (Env.Volumes),
+// its run's answers kept, for what moves or deletes a VM by it.
+func (e *Env) folderState(ctx context.Context, st *state.VM) FolderState {
+	volume := func(dir string) string {
+		s, err := platform.StatFolder(dir)
+		if err != nil {
+			return "" // not told: devices are compared, as for a state that records no volume
+		}
+		return e.volumeOf(ctx, s, volumeWaitLaunch)
+	}
+	return folderWithin(st, func(st *state.VM) FolderState { return folderOf(st, platform.DeviceOf, volume) }, folderWait)
+}
+
+// parentVolume is the volume of the folder at dir (platform.StatFolder), read in the process or
+// with diskutil within volumeWaitLaunch, as FolderOf asks it only of a VM that records its
+// folder's volume, for the first folder above its gone folder; "" when it can't be told.
+func parentVolume(dir string) string {
+	s, err := platform.StatFolder(dir)
+	if err != nil || s.Volume != "" || s.ReadOnly {
+		return s.Volume
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), volumeWaitLaunch) //nolint:forbidigo // FolderOf, which only shows, has no caller's ctx; folderWithin bounds it too
+	defer cancel()
+	v, err := platform.VolumeUUID(ctx, s)
+	if err != nil {
+		return "" // not told: FolderOf compares devices, as for a VM that records no volume
+	}
+	return v
 }
 
 // folderWait is how long FolderOf waits for a folder's disk.
@@ -283,18 +321,26 @@ func folderWithin(st *state.VM, of func(*state.VM) FolderState, wait time.Durati
 }
 
 // folderOf is FolderOf with device, which returns the device of what's at
-// a path (platform.DeviceOf), a test seam.
-func folderOf(st *state.VM, device func(string) (string, error)) FolderState {
+// a path (platform.DeviceOf), and volume, the volume of a folder
+// (parentVolume), test seams. The first folder above a gone folder is on
+// its disk when it's on the volume st records (platform.OnRecordedDisk),
+// whatever device number a boot gave it, or, for a state that records no
+// volume, on the device st records.
+func folderOf(st *state.VM, device func(string) (string, error), volume func(string) string) FolderState {
 	if st.Dir == "" {
 		return FolderThere
 	}
 	if _, err := os.Lstat(st.Dir); !errors.Is(err, fs.ErrNotExist) {
 		return FolderThere
 	}
-	was := platform.FolderDevice(st.Folder)
-	for dir := filepath.Dir(st.Dir); was != ""; dir = filepath.Dir(dir) {
+	recorded := platform.RecordedVolume(st.Folder(), st.FolderVolume()) != ""
+	for dir := filepath.Dir(st.Dir); platform.FolderDevice(st.Folder()) != ""; dir = filepath.Dir(dir) {
 		if dev, err := device(dir); err == nil {
-			if dev != was {
+			vol := ""
+			if recorded {
+				vol = volume(dir)
+			}
+			if !platform.OnRecordedDisk(st.Folder(), st.FolderVolume(), dev, vol) {
 				return FolderNotConnected
 			}
 			break

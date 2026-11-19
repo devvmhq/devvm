@@ -268,7 +268,8 @@ func (e creation) create(ctx context.Context, o Options, f project.Folder, b bac
 	if err != nil {
 		return err
 	}
-	st.Image, st.Dir, st.Folder, st.Chain, st.From, st.Backend = n.img.String(), f.Dir, id, chain.String(), n.from, b.Name()
+	st.Image, st.Dir, st.Chain, st.From, st.Backend = n.img.String(), f.Dir, chain.String(), n.from, b.Name()
+	st.SetFolder(id, e.recordedVolume(ctx, f.Dir, id, volumeWaitMove))
 	st.MadeBy = e.Version
 	st.BackendAt, _ = backend.LocationOf(b)
 	if err := n.record(st, tg, files); err != nil {
@@ -358,7 +359,7 @@ func (e creation) makeMachine(ctx context.Context, b backend.Backend, st *state.
 	}
 	// The folder itself, which a backend may mount by it (Want.ProjectID).
 	if spec.Project != "" {
-		spec.ProjectID = st.Folder
+		spec.ProjectID = st.Folder()
 	}
 	if err := b.CreateVM(ctx, key, spec); err != nil {
 		return err

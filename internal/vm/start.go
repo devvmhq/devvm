@@ -76,7 +76,7 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 	if err := s.instance(ctx, t, o); err != nil {
 		return backend.Confinement{}, err
 	}
-	if err := renumbered(ctx, st); err != nil {
+	if err := s.recordFolder(ctx, st); err != nil {
 		return backend.Confinement{}, err
 	}
 	mountsLater := false
@@ -305,29 +305,43 @@ func folderChanged(st *state.VM) bool {
 		return true
 	}
 	id, err := platform.FolderID(dir)
-	return err != nil || id != st.Folder
+	return err != nil || id != st.Folder()
 }
 
-// renumbered records, under the VM's state lock, the identity its project
-// folder has now, when a boot numbered the folder's disk anew since it was
-// recorded (platform.SameFolder), before its start mounts the folder by
-// it (startOnce, Want.ProjectID): the device's old number may be another
-// disk's now. Whatever else differs is left for folderChanged to refuse,
-// and a state another devvm changed meanwhile is compared again under the
-// lock.
-func renumbered(ctx context.Context, st *state.VM) error {
+// recordFolder records, under the VM's state lock, the identity its
+// project folder has now, when a boot numbered the folder's disk anew since
+// it was recorded (platform.SameFolder), before its start mounts the folder
+// by it (startOnce, Want.ProjectID): the device's old number may be another
+// disk's now. It records the folder's volume with it (recordedVolume), and
+// for a folder that's the one recorded, the volume when the state records
+// none bound to it yet, as a state of an older devvm, at every launch until
+// it can, so a move with a renumbering is recognised from then on
+// (platform.MovedFolder). Whatever else differs is left for folderChanged to
+// refuse, and a state another devvm changed meanwhile is compared again
+// under the lock.
+func (s starter) recordFolder(ctx context.Context, st *state.VM) error {
 	dir := projectMount(st)
 	if dir == "" {
 		return nil
 	}
 	// A folder whose identity can't be read is folderChanged's to refuse.
 	id, _ := platform.FolderID(dir)
-	if !platform.Renumbered(st.Dir, st.Folder, dir, id) {
+	renumbered := platform.Renumbered(st.Dir, st.Folder(), dir, id)
+	unbound := platform.RecordedVolume(st.Folder(), st.FolderVolume()) == "" && platform.SameFolder(st.Dir, st.Folder(), dir, id)
+	if !renumbered && !unbound {
 		return nil
 	}
+	vol := s.recordedVolume(ctx, dir, id, volumeWaitLaunch)
+	if !renumbered && vol == "" {
+		return nil // no volume to record: today's identity stays, and the next launch asks again
+	}
 	return st.Update(ctx, func(st *state.VM) error {
-		if projectMount(st) == dir && platform.Renumbered(st.Dir, st.Folder, dir, id) {
-			st.Folder = id
+		if projectMount(st) == dir && platform.SameFolder(st.Dir, st.Folder(), dir, id) {
+			v := vol
+			if v == "" {
+				v = st.FolderVolume() // a renumbering keeps the inode and birth time it's bound to
+			}
+			st.SetFolder(id, v)
 		}
 		return nil
 	})
@@ -664,7 +678,7 @@ func (s starter) startOnce(ctx context.Context, t *target, conf backend.Confinem
 		AgentDirs: agentDirs, AgentForwarding: sshagent.Forwards(mode),
 	}
 	if want.Project != "" {
-		want.ProjectID = st.Folder
+		want.ProjectID = st.Folder()
 	}
 	if folderChanged(st) {
 		s.Proxy.Stop(vm)

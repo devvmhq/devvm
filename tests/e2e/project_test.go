@@ -39,6 +39,7 @@ func projectSection(s *S) {
 	projectNested(s, w)
 	projectNestedRepos(s)
 	projectMoved(s, w)
+	projectRenumbered(s)
 	projectDevcontainer(s)
 	projectAgents(s)
 	projectSSHAgents(s)
@@ -987,6 +988,15 @@ func projectMoved(s *S, w *webVM) {
 		r, err := s.Devvm(pm, "stop")
 		if err == nil || !grepF(r.Out, s.Msg("vm_moved_here", "vm="+vm, "was="+p)) || dirOf() != p {
 			return errors.New("refused:\n" + r.Out)
+		}
+		return nil
+	})
+	s.Check("its state records the folder's volume bound to the folder, or none where the file system can't tell", func() error {
+		st := s.Paths.State(vm)
+		vol, id := st["folder_volume"], st["folder"]
+		_, rest, _ := strings.Cut(id, ":")
+		if vol != "" && (rest == "" || !strings.HasSuffix(vol, ":"+rest) || !strings.HasPrefix(vol, "uuid:") && !strings.HasPrefix(vol, "fsid:")) {
+			return fmt.Errorf("folder %q, volume %q", id, vol)
 		}
 		return nil
 	})

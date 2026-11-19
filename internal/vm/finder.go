@@ -578,5 +578,5 @@ func sameFolder(f project.Folder, st *state.VM) bool {
 		return true
 	}
 	id, err := platform.FolderID(f.Dir)
-	return err == nil && st.Dir == f.Dir && platform.SameFolder(st.Dir, st.Folder, f.Dir, id)
+	return err == nil && st.Dir == f.Dir && platform.SameFolder(st.Dir, st.Folder(), f.Dir, id)
 }

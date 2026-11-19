@@ -209,7 +209,7 @@ func checkFixtureCore(t *testing.T, f stateFixture, st *state.VM, raw map[string
 	t.Helper()
 	core := map[string]any{
 		"version": float64(f.stateVersion), "id": st.ID, "name": st.Name().String(), "alias": st.Alias, "image": st.Image,
-		"chain": st.Chain, "dir": st.Dir, "folder": st.Folder, "backend": st.Backend,
+		"chain": st.Chain, "dir": st.Dir, "folder": st.Folder(), "backend": st.Backend,
 		"backend_at": st.BackendAt, "made_by": st.MadeBy,
 	}
 	for k, want := range core {

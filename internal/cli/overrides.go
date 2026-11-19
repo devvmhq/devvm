@@ -40,6 +40,10 @@ type Overrides struct {
 	// paste.sh in the VM, in seconds (vm.Env.PasteWait), in place of 10
 	// minutes for a write and 2 for a count or a delete.
 	PasteWait int
+	// Volume (DEVVM_VOLUME) is the volume every folder is on, "uuid:…",
+	// in place of diskutil's answer (vm.Env.Volumes); "fail" makes each
+	// lookup fail.
+	Volume string
 	// LockOrder, in every test build, checks the order the state's
 	// locks are taken in (state.CheckLockOrder).
 	LockOrder bool
@@ -111,6 +115,7 @@ func readOverrides(getenv func(string) string) (Overrides, error) {
 			CA: getenv("DEVVM_RELEASE_CA"), Version: getenv("DEVVM_TEST_VERSION"),
 		},
 		HistoryMax: historyMax,
+		Volume:     getenv("DEVVM_VOLUME"),
 		ClipTools:  getenv("DEVVM_CLIP_TOOLS"),
 		PasteWait:  pasteWait,
 		LockOrder:  true,

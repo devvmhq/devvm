@@ -125,7 +125,7 @@ func get(st *state.VM, key string) string {
 	case keyDir:
 		return st.Dir
 	case keyFolder:
-		return st.Folder
+		return st.Folder()
 	case keyFrom:
 		return st.From
 	case keyBackend:
@@ -283,7 +283,7 @@ func setField(st *state.VM, key, val string) error {
 	case keyDir:
 		st.Dir = val
 	case keyFolder:
-		st.Folder = val
+		st.SetFolder(val, st.FolderVolume())
 	case keyFrom:
 		st.From = val
 	case keyID:
