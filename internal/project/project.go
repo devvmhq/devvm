@@ -188,11 +188,12 @@ type Unsafe struct {
 
 // Holds returns the first of these folders that dir, a physical path, is
 // or holds (any folder holds /), each by its physical path
-// (paths.Physical), or "". The VM would get them read-write: tokens, the
-// proxy's CA key and binary, other VMs' disks.
+// (paths.Physical) and by identity (paths.In), so a name in another case
+// on a volume that ignores it holds it too, or "". The VM would get them
+// read-write: tokens, the proxy's CA key and binary, other VMs' disks.
 func (u Unsafe) Holds(dir string) string {
 	for _, p := range []string{u.Home, u.Config, u.Data, u.Lima} {
-		if paths.Within(paths.Physical(p), dir) {
+		if p != "" && paths.In(paths.Physical(p), dir) {
 			return p
 		}
 	}
@@ -200,12 +201,12 @@ func (u Unsafe) Holds(dir string) string {
 }
 
 // Inside returns the first of devvm's own folders that dir, a physical
-// path, is below (paths.Below), or "". A VM in the layers folder could
-// rewrite the scripts every image build runs; one in the data folder, the
-// binaries that run on the host.
+// path, is below, by name or identity (paths.Under), or "". A VM in the
+// layers folder could rewrite the scripts every image build runs; one in
+// the data folder, the binaries that run on the host.
 func (u Unsafe) Inside(dir string) string {
 	for _, p := range []string{u.Config, u.Data, u.Lima} {
-		if paths.Below(dir, paths.Physical(p)) {
+		if p != "" && paths.Under(dir, paths.Physical(p)) {
 			return p
 		}
 	}

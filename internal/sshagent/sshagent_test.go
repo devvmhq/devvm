@@ -352,6 +352,29 @@ func TestMountedKey(t *testing.T) {
 	}
 }
 
+// On a volume that ignores case, such as macOS's, a VM that mounts the
+// key's folder by a name in another case still mounts the key.
+func TestMountedKeyIgnoresCase(t *testing.T) {
+	a, f, _, tmp, mounts := testAgent(t)
+	proj := filepath.Join(tmp, "proj")
+	if err := os.MkdirAll(proj, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "PROJ")); err != nil {
+		t.Skip("this volume tells names apart by case")
+	}
+	key := filepath.Join(proj, "deploy_key")
+	writeKey(t, key, "deploy")
+	*mounts = []Mount{{VM: "devvm-proj-0123456789abcd", Dir: filepath.Join(tmp, "PROJ")}}
+	want := "agent_key_mounted key=" + key + " vm=devvm-proj-0123456789abcd"
+	if err := a.Add(t.Context(), key, AddOptions{}); msg.NamesOf(err) != want {
+		t.Errorf("add: %s, want %s", msg.NamesOf(err), want)
+	}
+	if len(f.held) != 0 {
+		t.Error("the key was loaded")
+	}
+}
+
 // keys lists what the agent holds, then each key added: its file,
 // fingerprint and options, its lifetime shown when it's the default.
 func TestKeys(t *testing.T) {

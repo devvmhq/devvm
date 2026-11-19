@@ -19,7 +19,9 @@ devvm refuses a project folder that would hand the VM more than the project:
 - A folder that is or holds your home folder, devvm's settings (`~/.config/devvm`), its state (`~/.local/share/devvm`, which holds its binaries and other VMs' disks) or its Lima home (`unsafe_folder`).
 - A folder inside devvm's own folders (`unsafe_folder_inside`). A VM in `~/.config/devvm/layers` could rewrite the scripts that every image build runs, and a VM in devvm's data folder could rewrite the files devvm runs on the host.
 
-`--unsafe-folder` mounts such a folder anyway, and devvm says so. A `--clone` VM mounts nothing, so devvm doesn't refuse its folder.
+devvm compares each of these folders with the project folder by path and by the folder itself: the project folder, or a folder above it, is the same folder as one of devvm's, by device and inode, or the other way round. So on a volume that ignores case, as a Mac's does by default, a project at `~/.Config/devvm/layers` is inside `~/.config/devvm`, although the two paths differ. `--unsafe-folder` mounts such a folder anyway, and devvm says so. A `--clone` VM mounts nothing, so devvm doesn't refuse its folder.
+
+A project folder inside a coding agent's folder in your home folder, such as `~/.claude/skills/mine`, or one that holds an agent's folder, such as `~/.pi` for pi's `~/.pi/agent`, gives its VM read-write access to that agent's settings on this machine, such as Claude Code's hooks, which run on the host. devvm doesn't refuse such a folder, because working on a skill in place is common, but each launch of a VM that mounts it warns once, naming every agent's folder it overlaps (`project_agent_folder`), by the same comparison, and by the agent folder's name too, so a folder the VM could make later counts. A `--clone` VM gets no warning.
 
 ### One VM per folder
 

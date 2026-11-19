@@ -258,6 +258,45 @@ func TestUnsafe(t *testing.T) {
 	}
 }
 
+// On a volume that ignores case, such as macOS's, a folder named in
+// another case is still devvm's own: a project there is or holds it, or
+// is inside it.
+func TestUnsafeIgnoresCase(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := Unsafe{
+		Home:   filepath.Join(root, "home"),
+		Config: filepath.Join(root, "config", "devvm"),
+		Data:   filepath.Join(root, "data", "devvm"),
+		Lima:   filepath.Join(root, "data", "devvm", "lima"),
+	}
+	mkdirs(t, u.Home, u.Config, u.Lima)
+	if _, err := os.Stat(filepath.Join(root, "HOME")); err != nil {
+		t.Skip("this volume tells names apart by case")
+	}
+	for _, tc := range []struct{ dir, holds, inside string }{
+		{filepath.Join(root, "HOME"), u.Home, ""},
+		{filepath.Join(root, "Config"), u.Config, ""},
+		{filepath.Join(root, "Config", "Devvm"), u.Config, ""},
+		{filepath.Join(root, "Config", "devvm", "layers"), "", u.Config},
+		{filepath.Join(root, "DATA", "devvm", "mise"), "", u.Data},
+		{filepath.Join(root, "data", "devvm", "LIMA", "x"), "", u.Data},
+		{filepath.Join(root, "HOME", "proj"), "", ""},
+	} {
+		if err := os.MkdirAll(tc.dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if got := u.Holds(tc.dir); got != tc.holds {
+			t.Errorf("Holds(%s) = %q, want %q", tc.dir, got, tc.holds)
+		}
+		if got := u.Inside(tc.dir); got != tc.inside {
+			t.Errorf("Inside(%s) = %q, want %q", tc.dir, got, tc.inside)
+		}
+	}
+}
+
 // Parents lists the folders a folder is inside, nearest first, stopping
 // before the home folder (given through a symlink too) and the root.
 func TestParents(t *testing.T) {

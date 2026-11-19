@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -20,7 +21,8 @@ import (
 //     TARGET, mise's folder.
 //
 // Then Within and Below compare it with a folder that is resolved the
-// same way.
+// same way, by name; In and Under by identity too, for a check that keeps
+// a VM away from a folder.
 
 // Physical returns path with its symlinks resolved, as far as it exists:
 // the part that doesn't is joined, as named, onto the deepest folder that
@@ -58,4 +60,37 @@ func Within(path, dir string) bool {
 // name, so both are clean and resolved the same way.
 func Below(path, dir string) bool {
 	return path != dir && strings.HasPrefix(path, strings.TrimSuffix(dir, "/")+"/")
+}
+
+// In reports whether path is dir or inside it: by name, as Within, or by
+// identity, path or a folder above it being the same folder as dir, so a
+// name that differs only in case on a volume that ignores it, such as
+// ~/.Config on macOS, is still dir. A check that keeps a VM away from a
+// folder uses In, never Within alone. An empty dir holds nothing.
+func In(path, dir string) bool {
+	if dir == "" {
+		return false
+	}
+	if Within(path, dir) {
+		return true
+	}
+	d, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	for p := filepath.Clean(path); ; p = filepath.Dir(p) {
+		if fi, err := os.Stat(p); err == nil && os.SameFile(fi, d) {
+			return true
+		}
+		if filepath.Dir(p) == p {
+			return false
+		}
+	}
+}
+
+// Under reports whether path is inside dir, and isn't dir itself, as In
+// finds it: its folder is In dir.
+func Under(path, dir string) bool {
+	path = filepath.Clean(path)
+	return filepath.Dir(path) != path && In(filepath.Dir(path), dir)
 }

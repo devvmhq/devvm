@@ -57,7 +57,7 @@ type linkOut struct {
 func outLink(home, p string) (linkOut, bool) {
 	l := linkOut{p: p, path: filepath.Join(home, filepath.FromSlash(p))}
 	target, hops, err := linkHops(l.path)
-	if err != nil || isIn(target, paths.Physical(home)) {
+	if err != nil || paths.In(target, paths.Physical(home)) {
 		return l, false
 	}
 	fi, err := os.Stat(target)
@@ -113,30 +113,6 @@ func linkHops(p string) (target string, hops []string, err error) {
 // linkMaxHops is the most links a path may lead through, as the kernel's
 // own bound on a path's links.
 const linkMaxHops = 40
-
-// isIn reports whether p is dir or inside it: by name, as paths.Within,
-// or by identity, p or a folder above it being the same file as dir, so
-// a name that differs only in case on a file system that ignores case,
-// such as ~/.SSH on macOS, is still dir.
-func isIn(p, dir string) bool {
-	if paths.Within(p, dir) {
-		return true
-	}
-	d, err := os.Stat(dir)
-	if err != nil {
-		return false
-	}
-	for {
-		if fi, err := os.Stat(p); err == nil && os.SameFile(fi, d) {
-			return true
-		}
-		parent := filepath.Dir(p)
-		if parent == p {
-			return false
-		}
-		p = parent
-	}
-}
 
 // linkSource is where a file read through a link comes from: name in
 // root, read following a link at its end only within root (follow), and
@@ -197,14 +173,14 @@ func linkPlaces(d paths.Dirs) []string {
 
 // refusedPlace returns the place p, a physical path, is, holds or is in
 // (linkPlaces), or the home folder when p is it or holds it; "" for none.
-// Each is compared by identity too (isIn), so another spelling of a
+// Each is compared by identity too (paths.In), so another spelling of a
 // place, such as ~/.SSH where case doesn't count, is still that place.
 func refusedPlace(d paths.Dirs, p string) string {
-	if home := paths.Physical(d.Home); isIn(home, p) {
+	if home := paths.Physical(d.Home); paths.In(home, p) {
 		return home
 	}
 	for _, place := range linkPlaces(d) {
-		if isIn(p, place) || isIn(place, p) {
+		if paths.In(p, place) || paths.In(place, p) {
 			return place
 		}
 	}
@@ -363,16 +339,45 @@ func projectVMs(d paths.Dirs) []projectVM {
 func (im AgentImport) warnProjectsInside(names []string) []projectVM {
 	vms := projectVMs(im.Dirs)
 	for _, a := range names {
-		// By name too, so a folder that a VM could make just before the import is warned of.
 		folder := filepath.Join(im.Dirs.Home, agents.Of(a).Folder)
-		phys := paths.Physical(folder)
 		for _, v := range vms {
-			if isIn(v.dir, phys) || isIn(phys, v.dir) || isIn(folder, v.dir) {
+			if overlapsAgent(v.dir, folder) {
 				im.Warn(msg.AgentImportProjectInside(v.dir, folder, v.name))
 			}
 		}
 	}
 	return vms
+}
+
+// overlapsAgent reports whether dir, a project folder's physical path, is
+// inside folder, an agent's folder in the home folder, or holds it, by
+// identity too (paths.In): code in dir's VM can change that agent's
+// settings on this machine, and what devvm agent import copies from
+// there. folder is compared as named too, so one that a VM could make
+// later counts.
+func overlapsAgent(dir, folder string) bool {
+	phys := paths.Physical(folder)
+	return paths.In(dir, phys) || paths.In(phys, dir) || paths.In(folder, dir)
+}
+
+// warnAgentFolders warns once, when a launch has found t, if the folder
+// t's VM mounts is inside an agent's folder in the home folder, or holds
+// one (project_agent_folder): code in the VM can change that agent's
+// settings on this machine. A --clone VM (clone: a new one) mounts
+// nothing, so it gets no warning.
+func (e Launch) warnAgentFolders(t *target, clone bool) {
+	if clone || t.st.Exists() && isClone(t.st) {
+		return
+	}
+	var folders []string
+	for _, a := range agents.Names() {
+		if folder := filepath.Join(e.Dirs.Home, agents.Of(a).Folder); overlapsAgent(t.f.Dir, folder) {
+			folders = append(folders, folder)
+		}
+	}
+	if len(folders) > 0 {
+		e.Warn(msg.ProjectAgentFolder(t.f.Dir, strings.Join(folders, ", ")))
+	}
 }
 
 // through returns the VM, if any, whose project folder a link on l's way
@@ -387,10 +392,10 @@ func (f *follower) through(l *linkOut) vmname.VM { return throughVM(f.projectVMs
 // machine's.
 func throughVM(vms []projectVM, target string, hops []string) vmname.VM {
 	for _, v := range vms {
-		if isIn(target, v.dir) {
+		if paths.In(target, v.dir) {
 			continue
 		}
-		if slices.ContainsFunc(hops, func(h string) bool { return isIn(h, v.dir) }) {
+		if slices.ContainsFunc(hops, func(h string) bool { return paths.In(h, v.dir) }) {
 			return v.name
 		}
 	}
@@ -405,7 +410,7 @@ func (f *follower) projects(path, target string, dir bool) []msg.M {
 	var ms []msg.M
 	for _, v := range f.projectVMs() {
 		key := path + "\x00" + v.name.String()
-		in := isIn(target, v.dir) || dir && isIn(v.dir, target)
+		in := paths.In(target, v.dir) || dir && paths.In(v.dir, target)
 		if f.warned[key] || !in {
 			continue
 		}

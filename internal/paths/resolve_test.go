@@ -40,6 +40,54 @@ func TestPhysical(t *testing.T) {
 	}
 }
 
+// In and Under find a path in a folder by name, as Within and Below do,
+// and by identity too: on a volume that ignores case, such as macOS's, a
+// name in another case is the same folder. An empty folder holds nothing.
+func TestInAndUnder(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "dir")
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		path, dir string
+		in, under bool
+	}{
+		{dir, dir, true, false},
+		{filepath.Join(dir, "sub"), dir, true, true},
+		{filepath.Join(dir, "none", "deeper"), dir, true, true},
+		{dir + "x", dir, false, false},
+		{root, dir, false, false},
+		{"/", "/", true, false},
+		{dir, "", false, false},
+	}
+	if _, err := os.Stat(filepath.Join(root, "DIR")); err == nil {
+		cases = append(cases, []struct {
+			path, dir string
+			in, under bool
+		}{
+			{filepath.Join(root, "DIR"), dir, true, false},
+			{filepath.Join(root, "Dir", "sub"), dir, true, true},
+			{filepath.Join(root, "Dir", "SUB", "none"), dir, true, true},
+			{dir, filepath.Join(root, "DIR"), true, false},
+			{filepath.Join(root, "DIRx"), dir, false, false},
+		}...)
+	} else {
+		t.Log("this volume tells names apart by case: only the cases by name ran")
+	}
+	for _, tc := range cases {
+		if got := In(tc.path, tc.dir); got != tc.in {
+			t.Errorf("In(%s, %s) = %v", tc.path, tc.dir, got)
+		}
+		if got := Under(tc.path, tc.dir); got != tc.under {
+			t.Errorf("Under(%s, %s) = %v", tc.path, tc.dir, got)
+		}
+	}
+}
+
 // Within is the folder or inside it; Below only inside it.
 func TestWithinAndBelow(t *testing.T) {
 	for _, tc := range []struct {

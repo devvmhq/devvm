@@ -3948,6 +3948,11 @@ func ProgramOldFix(fix string, name string, version string) M {
 	return M{id: "program_old_fix", vals: []val{{"fix", fix}, {"name", name}, {"version", version}}}
 }
 
+// ProjectAgentFolder is [project_agent_folder]: "{{.dir}} overlaps {{.folders}}, so code in the VM can change your coding agents' settings on this machine. Keep the project somewhere else unless you trust it."
+func ProjectAgentFolder(dir string, folders string) M {
+	return M{id: "project_agent_folder", vals: []val{{"dir", dir}, {"folders", folders}}}
+}
+
 // ProjectFolderChanged is [project_folder_changed]: "{{.dir}} became a link or another folder after devvm found {{.vm}}, so devvm didn't start the VM, which would have mounted it. Find what replaced it and put the project folder back, then run the command again."
 func ProjectFolderChanged(dir string, vm vmname.VM) M {
 	return M{id: "project_folder_changed", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
@@ -6248,6 +6253,7 @@ var specs = map[string]spec{
 	"program_missing_fix":             {fields: []string{"fix", "name", "program"}},
 	"program_old":                     {fields: []string{"min", "name", "version"}},
 	"program_old_fix":                 {fields: []string{"fix", "name", "version"}},
+	"project_agent_folder":            {fields: []string{"dir", "folders"}},
 	"project_folder_changed":          {fields: []string{"dir", "vm"}},
 	"project_folder_changed_stopped":  {fields: []string{"dir", "vm"}},
 	"project_in_vm_folder":            {fields: []string{"dir", "vm"}},

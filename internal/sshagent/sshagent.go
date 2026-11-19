@@ -391,7 +391,9 @@ func (a *Agent) load(ctx context.Context, k AddedKey) (string, error) {
 
 // mountedBy returns a project VM that mounts a folder holding the file key
 // names in the end (a link to a key in a project folder is as readable
-// there), or "": both by their physical paths (paths.Physical).
+// there), or "": both by their physical paths (paths.Physical), and by
+// identity (paths.In), so a folder named in another case on a volume that
+// ignores it still holds the key.
 func (a *Agent) mountedBy(ctx context.Context, key string) (vmname.VM, error) {
 	file := paths.Physical(key)
 	ms, err := a.Mounts(ctx)
@@ -399,7 +401,7 @@ func (a *Agent) mountedBy(ctx context.Context, key string) (vmname.VM, error) {
 		return "", err
 	}
 	for _, m := range ms {
-		if paths.Within(file, paths.Physical(m.Dir)) {
+		if paths.In(file, paths.Physical(m.Dir)) {
 			return m.VM, nil
 		}
 	}

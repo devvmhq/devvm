@@ -24,7 +24,7 @@ internal/leaktest 87.5
 internal/memnet 96.8
 internal/msg 72.1
 internal/msg/gen 93.9
-internal/netpolicy 91.8
+internal/netpolicy 91.9
 internal/paths 98.1
 internal/platform 90.4
 internal/ports 92.6

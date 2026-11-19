@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/gitprotect"
 	"github.com/devvmhq/devvm/internal/msg"
@@ -280,6 +281,68 @@ func TestWarnMounted(t *testing.T) {
 	}
 	e.Dir, e.Folder = lib, FolderHere
 	up("below a --clone VM", Options{}, "")
+}
+
+// A launch warns once when its project folder is inside a coding agent's
+// folder in the home folder, or holds one (project_agent_folder), naming
+// every such folder, at the VM's creation and at each launch after it; on
+// a volume that ignores case, a name in another case too. A folder
+// elsewhere and a new --clone VM, which mounts nothing, get no warning.
+func TestWarnAgentFolders(t *testing.T) {
+	e, _, _ := upEnv(t, allNative())
+	home := e.Dirs.Home
+	var warns msg.Recorder
+	fake(e).OnWarn = warns.Add
+	up := func(dir string, o Options, want string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		e.Dir = dir
+		warns.Reset()
+		if err := (Launch{e}).Up(t.Context(), o); !o.Clone && err != nil {
+			t.Fatalf("%s: %v", dir, msg.NamesOf(err))
+		}
+		var got []string
+		for _, w := range warns.Names() {
+			if strings.HasPrefix(w, "project_agent_folder ") {
+				got = append(got, w)
+			}
+		}
+		if want == "" && len(got) != 0 || want != "" && !slices.Equal(got, []string{want}) {
+			t.Errorf("%s: warned %q, want %q", dir, got, want)
+		}
+	}
+	claude := filepath.Join(home, ".claude")
+	skill := filepath.Join(claude, "skills", "mine")
+	inClaude := "project_agent_folder dir=" + skill + " folders=" + claude
+	up(skill, Options{Network: "open"}, inClaude)
+	up(skill, Options{}, inClaude)
+	pi := filepath.Join(home, ".pi")
+	if err := os.MkdirAll(filepath.Join(pi, "agent"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	up(pi, Options{Network: "open"}, "project_agent_folder dir="+pi+" folders="+filepath.Join(pi, "agent"))
+	// An agent's folder that's a link to the project folder, by where it leads.
+	dot := filepath.Join(home, "dot")
+	if err := os.Symlink(dot, filepath.Join(home, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	up(dot, Options{Network: "open"}, "project_agent_folder dir="+dot+" folders="+filepath.Join(home, ".codex"))
+	// One line for a folder that holds several, made or not.
+	var all []string
+	for _, a := range agents.Names() {
+		all = append(all, filepath.Join(home, agents.Of(a).Folder))
+	}
+	up(home, Options{Network: "open", UnsafeFolder: true}, "project_agent_folder dir="+home+" folders="+strings.Join(all, ", "))
+	up(filepath.Join(home, "src", "app"), Options{Network: "open"}, "")
+	up(filepath.Join(claude, "skills", "cloned"), Options{Network: "open", Clone: true}, "")
+	if _, err := os.Stat(filepath.Join(home, ".CLAUDE")); err != nil {
+		t.Log("this volume tells names apart by case: no check of another case")
+		return
+	}
+	other := filepath.Join(home, ".CLAUDE", "skills", "other")
+	up(other, Options{Network: "open"}, "project_agent_folder dir="+other+" folders="+claude)
 }
 
 func vmNames(t *testing.T, e *Env) []vmname.VM {

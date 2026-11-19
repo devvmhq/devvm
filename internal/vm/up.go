@@ -72,6 +72,7 @@ func (e Launch) Up(ctx context.Context, o Options) error {
 		return err
 	}
 	e.finder.warnMounted(t, o.Clone)
+	e.warnAgentFolders(t, o.Clone)
 	// A remake that didn't finish, whose machine may be gone: finished,
 	// never made anew.
 	if remakePending(t.st) {
