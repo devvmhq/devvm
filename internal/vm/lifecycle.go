@@ -27,13 +27,15 @@ type Lifecycle struct{ *Env }
 // Stop stops the folder's VM, its proxy and its link session. Then, the
 // VM being stopped, the .git protection chosen while it ran is set, .git
 // is locked again and checked (on Linux, set-id files too) as on a
-// launch that finds it stopped (starter.hostChecks), and its ssh config entry goes.
+// launch that finds it stopped (starter.hostChecks), and its ssh config
+// entry goes, all under a status line.
 func (e Lifecycle) Stop(ctx context.Context) error {
 	t, err := e.finder.target(ctx, need{has: hasMade})
 	if err != nil {
 		return err
 	}
 	vm := t.f.Name
+	defer e.Status(msg.CheckingVM(vm))()
 	if t.in.Status == backend.StatusStopped {
 		e.Info(msg.AlreadyStopped(vm))
 	} else {
@@ -362,6 +364,7 @@ func (e Lifecycle) export(ctx context.Context, t *target, file string, failed er
 	if err := t.ensureRunning(ctx); err != nil {
 		return err
 	}
+	defer e.Status(msg.HistoryExporting(vm))()
 	// devvm's exports folder is the user's alone; a folder the user named
 	// keeps its mode.
 	if dir := filepath.Dir(file); dir == e.Dirs.Exports() {
@@ -442,6 +445,7 @@ func (e Lifecycle) Import(ctx context.Context, file string) error {
 // a less strict tier is warned of first (warnTier).
 func importHistory(ctx context.Context, e *Env, t *target, file string) error {
 	vm := t.f.Name
+	defer e.Status(msg.HistoryImporting(vm))()
 	warnTier(e, t, file)
 	f, err := os.Open(file) //nolint:gosec // the export the user named, or the one devvm saved for this folder
 	if err != nil {
@@ -533,9 +537,10 @@ func (e creation) importOffered(ctx context.Context, t *target, file string) err
 // folder, its proxy and link session, .git's locks or the repo's remote
 // for its clone, other VMs' links to it, its host keys and its ssh config
 // entry. A delete that failed but left no VM (it was half gone already)
-// goes on like one that worked.
+// goes on like one that worked. It runs under a status line.
 func (e Lifecycle) delete(ctx context.Context, t *target) error {
 	vm := t.f.Name
+	defer e.Status(msg.Deleting(vm.String()))()
 	if err := t.b.Delete(ctx, vm); err != nil {
 		if _, ierr := t.b.Inspect(ctx, vm); !errors.Is(ierr, backend.ErrNotFound) {
 			return err

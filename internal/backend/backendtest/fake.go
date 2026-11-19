@@ -81,6 +81,10 @@ type Fake struct {
 	// ToolGlibc is the glibc version each tool's build says it needs, by
 	// its name in the lock: none for a tool it doesn't name.
 	ToolGlibc map[string]string
+	// OnCall, when set, is given each call's method as it's recorded,
+	// with the fake locked: a test checks what showed meanwhile, such as
+	// a status line (msg.Fake.Showing).
+	OnCall func(method string)
 
 	mu     sync.Mutex
 	calls  []Call
@@ -134,6 +138,9 @@ func (f *Fake) Methods() []string {
 // caller holds the lock.
 func (f *Fake) record(method string, args ...any) error {
 	f.calls = append(f.calls, Call{method, args})
+	if f.OnCall != nil {
+		f.OnCall(method)
+	}
 	return f.Errs[method]
 }
 

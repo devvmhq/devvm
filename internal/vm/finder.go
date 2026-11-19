@@ -125,8 +125,10 @@ const (
 )
 
 // target finds the VM a command acts on, as n says, and refuses one that
-// hasn't what n asks.
+// hasn't what n asks. It looks under a status line, as it asks the
+// backend and looks up folders' disks.
 func (e finder) target(ctx context.Context, n need) (*target, error) {
+	defer e.Status(msg.FindingVM())()
 	var t *target
 	var err error
 	switch {

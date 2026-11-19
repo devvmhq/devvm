@@ -326,7 +326,10 @@ func (b Builds) build(ctx context.Context, name image.Name) error {
 	return b.fallBack(ctx, name, b.buildOnce(ctx, name))
 }
 
+// buildOnce is one of build's builds, under a status line, as it looks
+// up --from's image and the images built, then builds what's missing.
 func (b Builds) buildOnce(ctx context.Context, name image.Name) error {
+	defer b.Status(msg.CheckingImage(name.String()))()
 	if err := b.lookUp(ctx); err != nil {
 		return err
 	}

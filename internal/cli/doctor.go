@@ -97,7 +97,7 @@ func newDoctorCmd(a *app) *cobra.Command {
 				},
 			}
 			if asJSON {
-				return printJSON(u, d.report(cmd.Context(), u.Text, reg.All(), b))
+				return printJSON(u, d.report(cmd.Context(), u, u.Text, reg.All(), b))
 			}
 			return d.run(cmd.Context(), u, b)
 		},
@@ -140,24 +140,40 @@ type problemJSON struct {
 	Message string  `json:"message"`
 }
 
+// found is what doctor's checks found of a backend: its problems, and
+// doctor's warnings and tips.
+type found struct {
+	problems       []backend.Problem
+	warnings, tips []msg.M
+}
+
+// check runs doctor's checks of b under r's status line, as they run
+// the backend's tools and git and read every VM's state.
+func (d doctor) check(ctx context.Context, r msg.Reporter, b backend.Backend) found {
+	defer r.Status(msg.DoctorChecking())()
+	return found{problems: b.Problems(ctx), warnings: d.warnings(b), tips: d.tips()}
+}
+
 // report is what doctor finds, as doctor --json shows it, each message
-// as text shows it (the UI's Text). It prints nothing.
-func (d doctor) report(ctx context.Context, text func(msg.M) string, all []backend.Backend, b backend.Backend) doctorOutput {
+// as text shows it (the UI's Text). It prints nothing but r's status
+// line while it checks.
+func (d doctor) report(ctx context.Context, r msg.Reporter, text func(msg.M) string, all []backend.Backend, b backend.Backend) doctorOutput {
 	out := doctorOutput{
 		Backend:  b.Name(),
 		Problems: []problemJSON{}, Warnings: []string{}, Tips: []string{}, Features: map[string]map[string]string{},
 	}
-	for _, p := range b.Problems(ctx) {
+	f := d.check(ctx, r, b)
+	for _, p := range f.problems {
 		j := problemJSON{Key: p.Key, Message: text(p.Msg)}
 		if p.Fix != "" {
 			j.Fix = &p.Fix
 		}
 		out.Problems = append(out.Problems, j)
 	}
-	for _, m := range d.warnings(b) {
+	for _, m := range f.warnings {
 		out.Warnings = append(out.Warnings, text(m))
 	}
-	for _, m := range d.tips() {
+	for _, m := range f.tips {
 		out.Tips = append(out.Tips, text(m))
 	}
 	_, err := exec.LookPath("docker")
@@ -266,7 +282,8 @@ func (d doctor) known() upgrade.Known {
 // the others. Warnings (another devvm on PATH, low free space, a small
 // host) never change what it returns.
 func (d doctor) run(ctx context.Context, u *ui.UI, b backend.Backend) error {
-	problems := b.Problems(ctx)
+	f := d.check(ctx, u, b)
+	problems := f.problems
 	if err := writeFeatures(u.Table(), b); err != nil {
 		return err
 	}
@@ -276,10 +293,10 @@ func (d doctor) run(ctx context.Context, u *ui.UI, b backend.Backend) error {
 		u.Say(msg.DockerMissing())
 	}
 	sayProxyCA(u, d.Dirs)
-	for _, m := range d.tips() {
+	for _, m := range f.tips {
 		u.Say(m)
 	}
-	for _, m := range d.warnings(b) {
+	for _, m := range f.warnings {
 		u.Warn(m)
 	}
 	if k := d.known(); k.Latest != "" {

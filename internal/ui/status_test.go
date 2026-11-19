@@ -1,8 +1,14 @@
 package ui
 
 import (
+	"bufio"
+	"io"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/devvmhq/devvm/internal/msg"
 )
@@ -131,6 +137,232 @@ func TestStatusLineInATerminal(t *testing.T) {
 	if got := errOut.String(); strings.Contains(got, "msg_unknown") || !strings.Contains(got, "+ true\n") {
 		t.Errorf("verbose logged command: %q", got)
 	}
+}
+
+// statusUI is a UI whose stderr is a 40-column terminal in the C locale,
+// so its status lines draw, and what it wrote there so far, read under
+// the lock the status line writes with.
+func statusUI(t *testing.T, in io.Reader) (*UI, func() string) {
+	t.Helper()
+	u, _, errOut := testUI(t, "")
+	u.stdin = bufio.NewReader(in)
+	u.stderrTTY = true
+	u.termWidth = func() int { return 40 }
+	u.getenv = env{"LC_ALL": "C"}.get
+	return u, func() string {
+		u.outMu.Lock()
+		defer u.outMu.Unlock()
+		return errOut.String()
+	}
+}
+
+// A status line inside another shows its own until it stops, then the
+// outer one's is drawn again; the outer one's stop clears it, and stopping
+// out of order draws nothing over the inner one.
+func TestStatusLinesNest(t *testing.T) {
+	t.Parallel()
+	u, shown := statusUI(t, strings.NewReader(""))
+	outer := u.Status(msg.MsgUnknown("outer"))
+	inner := u.Status(msg.MsgUnknown("inner"))
+	inner()
+	after := len(shown())
+	outer()
+	got := shown()
+	if !strings.Contains(got, "msg_unknown name=inner") {
+		t.Fatalf("no inner line: %q", got)
+	}
+	// After the inner line's stop: cleared, then the outer one again.
+	again := regexp.MustCompile(`\r\x1b\[K\r\x1b\[K\x1b\[\?7l    . msg_unknown name=outer`)
+	if rest := got[strings.Index(got, "msg_unknown name=inner"):after]; !again.MatchString(rest) {
+		t.Errorf("outer line not drawn again after the inner one: %q", rest)
+	}
+	if !strings.HasSuffix(got, "\033[?7h\r\033[K") {
+		t.Errorf("not cleared at the end: %q", got)
+	}
+
+	// The outer one stopped first: the inner one stays.
+	outer = u.Status(msg.MsgUnknown("outer2"))
+	inner = u.Status(msg.MsgUnknown("inner2"))
+	before := len(shown())
+	outer()
+	if got := shown()[before:]; got != "" {
+		t.Errorf("an outer line's stop wrote %q over the inner one", got)
+	}
+	inner()
+	if got := shown(); !strings.HasSuffix(got, "\r\033[K") || strings.Contains(got[before:], "outer2") {
+		t.Errorf("an outer line drawn after its stop: %q", got[before:])
+	}
+}
+
+// Once the run is interrupted, no status line starts: nothing would clear
+// one started after Main's last stop.
+func TestNoStatusLineOnceInterrupted(t *testing.T) {
+	t.Parallel()
+	u, shown := statusUI(t, strings.NewReader(""))
+	u.interrupted.Store(true)
+	u.Status(msg.MsgUnknown("s"))()
+	if err := u.logged(t.Context(), msg.MsgUnknown("x"), "true"); err != nil {
+		t.Fatal(err)
+	}
+	if got := shown(); got != "" {
+		t.Errorf("drawn once interrupted: %q", got)
+	}
+}
+
+// A message said under a status line clears it first and draws it again
+// after, so the message never lands on the line, on stdout too when it's
+// the terminal.
+func TestMessagesClearTheStatusLine(t *testing.T) {
+	t.Parallel()
+	u, shown := statusUI(t, strings.NewReader(""))
+	u.stdout, u.stdoutTTY = u.stderr, true
+	stop := u.Status(msg.MsgUnknown("s"))
+	defer stop()
+	u.Warn(msg.MsgUnknown("w"))
+	u.Info(msg.MsgUnknown("i"))
+	_, _ = io.WriteString(u.Stderr(), "data\n")
+	got := shown()
+	for _, line := range []string{"devvm: msg_unknown name=w\n", "==> msg_unknown name=i\n", "data\n"} {
+		if !strings.Contains(got, "\033[?7h\r\033[K"+line+"\r\033[K\033[?7l") {
+			t.Errorf("%q not cleared before and drawn after: %q", line, got)
+		}
+	}
+
+	// A line not ended keeps the status line off until one is.
+	_, _ = io.WriteString(u.Stderr(), "part")
+	before := len(shown())
+	_, _ = io.WriteString(u.Stderr(), "ial")
+	if got := shown()[before:]; got != "ial" {
+		t.Errorf("drawn after an unended line: %q", got)
+	}
+	_, _ = io.WriteString(u.Stderr(), "\n")
+	if got := shown()[before:]; !strings.HasPrefix(got, "ial\n\r\033[K\033[?7l") {
+		t.Errorf("not drawn once the line ended: %q", got)
+	}
+}
+
+// A question takes the status line off until it's answered, however long
+// that takes, so the line never draws over its prompt or what's typed,
+// and draws it again after.
+func TestQuestionsHoldTheStatusLine(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		in, typed := io.Pipe()
+		u, shown := statusUI(t, in)
+		u.stdinTTY = true
+		stop := u.Status(msg.MsgUnknown("s"))
+		defer stop()
+		answered := make(chan bool)
+		go func() {
+			yes, _ := u.Ask(msg.MsgUnknown("q").AnsweredBy("--force").About(msg.MsgUnknown("about")))
+			answered <- yes
+		}()
+		time.Sleep(2 * time.Second) // ten redraws' time, had it any
+		synctest.Wait()
+		got := shown()
+		prompt := strings.Index(got, "msg_unknown name=q [y/N] ")
+		if prompt < 0 || !strings.HasSuffix(got, "msg_unknown name=q [y/N] ") {
+			t.Fatalf("the status line drew over the prompt: %q", got)
+		}
+		// Cleared once, before the question's context, and not drawn
+		// again between it and the prompt.
+		about := strings.Index(got, "msg_unknown name=about\n")
+		if about < 0 || !strings.HasSuffix(got[:about], "\r\033[K") || strings.Contains(got[about:prompt], "\033[?7l") {
+			t.Errorf("the status line drawn between the question's context and its prompt: %q", got)
+		}
+		_, _ = io.WriteString(typed, "y\n")
+		if !<-answered {
+			t.Error("the answer: no")
+		}
+		if got := shown(); !strings.Contains(got[prompt:], "\033[?7l") {
+			t.Errorf("not drawn again once answered: %q", got[prompt:])
+		}
+	})
+}
+
+// A secret's prompt and the picker hold the status line too, until the
+// secret is read or the choice made, then draw it again.
+func TestSecretAndPickerHoldTheStatusLine(t *testing.T) {
+	t.Parallel()
+	for name, ask := range map[string]func(u *UI){
+		"secret": func(u *UI) {
+			_, _ = u.Secret(msg.MsgUnknown("token").RefusedWith(msg.MsgUnknown("no")).About(msg.MsgUnknown("about")))
+		},
+		"picker": func(u *UI) { u.PickOne(msg.MsgUnknown("pick"), choices()) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				in, typed := io.Pipe()
+				u, shown := statusUI(t, in)
+				u.stdinTTY, u.stdoutTTY = true, true
+				u.rawInput = func() (func(), error) { return func() {}, nil }
+				u.termSize = func() (int, int) { return 60, 20 }
+				read := make(chan string)
+				u.readPassword = func() (string, error) { return <-read, nil }
+				stop := u.Status(msg.MsgUnknown("s"))
+				defer stop()
+				before := len(shown())
+				done := make(chan struct{})
+				go func() {
+					ask(u)
+					close(done)
+				}()
+				time.Sleep(2 * time.Second) // ten redraws' time, had it any
+				synctest.Wait()
+				if got := shown()[before:]; strings.Contains(got, "\033[?7l") {
+					t.Errorf("drawn while it waited: %q", got)
+				}
+				if name == "secret" {
+					read <- "x"
+				} else {
+					_, _ = io.WriteString(typed, "\r")
+				}
+				<-done
+				if got := shown()[before:]; !strings.Contains(got, "\033[?7l") {
+					t.Errorf("not drawn again once done: %q", got)
+				}
+			})
+		})
+	}
+}
+
+// A command on the terminal (Terminal) holds the status line until its
+// restore.
+func TestTerminalHoldsTheStatusLine(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		u, _ := statusUI(t, strings.NewReader(""))
+		f, err := os.CreateTemp(t.TempDir(), "tty")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		u.stdout, u.stderr, u.stdinTTY, u.stdoutTTY = f, f, true, true
+		u.saveTerminal = func() (func(), error) { return func() {}, nil }
+		shown := func() string {
+			u.outMu.Lock()
+			defer u.outMu.Unlock()
+			b, err := os.ReadFile(f.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(b)
+		}
+		stop := u.Status(msg.MsgUnknown("s"))
+		defer stop()
+		before := len(shown())
+		_, _, restore := Terminal(u)
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		if got := shown()[before:]; got != "\r\033[K" {
+			t.Errorf("while the terminal was held, wrote %q, want the line cleared alone", got)
+		}
+		restore()
+		if got := shown()[before:]; !strings.Contains(got, "\033[?7l") {
+			t.Errorf("not drawn again after the restore: %q", got)
+		}
+	})
 }
 
 // While verbose, a logged failure names the run log, whose lines were

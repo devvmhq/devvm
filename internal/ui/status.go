@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,10 @@ const redrawEvery = 200 * time.Millisecond
 // A step that took at least this long leaves a line behind ("✓ step (5s)").
 const doneAfter = 3 * time.Second
 
+// A statusLine is one slow step's line. The UI keeps them as a stack,
+// innermost last, and shows only that one: a step inside another (a
+// logged command inside a Status) shows its own line until it ends, then
+// the outer one's comes back.
 type statusLine struct {
 	u       *UI
 	label   []part // its values bold
@@ -27,43 +32,60 @@ type statusLine struct {
 	stopped chan struct{}
 	ended   chan struct{}
 	once    sync.Once
-	drawn   int // runes on the line last drawn
-	cols    int // the terminal's width when it was drawn
-	frame   int
+	frame   int // under the UI's outMu
+}
+
+// statusState is what the terminal shows of the status lines, under the
+// UI's outMu, which every write to the terminal holds: a message clears
+// the line, prints, then draws it again under itself (writeTo), and a
+// question takes it off until it's answered (holdStatus).
+type statusState struct {
+	lines []*statusLine // the stack, innermost last
+	shown bool          // a line is on the terminal
+	drawn int           // the runes it has
+	// held counts the questions and pickers on the terminal: no line
+	// meanwhile, as one would draw over what's typed.
+	held int
+	// partial: the last write to the terminal didn't end its line, so a
+	// line drawn now would clear it; none until one ends.
+	partial bool
 }
 
 // Status shows label on a status line, around slow work that isn't one
-// logged command, until stop is called. Only in a terminal, and not
-// while verbose.
+// logged command, until stop is called. Only in a terminal, not while
+// verbose, and not once the run is interrupted, as nothing would clear
+// a line started after the run's last stop (Main).
 func (u *UI) Status(label msg.M) (stop func()) {
-	if verbose(u) || !u.stderrTTY {
+	if verbose(u) || !u.stderrTTY || u.Interrupted() {
 		return func() {}
 	}
 	s := u.startStatus(u.errStyle.valueParts(label))
 	return s.stop
 }
 
+// startStatus shows label on a status line over any showing, until its
+// stop.
 func (u *UI) startStatus(label []part) *statusLine {
-	u.stopStatus()
 	s := &statusLine{u: u, label: label, start: time.Now(), stopped: make(chan struct{}), ended: make(chan struct{})}
-	u.status.Lock()
-	u.status.s = s
-	u.status.Unlock()
-	s.draw()
+	u.outMu.Lock()
+	u.status.lines = append(u.status.lines, s)
+	drawStatus(u)
+	u.outMu.Unlock()
 	go s.run()
 	return s
 }
 
-// stopStatus stops the status line showing, if any.
+// stopStatus stops every status line showing, the innermost first.
 func (u *UI) stopStatus() {
-	u.status.Lock()
-	s := u.status.s
-	u.status.Unlock()
-	if s != nil {
+	u.outMu.Lock()
+	lines := slices.Clone(u.status.lines)
+	u.outMu.Unlock()
+	for _, s := range slices.Backward(lines) {
 		s.stop()
 	}
 }
 
+// run redraws s every redrawEvery while it's the innermost line.
 func (s *statusLine) run() {
 	defer close(s.ended)
 	t := time.NewTicker(redrawEvery)
@@ -71,40 +93,110 @@ func (s *statusLine) run() {
 	for {
 		select {
 		case <-s.stopped:
-			s.cols = s.u.width()
-			s.u.write(s.u.stderr, clearLine(s.drawn, s.cols))
 			return
 		case <-t.C:
-			s.draw()
+			s.u.outMu.Lock()
+			if l := s.u.status.lines; l[len(l)-1] == s {
+				drawStatus(s.u)
+			}
+			s.u.outMu.Unlock()
 		}
 	}
 }
 
-func (s *statusLine) draw() {
-	frames := glyphs(s.u.getenv)[1:]
-	s.cols = s.u.width()
-	secs := int(time.Since(s.start).Seconds())
-	_, log := statusText(plainText(s.label), secs, lastLine(s.u.logPath()), s.cols)
-	parts := append([]part{{"    " + frames[s.frame%len(frames)] + " ", ""}}, s.label...)
-	parts = append(parts, part{" " + duration(secs), ""}, part{log, sgrDim})
-	line, drawn := s.u.errStyle.fit(parts, s.cols-1)
-	s.frame++
-	// No line wrapping while it draws: a resize between reading the width
-	// and drawing would wrap.
-	s.u.write(s.u.stderr, clearLine(s.drawn, s.cols)+"\033[?7l"+line+"\033[?7h")
-	s.drawn = drawn
-}
-
+// stop takes s off the stack; when it showed, it's cleared and the line
+// under it, if any, drawn again.
 func (s *statusLine) stop() {
 	s.once.Do(func() {
 		close(s.stopped)
 		<-s.ended
-		s.u.status.Lock()
-		if s.u.status.s == s {
-			s.u.status.s = nil
+		u := s.u
+		u.outMu.Lock()
+		defer u.outMu.Unlock()
+		i := slices.Index(u.status.lines, s)
+		if i < 0 {
+			return
 		}
-		s.u.status.Unlock()
+		top := i == len(u.status.lines)-1
+		u.status.lines = slices.Delete(u.status.lines, i, i+1)
+		if top {
+			clearStatus(u)
+			drawStatus(u)
+		}
 	})
+}
+
+// drawStatus draws the innermost status line, over the one shown, unless
+// none is, a question holds them, or a write left its line unended. It
+// holds outMu.
+func drawStatus(u *UI) {
+	st := &u.status
+	if len(st.lines) == 0 || st.held > 0 || st.partial {
+		return
+	}
+	s := st.lines[len(st.lines)-1]
+	frames := glyphs(u.getenv)[1:]
+	cols := u.width()
+	secs := int(time.Since(s.start).Seconds())
+	_, log := statusText(plainText(s.label), secs, lastLine(u.logPath()), cols)
+	parts := append([]part{{"    " + frames[s.frame%len(frames)] + " ", ""}}, s.label...)
+	parts = append(parts, part{" " + duration(secs), ""}, part{log, sgrDim})
+	line, drawn := u.errStyle.fit(parts, cols-1)
+	s.frame++
+	prev := 0
+	if st.shown {
+		prev = st.drawn
+	}
+	// No line wrapping while it draws: a resize between reading the width
+	// and drawing would wrap.
+	_, _ = io.WriteString(u.stderr, clearLine(prev, cols)+"\033[?7l"+line+"\033[?7h")
+	st.shown, st.drawn = true, drawn
+}
+
+// clearStatus clears the status line shown, if one is. It holds outMu.
+func clearStatus(u *UI) {
+	if u.status.shown {
+		_, _ = io.WriteString(u.stderr, clearLine(u.status.drawn, u.width()))
+		u.status.shown = false
+	}
+}
+
+// holdStatus takes the status line off the terminal until release, for a
+// question, the picker or a command on the terminal: a line drawn
+// meanwhile would go over what's typed.
+func holdStatus(u *UI) (release func()) {
+	u.outMu.Lock()
+	u.status.held++
+	clearStatus(u)
+	u.outMu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			u.outMu.Lock()
+			u.status.held--
+			drawStatus(u)
+			u.outMu.Unlock()
+		})
+	}
+}
+
+// writeTo writes s to w, holding outMu. On the terminal the status line
+// is on, it clears the line first and draws it again after, so a
+// message never lands on it; while a question holds it, the status line
+// stays off.
+func writeTo(u *UI, w io.Writer, s string) (int, error) {
+	onTerm := w == u.stderr || u.stdoutTTY && w == u.stdout
+	if onTerm {
+		clearStatus(u)
+	}
+	n, err := io.WriteString(w, s)
+	if onTerm && s != "" && u.status.held == 0 {
+		u.status.partial = !strings.HasSuffix(s, "\n")
+	}
+	if onTerm {
+		drawStatus(u)
+	}
+	return n, err
 }
 
 // width is the terminal's width, 80 when unknown (some terminals say 0).

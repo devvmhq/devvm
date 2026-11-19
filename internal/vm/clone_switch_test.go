@@ -17,11 +17,16 @@ import (
 // chflagsCalls makes e's .git protection record what it locks and
 // unlocks ("uchg PATH", "nouchg PATH"), as on macOS, and, as it locks
 // .git/config, which git can't change then, the repo's remotes
-// ("remotes=NAMES").
-func chflagsCalls(e *Env) *[]string {
+// ("remotes=NAMES"). A lock or unlock with no status line showing fails t.
+func chflagsCalls(t *testing.T, e *Env) *[]string {
+	t.Helper()
 	var calls []string
 	e.Protector = func(dir string) *gitprotect.Protector {
 		return gitprotect.New(dir, e.Dirs.Home, gitprotect.Flags{Chflags: func(ctx context.Context, flags, path string) error {
+			// Every lock and unlock runs under a status line.
+			if _, on := fake(e).Showing(); !on {
+				t.Errorf("chflags %s %s with no status line", flags, path)
+			}
 			if flags == "uchg" && path == filepath.Join(dir, ".git", "config") {
 				out, _ := hostGit(ctx, dir, "remote")
 				calls = append(calls, "remotes="+out)
@@ -68,7 +73,7 @@ func lastFlags(calls []string, dir string) string {
 // unchecked, after a warning: .git locked as a new VM's, the remote gone.
 func TestSetCloneOn(t *testing.T) {
 	e, f, vmfs := cloneEnv(t)
-	flags := chflagsCalls(e)
+	flags := chflagsCalls(t, e)
 	gitIn(t, e.Dir, "branch", "other")
 	st := existingVM(t, e, Options{Network: "open"})
 	vm := st.Name()
@@ -78,8 +83,14 @@ func TestSetCloneOn(t *testing.T) {
 	}
 	*flags = nil
 	lc := Lifecycle{e}
+	var labels msg.Recorder
+	fake(e).OnStatus = labels.Add
 	if err := lc.SetClone(t.Context(), "devvm clone on", CloneOn, RemakeOptions{Force: true, CleanHome: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
+	}
+	// The repo's look, before the remake, under its status line.
+	if !slices.Contains(labels.IDs(), "clone_planning") {
+		t.Errorf("status lines %q, want clone_planning", labels.IDs())
 	}
 	after := readState(t, e.Dirs, vm)
 	for k, want := range map[string]string{KeyMode: ModeClone, KeySeeded: "yes", KeyCloneRemote: "devvm", keyGitProtect: gitprotect.Clone} {
@@ -151,7 +162,7 @@ func TestSetCloneOn(t *testing.T) {
 // again mounting the folder, .git locked, and the remote removed.
 func TestSetCloneOff(t *testing.T) {
 	e, f, vmfs := cloneEnv(t)
-	flags := chflagsCalls(e)
+	flags := chflagsCalls(t, e)
 	st := existingVM(t, e, Options{Network: "open", Clone: true})
 	vm, clone := st.Name(), vmfs+e.Dir
 	// A clone whose cache mode nobody chose: the folder it mounts is new,
@@ -233,7 +244,7 @@ func TestSetCloneOff(t *testing.T) {
 // and the locks the new machine got taken off.
 func TestSetCloneUndo(t *testing.T) {
 	e, f, _ := cloneEnv(t)
-	flags := chflagsCalls(e)
+	flags := chflagsCalls(t, e)
 	var cleanups []func(context.Context)
 	fake(e).OnCleanup = func(c func(context.Context)) func() {
 		i := len(cleanups)

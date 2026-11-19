@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -192,14 +193,27 @@ func TestList(t *testing.T) {
 	}
 }
 
-// list is devvm ls's list: every backend's VMs.
+// list is devvm ls's list: every backend's VMs, each backend's calls
+// checked to run under its status line.
 func list(t *testing.T, d paths.Dirs, reg *backend.Registry) ([]Listed, error) {
 	t.Helper()
-	inv, err := ReadInventory(t.Context(), d, reg, AllBackends)
-	if err != nil {
-		t.Fatal(err)
+	fake := &msg.Fake{}
+	calls := 0
+	for _, b := range reg.All() {
+		if f, ok := backend.As[*backendtest.Fake](b); ok {
+			f.OnCall = func(method string) {
+				calls++
+				if m, _ := fake.Showing(); m.ID() != "reading_vms" {
+					t.Errorf("%s's %s under %q, want reading_vms", f.Name(), method, m.ID())
+				}
+			}
+		}
 	}
-	return inv.List(t.Context(), &Env{})
+	ls, _, err := ListAll(t.Context(), &Env{Dirs: d, Registry: reg, Reporter: fake})
+	if calls == 0 {
+		t.Error("no backend's call checked")
+	}
+	return ls, err
 }
 
 // devvm ls asks each mount's volume once a run, through the run's lookups (Env.Volumes): two VMs
@@ -227,12 +241,9 @@ func TestListLooksUpVolumesOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inv, err := ReadInventory(t.Context(), d, reg, AllBackends)
-	if err != nil {
-		t.Fatal(err)
-	}
-	v := &volumes{answer: "uuid:A"}
-	got, err := inv.List(t.Context(), &Env{Volumes: v.look, VolumesOnly: true, volumes: new(volumeCache)})
+	v := &volumes{answer: "uuid:A", fake: &msg.Fake{}}
+	e := &Env{Dirs: d, Registry: reg, Reporter: v.fake, Volumes: v.look, VolumesOnly: true, volumes: new(volumeCache)}
+	got, _, err := ListAll(t.Context(), e)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,5 +254,9 @@ func TestListLooksUpVolumesOnce(t *testing.T) {
 	}
 	if len(got) != 2 || v.calls != 1 {
 		t.Errorf("%d VMs, %d lookups, want 2 and 1", len(got), v.calls)
+	}
+	// The lookup, under its own status line, over ls's.
+	if !slices.Equal(v.shown, []string{"looking_up_volume"}) {
+		t.Errorf("looked up under %q, want looking_up_volume", v.shown)
 	}
 }

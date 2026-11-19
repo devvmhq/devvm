@@ -130,6 +130,37 @@ About 13 fixes each came from these. A second devvm took a remake that was still
 
 **Guard:** forbidigo keeps whole-file writes in `internal/state`, and `TestLockOrder` panics in test builds on a lock taken out of order. The order of a destructive step is review only.
 
+## Show what devvm waits for
+
+Any work that can take noticeable time runs under the UI's status line, so the user sees what devvm waits for rather than a terminal that looks hung. Slow work is anything whose time devvm doesn't control: a host command, host git, a command in a VM, a backend's own commands, such as `limactl list` or `limactl --version`, a request over the network, a walk of a folder the user owns, a lookup of a folder's disk with `diskutil`, and a wait for a lock, a timeout or another process. A logged command shows its step on its own (`LoggedCmd`, a backend `Runner`'s `Run`), and the rest shows one with the Reporter's `Status`, its label a message in `locales/en.toml`. Status lines nest, so a phase can show one around steps that show their own. Work that takes the terminal never runs under one: a VM's shell, `ssh-add` asking for a passphrase, an agent's login in the VM.
+
+The reviews found the newest commands' slow work all without one: devvm agent import walked and copied up to 128 MiB and ran git on each marketplace's config, devvm ls looked up each folder's disk after Lima's list, and devvm doctor read every VM's state, each with nothing on the screen. They also found the status line itself drawing over what devvm said: a warning landed on its line, and its redraw erased a question's prompt.
+
+Wrong, as devvm ls read the VMs, Lima's list and a `diskutil` for each folder with nothing on the screen:
+
+```go
+inv, err := vm.ReadInventory(cmd.Context(), env.Dirs, env.Registry, vm.AllBackends)
+```
+
+Right, as `vm.ListAll` has it, under one status line that its steps' own lines nest in:
+
+```go
+defer e.Status(msg.ReadingVMs())()
+inv, err := ReadInventory(ctx, e.Dirs, e.Registry, AllBackends)
+```
+
+A test records the label rather than a terminal: a `msg.Fake` gives each label to its `OnStatus`, and `Showing` is the one showing, so a seam the slow work goes through records what showed meanwhile, as `TestAgentImportStatus` does:
+
+```go
+im.Opencode = func(context.Context, ...string) ([]byte, error) {
+    m, _ := im.fake.Showing()
+    during = append(during, "opencode: "+m.ID())
+    return nil, exec.ErrNotFound
+}
+```
+
+**Guard:** the structure test's `status-lines` rule fails on a function that makes a host command, runs host git, walks a folder, looks up a volume, makes a request through `internal/fetch` or runs a backend's command outside a step with no status line of its own, unless `statusSites` lists it with why, such as the caller's status line it runs under. `TestLaunchStatusLines` fails on a backend call that a launch makes with no status line showing, `TestSSHAddOffStatusLine` on an `ssh-add` under one, and `TestMessagesClearTheStatusLine`, `TestQuestionsHoldTheStatusLine`, `TestSecretAndPickerHoldTheStatusLine`, `TestTerminalHoldsTheStatusLine` and `TestStatusLinesNest` keep the status line off what devvm says and asks. That a caller's status line covers a listed call, a backend's methods outside a launch and a wait on a lock are review only.
+
 ## Extend the owner, and wait for a third copy
 
 Before adding a helper, a parser, a path, a file reader, a constant, a limit, a message or a table, find its owner and extend it, as [One owner for each concern](../../../docs/content/docs/contributing/structure.md#one-owner-for-each-concern) says. When the owner is out of reach, as most packages are for the proxy, move the owner to a package both can import.

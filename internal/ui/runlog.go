@@ -131,9 +131,10 @@ func (c *logCap) Write(p []byte) (int, error) {
 
 // logPath is the run's log, "" before it's opened.
 func (u *UI) logPath() string {
-	u.log.Lock()
-	defer u.log.Unlock()
-	return u.log.path
+	if p := u.log.path.Load(); p != nil {
+		return *p
+	}
+	return ""
 }
 
 // openLog opens the run's log, the first time in a run, in the run logs
@@ -156,7 +157,9 @@ func (u *UI) openLog() *logCap {
 	if err != nil {
 		u.die(msg.RunLogFailed(dir, err.Error()).Because(err))
 	}
-	u.log.f, u.log.path, u.log.cap = f, f.Name(), &logCap{f: f}
+	u.log.f, u.log.cap = f, &logCap{f: f}
+	name := f.Name()
+	u.log.path.Store(&name)
 	pruneLogs(dir, cmp.Or(u.log.keep, keepLogs))
 	return u.log.cap
 }
@@ -388,7 +391,7 @@ func (u *UI) LoggedCmd(ctx context.Context, step msg.M, cmd *exec.Cmd) error {
 	cmd.Stdout, cmd.Stderr = out, out
 
 	var s *statusLine
-	if u.stderrTTY && !verbose(u) {
+	if u.stderrTTY && !verbose(u) && !u.Interrupted() {
 		s = u.startStatus(label)
 	}
 	start := time.Now()

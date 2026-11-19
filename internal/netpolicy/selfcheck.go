@@ -49,7 +49,7 @@ func (p *Proxy) SelfCheck(ctx context.Context, b backend.Backend, st *state.VM, 
 		p.checkOpen(ctx, b, vm)
 		return nil
 	}
-	ok, err := enforced(ctx, b, vm)
+	ok, err := enforced(ctx, p, b, vm)
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func (p *Proxy) SelfCheck(ctx context.Context, b backend.Backend, st *state.VM, 
 	if err := restart(ctx); err != nil {
 		return err
 	}
-	if ok, err := enforced(ctx, b, vm); err != nil {
+	if ok, err := enforced(ctx, p, b, vm); err != nil {
 		return err
 	} else if !ok {
 		return p.stop(ctx, b, vm, msg.NetUnenforcedStop(vm))
@@ -93,6 +93,7 @@ func (p *Proxy) SelfCheck(ctx context.Context, b backend.Backend, st *state.VM, 
 // doesn't answer it reaches what it reaches all the same, but its tools
 // that use the proxy fail: a warning, and the VM is used as it is.
 func (p *Proxy) checkOpen(ctx context.Context, b backend.Backend, vm vmname.VM) {
+	defer p.Status(msg.CheckingNetwork(vm))()
 	if err := b.Exec(ctx, vm, proxyArgv, backend.ExecOpts{}); err != nil && ctx.Err() == nil {
 		p.Warn(msg.NetProxyUnreachable(vm))
 	}
@@ -140,8 +141,9 @@ func Listed(ctx context.Context, b backend.Backend, st *state.VM, running bool) 
 }
 
 // enforced reports whether the VM runs confined and can't connect out
-// directly.
-func enforced(ctx context.Context, b backend.Backend, vm vmname.VM) (bool, error) {
+// directly, checked under r's status line.
+func enforced(ctx context.Context, r msg.Reporter, b backend.Backend, vm vmname.VM) (bool, error) {
+	defer r.Status(msg.CheckingNetwork(vm))()
 	run, err := b.Running(ctx, vm)
 	if err != nil || !run.Confined {
 		return false, err

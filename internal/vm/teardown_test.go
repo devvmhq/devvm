@@ -114,11 +114,17 @@ func TestTeardownLeavesNothing(t *testing.T) {
 	if err != nil || len(r.Orphans) != 1 || r.Orphans[0].Name != st.Name() {
 		t.Fatalf("Find = %+v, %v", r, err)
 	}
+	var labels msg.Recorder
+	fake(e).OnStatus = labels.Add
 	if err := (Leftovers{e}).Forget(t.Context(), r.Orphans[0]); err != nil {
 		t.Fatal(err)
 	}
 	if left := vmsLeft(t, e); len(left) > 0 {
 		t.Errorf("gc --orphans left %q", left)
+	}
+	// Its teardown, under its status line.
+	if got := labels.Names(); !slices.Contains(got, "deleting what="+st.Name().String()) {
+		t.Errorf("status lines %q, want deleting", got)
 	}
 }
 

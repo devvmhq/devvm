@@ -285,6 +285,7 @@ const candidates = 5
 // tools), not mise's versions host, which can list tags with no release.
 // The next daily check tries the newest again.
 func (t Versions) stepBack(ctx context.Context, mise string, lock Lock, names []string, specs map[string]string) (Lock, error) {
+	defer t.Status(msg.ResolvingTools())()
 	for _, tool := range names {
 		if lock.HasDownload(tool, t.platforms()) {
 			continue

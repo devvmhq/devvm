@@ -90,17 +90,17 @@ type UI struct {
 	}
 	log struct {
 		sync.Mutex
-		path  string
+		// path is read without the lock, as the status line reads it
+		// under outMu, which a write holds while openLog may hold the
+		// lock to report its failure.
+		path  atomic.Pointer[string]
 		f     *os.File
 		cap   *logCap    // f, held to runLogMax
 		w     *redacting // LogWriter's, made at its first call
 		noted bool
 		keep  int // run logs kept, the newest; keepLogs when 0
 	}
-	status struct {
-		sync.Mutex
-		s *statusLine
-	}
+	status statusState // under outMu
 }
 
 // New returns a UI on these streams, none of them a terminal, with its run
@@ -189,20 +189,22 @@ func Files(u *UI) (stdout, stderr *os.File) {
 // caller to call once the command ends: the backend's ssh holds the
 // terminal in raw mode while it runs, and one that a signal kills, such
 // as one an interrupt sends, leaves it so. A cleanup puts it back too, if
-// the run ends first.
+// the run ends first. Until restore, no status line shows, as it would
+// draw over the command's.
 func Terminal(u *UI) (stdout, stderr *os.File, restore func()) {
 	stdout, stderr = Files(u)
 	if !u.stdinTTY || !u.stdoutTTY || stdout == nil || stderr == nil {
 		return nil, nil, nil
 	}
+	release := holdStatus(u)
 	put, err := u.saveTerminal()
 	if err != nil {
-		return stdout, stderr, func() {} // a state it can't read, it can't put back
+		return stdout, stderr, release // a state it can't read, it can't put back
 	}
 	var once sync.Once
 	back := func() { once.Do(put) }
 	remove := u.AddCleanup(func(context.Context) { back() })
-	return stdout, stderr, func() { back(); remove() }
+	return stdout, stderr, func() { back(); remove(); release() }
 }
 
 // savedTerminal saves the state of the terminal devvm reads from,
@@ -223,13 +225,13 @@ type lockedWriter struct {
 func (l lockedWriter) Write(p []byte) (int, error) {
 	l.u.outMu.Lock()
 	defer l.u.outMu.Unlock()
-	return l.w.Write(p)
+	return writeTo(l.u, l.w, string(p))
 }
 
 func (u *UI) write(w io.Writer, s string) {
 	u.outMu.Lock()
 	defer u.outMu.Unlock()
-	_, _ = io.WriteString(w, s)
+	_, _ = writeTo(u, w, s)
 }
 
 // DataOnly keeps stdout for data from now on: what Say, Info and LogNote
@@ -363,6 +365,7 @@ func (u *UI) readTerminal() (string, error) {
 // and prompt on stderr, without echoing it; with piped answers, a line
 // of input. Where it can't ask, it returns q's refusal, as Ask does.
 func (u *UI) Secret(q msg.Question) (redact.Secret, error) {
+	defer holdStatus(u)()
 	if err := asks(u, q); err != nil {
 		return redact.Secret{}, err
 	}
@@ -415,6 +418,7 @@ func asks(u *UI, q msg.Question) error {
 // reads a line. At the end of the input with no answer, it returns q's
 // refusal.
 func answer(u *UI, q msg.Question, prompt string) (string, error) {
+	defer holdStatus(u)()
 	if err := asks(u, q); err != nil {
 		return "", err
 	}

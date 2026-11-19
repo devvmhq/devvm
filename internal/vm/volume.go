@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
 )
@@ -27,8 +28,8 @@ type volumeCache struct {
 }
 
 // volumeOf is the volume of the folder s describes: s.Volume where the system gives it in the
-// process (Linux), else Env.Volumes', within wait, asked once a run for each mount; "" when it
-// can't be told, which matches nothing and records nothing.
+// process (Linux), else Env.Volumes', within wait, asked once a run for each mount, under a status
+// line; "" when it can't be told, which matches nothing and records nothing.
 func (e *Env) volumeOf(ctx context.Context, s platform.FolderStat, wait time.Duration) string {
 	if volumeFree(e, s) {
 		return s.Volume
@@ -48,7 +49,9 @@ func (e *Env) volumeOf(ctx context.Context, s platform.FolderStat, wait time.Dur
 	}
 	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
+	stop := e.Status(msg.LookingUpVolume(s.Mount))
 	v, err := e.Volumes(ctx, s)
+	stop()
 	if err != nil {
 		c.failed = !errors.Is(err, errors.ErrUnsupported)
 		return "" // no volume: the folder's record keeps none, and a later launch asks again

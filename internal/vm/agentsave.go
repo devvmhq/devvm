@@ -58,15 +58,9 @@ func (e AgentSave) Run(ctx context.Context, agents []string) error {
 	if sv.salt, err = netpolicy.Salt(ctx, t.st); err != nil {
 		return err
 	}
-	var plans []agentPlan
-	for _, a := range agents {
-		p, err := sv.plan(a)
-		if err != nil {
-			return err
-		}
-		if p.changed() {
-			plans = append(plans, p)
-		}
+	plans, err := sv.plans(agents)
+	if err != nil {
+		return err
 	}
 	if len(plans) == 0 {
 		e.Info(msg.AgentSaveNothing(vm))
@@ -86,10 +80,29 @@ func (e AgentSave) Run(ctx context.Context, agents []string) error {
 	return sv.applyAll(ctx, plans)
 }
 
+// plans are the plans of the agents that changed, each compared with the
+// store under a status line.
+func (sv saver) plans(agents []string) ([]agentPlan, error) {
+	defer sv.Status(msg.AgentSaveComparing(sv.s.vm))()
+	var plans []agentPlan
+	for _, a := range agents {
+		p, err := sv.plan(a)
+		if err != nil {
+			return nil, err
+		}
+		if p.changed() {
+			plans = append(plans, p)
+		}
+	}
+	return plans, nil
+}
+
 // applyAll puts every plan into the store, once every plan's paths are
 // checked (checkPlan), so a link on the way to any agent's fails the save
-// before it changes any.
+// before it changes any. It runs under a status line, as it copies and
+// runs git on each marketplace's config.
 func (sv saver) applyAll(ctx context.Context, plans []agentPlan) error {
+	defer sv.Status(msg.AgentStoreSaving())()
 	g := newStoreGuard(sv.Dirs.Config)
 	for _, p := range plans {
 		if err := checkPlan(g, p); err != nil {
@@ -136,9 +149,10 @@ func (e AgentSave) agentsOf(vm vmname.VM, names, named []string) []string {
 }
 
 // read runs agentSaveScript in t's VM, which is running, and reads its
-// stream (readSent), at most saveMaxBytes of it.
+// stream (readSent), at most saveMaxBytes of it, under a status line.
 func (e AgentSave) read(ctx context.Context, t *target, agents []string) (*sent, error) {
 	vm := t.f.Name
+	defer e.Status(msg.AgentSaveReading(vm))()
 	run, cancel := context.WithCancel(ctx)
 	defer cancel()
 	out := &bounded{max: saveMaxBytes, cancel: cancel}

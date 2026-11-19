@@ -645,6 +645,32 @@ func TestAgentSaveNetworkPolicy(t *testing.T) {
 	}
 }
 
+// A save compares what the VM sent with the store under one status line,
+// and puts it into the store under another.
+func TestAgentSaveStatus(t *testing.T) {
+	st := newSaveTest(t, saveTar(t, true,
+		te{name: ".claude/settings.json", data: "{}\n"},
+		te{name: ".claude/agents->/elsewhere"},
+	), "claude")
+	fake, _ := st.Reporter.(*msg.Fake)
+	var during []string
+	fake.OnAny = func(m msg.M) {
+		on, _ := fake.Showing()
+		during = append(during, m.ID()+": "+on.ID())
+	}
+	plans, err := st.plans([]string{"claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.applyAll(t.Context(), plans); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"agent_save_link_left_out: agent_save_comparing", "agent_settings_saved: agent_store_saving"}
+	if !slices.Equal(during, want) {
+		t.Errorf("said %q, want %q", during, want)
+	}
+}
+
 // The diff names a binary file without showing it, and shows at most
 // diffShowMax lines in all, saying how many more there are.
 func TestShowPlansLimits(t *testing.T) {

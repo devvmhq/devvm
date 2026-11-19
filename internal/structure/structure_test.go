@@ -41,7 +41,7 @@ func devvm() rules {
 		// hostgit runs git without fsmonitor, hooks, filters, GIT_* or prompts, ssh only; tests, stubtest.Git (GitEnv).
 		commands:     map[string]string{"git": "internal/hostgit"},
 		testCommands: map[string]string{"git": "internal/stubtest"},
-		execSites:    devvmExecSites(), goroutineSites: devvmGoroutineSites(), unboundedReads: devvmUnboundedReads(), folderIDOwner: "internal/platform", exactFolderIDs: devvmExactFolderIDs(),
+		execSites:    devvmExecSites(), goroutineSites: devvmGoroutineSites(), unboundedReads: devvmUnboundedReads(), folderIDOwner: "internal/platform", exactFolderIDs: devvmExactFolderIDs(), statusSites: devvmStatusSites(), statusFree: devvmStatusFree(),
 		// The registry's backends are behind its guard: only backend.As
 		// finds their other interfaces.
 		guardOwner: "internal/backend/guard.go",
@@ -394,6 +394,126 @@ func devvmUnboundedReads() map[string]string {
 		"internal/stubtest/stub/guest.go: guest.logScript": stub,
 		"internal/stubtest/stub/stub.go: call.copyIn":      stub,
 		"internal/stubtest/stub/control.go: control":       stub,
+	}
+}
+
+// devvmStatusFree are the folders whose code shows no status line, each
+// with why.
+func devvmStatusFree() map[string]string {
+	return map[string]string{
+		"internal/ui":        "the status line's own: it draws it, and its logged commands show their step",
+		"internal/proxy":     "the proxy's processes, which run in the background with no terminal",
+		"internal/landlock":  "the proxy's child's sandbox, in the background with no terminal",
+		"internal/daemon":    "devvm's background processes, with no terminal",
+		"internal/hostgit":   "the owner of host git: its callers' functions are the sites, as each of its calls is slow work",
+		"internal/fetch":     "the owner of HTTP: its callers' functions are the sites, as each request is slow work",
+		"internal/stubtest":  "the test stubs, which stand in for the commands devvm runs",
+		"internal/structure": "the structure test",
+		"cmd":                "the entry point, which runs the UI",
+	}
+}
+
+// devvmStatusSites are the functions that do slow work and show no status
+// line themselves, each with why: under a caller's status line, named by
+// its message, on the terminal, in a process with no UI, or a command
+// made for its caller to run.
+func devvmStatusSites() map[string]string {
+	const (
+		made     = "makes the command, which its caller runs as a logged command's step or under its status line"
+		launch   = "under a launch's or a stop's status lines (checking_vm), devvm git-protect's and devvm clone on's and off's (git_protecting), and a delete's, an orphan's included (deleting); chflagsCalls fails a lock with none"
+		clone    = "a --clone VM's host git, under its caller's status line: a new --clone VM's and devvm clone on's look at its repos (clone_planning), a launch's setup (setting_up_vm), devvm clone add's (clone_reading, clone_adding), clone fetch's (clone_fetching), the check before a delete or a remake (clone_checking) and clone off's (git_protecting)"
+		imported = "under devvm agent import's status lines (agent_import_reading, agent_store_saving)"
+		saved    = "under devvm agent save's status lines (agent_save_comparing, agent_store_saving)"
+		build    = "under a build's status line (checking_image), around its lookups and steps"
+		release  = "under devvm upgrade's status lines (upgrade_checking, upgrade_downloading), or the daily release check, which a launch waits for a second at most"
+		inVM     = "a command in the VM, under its caller's status line (TestLaunchStatusLines checks a launch's), or on the terminal with the streams its caller gives it"
+		keychain = "one call to macOS's security tool, which answers at once; macOS shows its own dialog when it asks"
+		noUI     = "a process that runs in the background, with no terminal: the forwarder, a link session or the relay"
+		pinned   = "Linux's _qemu helper, in the process that runs QEMU in the background, or doctor's check of it (doctor_checking)"
+		// clipboard is the clipboard's tool, for devvm paste and devvm
+		// desktop's relay.
+		clipboard = "the clipboard's tool (pbcopy, osascript, wl-paste, xclip), which answers at once; one that hangs is stopped after clipWait"
+	)
+	return map[string]string{
+		"internal/backend/lima/limactl.go: Lima.limactl":          made,
+		"internal/backend/lima/lima.go: qemuImg":                  made,
+		"internal/tools/mise.go: Versions.miseCmd":                made,
+		"internal/backend/lima/limactl.go: Lima.list":             "limactl list, under its callers' status lines: every Inspect, List, Images and SSH, which vm's commands call under theirs (finding_vm, checking_vm, reading_vms…; TestLaunchStatusLines checks a launch's)",
+		"internal/backend/lima/lima.go: machines.Exec":            inVM,
+		"internal/backend/lima/lima.go: Lima.diskInfo":            "qemu-img info, under its caller's status line: a new VM's (creating) and an image's delete (deleting)",
+		"internal/backend/lima/remount.go: mountedCache":          "under the start's status line (starting), which runs its check of the cache mode",
+		"internal/from/from.go: DockerID":                         build,
+		"internal/from/from.go: DockerRunning":                    build,
+		"internal/from/registry.go: Registry.token":               build,
+		"internal/ubuntu/ubuntu.go: Finder.fetch":                 build,
+		"internal/gitprotect/gitprotect.go: git":                  launch,
+		"internal/gitprotect/gitprotect.go: hasHooks":             launch,
+		"internal/gitprotect/own.go: ownObjects":                  launch,
+		"internal/gitprotect/scan.go: tree.delegations":           launch,
+		"internal/gitprotect/scan.go: tree.gitDirs":               launch,
+		"internal/gitprotect/strict.go: converter.dropIgnore":     launch,
+		"internal/gitprotect/watch.go: summer.hooks":              launch,
+		"internal/hostsafety/hostsafety.go: Walk":                 launch,
+		"internal/hostsafety/hostsafety.go: SSHRemote":            launch,
+		"internal/platform/folder_darwin.go: Chflags":             launch,
+		"internal/vm/start.go: starter.walk":                      launch,
+		"internal/hostsafety/hostsafety.go: BareExplicit":         "under devvm doctor's status line (doctor_checking)",
+		"internal/platform/clipboard_tool.go: copyWith":           clipboard,
+		"internal/platform/clipboard_tool.go: runClipTool":        clipboard,
+		"internal/platform/folderstat_darwin.go: VolumeUUID":      "Env.Volumes, which volumeOf runs under its status line (looking_up_volume)",
+		"internal/platform/keychain_darwin.go: KeychainGet":       keychain,
+		"internal/platform/keychain_darwin.go: KeychainSet":       keychain,
+		"internal/platform/keychain_darwin.go: KeychainDelete":    keychain,
+		"internal/platform/keychain_darwin.go: ExcludeFromBackup": "tmutil, under its caller's status line: an import's or a save's (agent_store_saving) and the proxy's start (checking_vm, starting)",
+		"internal/platform/pinrun_linux.go: Probe":                pinned,
+		"internal/platform/pinrun_linux.go: RunInNamespace":       pinned,
+		"internal/platform/pinrun_linux.go: RunPinned":            pinned,
+		"internal/platform/usage.go: DiskUsage":                   "under devvm space's, devvm images' and gc's status lines (reading_space, reading_images); devvm history's list of exports, one file each, is quick",
+		"internal/sshagent/sshagent.go: run":                      "OpenSSH's tools for devvm's agent, whose ssh-add asks for a key's passphrase on the terminal: never under a status line",
+		"internal/vm/sshagent.go: sshAdd":                         "ssh-add on the user's agent, which asks for a key's passphrase on the terminal: never under a status line",
+		"internal/tools/dotnet.go: Versions.dotnetSDK":            "under withSDKDownloads' status line (resolving_tools)",
+		"internal/upgrade/source.go: Source.feed":                 release,
+		"internal/upgrade/source.go: Source.Fetch":                release,
+		"internal/upgrade/source.go: Source.Latest":               release,
+		"internal/upgrade/upgrade.go: runs":                       "under the upgrade's status line (upgrade_installing)",
+		"internal/upgrade/upgrade.go: Upgrader.prune":             "under the upgrade's status line (upgrade_installing)",
+		"internal/vm/agentimport.go: AgentImport.opencode":        imported,
+		"internal/vm/agentimport.go: AgentImport.readSettings":    imported,
+		"internal/vm/agentimport.go: pruneIn":                     imported + ", or devvm agent save's (agent_store_saving)",
+		"internal/vm/agentlinks.go: follower.copy":                imported,
+		"internal/vm/agentsave.go: storeFiles":                    saved,
+		"internal/vm/clone.go: clones.gitSSH":                     clone,
+		"internal/vm/clone.go: clones.saveFetched":                clone,
+		"internal/vm/clone.go: hostGit":                           clone,
+		"internal/vm/cloneconfig.go: gitBool":                     clone,
+		"internal/vm/cloneconfig.go: listConfig":                  clone,
+		"internal/vm/cloneconfig.go: listConfigFile":              clone + "; a marketplace's git config, " + imported + " and " + saved,
+		"internal/vm/cloneconfig.go: repoHooksPath":               clone,
+		"internal/vm/cloneconfig.go: seedConfig.readHooks":        clone,
+		"internal/vm/cloneconfig.go: seedConfig.readHooksFolder":  clone,
+		"internal/vm/clonelfs.go: lfsHistory":                     clone,
+		"internal/vm/clonelfs.go: lfsPointers":                    clone,
+		"internal/vm/clonepartial.go: hostPromisors":              clone,
+		"internal/vm/clonesave.go: clones.sayUntracked":           clone,
+		"internal/vm/clonesave.go: stashWithout":                  clone,
+		"internal/vm/cloneseed.go: hostRefs":                      clone,
+		"internal/vm/cloneseed.go: packCmd":                       clone,
+		"internal/vm/clonestate.go: checkIgnored":                 clone,
+		"internal/vm/clonestate.go: haveObjects":                  clone,
+		"internal/vm/clonestate.go: holdsIgnored":                 clone,
+		"internal/vm/clonestate.go: ignoredThen":                  clone,
+		"internal/vm/clonestate.go: missingCommits":               clone,
+		"internal/vm/clonesub.go: gitlinks":                       clone,
+		"internal/vm/clonesub.go: hostSubmodules":                 clone,
+		"internal/vm/cloneworktree.go: seedTree.git":              clone,
+		"internal/vm/cloneworktree.go: seedTree.read":             clone,
+		"internal/vm/sync.go: gitConfig":                          "under a launch's setup's status line (setting_up_vm)",
+		"internal/vm/desktop.go: Desktop.dial":                    "devvm desktop's relay's ssh, which runs while the desktop is open, with no status line to show",
+		"internal/vm/env.go: openURL":                             "opens a browser and returns, as the opener starts it apart",
+		"internal/vmssh/forward.go: SSH.watch":                    noUI,
+		"internal/vmssh/links.go: Links.commandSSH":               noUI,
+		"internal/vmssh/links.go: Links.startSSH":                 noUI,
+		"internal/vmssh/relay.go: execSSH":                        noUI,
 	}
 }
 

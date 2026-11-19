@@ -635,6 +635,36 @@ func TestAgentImportNothing(t *testing.T) {
 	}
 }
 
+// An import reads the home folder under one status line, opencode's run
+// included, and saves into the store under another, the logins' exclusion
+// from backups included; neither shows once it's done.
+func TestAgentImportStatus(t *testing.T) {
+	im := newImporter(t)
+	write(t, im.Dirs.Home, map[string]string{".codex/auth.json": "{}"})
+	var during []string
+	showing := func(what string) {
+		m, _ := im.fake.Showing()
+		during = append(during, what+": "+m.ID())
+	}
+	im.Opencode = func(context.Context, ...string) ([]byte, error) {
+		showing("opencode")
+		return nil, exec.ErrNotFound
+	}
+	im.Secrets.ExcludeFromBackup = func(context.Context, string) error {
+		showing("exclude")
+		return nil
+	}
+	if err := im.Run(t.Context(), nil, false); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	if want := []string{"opencode: agent_import_reading", "exclude: agent_store_saving"}; !slices.Equal(during, want) {
+		t.Errorf("showing %q, want %q", during, want)
+	}
+	if m, on := im.fake.Showing(); on {
+		t.Errorf("still showing %s", m.Names())
+	}
+}
+
 // An agent's folder that holds more settings than one import copies, more
 // than 128 MiB of files, a file of more than 16 MiB, or more than 20,000
 // entries of any kind (a link and a FIFO count as a file does), fails the

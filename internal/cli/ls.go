@@ -91,15 +91,11 @@ func listVMs(cmd *cobra.Command, a *app) ([]vm.Listed, error) {
 	if err != nil {
 		return nil, err
 	}
-	inv, err := vm.ReadInventory(cmd.Context(), env.Dirs, env.Registry, vm.AllBackends)
+	ls, unreadable, err := vm.ListAll(cmd.Context(), env)
 	if err != nil {
 		return nil, err
 	}
-	ls, err := inv.List(cmd.Context(), env)
-	if err != nil {
-		return nil, err
-	}
-	for _, k := range inv.Unreadable() {
+	for _, k := range unreadable {
 		a.u.Warn(msg.VMStateUnreadable(k.Path).Because(k.Err))
 	}
 	return ls, nil

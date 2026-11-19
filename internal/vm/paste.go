@@ -261,7 +261,9 @@ func (e Paste) rm(ctx context.Context, t *target, dir string) error {
 // (paste_count_failed, paste_rm_not_done).
 func (e Paste) numberFrom(ctx context.Context, t *target, cmd, dir string) (int, error) {
 	out := &bounded{}
+	stop := e.Status(msg.ReadingPasted(dir, t.f.Name))
 	err := e.run(ctx, t, []string{cmd, dir}, nil, out)
+	stop()
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
 	}

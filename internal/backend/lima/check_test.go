@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/devvmhq/devvm/internal/msg"
 )
 
 // onlyOnPath puts a new folder alone on PATH, with programs that only
@@ -20,6 +22,23 @@ func onlyOnPath(t *testing.T, progs ...string) {
 	t.Setenv("PATH", dir)
 }
 
+// checkedUnderStatus fails t when limactl --version runs with anything
+// but its status line showing.
+func checkedUnderStatus(t *testing.T, l *Lima, f *fakeRunner) {
+	t.Helper()
+	fake, ok := l.Reporter.(*msg.Fake)
+	if !ok {
+		t.Fatal("the backend's Reporter isn't a msg.Fake")
+	}
+	f.do = func(c call) {
+		if m, _ := fake.Showing(); c.line() == "limactl --version" && m.Names() != "checking_backend name=Lima" {
+			t.Errorf("limactl --version under %q", m.Names())
+		}
+	}
+}
+
+// Problems names what Lima needs that this machine lacks, with its fix,
+// limactl --version under its status line.
 func TestProblems(t *testing.T) {
 	const (
 		v2      = "limactl version 2.2.1\n"
@@ -159,6 +178,7 @@ func TestProblems(t *testing.T) {
 				f.out["limactl --version"] = tc.version
 			}
 			onlyOnPath(t, tc.path...)
+			checkedUnderStatus(t, l, f)
 
 			var got []string
 			for _, p := range l.Problems(t.Context()) {

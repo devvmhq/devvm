@@ -63,7 +63,12 @@ func (e Settings) SetGitProtect(ctx context.Context, mode string) error {
 	// Elsewhere there are no locks to race. It's read again, as it may
 	// have started while widen asked.
 	if p.Locker.Locks() {
-		if err := t.refresh(ctx); err != nil {
+		// Only the read under a status line: restartOr's start may ask
+		// for a key's passphrase.
+		stop := e.Status(msg.FindingVM())
+		err := t.refresh(ctx)
+		stop()
+		if err != nil {
 			return err
 		}
 		if t.in.Status == backend.StatusRunning {
@@ -74,7 +79,9 @@ func (e Settings) SetGitProtect(ctx context.Context, mode string) error {
 		}
 	}
 	// The VM is stopped, or the host has no locks to race: on names the
-	// nested repos the protection doesn't cover.
+	// nested repos the protection doesn't cover. The folder's walk and
+	// its locks run under a status line.
+	defer e.Status(msg.GitProtecting(vm))()
 	if mode != gitprotect.Off {
 		found := e.starter.walk(t.f.Dir, false)
 		p.Nested = &found.Repos

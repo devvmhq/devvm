@@ -168,6 +168,11 @@ func AgentImportReadFailed(file string, why string) M {
 	return M{id: "agent_import_read_failed", vals: []val{{"file", file}, {"why", why}}}
 }
 
+// AgentImportReading is [agent_import_reading]: "reading this machine's agent settings and logins"
+func AgentImportReading() M {
+	return M{id: "agent_import_reading"}
+}
+
 // AgentImportReplace is [agent_import_replace]: "Replace what devvm's agent store has of {{.agents}} with this machine's settings and logins?"
 func AgentImportReplace(agents string) M {
 	return M{id: "agent_import_replace", vals: []val{{"agents", agents}}}
@@ -378,6 +383,11 @@ func AgentSaveAsk(vm vmname.VM) M {
 	return M{id: "agent_save_ask", vals: []val{{"vm", string(vm)}}}
 }
 
+// AgentSaveComparing is [agent_save_comparing]: "comparing {{.vm}}'s agent settings with devvm's agent store"
+func AgentSaveComparing(vm vmname.VM) M {
+	return M{id: "agent_save_comparing", vals: []val{{"vm", string(vm)}}}
+}
+
 // AgentSaveFailed is [agent_save_failed]: "Saving the agents' settings failed: {{.reason}}."
 func AgentSaveFailed(reason string) M {
 	return M{id: "agent_save_failed", vals: []val{{"reason", reason}}}
@@ -416,6 +426,11 @@ func AgentSaveNothing(vm vmname.VM) M {
 // AgentSavePlaceholder is [agent_save_placeholder]: "devvm left out {{.path}} in {{.vm}}, because it holds a placeholder for a secret that devvm can't put back. Change the file in devvm's agent store instead."
 func AgentSavePlaceholder(path string, vm vmname.VM) M {
 	return M{id: "agent_save_placeholder", vals: []val{{"path", path}, {"vm", string(vm)}}}
+}
+
+// AgentSaveReading is [agent_save_reading]: "reading {{.vm}}'s agent settings"
+func AgentSaveReading(vm vmname.VM) M {
+	return M{id: "agent_save_reading", vals: []val{{"vm", string(vm)}}}
 }
 
 // AgentSaveRefused is [agent_save_refused]: "devvm agent save shows what changed and asks before it saves. Run it in a terminal without --no-input."
@@ -481,6 +496,11 @@ func AgentStartFailed(sock string) M {
 // AgentStoreLink is [agent_store_link]: "{{.link}} is a link, and devvm never writes its agent store through a link. Replace the link with a folder of its own, then run the command again."
 func AgentStoreLink(link string) M {
 	return M{id: "agent_store_link", vals: []val{{"link", link}}}
+}
+
+// AgentStoreSaving is [agent_store_saving]: "saving into devvm's agent store"
+func AgentStoreSaving() M {
+	return M{id: "agent_store_saving"}
 }
 
 // AgentUnloadFailed is [agent_unload_failed]: "Removing {{.key}} from devvm's SSH agent failed, so devvm kept it on the list of keys it loads. Run devvm ssh-agent rm {{.key}} again."
@@ -698,9 +718,29 @@ func CAUnreadable(file string) M {
 	return M{id: "ca_unreadable", vals: []val{{"file", file}}}
 }
 
+// CheckingBackend is [checking_backend]: "checking {{.name}}"
+func CheckingBackend(name string) M {
+	return M{id: "checking_backend", vals: []val{{"name", name}}}
+}
+
+// CheckingImage is [checking_image]: "checking image {{.image}}"
+func CheckingImage(image string) M {
+	return M{id: "checking_image", vals: []val{{"image", image}}}
+}
+
+// CheckingNetwork is [checking_network]: "checking {{.vm}}'s network"
+func CheckingNetwork(vm vmname.VM) M {
+	return M{id: "checking_network", vals: []val{{"vm", string(vm)}}}
+}
+
 // CheckingTools is [checking_tools]: "checking for newer shared tools"
 func CheckingTools() M {
 	return M{id: "checking_tools"}
+}
+
+// CheckingVM is [checking_vm]: "checking {{.vm}}"
+func CheckingVM(vm vmname.VM) M {
+	return M{id: "checking_vm", vals: []val{{"vm", string(vm)}}}
 }
 
 // ClaudeEnvTokenWins is [claude_env_token_wins]: "CLAUDE_CODE_OAUTH_TOKEN is set in devvm's environment, so VMs get that token, not the login devvm saved. Unset it to use the saved login."
@@ -763,6 +803,11 @@ func CloneAdded(path string, remote string) M {
 	return M{id: "clone_added", vals: []val{{"path", path}, {"remote", remote}}}
 }
 
+// CloneAdding is [clone_adding]: "adding {{.path}} to {{.vm}}'s clone"
+func CloneAdding(path string, vm vmname.VM) M {
+	return M{id: "clone_adding", vals: []val{{"path", path}, {"vm", string(vm)}}}
+}
+
 // CloneAlternates is [clone_alternates]: "--clone copies only a repo's own objects, and {{.path}} borrows objects from another repo. Run git repack -a -d, delete that file, then run devvm --clone again."
 func CloneAlternates(path string) M {
 	return M{id: "clone_alternates", vals: []val{{"path", path}}}
@@ -786,6 +831,11 @@ func CloneCheckRepoChanged(command string, path string, vm vmname.VM) M {
 // CloneCheckSkipped is [clone_check_skipped]: "Without the clone check, {{.command}} loses the commits on {{.vm}}'s clone that this repo hasn't fetched, and the clone's uncommitted changes."
 func CloneCheckSkipped(command string, vm vmname.VM) M {
 	return M{id: "clone_check_skipped", vals: []val{{"command", command}, {"vm", string(vm)}}}
+}
+
+// CloneChecking is [clone_checking]: "checking for work in {{.vm}}"
+func CloneChecking(vm vmname.VM) M {
+	return M{id: "clone_checking", vals: []val{{"vm", string(vm)}}}
 }
 
 // CloneDirty is [clone_dirty]: "The VM's clone has uncommitted changes, which will be lost:"
@@ -821,6 +871,11 @@ func CloneFetchedNone() M {
 // CloneFetchedReview is [clone_fetched_review]: "Review each branch in its repo before you merge it, such as with git log -p main..{{.remote}}/main."
 func CloneFetchedReview(remote string) M {
 	return M{id: "clone_fetched_review", vals: []val{{"remote", remote}}}
+}
+
+// CloneFetching is [clone_fetching]: "fetching {{.vm}}'s branches"
+func CloneFetching(vm vmname.VM) M {
+	return M{id: "clone_fetching", vals: []val{{"vm", string(vm)}}}
 }
 
 // CloneFilteredKept is [clone_filtered_kept]: "{{.count}} files in {{.dir}}, such as {{.files}}, go through a git filter, such as git-crypt's, so the VM has them as git stores them, and changes you haven't committed to them stay on this machine."
@@ -958,9 +1013,19 @@ func ClonePartialUnreachable(dir string, remote string, url string) M {
 	return M{id: "clone_partial_unreachable", vals: []val{{"dir", dir}, {"remote", remote}, {"url", url}}}
 }
 
+// ClonePlanning is [clone_planning]: "reading the repos in {{.dir}}"
+func ClonePlanning(dir string) M {
+	return M{id: "clone_planning", vals: []val{{"dir", dir}}}
+}
+
 // ClonePushUrlsKept is [clone_push_urls_kept]: "The push URLs of {{.count}} remotes in {{.dir}}, such as {{.remotes}}, stay on this machine, because none is of a kind devvm copies, so git push to them from the VM's clone goes to their URLs instead."
 func ClonePushUrlsKept(count int, dir string, remotes string) M {
 	return M{id: "clone_push_urls_kept", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"dir", dir}, {"remotes", remotes}}}
+}
+
+// CloneReading is [clone_reading]: "reading the repo at {{.path}}"
+func CloneReading(path string) M {
+	return M{id: "clone_reading", vals: []val{{"path", path}}}
 }
 
 // CloneReady is [clone_ready]: "The VM has its own clone of your branches, without untracked or ignored files.\nTo get its work, run git fetch {{.remote}}, then review it with git log -p {{.branch}}..{{.remote}}/{{.branch}} before you merge."
@@ -1583,6 +1648,11 @@ func DockerOnly(from string) M {
 	return M{id: "docker_only", vals: []val{{"from", from}}}
 }
 
+// DoctorChecking is [doctor_checking]: "checking this machine"
+func DoctorChecking() M {
+	return M{id: "doctor_checking"}
+}
+
 // DoctorFailed is [doctor_failed]: "Checking what devvm needs failed: {{.reason}}."
 func DoctorFailed(reason string) M {
 	return M{id: "doctor_failed", vals: []val{{"reason", reason}}}
@@ -1686,6 +1756,11 @@ func Fetching(prefix string) M {
 // FetchingRepo is [fetching_repo]: "fetching {{.path}}'s branches from the VM"
 func FetchingRepo(path string) M {
 	return M{id: "fetching_repo", vals: []val{{"path", path}}}
+}
+
+// FindingVM is [finding_vm]: "finding the VM"
+func FindingVM() M {
+	return M{id: "finding_vm"}
 }
 
 // FirstRunDefaults is [first_run_defaults]: "These first questions set devvm's defaults for every new VM and its base image."
@@ -2133,6 +2208,11 @@ func GitProtectStrictRefused() M {
 	return M{id: "git_protect_strict_refused"}
 }
 
+// GitProtecting is [git_protecting]: "setting {{.vm}}'s .git protection"
+func GitProtecting(vm vmname.VM) M {
+	return M{id: "git_protecting", vals: []val{{"vm", string(vm)}}}
+}
+
 // GitReplaced is [git_replaced]: "WARNING: Something replaced {{.git}} after devvm locked it, possibly the VM. Check its hooks and config before you run git here."
 func GitReplaced(git string) M {
 	return M{id: "git_replaced", vals: []val{{"git", git}}}
@@ -2313,6 +2393,11 @@ func HasTools(tools string, vm vmname.VM) M {
 	return M{id: "has_tools", vals: []val{{"tools", tools}, {"vm", string(vm)}}}
 }
 
+// HistoryExporting is [history_exporting]: "exporting the agents' history from {{.vm}}"
+func HistoryExporting(vm vmname.VM) M {
+	return M{id: "history_exporting", vals: []val{{"vm", string(vm)}}}
+}
+
 // HistoryFailed is [history_failed]: "Listing the exports of agents' history failed: {{.reason}}."
 func HistoryFailed(reason string) M {
 	return M{id: "history_failed", vals: []val{{"reason", reason}}}
@@ -2341,6 +2426,11 @@ func HistoryImportTierUnknown(file string, tier string, vm vmname.VM) M {
 // HistoryImportUnsafe is [history_import_unsafe]: "{{.file}} holds paths outside the agents' history folders, so devvm imported nothing from it."
 func HistoryImportUnsafe(file string) M {
 	return M{id: "history_import_unsafe", vals: []val{{"file", file}}}
+}
+
+// HistoryImporting is [history_importing]: "importing the agents' history into {{.vm}}"
+func HistoryImporting(vm vmname.VM) M {
+	return M{id: "history_importing", vals: []val{{"vm", string(vm)}}}
 }
 
 // HistoryNoExport is [history_no_export]: "There's no export of agents' history for {{.dir}}. Give devvm history import the FILE to import."
@@ -2771,6 +2861,11 @@ func LoginReadFailed(file string, reason string) M {
 // LoginWithheld is [login_withheld]: "The VM gets {{.agent}}'s {{.providers}} login without its keys or tokens. To give the VM one provider's API key as it is, such as a local model server's, list the provider under {{.name}} in config.toml's [pass-keys]."
 func LoginWithheld(agent string, name string, providers string) M {
 	return M{id: "login_withheld", vals: []val{{"agent", agent}, {"name", name}, {"providers", providers}}}
+}
+
+// LookingUpVolume is [looking_up_volume]: "looking up the disk at {{.dir}}"
+func LookingUpVolume(dir string) M {
+	return M{id: "looking_up_volume", vals: []val{{"dir", dir}}}
 }
 
 // LsFailed is [ls_failed]: "Listing the VMs failed: {{.reason}}."
@@ -4113,14 +4208,29 @@ func QEMURefused() M {
 	return M{id: "qemu_refused"}
 }
 
+// ReadingHostKeys is [reading_host_keys]: "reading {{.vm}}'s host keys"
+func ReadingHostKeys(vm vmname.VM) M {
+	return M{id: "reading_host_keys", vals: []val{{"vm", string(vm)}}}
+}
+
 // ReadingImages is [reading_images]: "reading images and shared tools"
 func ReadingImages() M {
 	return M{id: "reading_images"}
 }
 
+// ReadingPasted is [reading_pasted]: "reading the pasted files in {{.dir}} in {{.vm}}"
+func ReadingPasted(dir string, vm vmname.VM) M {
+	return M{id: "reading_pasted", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
+}
+
 // ReadingSpace is [reading_space]: "reading what devvm keeps"
 func ReadingSpace() M {
 	return M{id: "reading_space"}
+}
+
+// ReadingVMs is [reading_vms]: "reading the VMs"
+func ReadingVMs() M {
+	return M{id: "reading_vms"}
 }
 
 // RebuildReplaces is [rebuild_replaces]: "Rebuilding {{.image}} replaces it and deletes the images built on it: {{.above}}.\ndevvm builds them again when they're next needed, and VMs keep the images they have."
@@ -4276,6 +4386,11 @@ func RestartNow(count int, vm vmname.VM) M {
 // RestoringHome is [restoring_home]: "copying {{.vm}}'s home folder onto its new disk"
 func RestoringHome(vm vmname.VM) M {
 	return M{id: "restoring_home", vals: []val{{"vm", string(vm)}}}
+}
+
+// Retaining is [retaining]: "applying the retention settings"
+func Retaining() M {
+	return M{id: "retaining"}
 }
 
 // RetentionBad is [retention_bad]: "That retention setting is refused, and nothing changed: {{.reason}}."
@@ -4611,6 +4726,11 @@ func SettingApplied(vm vmname.VM) M {
 // SettingSet is [setting_set]: "{{.vm}} isn't running, so it gets the change when it next starts."
 func SettingSet(vm vmname.VM) M {
 	return M{id: "setting_set", vals: []val{{"vm", string(vm)}}}
+}
+
+// SettingUpVM is [setting_up_vm]: "setting up {{.vm}}"
+func SettingUpVM(vm vmname.VM) M {
+	return M{id: "setting_up_vm", vals: []val{{"vm", string(vm)}}}
 }
 
 // SetupFailed is [setup_failed]: "Saving the settings failed: {{.reason}}."
@@ -5158,6 +5278,11 @@ func UpgradeGoInstall(version string) M {
 	return M{id: "upgrade_go_install", vals: []val{{"version", version}}}
 }
 
+// UpgradeInstalling is [upgrade_installing]: "installing devvm {{.version}}"
+func UpgradeInstalling(version string) M {
+	return M{id: "upgrade_installing", vals: []val{{"version", version}}}
+}
+
 // UpgradeKeptInUse is [upgrade_kept_in_use]: "devvm {{.version}} stays installed, because a running VM uses it."
 func UpgradeKeptInUse(version string) M {
 	return M{id: "upgrade_kept_in_use", vals: []val{{"version", version}}}
@@ -5502,6 +5627,7 @@ var specs = map[string]spec{
 	"agent_import_opencode_skipped":   {fields: []string{"label", "provider"}},
 	"agent_import_project_inside":     {fields: []string{"dir", "folder", "vm"}},
 	"agent_import_read_failed":        {fields: []string{"file", "why"}},
+	"agent_import_reading":            {},
 	"agent_import_replace":            {fields: []string{"agents"}},
 	"agent_import_root_refused":       {fields: []string{"dir", "place"}},
 	"agent_import_states_unread":      {fields: []string{"path", "why"}},
@@ -5544,6 +5670,7 @@ var specs = map[string]spec{
 	"agent_raw_old":                   {fields: []string{"vm"}},
 	"agent_refresh_failed":            {fields: []string{"agent", "display", "reason"}},
 	"agent_save_ask":                  {fields: []string{"vm"}},
+	"agent_save_comparing":            {fields: []string{"vm"}},
 	"agent_save_failed":               {fields: []string{"reason"}},
 	"agent_save_kind_left_out":        {fields: []string{"path", "vm"}},
 	"agent_save_link_left_out":        {fields: []string{"path", "vm"}},
@@ -5552,6 +5679,7 @@ var specs = map[string]spec{
 	"agent_save_not_read":             {fields: []string{"vm"}},
 	"agent_save_nothing":              {fields: []string{"vm"}},
 	"agent_save_placeholder":          {fields: []string{"path", "vm"}},
+	"agent_save_reading":              {fields: []string{"vm"}},
 	"agent_save_refused":              {},
 	"agent_save_runs":                 {},
 	"agent_save_too_much":             {fields: []string{"vm"}},
@@ -5565,6 +5693,7 @@ var specs = map[string]spec{
 	"agent_settings_saved":            {fields: []string{"agent", "dir", "vm"}},
 	"agent_start_failed":              {fields: []string{"sock"}},
 	"agent_store_link":                {fields: []string{"link"}},
+	"agent_store_saving":              {},
 	"agent_unload_failed":             {fields: []string{"key"}},
 	"agents_help":                     {},
 	"already_stopped":                 {fields: []string{"vm"}},
@@ -5608,7 +5737,11 @@ var specs = map[string]spec{
 	"ca_not_ca":                       {fields: []string{"file"}},
 	"ca_not_certificate":              {fields: []string{"file"}},
 	"ca_unreadable":                   {fields: []string{"file"}},
+	"checking_backend":                {fields: []string{"name"}},
+	"checking_image":                  {fields: []string{"image"}},
+	"checking_network":                {fields: []string{"vm"}},
 	"checking_tools":                  {},
+	"checking_vm":                     {fields: []string{"vm"}},
 	"claude_env_token_wins":           {},
 	"claude_no_login":                 {},
 	"claude_setup_token_saved":        {fields: []string{"vm"}},
@@ -5621,11 +5754,13 @@ var specs = map[string]spec{
 	"clone_add_name":                  {},
 	"clone_add_outside":               {fields: []string{"dir", "folder"}},
 	"clone_added":                     {fields: []string{"path", "remote"}},
+	"clone_adding":                    {fields: []string{"path", "vm"}},
 	"clone_alternates":                {fields: []string{"path"}},
 	"clone_check_failed":              {fields: []string{"command", "vm"}},
 	"clone_check_not_started":         {fields: []string{"command", "vm"}},
 	"clone_check_repo_changed":        {fields: []string{"command", "path", "vm"}},
 	"clone_check_skipped":             {fields: []string{"command", "vm"}},
+	"clone_checking":                  {fields: []string{"vm"}},
 	"clone_dirty":                     {},
 	"clone_fetch_failed":              {fields: []string{"path", "vm"}},
 	"clone_fetch_mounted":             {fields: []string{"vm"}},
@@ -5633,6 +5768,7 @@ var specs = map[string]spec{
 	"clone_fetch_run_failed":          {fields: []string{"reason"}},
 	"clone_fetched_none":              {},
 	"clone_fetched_review":            {fields: []string{"remote"}},
+	"clone_fetching":                  {fields: []string{"vm"}},
 	"clone_filtered_kept":             {plural: true, fields: []string{"count", "dir", "files"}},
 	"clone_folder_mounted":            {fields: []string{"dir", "vm"}},
 	"clone_git_elsewhere":             {fields: []string{"path"}},
@@ -5660,7 +5796,9 @@ var specs = map[string]spec{
 	"clone_partial_promisor_kept":     {plural: true, fields: []string{"count", "dir", "remotes"}},
 	"clone_partial_refs_kept":         {plural: true, fields: []string{"count", "dir", "refs"}},
 	"clone_partial_unreachable":       {fields: []string{"dir", "remote", "url"}},
+	"clone_planning":                  {fields: []string{"dir"}},
 	"clone_push_urls_kept":            {plural: true, fields: []string{"count", "dir", "remotes"}},
+	"clone_reading":                   {fields: []string{"path"}},
 	"clone_ready":                     {fields: []string{"branch", "remote"}},
 	"clone_ready_detached":            {fields: []string{"remote"}},
 	"clone_ref_no_object":             {fields: []string{"ref"}},
@@ -5785,6 +5923,7 @@ var specs = map[string]spec{
 	"docker_image_changed":            {fields: []string{"from"}},
 	"docker_missing":                  {},
 	"docker_only":                     {fields: []string{"from"}},
+	"doctor_checking":                 {},
 	"doctor_failed":                   {fields: []string{"reason"}},
 	"doctor_git_bare":                 {},
 	"doctor_latest_release":           {fields: []string{"date", "latest"}},
@@ -5806,6 +5945,7 @@ var specs = map[string]spec{
 	"fetch_until":                     {fields: []string{"file", "remote"}},
 	"fetching":                        {fields: []string{"prefix"}},
 	"fetching_repo":                   {fields: []string{"path"}},
+	"finding_vm":                      {},
 	"first_run_defaults":              {},
 	"flag_bad_switch":                 {fields: []string{"flag", "value"}},
 	"flag_bad_value":                  {fields: []string{"flag", "form", "value"}},
@@ -5895,6 +6035,7 @@ var specs = map[string]spec{
 	"git_protect_next_stop":           {fields: []string{"mode", "vm"}},
 	"git_protect_on_needs_locks":      {},
 	"git_protect_strict_refused":      {},
+	"git_protecting":                  {fields: []string{"vm"}},
 	"git_replaced":                    {fields: []string{"git"}},
 	"git_scan_bounded":                {fields: []string{"git"}},
 	"git_strict_converted":            {fields: []string{"vm"}},
@@ -5931,12 +6072,14 @@ var specs = map[string]spec{
 	"group_waiting":                   {},
 	"has_layers":                      {fields: []string{"layers", "vm"}},
 	"has_tools":                       {fields: []string{"tools", "vm"}},
+	"history_exporting":               {fields: []string{"vm"}},
 	"history_failed":                  {fields: []string{"reason"}},
 	"history_import_ask":              {fields: []string{"file", "vm"}},
 	"history_import_later":            {fields: []string{"file", "vm"}},
 	"history_import_less_strict":      {fields: []string{"file", "from", "tier", "vm"}},
 	"history_import_tier_unknown":     {fields: []string{"file", "tier", "vm"}},
 	"history_import_unsafe":           {fields: []string{"file"}},
+	"history_importing":               {fields: []string{"vm"}},
 	"history_no_export":               {fields: []string{"dir"}},
 	"history_not_exported":            {fields: []string{"vm"}},
 	"history_not_imported":            {fields: []string{"file", "vm"}},
@@ -6023,6 +6166,7 @@ var specs = map[string]spec{
 	"login_passed":                    {fields: []string{"agent", "providers"}},
 	"login_read_failed":               {fields: []string{"file", "reason"}},
 	"login_withheld":                  {fields: []string{"agent", "name", "providers"}},
+	"looking_up_volume":               {fields: []string{"dir"}},
 	"ls_failed":                       {fields: []string{"reason"}},
 	"making_waiting":                  {},
 	"marketplace_secret":              {fields: []string{"file", "name", "why"}},
@@ -6291,8 +6435,11 @@ var specs = map[string]spec{
 	"qemu_pins_failed":                {fields: []string{"reason"}},
 	"qemu_pins_invalid":               {fields: []string{"path"}},
 	"qemu_refused":                    {},
+	"reading_host_keys":               {fields: []string{"vm"}},
 	"reading_images":                  {},
+	"reading_pasted":                  {fields: []string{"dir", "vm"}},
 	"reading_space":                   {},
+	"reading_vms":                     {},
 	"rebuild_replaces":                {fields: []string{"above", "image"}},
 	"remade":                          {fields: []string{"image", "vm"}},
 	"remake_anyway":                   {},
@@ -6324,6 +6471,7 @@ var specs = map[string]spec{
 	"resolving_tools":                 {},
 	"restart_now":                     {plural: true, fields: []string{"count", "vm"}},
 	"restoring_home":                  {fields: []string{"vm"}},
+	"retaining":                       {},
 	"retention_bad":                   {fields: []string{"reason"}},
 	"retention_busy":                  {},
 	"retention_deleted":               {fields: []string{"exports", "nix_files", "orphans", "tools"}},
@@ -6391,6 +6539,7 @@ var specs = map[string]spec{
 	"setting_already":                 {fields: []string{"command", "vm"}},
 	"setting_applied":                 {fields: []string{"vm"}},
 	"setting_set":                     {fields: []string{"vm"}},
+	"setting_up_vm":                   {fields: []string{"vm"}},
 	"setup_failed":                    {fields: []string{"reason"}},
 	"setup_in_config":                 {fields: []string{"file", "key"}},
 	"setup_token_no_terminal":         {fields: []string{"agent"}},
@@ -6500,6 +6649,7 @@ var specs = map[string]spec{
 	"upgrade_failed":                  {fields: []string{"version"}},
 	"upgrade_failed_reason":           {fields: []string{"reason"}},
 	"upgrade_go_install":              {fields: []string{"version"}},
+	"upgrade_installing":              {fields: []string{"version"}},
 	"upgrade_kept_in_use":             {fields: []string{"version"}},
 	"upgrade_latest_is":               {fields: []string{"latest"}},
 	"upgrade_latest_older":            {fields: []string{"current", "latest"}},

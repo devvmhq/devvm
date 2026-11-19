@@ -83,9 +83,12 @@ func (l *host) limaProblem(ctx context.Context) (backend.Problem, bool) {
 func limaMissing() msg.M { return msg.ProgramMissing("Lima", "limactl") }
 
 // limaVersion is the version limactl --version prints last, or "" when
-// it fails.
+// it fails, read under a status line: every command's backend check
+// runs it.
 func (l *host) limaVersion(ctx context.Context) string {
+	stop := l.Status(msg.CheckingBackend("Lima"))
 	out, err := l.Runner.Output(l.limactl(ctx, "--version"))
+	stop()
 	if fields := strings.Fields(string(out)); err == nil && len(fields) > 0 {
 		return fields[len(fields)-1]
 	}

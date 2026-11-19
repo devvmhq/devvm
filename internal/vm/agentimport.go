@@ -209,15 +209,7 @@ func (im AgentImport) Run(ctx context.Context, names []string, force bool) error
 			h.close()
 		}
 	}()
-	vms := im.warnProjectsInside(names)
-	for _, a := range names {
-		h, err := im.read(ctx, a, vms)
-		if err != nil {
-			return err
-		}
-		all = append(all, h)
-	}
-	if err := im.followLinks(all, vms); err != nil {
+	if err := im.readAll(ctx, names, &all); err != nil {
 		return err
 	}
 	for _, h := range all {
@@ -243,6 +235,23 @@ func (im AgentImport) Run(ctx context.Context, names []string, force bool) error
 		}
 	}
 	return im.save(ctx, found)
+}
+
+// readAll reads what the home folder has of each agent named into all,
+// for the caller to close, then follows the links out of their folders
+// (followLinks), under a status line: it walks their folders, runs
+// opencode and copies what links lead to.
+func (im AgentImport) readAll(ctx context.Context, names []string, all *[]*hostAgent) error {
+	defer im.Status(msg.AgentImportReading())()
+	vms := im.warnProjectsInside(names)
+	for _, a := range names {
+		h, err := im.read(ctx, a, vms)
+		if err != nil {
+			return err
+		}
+		*all = append(*all, h)
+	}
+	return im.followLinks(*all, vms)
 }
 
 // confirm asks before an import replaces what the store has of the
@@ -562,8 +571,10 @@ func linkToSetting(agent, home, p string) (string, bool) {
 // folder where it has a file, replaces it, as when a link that led to a
 // folder now leads to a file. Their logins replace the store's last. A
 // link on the way to an agent's folder in the store fails it before
-// anything changes (storeGuard).
+// anything changes (storeGuard). It runs under a status line, as it
+// copies and runs git on each marketplace's config.
 func (im AgentImport) save(ctx context.Context, found []*hostAgent) error {
+	defer im.Status(msg.AgentStoreSaving())()
 	var all []*importStage
 	defer func() {
 		for _, s := range all {

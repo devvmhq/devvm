@@ -195,6 +195,10 @@ other = "This machine has {{.have}} GiB of memory, less than the {{.want}} GiB d
 description = "have and want are counts; want is the CPUs devvm recommends"
 other = "This machine has {{.have}} CPUs, fewer than the {{.want}} devvm recommends, so a VM gets all of them unless you give it a size."
 
+[doctor_checking]
+description = "a status step: devvm doctor checks what the backend needs, git, the VMs' states and their proxies"
+other = "checking this machine"
+
 [doctor_ok]
 other = "This is devvm {{.version}}, and the {{.backend}} backend has everything it needs."
 
@@ -315,6 +319,70 @@ other = "creating {{.vm}}"
 [configuring]
 description = "what is a VM's name, or a build VM as its steps name it (tools_build_vm)"
 other = "configuring {{.what}}"
+
+[finding_vm]
+description = "a status step: a command looks for its VM, asking the backend about it and looking up its project folder's disk"
+other = "finding the VM"
+
+[checking_vm]
+description = "a status step: a launch checks the VM and its project folder on this machine before it starts the VM or goes on with it"
+other = "checking {{.vm}}"
+
+[checking_network]
+description = "a status step: a launch checks from inside the VM that its network tier holds (the self-check)"
+other = "checking {{.vm}}'s network"
+
+[reading_host_keys]
+description = "a status step: a launch reads the VM's ssh host keys to pin them"
+other = "reading {{.vm}}'s host keys"
+
+[setting_up_vm]
+description = "a status step: a launch sends the VM its setup, its ssh config entry and its links"
+other = "setting up {{.vm}}"
+
+[checking_backend]
+description = "a status step: devvm checks that a backend's tools are there, such as limactl --version; name is the backend's own name, such as Lima"
+other = "checking {{.name}}"
+
+[clone_reading]
+description = "a status step: devvm clone add reads the repo at path, a path in the workspace, with the host's git"
+other = "reading the repo at {{.path}}"
+
+[clone_planning]
+description = "a status step: devvm looks through dir, a folder for a --clone VM, for its repos and reads each with the host's git"
+other = "reading the repos in {{.dir}}"
+
+[clone_adding]
+description = "a status step: devvm clone add copies the repo at path into the VM's clone"
+other = "adding {{.path}} to {{.vm}}'s clone"
+
+[clone_fetching]
+description = "a status step: devvm clone fetch fetches the VM's branches into each repo"
+other = "fetching {{.vm}}'s branches"
+
+[clone_checking]
+description = "a status step: before a --clone VM is deleted or made again, devvm checks for work in it that isn't on this machine"
+other = "checking for work in {{.vm}}"
+
+[history_exporting]
+description = "a status step: devvm copies the agents' history out of the VM into an export"
+other = "exporting the agents' history from {{.vm}}"
+
+[history_importing]
+description = "a status step: devvm copies an export of the agents' history into the VM"
+other = "importing the agents' history into {{.vm}}"
+
+[git_protecting]
+description = "a status step: devvm git-protect walks the project folder and locks or unlocks its .git"
+other = "setting {{.vm}}'s .git protection"
+
+[looking_up_volume]
+description = "a status step: devvm asks macOS (diskutil) which volume the disk mounted at dir is"
+other = "looking up the disk at {{.dir}}"
+
+[checking_image]
+description = "a status step: devvm looks up an image's build and the images it's built on, and builds what's missing"
+other = "checking image {{.image}}"
 
 [start_failed]
 other = "{{.vm}} didn't start."
@@ -709,6 +777,14 @@ other = "deleted {{.key}}, left over from a failed build"
 
 [reading_images]
 other = "reading images and shared tools"
+
+[retaining]
+description = "a status step: devvm applies the retention settings, before a command once a day and in devvm gc"
+other = "applying the retention settings"
+
+[reading_vms]
+description = "a status step: devvm ls reads every backend's VMs and looks up each one's project folder"
+other = "reading the VMs"
 
 [images_failed]
 description = "reason is an error from the system, in English"
@@ -2222,6 +2298,10 @@ other = "Writing {{.path}} in {{.vm}} failed."
 [paste_count_failed]
 other = "Counting the pasted files in {{.dir}} in {{.vm}} failed."
 
+[reading_pasted]
+description = "a status step: devvm counts, or deletes, the files devvm paste left in the VM's paste folder"
+other = "reading the pasted files in {{.dir}} in {{.vm}}"
+
 [paste_rm_not_done]
 other = "Deleting the pasted files in {{.dir}} in {{.vm}} failed."
 
@@ -3160,6 +3240,14 @@ other = "Replace what devvm's agent store has of {{.agents}} with this machine's
 [nothing_imported]
 other = "nothing imported"
 
+[agent_import_reading]
+description = "a status step: devvm agent import reads the agents' folders in the home folder, runs opencode and copies what links lead to"
+other = "reading this machine's agent settings and logins"
+
+[agent_store_saving]
+description = "a status step: devvm agent import or save writes into devvm's agent store and checks each marketplace's git config"
+other = "saving into devvm's agent store"
+
 [agent_settings_imported]
 other = "devvm imported {{.agent}}'s settings into {{.dir}}."
 
@@ -3273,6 +3361,14 @@ other = "devvm agent save shows what changed and asks before it saves. Run it in
 
 [nothing_saved]
 other = "nothing saved"
+
+[agent_save_reading]
+description = "a status step: devvm agent save reads the agents' settings from the VM"
+other = "reading {{.vm}}'s agent settings"
+
+[agent_save_comparing]
+description = "a status step: devvm agent save compares what the VM sent with devvm's agent store"
+other = "comparing {{.vm}}'s agent settings with devvm's agent store"
 
 [agent_settings_saved]
 other = "devvm saved {{.agent}}'s settings from {{.vm}} into {{.dir}}."
@@ -3778,6 +3874,10 @@ other = "checking for a new release"
 [upgrade_downloading]
 description = "a status step: devvm upgrade downloads and checks a release"
 other = "downloading devvm {{.version}}"
+
+[upgrade_installing]
+description = "a status step: devvm upgrade unpacks a release, runs it and puts it in place"
+other = "installing devvm {{.version}}"
 
 [upgrade_brew_step]
 description = "a status step: devvm upgrade runs Homebrew; formula is Homebrew's formula, devvm or devvm-rc"

@@ -11,6 +11,7 @@ import (
 	"github.com/devvmhq/devvm/internal/build"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/settings"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/tools"
 )
@@ -89,6 +90,23 @@ func TestGCPlanSkip(t *testing.T) {
 	}
 	if got := ToolFiles(p.Tools); !slices.Equal(got, []string{"a"}) {
 		t.Errorf("tools %v, want a alone", got)
+	}
+}
+
+// Retention runs under its status line, which is gone once it's done.
+func TestRetainStatus(t *testing.T) {
+	dir := t.TempDir()
+	d := paths.Dirs{Data: filepath.Join(dir, "data"), Config: filepath.Join(dir, "config")}
+	var labels msg.Recorder
+	fake := &msg.Fake{OnStatus: labels.Add}
+	if _, err := (Housekeeping{&Env{Dirs: d, Reporter: fake}}).Retain(t.Context(), &build.Env{Dirs: d}, settings.Retention{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := labels.IDs(); !slices.Equal(got, []string{"retaining"}) {
+		t.Errorf("status lines %q, want retaining", got)
+	}
+	if _, on := fake.Showing(); on {
+		t.Error("its status line still shows")
 	}
 }
 

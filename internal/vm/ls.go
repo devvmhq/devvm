@@ -6,6 +6,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/gitprotect"
+	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/tools"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -32,6 +33,19 @@ type Listed struct {
 	FolderState FolderState
 	// Links is how many links it has to other VMs' ports, as a client.
 	Links int
+}
+
+// ListAll is devvm ls's list: the project VMs every backend has (List),
+// and the states it couldn't read, under a status line, as it runs each
+// backend's list and looks up each VM's folder.
+func ListAll(ctx context.Context, e *Env) ([]Listed, []Known, error) {
+	defer e.Status(msg.ReadingVMs())()
+	inv, err := ReadInventory(ctx, e.Dirs, e.Registry, AllBackends)
+	if err != nil {
+		return nil, nil, err
+	}
+	ls, err := inv.List(ctx, e)
+	return ls, inv.Unreadable(), err
 }
 
 // List lists the project VMs the backends' lists have, sorted by name

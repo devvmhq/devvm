@@ -11,6 +11,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/fetch"
 	"github.com/devvmhq/devvm/internal/image"
+	"github.com/devvmhq/devvm/internal/msg"
 )
 
 // The .NET SDK's downloads. mise locks dotnet's version alone, without a
@@ -102,6 +103,7 @@ func dotnetSDKs(data []byte) ([]dotnetSDK, error) {
 // doesn't list keeps none, which the step back sees; a channel's list it
 // can't get fails.
 func (t Versions) withSDKDownloads(ctx context.Context, lock Lock) (Lock, error) {
+	defer t.Status(msg.ResolvingTools())()
 	channels := map[string][]dotnetSDK{}
 	for _, d := range image.SharedTools {
 		for _, tool := range d.Members {

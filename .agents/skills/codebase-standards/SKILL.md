@@ -1,6 +1,6 @@
 ---
 name: codebase-standards
-description: devvm's standards for keeping its code clean and safe, as a short checklist for a commit and a review, drawn from what reviews of devvm's history kept finding (fallbacks that fail open, unbounded or trusted input from a VM, secrets in arguments, hand-rolled parsers, swallowed errors, processes without an owner, runs that a kill or a second devvm breaks, copies of an owner, running VMs at an upgrade, overclaims, fixes without a failing test, tests that need one machine), and how new code matches the existing code's style. Use before a commit, when reviewing a change or a branch, and when a review's finding may be one a standard covers.
+description: devvm's standards for keeping its code clean and safe, as a short checklist for a commit and a review, drawn from what reviews of devvm's history kept finding (fallbacks that fail open, unbounded or trusted input from a VM, secrets in arguments, hand-rolled parsers, swallowed errors, processes without an owner, runs that a kill or a second devvm breaks, slow work with no status line, copies of an owner, running VMs at an upgrade, overclaims, fixes without a failing test, tests that need one machine), and how new code matches the existing code's style. Use before a commit, when reviewing a change or a branch, and when a review's finding may be one a standard covers.
 ---
 
 # devvm's codebase standards
@@ -29,6 +29,7 @@ Failures and processes:
 1. **[Never fail silently, and name the real cause.](standards.md#never-fail-silently-and-name-the-real-cause)** An error is never dropped without a reason, and a message names the cause the code found.
 2. **[Give every process an owner that ends it.](standards.md#give-every-process-an-owner-that-ends-it)** A context cancels it, something waits for it, and an accept loop goes on through `daemon.AcceptRetry`.
 3. **[Survive a kill and a second devvm.](standards.md#survive-a-kill-and-a-second-devvm)** One good copy survives every step, and an OS file lock guards a change, with the state read again under it.
+4. **[Show what devvm waits for.](standards.md#show-what-devvm-waits-for)** Slow work runs under a status line, a `Status` or a `LoggedCmd` step with a label message, never across work that takes the terminal, and its test records the label.
 
 Changes:
 

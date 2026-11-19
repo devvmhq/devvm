@@ -105,6 +105,9 @@ func upEnv(t *testing.T, caps backend.Caps) (*Env, *backendtest.Fake, *[]backend
 	// as it is: each VM's agent travels with its own commands.
 	t.Setenv("SSH_AUTH_SOCK", "/user/agent")
 	e.Environ = []string{"SSH_AUTH_SOCK=/user/agent"}
+	// The proxy prints and shows its status lines through the run's UI,
+	// as devvm's does.
+	e.Proxy.Reporter = e.Reporter
 	e.Agent = sshagent.New(d, e.mounts, testUI(t))
 	e.Agent.Run = (&agentCalls{}).run
 	wire(e)

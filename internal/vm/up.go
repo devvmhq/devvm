@@ -354,6 +354,7 @@ func (e creation) machineSpec(b backend.Backend, f project.Folder, names []strin
 // it (none of its listed ports, recorded), then the machine, then that
 // it was made recorded (created).
 func (e creation) makeMachine(ctx context.Context, b backend.Backend, st *state.VM, key string, spec backend.VMSpec) error {
+	defer e.Status(msg.Creating(st.Name()))()
 	var err error
 	if spec.SSHPort, err = e.Proxy.Ports().SSH(ctx, st, false); err != nil {
 		return err
@@ -697,12 +698,13 @@ func (e creation) undoCreate(b backend.Backend, f project.Folder, locking *atomi
 	}
 }
 
-// setUpVM sets up a running VM, started with conf: its setup sent, ssh
-// and editors reaching it by name, its links carried (linkRuns.atLaunch),
-// a --clone VM's clone made if it isn't yet, then its devcontainer.json's
-// commands run (devcontainers.run).
+// setUpVM sets up a running VM, started with conf, under a status line:
+// its setup sent, ssh and editors reaching it by name, its links carried
+// (linkRuns.atLaunch), a --clone VM's clone made if it isn't yet, then
+// its devcontainer.json's commands run (devcontainers.run).
 func (e Launch) setUpVM(ctx context.Context, t *target, conf backend.Confinement) error {
 	b, st, f := t.b, t.st, t.f
+	defer e.Status(msg.SettingUpVM(f.Name))()
 	if err := e.syncer.sync(ctx, b, st, f.Slug(), tools.Files(st), conf); err != nil {
 		return err
 	}

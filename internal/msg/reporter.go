@@ -5,6 +5,8 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"slices"
+	"sync"
 )
 
 // A Reporter is what devvm's packages need of the run's UI: where their
@@ -65,7 +67,8 @@ var _ Reporter = (*Fake)(nil)
 // fields change that: each On func, when set, is given what its method
 // is (a Recorder's Add records a kind of message), and the rest stand
 // for the terminal, the writers and an interrupt. A test may change them
-// after giving it to what it tests.
+// after giving it to what it tests. It keeps the status lines started
+// and not stopped (Showing), so it's never copied once used.
 type Fake struct {
 	OnInfo, OnSay, OnNote, OnWarn func(M)
 	// OnAny is given every message, whatever its kind, after its kind's
@@ -77,6 +80,11 @@ type Fake struct {
 	OnAnswer         func(M) string
 	// OnCleanup is AddCleanup.
 	OnCleanup func(f func(context.Context)) (remove func())
+	// OnStatus is given each status line's label as it starts, and each
+	// logged command's step as it runs (the zero M for none); Showing is
+	// the one shown meanwhile, so a test can check that slow work ran
+	// under its line.
+	OnStatus func(M)
 	// Terminal is whether questions are asked: without it each is
 	// refused. Picks is CanPick.
 	Terminal, Picks bool
@@ -85,6 +93,11 @@ type Fake struct {
 	// Out is Stdout, Err Stderr and Log LogWriter: nil drops what's
 	// written.
 	Out, Err, Log io.Writer
+
+	status struct {
+		sync.Mutex
+		lines []*M // the status lines started and not stopped, innermost last
+	}
 }
 
 // Info gives m to OnInfo and OnAny.
@@ -99,8 +112,38 @@ func (f *Fake) Note(m M) { f.say(f.OnNote, m) }
 // Warn gives m to OnWarn and OnAny.
 func (f *Fake) Warn(m M) { f.say(f.OnWarn, m) }
 
-// Status shows nothing.
-func (f *Fake) Status(M) func() { return func() {} }
+// Status gives label to OnStatus and keeps it shown (Showing) until stop.
+func (f *Fake) Status(label M) (stop func()) {
+	if f.OnStatus != nil {
+		f.OnStatus(label)
+	}
+	line := &label
+	f.status.Lock()
+	f.status.lines = append(f.status.lines, line)
+	f.status.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			f.status.Lock()
+			defer f.status.Unlock()
+			if i := slices.Index(f.status.lines, line); i >= 0 {
+				f.status.lines = slices.Delete(f.status.lines, i, i+1)
+			}
+		})
+	}
+}
+
+// Showing is the label of the innermost status line or logged command's
+// step showing now, and whether one is: what the UI's status line would
+// show.
+func (f *Fake) Showing() (M, bool) {
+	f.status.Lock()
+	defer f.status.Unlock()
+	if len(f.status.lines) == 0 {
+		return M{}, false
+	}
+	return *f.status.lines[len(f.status.lines)-1], true
+}
 
 // Ask is OnAsk's answer, no without one; without Terminal, q's refusal.
 func (f *Fake) Ask(q Question) (bool, error) {
@@ -151,8 +194,11 @@ func (f *Fake) LogNote() {}
 // LogWriter is Log, or nowhere.
 func (f *Fake) LogWriter() io.Writer { return cmp.Or(f.Log, io.Discard) }
 
-// LoggedCmd runs cmd as it is.
-func (f *Fake) LoggedCmd(_ context.Context, _ M, cmd *exec.Cmd) error { return cmd.Run() }
+// LoggedCmd runs cmd as it is, its step shown meanwhile (Status).
+func (f *Fake) LoggedCmd(_ context.Context, step M, cmd *exec.Cmd) error {
+	defer f.Status(step)()
+	return cmd.Run()
+}
 
 // WithSteps returns ctx.
 func (f *Fake) WithSteps(ctx context.Context, _ int) context.Context { return ctx }

@@ -329,7 +329,10 @@ func (e devcontainers) runAll(ctx context.Context, b backend.Backend, vm vmname.
 		argv := append([]string{"bash", "-lc", commandScript, "devvm"}, c.Argv...)
 		o := at
 		o.Stdout, o.Stderr = out, out
-		if err := b.Exec(ctx, vm, argv, o); err != nil {
+		stop := e.Status(msg.RunningScript(c.Name, vm.String()))
+		err := b.Exec(ctx, vm, argv, o)
+		stop()
+		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}

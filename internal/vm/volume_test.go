@@ -13,14 +13,22 @@ import (
 )
 
 // volumes is a fake Env.Volumes: it answers with answer, or fails with fail, and counts its calls.
+// With fake, the Reporter it runs under, shown has the status line each lookup ran under, "" for
+// none.
 type volumes struct {
 	answer string
 	fail   error
 	calls  int
+	fake   *msg.Fake
+	shown  []string
 }
 
 func (v *volumes) look(context.Context, platform.FolderStat) (string, error) {
 	v.calls++
+	if v.fake != nil {
+		m, _ := v.fake.Showing()
+		v.shown = append(v.shown, m.ID())
+	}
 	return v.answer, v.fail
 }
 
@@ -150,7 +158,7 @@ func TestKeepsVolume(t *testing.T) {
 		{"as recorded, on Linux, on another volume", id, platform.VolumeOf("fsid:0a", id), false, platform.FolderStat{ID: id, Unique: true, Volume: "fsid:0b"}, false, 0},
 	} {
 		*v = volumes{answer: "uuid:B"}
-		e := &Env{Volumes: v.look, volumes: new(volumeCache)}
+		e := &Env{Volumes: v.look, volumes: new(volumeCache), Reporter: &msg.Fake{}}
 		st := new(state.VM)
 		if tc.unchecked {
 			st.SetFolderUnchecked(tc.folder, tc.volume)
@@ -254,16 +262,20 @@ func TestRenumberedOnAnotherVolume(t *testing.T) {
 // folder's own volume (Linux's f_fsid) unless VolumesOnly; none for a read-only folder or one
 // whose identity isn't its alone.
 func TestVolumeOfCache(t *testing.T) {
-	v := &volumes{answer: "uuid:A"}
-	e := &Env{Volumes: v.look, volumes: new(volumeCache)}
+	v := &volumes{answer: "uuid:A", fake: &msg.Fake{}}
+	e := &Env{Volumes: v.look, volumes: new(volumeCache), Reporter: v.fake}
 	s := platform.FolderStat{ID: "1:2:3.4", Unique: true, Mount: "/m", Device: "disk1s1"}
 	for range 2 {
 		if got := e.volumeOf(t.Context(), s, volumeWaitLaunch); got != "uuid:A" {
 			t.Errorf("volumeOf = %q", got)
 		}
 	}
-	if v.calls != 1 {
-		t.Errorf("asked %d times for one mount", v.calls)
+	// The one lookup, under its status line.
+	if v.calls != 1 || len(v.shown) != 1 || v.shown[0] != "looking_up_volume" {
+		t.Errorf("asked %d times for one mount, under %q", v.calls, v.shown)
+	}
+	if _, on := v.fake.Showing(); on {
+		t.Error("its status line still shows")
 	}
 	ro, other := s, s
 	ro.ReadOnly, other.Unique = true, false

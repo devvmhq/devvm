@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/backend"
+	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/project"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -224,5 +225,6 @@ func (e Leftovers) Forget(ctx context.Context, o Orphan) error {
 	} else if !isGone {
 		return fmt.Errorf("%s: its backend has it", o.Name)
 	}
+	defer e.Status(msg.Deleting(o.Name.String()))()
 	return e.vmFolders.teardown(ctx, e.newTarget(project.Folder{Name: o.Name, Dir: st.Dir}, st, b), true)
 }

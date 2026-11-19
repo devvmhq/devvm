@@ -46,6 +46,7 @@ func (e cloneCheck) run(ctx context.Context, t *target) (bool, error) {
 	if err := t.ensureRunning(ctx); err != nil {
 		return false, e.notStarted(ctx, vm, err)
 	}
+	defer e.Status(msg.CloneChecking(vm))()
 	got, err := e.readClone(ctx, t, repos)
 	if err != nil {
 		return false, err

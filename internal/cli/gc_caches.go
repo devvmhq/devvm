@@ -21,7 +21,9 @@ func gcCaches(ctx context.Context, a *app, env *vm.Env, o gcOpts, skipped map[st
 		if skipped[be.Name()] {
 			continue
 		}
+		stop := u.Status(msg.ReadingSpace())
 		entries, ok := cacheEntries(ctx, reg.Host, be)
+		stop()
 		if !ok || len(entries) == 0 {
 			continue
 		}

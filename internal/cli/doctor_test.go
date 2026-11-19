@@ -112,7 +112,21 @@ func TestDoctorReport(t *testing.T) {
 		GitBare:  func() bool { return false },
 		Proxies:  func() []msg.M { return []msg.M{msg.ProxyUnconfinedNoSandbox("devvm-web-0123456789abcd")} },
 	}
-	r := d.report(t.Context(), msg.M.Names, []backend.Backend{b}, b)
+	// Each check runs under its status line: the backend's, git's and the VMs' states'.
+	fake := &msg.Fake{}
+	var during []string
+	showing := func(what string) {
+		m, _ := fake.Showing()
+		during = append(during, what+": "+m.ID())
+	}
+	b.OnCall = showing
+	git, proxies := d.GitBare, d.Proxies
+	d.GitBare = func() bool { showing("git"); return git() }
+	d.Proxies = func() []msg.M { showing("proxies"); return proxies() }
+	r := d.report(t.Context(), fake, msg.M.Names, []backend.Backend{b}, b)
+	if want := []string{"Problems: doctor_checking", "proxies: doctor_checking", "git: doctor_checking"}; !slices.Equal(during, want) {
+		t.Errorf("checked %q, want %q", during, want)
+	}
 	fix := "brew install lima"
 	want := []problemJSON{{Key: "lima", Fix: &fix, Message: "program_missing_fix fix=brew install lima name=Lima program=limactl"}, {Key: "kvm", Message: "no_kvm"}}
 	if len(r.Problems) != 2 || r.Problems[0].Fix == nil || *r.Problems[0].Fix != fix || r.Problems[1].Fix != nil ||

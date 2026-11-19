@@ -127,6 +127,7 @@ func (e clones) planClone(ctx context.Context, dir, repos string, self vmname.VM
 	if err := needGit(); err != nil {
 		return cloneInVM{}, err
 	}
+	defer e.Status(msg.ClonePlanning(dir))()
 	if hasGit(dir) && repos == "" {
 		return e.ownClone(ctx, dir, self)
 	}
@@ -719,6 +720,7 @@ func (e Clone) Fetch(ctx context.Context) (Fetched, error) {
 	if err := t.ensureRunning(ctx); err != nil {
 		return Fetched{}, err
 	}
+	defer e.Status(msg.CloneFetching(vm))()
 	var out Fetched
 	for _, r := range sectionOf[cloneInVM](t.st, cloneSection).allRepos() {
 		// A remote is recorded before its copy: one whose copy didn't
@@ -891,13 +893,17 @@ func (e Clone) Add(ctx context.Context, dir string) error {
 		return err
 	}
 	sd := seeder{e.clones}
+	stop := e.Status(msg.CloneReading(rel))
 	s, err := sd.prepareSeed(ctx, t, rel)
+	stop()
 	if err != nil {
 		return err
 	}
 	if err := t.ensureRunning(ctx); err != nil {
 		return err
 	}
+	// Once it runs: its start's agent may ask for a passphrase.
+	defer e.Status(msg.CloneAdding(rel, vm))()
 	// Recorded first, so rm checks it however far the copy gets; one
 	// recorded whose copy didn't finish is copied again.
 	if i < 0 {

@@ -1083,7 +1083,7 @@ func hostCases() []ruleCase {
 // what it allows.
 func TestRulesFail(t *testing.T) {
 	var broken []string // the layer violations' texts
-	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), commandCases(), envCases(), agentCases(), switchCases(), separatorCases(), runnerCases(), pathCases(), callerCases(), vmNameCases(), hostCases(), goroutineCases(), secretCases(), errorCases(), readCases(), folderIDCases(), folderIDMapCases()) {
+	for _, tc := range slices.Concat(methodCases(), varCases(), layerCases(), ownerCases(), commandCases(), envCases(), agentCases(), switchCases(), separatorCases(), runnerCases(), pathCases(), callerCases(), vmNameCases(), hostCases(), goroutineCases(), secretCases(), errorCases(), readCases(), folderIDCases(), folderIDMapCases(), statusCases()) {
 		t.Run(tc.name, func(t *testing.T) {
 			fsys := fstest.MapFS{"go.mod": {Data: []byte("module example.com/m\n\ngo 1.27\n")}}
 			for name, src := range tc.files {

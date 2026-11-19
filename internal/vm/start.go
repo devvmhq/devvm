@@ -43,24 +43,15 @@ type upOpts struct {
 }
 
 // bringUp takes t's VM, made and finished, to running, confined as its
-// state says, in these steps: what of the agent store's seeds is each
-// machine's own taken out (cleanSeeds); its instance read once; its project
-// folder's identity recorded anew where a boot renumbered its disk
-// (renumbered); for a launch, its
-// agent folder mounts matched to the host's, and a running VM that gets
-// changes at its next start stopped once the user agrees
-// (restartForNextStart); its
-// project folder checked on the host (hostChecks), and on a host without
-// .git locks, a warning that its .git is unprotected (WarnUnprotected),
-// and one of a cache mode no one chose that can lose writes
-// (warnMountCache); what it needs of its
-// backend refused where the backend can't (requirements); the user's
-// agent checked for keys when it forwards it; then a stopped VM started
-// (start), or a running one gone on with as it runs (runningConfinement),
-// what its next start changes said (nextStart); then the self-check,
+// state says, in these steps: its checks (check), its seeds cleaned, its
+// project folder's identity recorded and checked on the host, and what it
+// needs of its backend refused where the backend can't; the user's agent
+// checked for keys when it forwards it; then a stopped VM started (start),
+// or a running one gone on with as it runs (goOn); then the self-check,
 // which stops a VM whose network tier doesn't hold; last, its host keys
 // pinned for its current start (pinHostKeys). It returns the confinement
-// the VM runs with.
+// the VM runs with. Each step runs under a status line but the agents',
+// whose ssh-add may ask for a passphrase on the terminal.
 func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Confinement, error) {
 	vm, st, b := t.f.Name, t.st, t.b
 	if err := refuseUnfinished(vm, st); err != nil {
@@ -70,44 +61,13 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 	if _, err := storedSize(st); err != nil {
 		return backend.Confinement{}, err
 	}
-	if err := s.cleanSeeds(image.AgentsOf(tools.Names(st))); err != nil {
-		return backend.Confinement{}, err
-	}
-	if err := s.instance(ctx, t, o); err != nil {
-		return backend.Confinement{}, err
-	}
-	if err := s.recordFolder(ctx, st); err != nil {
-		return backend.Confinement{}, err
-	}
-	mountsLater := false
-	if o.agentDirs {
-		var err error
-		mountsLater = s.launcher.updateAgentDirs(st, t.in)
-		if mountsLater, err = s.restartForNextStart(ctx, t, mountsLater); err != nil {
-			return backend.Confinement{}, err
-		}
-	}
-	in := t.in
-	running := in.Status == backend.StatusRunning
-	// Its host checks act on the folder, so never on what replaced it.
-	if !running && folderChanged(st) {
-		return backend.Confinement{}, msg.ProjectFolderChanged(st.Dir, vm)
-	}
-	if err := s.hostChecks(ctx, t, running, o.made); err != nil {
-		return backend.Confinement{}, err
-	}
-	s.Protector(t.f.Dir).WarnUnprotected(st)
-	s.warnMountCache(st, in)
-	s.warnOldSSH(ctx)
-	s.warnSSHListed(sectionOf[ports.Ports](st, ports.Section).Forward)
-	need, err := startNeeds(st, in)
+	mountsLater, err := s.check(ctx, t, o)
 	if err != nil {
 		return backend.Confinement{}, err
 	}
-	need.pins = s.pinsLocks(st)
-	if err := s.refuse(b, vm, requirements(need)); err != nil {
-		return backend.Confinement{}, err
-	}
+	running := t.in.Status == backend.StatusRunning
+	// The user's agent's ssh-add, and devvm's own agent's, may ask for a
+	// key's passphrase on the terminal: never under a status line.
 	if sshagent.Mode(st) == sshagent.On {
 		s.launcher.checkAgent(ctx)
 	}
@@ -125,12 +85,7 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 		if err := s.reloadAgent(ctx, mode); err != nil {
 			return conf, err
 		}
-		if conf, err = s.runningConfinement(ctx, b, st, mode); err != nil {
-			return conf, err
-		}
-		s.nextStart(st, in, conf, mountsLater)
-		s.checkRunningPins(ctx, t)
-		if err := s.checkMounted(ctx, t, conf.AgentSocket); err != nil {
+		if conf, err = s.goOn(ctx, t, mode, mountsLater); err != nil {
 			return conf, err
 		}
 	} else {
@@ -151,6 +106,71 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 	return conf, nil
 }
 
+// check is bringUp's checks before t's VM starts or goes on as it runs,
+// under a status line: what of the agent store's seeds is each machine's
+// own taken out (cleanSeeds); its instance read once; its project
+// folder's identity recorded anew where a boot renumbered its disk
+// (recordFolder); for a launch, its agent folder mounts matched to the
+// host's, and a running VM that gets changes at its next start stopped
+// once the user agrees (restartForNextStart); its project folder checked
+// on the host (hostChecks), with the warnings of its .git, its cache mode
+// and ssh; what it needs of its backend refused where the backend can't
+// (requirements). It returns whether the agent folder mounts change only
+// at its next start.
+func (s starter) check(ctx context.Context, t *target, o upOpts) (mountsLater bool, err error) {
+	vm, st, b := t.f.Name, t.st, t.b
+	defer s.Status(msg.CheckingVM(vm))()
+	if err := s.cleanSeeds(image.AgentsOf(tools.Names(st))); err != nil {
+		return false, err
+	}
+	if err := s.instance(ctx, t, o); err != nil {
+		return false, err
+	}
+	if err := s.recordFolder(ctx, st); err != nil {
+		return false, err
+	}
+	if o.agentDirs {
+		mountsLater = s.launcher.updateAgentDirs(st, t.in)
+		if mountsLater, err = s.restartForNextStart(ctx, t, mountsLater); err != nil {
+			return false, err
+		}
+	}
+	in := t.in
+	running := in.Status == backend.StatusRunning
+	// Its host checks act on the folder, so never on what replaced it.
+	if !running && folderChanged(st) {
+		return false, msg.ProjectFolderChanged(st.Dir, vm)
+	}
+	if err := s.hostChecks(ctx, t, running, o.made); err != nil {
+		return false, err
+	}
+	s.Protector(t.f.Dir).WarnUnprotected(st)
+	s.warnMountCache(st, in)
+	s.warnOldSSH(ctx)
+	s.warnSSHListed(sectionOf[ports.Ports](st, ports.Section).Forward)
+	need, err := startNeeds(st, in)
+	if err != nil {
+		return false, err
+	}
+	need.pins = s.pinsLocks(st)
+	return mountsLater, s.refuse(b, vm, requirements(need))
+}
+
+// goOn goes on with t's VM as it runs, under a status line: its proxy
+// made ready (runningConfinement), with the agent mode it runs with;
+// what its next start changes said (nextStart); its pins and its project
+// folder's mount checked. It returns the confinement it runs with.
+func (s starter) goOn(ctx context.Context, t *target, mode string, mountsLater bool) (backend.Confinement, error) {
+	defer s.Status(msg.CheckingVM(t.f.Name))()
+	conf, err := s.runningConfinement(ctx, t.b, t.st, mode)
+	if err != nil {
+		return conf, err
+	}
+	s.nextStart(t.st, t.in, conf, mountsLater)
+	s.checkRunningPins(ctx, t)
+	return conf, s.checkMounted(ctx, t, conf.AgentSocket)
+}
+
 // pinHostKeys pins the running VM's host keys for its current start
 // (vmssh.PinHostKeys), whatever ports it forwards, once its start, or a
 // launch of it running, has gone through: its forwarder pins them only
@@ -165,6 +185,7 @@ func (s starter) pinHostKeys(ctx context.Context, b backend.Backend, vm vmname.V
 	if !s.Registry.Allowed(b, backend.FeatureSSH) {
 		return nil
 	}
+	defer s.Status(msg.ReadingHostKeys(vm))()
 	if _, err := vmssh.PinHostKeys(ctx, s.Dirs, b, vm); err != nil && !errors.Is(err, vmssh.ErrNoHostKeys) {
 		return err
 	}
@@ -687,6 +708,9 @@ func (s starter) startOnce(ctx context.Context, t *target, conf backend.Confinem
 			return conf, err
 		}
 	}
+	// From here on, under a status line: the agent's ssh-add, which may
+	// ask for a passphrase, is done.
+	defer s.Status(msg.Starting(vm.String()))()
 	conf.AgentSocket = s.agentSocket(mode)
 	conf, err = s.confine(ctx, b, st, conf)
 	if err != nil {

@@ -51,13 +51,18 @@ func channelJSON() string {
 		"HASH_D", sha512Of("d"), "HASH_E", sha512Of("e")).Replace(dotnetChannel)
 }
 
-// dotnetServer serves channel 10.0's releases.json, counting its requests;
-// any other channel is missing.
+// dotnetServer serves channel 10.0's releases.json, counting its requests,
+// each of which runs under the resolution's status line; any other
+// channel is missing.
 func dotnetServer(t *testing.T, e env) *atomic.Int32 {
 	t.Helper()
 	var n atomic.Int32
+	fake, _ := e.Reporter.(*msg.Fake)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n.Add(1)
+		if m, _ := fake.Showing(); m.ID() != "resolving_tools" {
+			t.Errorf("asked for %s under %q, want resolving_tools", r.URL.Path, m.ID())
+		}
 		if r.URL.Path != "/10.0/releases.json" {
 			http.NotFound(w, r)
 			return

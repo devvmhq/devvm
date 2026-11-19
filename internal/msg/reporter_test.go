@@ -91,5 +91,43 @@ func TestFakeRecords(t *testing.T) {
 	}
 }
 
+// A Fake gives each status line's label and each logged command's step
+// to OnStatus, and shows the innermost one until it stops, as the UI's
+// status line does.
+func TestFakeStatus(t *testing.T) {
+	var labels Recorder
+	f := &Fake{OnStatus: labels.Add}
+	if _, on := f.Showing(); on {
+		t.Fatal("a line showing before any started")
+	}
+	shows := func(want string) {
+		t.Helper()
+		got, on := f.Showing()
+		if !on && want != "" || on && got.Names() != want {
+			t.Errorf("showing %q (%v), want %q", got.Names(), on, want)
+		}
+	}
+	outer := f.Status(NoVM("/outer"))
+	inner := f.Status(NoVM("/inner"))
+	shows("no_vm dir=/inner")
+	inner()
+	inner()
+	shows("no_vm dir=/outer")
+	ctx := t.Context()
+	if err := f.LoggedCmd(ctx, NoVM("/step"), exec.CommandContext(ctx, "true")); err != nil {
+		t.Fatal(err)
+	}
+	shows("no_vm dir=/outer")
+	// Stopped out of order, the inner one stays.
+	second := f.Status(NoVM("/second"))
+	outer()
+	shows("no_vm dir=/second")
+	second()
+	shows("")
+	if want := []string{"no_vm dir=/outer", "no_vm dir=/inner", "no_vm dir=/step", "no_vm dir=/second"}; !slices.Equal(labels.Names(), want) {
+		t.Errorf("labels %q, want %q", labels.Names(), want)
+	}
+}
+
 // second is a two-value call's error.
 func second[T any](_ T, err error) error { return err }

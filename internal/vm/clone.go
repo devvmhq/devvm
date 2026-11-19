@@ -686,6 +686,7 @@ func switchedBack(st *state.VM, clone string) error {
 // (removeRemote). Run again, it finds nothing left.
 func (e remaking) leftBehind(ctx context.Context, t *target, clone string) error {
 	st := t.st
+	defer e.Status(msg.GitProtecting(t.f.Name))()
 	switch clone {
 	case CloneOn:
 		if gitprotect.Mode(st) == gitprotect.On {
@@ -711,6 +712,7 @@ func (e remaking) leftBehind(ctx context.Context, t *target, clone string) error
 // be locked; then .git is protected as a new VM's is (NewVM). The clone
 // section keeps the remote's name, for putBack (unmountFolder).
 func (e remaking) mountFolder(ctx context.Context, t *target) error {
+	defer e.Status(msg.GitProtecting(t.f.Name))()
 	e.clones.removeRemotes(ctx, t.f.Dir, t.f.Name, sectionOf[cloneInVM](t.st, cloneSection))
 	p := e.Protector(t.f.Dir)
 	found := e.starter.walk(t.f.Dir, false)
@@ -725,6 +727,7 @@ func (e remaking) mountFolder(ctx context.Context, t *target) error {
 // the old machine still has, is added again when it's gone.
 func (e remaking) unmountFolder(ctx context.Context, t *target) {
 	dir, vm := t.f.Dir, t.f.Name
+	defer e.Status(msg.GitProtecting(vm))()
 	if gitprotect.Mode(t.st) == gitprotect.On {
 		p := e.Protector(dir)
 		// An undo goes on whatever Check finds: it has named it.

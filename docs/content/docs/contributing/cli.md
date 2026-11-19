@@ -22,6 +22,22 @@ Whatever a failure would leave behind, such as a build VM or a temporary file, r
 
 devvm runs every external command through the UI's `LoggedCmd(ctx, step, cmd)`, which a backend gets as its `Runner`. The command's output goes to the run log, a terminal's status line shows `step`, and a failure after it is returned as `backend.Logged(m)`, which shows the end of the log with the message. `WithSteps(ctx, n)` starts a phase of `n` steps, and each `LoggedCmd` with the context it returns is numbered, as `[2/5] running base.sh`, on its status line and in the log.
 
+### Status lines
+
+Any work that can take noticeable time runs under a status line, so that the user sees what devvm is waiting for. That's a host command, host git, a command in a VM, a backend's own commands, such as `limactl list`, a request over the network, a walk of a folder the user owns, a lookup of a folder's disk with macOS's `diskutil`, and a wait for a lock, a timeout or another process. A logged command shows its step on its own, and other slow work shows one with the Reporter's `Status`, whose label is a message in `locales/en.toml`, a lowercase phrase in `-ing`, such as `reading_vms`, with a `description` that says what runs under it:
+
+```go
+func ListAll(ctx context.Context, e *Env) ([]Listed, []Known, error) {
+    defer e.Status(msg.ReadingVMs())()
+    inv, err := ReadInventory(ctx, e.Dirs, e.Registry, AllBackends)
+```
+
+The status line shows only in a terminal, without `-v` and until the run is interrupted, as nothing would clear one started after that. The UI keeps status lines as a stack: a logged command or a `Status` inside another shows its own line until it ends, and then the outer one is drawn again, so a phase can show one line around steps that show their own. A message said under a status line, whether `Info`, `Warn`, `Note` or data on `Stdout()`, clears the line, prints, and draws the line again below it, so a warning never lands on the status line. A question, the picker and `ui.Terminal`, which a command in the VM that draws on the terminal gets, hold the status line until they're done, so its redraw never goes over a prompt or what the user types.
+
+Work that takes the terminal never runs under a status line, as its redraw would go over what it shows: a VM's shell, `ssh-add` asking for a key's passphrase (`checkAgent`, `Agent.Ensure`) and an agent's login in the VM. A launch shows its status lines around those steps rather than across them. A background process, such as the proxy, a forwarder or a link session, has no terminal and shows none.
+
+Tests check the label rather than a terminal. A `msg.Fake` gives each status line's label, and each logged command's step, to its `OnStatus`, and `Showing` returns the one showing, so a seam that the slow work goes through records what showed meanwhile, as `TestAgentImportStatus` does with the `Opencode` and `ExcludeFromBackup` seams, and a `backendtest.Fake` gives each call to its `OnCall`. `TestLaunchStatusLines` runs a new, a running and a stopped VM's launch and fails on any backend call made with no status line showing, but the shell's, which takes the terminal, and `Running`'s, which reads the VM's pid files. `TestSSHAddOffStatusLine` fails on an `ssh-add` that runs under one, on the user's agent or devvm's own, and `chflagsCalls` fails a clone test on a lock or unlock of `.git` with none. The structure test's `status-lines` rule fails on a function that does slow work by name, a host command, host git, a walk of a folder, a volume's lookup, a request through `internal/fetch` or a backend's command outside a step, and shows no status line of its own, unless `statusSites` lists it with why, such as the status line of the caller it runs under ([The structure test](structure.md#the-structure-test)).
+
 ## Command arguments
 
 Each command checks its arguments and flags before it does anything else, so a usage error never looks for a VM, applies the retention settings or changes a file. `internal/cli/args.go` holds the checks:

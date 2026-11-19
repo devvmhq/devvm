@@ -394,13 +394,14 @@ func (l *images) ImageSize(_ context.Context, key string) (int64, error) {
 	return platform.DiskUsage(l.Dirs.LimaVM(name))
 }
 
-// DeleteImage deletes an image. On Linux hosts, an image whose disk
-// project VMs are overlays of is refused.
+// DeleteImage deletes an image, under a status line. On Linux hosts, an
+// image whose disk project VMs are overlays of is refused.
 func (l *images) DeleteImage(ctx context.Context, key string) error {
 	name, err := vmname.Image(key)
 	if err != nil {
 		return msg.NotAnImage(vmname.ImagePrefix + key)
 	}
+	defer l.Status(msg.Deleting(name.String()))()
 	if _, err := l.inspect(ctx, name); errors.Is(err, backend.ErrNotFound) {
 		return nil
 	} else if err != nil {

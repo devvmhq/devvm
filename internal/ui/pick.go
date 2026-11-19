@@ -100,6 +100,7 @@ func (u *UI) pick(help msg.M, sections []Section, one bool) error {
 		return msg.PickTooSmall(strconv.Itoa(p.height))
 	}
 	p.more = func(n int) string { return u.outStyle.line(msg.PickMore(n)) }
+	defer holdStatus(u)()
 	restore, err := u.rawInput()
 	if err != nil {
 		return msg.PickFailed(err.Error()).Because(err)

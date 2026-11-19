@@ -187,6 +187,8 @@ func (u Upgrader) script(ctx context.Context, version string) error {
 	if err != nil {
 		return err
 	}
+	// Unpacked, run and put in place under a status line.
+	defer u.Status(msg.UpgradeInstalling(version))()
 	pid := strconv.Itoa(os.Getpid())
 	lib := u.Install.Lib()
 	staged := filepath.Join(lib, "."+version+".new."+pid)

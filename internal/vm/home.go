@@ -174,6 +174,7 @@ func (e remaking) saveHome(ctx context.Context, t *target, failed error) error {
 		done()
 	}()
 	e.Info(msg.SavingHome(vm))
+	defer e.Status(msg.SavingHome(vm))()
 	pr, pw := io.Pipe()
 	copied := make(chan error, 1)
 	go func() {
@@ -216,6 +217,7 @@ func (e remaking) restoreHome(ctx context.Context, t *target) error {
 	}
 	defer func() { _ = f.Close() }()
 	e.Info(msg.RestoringHome(vm))
+	defer e.Status(msg.RestoringHome(vm))()
 	log := e.vmLog()
 	err = t.exec(ctx, []string{"bash", "-c", homeIn}, backend.ExecOpts{Stdin: f, Stdout: log, Stderr: log})
 	if err != nil {

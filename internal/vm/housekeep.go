@@ -505,8 +505,10 @@ func (r Retained) Any() bool { return r.Exports+r.Tools+r.Orphans+r.NixFiles > 0
 // orphans.age (it asks the backends); the shared Nix cache's least
 // recently used files while it's over nix-cache.size (or its default).
 // Never a VM, an image, or a tool image any VM's state lists. logs.runs
-// is the run log's own.
+// is the run log's own. It runs under a status line, as it walks the
+// Nix cache and asks the backends.
 func (h Housekeeping) Retain(ctx context.Context, b *build.Env, r settings.Retention, orphans bool) (Retained, error) {
+	defer h.Status(msg.Retaining())()
 	var done Retained
 	now := time.Now()
 	n, err := retainExports(b.Dirs, r, now)
