@@ -14,7 +14,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -25,6 +24,7 @@ import (
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/redact"
+	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/shell"
 	"github.com/devvmhq/devvm/internal/tools"
@@ -131,12 +131,29 @@ func claudeSaveLines(names []string) []string {
 
 // claudeHostLogin reads this machine's login file of the agent at path for
 // devvm agent import: Claude Code's ~/.claude.json without its projects'
-// history or API key (agentlogin.ClaudeCopy), another agent's as it is.
+// history or API key (agentlogin.ClaudeCopy, a regular file, capped), in
+// the home folder, which no VM's project folder is or holds; another
+// agent's as it is, which is in the agent's folder, which a VM's may hold.
+// So that one, at path, already resolved (linkHops), is read through its
+// folder opened one folder at a time from / without following a link
+// (openPhysical), never resolved again, itself opened without following
+// one, a regular file of at most saveMaxBytes: a link on its way, a FIFO
+// or an endless file that such a VM swapped in since fails.
 func claudeHostLogin(agent, path string) ([]byte, error) {
 	if agent == agents.Claude {
 		return agentlogin.ClaudeCopy(path)
 	}
-	return os.ReadFile(path) //nolint:gosec // the user's own login file, not a link
+	dir, err := openPhysical(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+	f, err := dir.Open(filepath.Base(path), safefile.Opts{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return f.ReadAll(saveMaxBytes)
 }
 
 // claudePlugins is the agent's settings file p, data, as devvm agent import

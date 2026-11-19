@@ -3213,6 +3213,14 @@ other = "The link {{.path}} leads into {{.vm}}'s project folder, so {{.vm}} can 
 [agent_import_link_via_vm]
 other = "devvm left out the link {{.path}}, because it leads through a link in {{.vm}}'s project folder to a place outside it, which {{.vm}} could have chosen."
 
+[agent_import_too_much]
+description = "folder is the agent's folder in the home folder"
+other = "{{.folder}} holds more of {{.agent}}'s settings than one import copies, 20,000 files and folders or 128 MiB, so devvm imported nothing. Take out what the folder doesn't need, such as a plugin's build files, then run devvm agent import again."
+
+[agent_import_project_inside]
+description = "dir is the VM's project folder; folder is the agent's folder in the home folder, which holds it or is in it"
+other = "{{.vm}}'s project folder, {{.dir}}, overlaps {{.folder}}, so {{.vm}} can change the settings that devvm agent import copies for every VM. Keep the project somewhere else unless you trust {{.vm}}."
+
 [agent_import_root_refused]
 description = "dir is a folder config.toml's follow-links names; place is the folder of devvm's or of secrets it is, holds or is in"
 other = "The folder {{.dir}} in config.toml's follow-links is, holds or is inside {{.place}}, so devvm never copies from it. Take it out of follow-links."

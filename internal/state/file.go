@@ -15,6 +15,7 @@
 package state
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -97,6 +98,41 @@ func WriteFile(path string, data []byte) error { return writeFile(path, data) }
 // mode's permissions: 0o700 for a program devvm runs.
 func WriteFileMode(path string, data []byte, mode os.FileMode) error {
 	return writeFileMode(path, data, mode.Perm())
+}
+
+// WriteFileIn replaces name, a path in root, with data atomically, with
+// mode's permissions, as WriteFileMode does, making the folders on its way
+// that aren't there (0700). Every step goes through root, so no link
+// leads it out of root's folder, and a link at name itself is replaced,
+// never followed.
+func WriteFileIn(root *os.Root, name string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(name)
+	if err := root.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("writing %s: %w", name, err)
+	}
+	tmp := filepath.Join(dir, "."+filepath.Base(name)+".tmp-"+rand.Text())
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", name, err)
+	}
+	_, err = f.Write(data)
+	if err == nil && mode.Perm() != 0o600 {
+		err = f.Chmod(mode.Perm())
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = root.Rename(tmp, name)
+	}
+	if err != nil {
+		_ = root.Remove(tmp)
+		return fmt.Errorf("writing %s: %w", name, err)
+	}
+	return nil
 }
 
 // writeFile replaces path with data atomically, mode 600, creating its

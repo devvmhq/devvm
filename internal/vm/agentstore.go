@@ -14,10 +14,12 @@ import (
 // devvm's agent store is below devvm's config folder, and only a hand-made
 // store has a link in it, which could lead to any folder of this
 // machine's, such as the home folder. devvm never writes, empties or
-// cleans the store through such a link: it opens a folder of the store
-// through the config folder as a root, every part of its path a folder
-// (openStoreDir), and checks every path it writes by path first
-// (storeGuard).
+// cleans the store through such a link: it checks every path it will
+// write first (storeGuard), so a link fails the command before the store
+// changes, and then writes, empties and cleans a folder of the store only
+// through it opened from the config folder as a root, every part of its
+// path a folder (openStoreDir, makeStoreDir), so no write follows a link
+// out of it.
 
 // storeLink is the error for a link at path, on the way to a folder of
 // devvm's agent store (agent_store_link, agent_seed_link).
@@ -68,11 +70,45 @@ func openStoreDir(config, dir string) (*os.Root, error) {
 	return d, nil
 }
 
-// storeGuard checks the paths that devvm agent import and save write in
-// the store by path, before each write: no part of a path below devvm's
-// config folder (config) is a link (storeLink). A part that isn't there
-// yet is made a folder by the write itself. The folders it found are
-// checked once (dirs).
+// makeStoreDir opens dir, a folder of devvm's agent store below devvm's
+// config folder config, as a root (openStoreDir), making it first, with
+// the folders on its way that aren't there (0700), through config as a
+// root, so no link leads the making out of config. A link on its way
+// fails, as openStoreDir's does (storeLink). Every write to the store
+// goes through the root it returns.
+func makeStoreDir(config, dir string) (*os.Root, error) {
+	rel, err := filepath.Rel(config, dir)
+	if err != nil || !filepath.IsLocal(rel) {
+		return nil, fmt.Errorf("%s isn't in %s", dir, config)
+	}
+	if _, err := walkStore(config, rel, func(at string) (fs.FileInfo, error) { return os.Lstat(filepath.Join(config, at)) }, nil); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(config, 0o700); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(config)
+	if err != nil {
+		return nil, err
+	}
+	err = root.MkdirAll(rel, 0o700)
+	_ = root.Close()
+	if err != nil {
+		return nil, err
+	}
+	d, err := openStoreDir(config, dir)
+	if err == nil && d == nil {
+		err = fmt.Errorf("%s changed while devvm made it", dir)
+	}
+	return d, err
+}
+
+// storeGuard checks the paths that devvm agent import and save will write
+// in the store, by path, before the first write: no part of a path below
+// devvm's config folder (config) is a link (storeLink), so the command
+// names the link and fails before the store changes. A part that isn't
+// there yet is made a folder by the write itself, through a root
+// (makeStoreDir). The folders it found are checked once (dirs).
 type storeGuard struct {
 	config string
 	dirs   map[string]bool
@@ -129,6 +165,6 @@ func walkStore(config, rel string, lstat func(string) (fs.FileInfo, error), seen
 }
 
 // file checks the folders above p, a file that a write replaces whole
-// (state.WriteFileMode renames a new file into place, so a link at p
+// (state.WriteFileIn renames a new file into place, so a link at p
 // itself is replaced, never followed).
 func (g *storeGuard) file(p string) error { return g.folder(filepath.Dir(p)) }

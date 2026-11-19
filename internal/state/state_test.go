@@ -158,6 +158,53 @@ func TestWriteFileMode(t *testing.T) {
 	}
 }
 
+// WriteFileIn writes a file whole in a root, with the mode asked for, its
+// folders made 700 where they aren't, and replaces a link at its name
+// rather than follow it; a link on the way that leads out of the root
+// fails, and nothing is written outside it; nothing else is left.
+func TestWriteFileIn(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	for _, mode := range []fs.FileMode{0o600, 0o700, 0o755 | fs.ModeSetuid} {
+		if err := WriteFileIn(root, filepath.Join("a", "b", "f"), []byte(mode.String()), mode); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, "a", "b", "f")
+		if fi, err := os.Stat(p); err != nil || fi.Mode() != mode.Perm() || read(t, p) != mode.String() {
+			t.Errorf("%v: %v, %v", mode, fi, err)
+		}
+	}
+	if fi, err := os.Stat(filepath.Join(dir, "a")); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("its folder: %v, %v", fi, err)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(dir, "a", "b")); len(entries) != 1 {
+		t.Errorf("left %v", entries)
+	}
+	// A link at its name is replaced; one on the way out of the root fails.
+	if err := os.Symlink(filepath.Join(outside, "victim"), filepath.Join(dir, "a", "l")); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileIn(root, filepath.Join("a", "l"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(filepath.Join(dir, "a", "l")); err != nil || !fi.Mode().IsRegular() {
+		t.Errorf("the link: %v, %v", fi, err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "out")); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileIn(root, filepath.Join("out", "f"), []byte("x"), 0o600); err == nil {
+		t.Error("written through a link out of the root")
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Errorf("written outside the root: %v", entries)
+	}
+}
+
 // PrivateDir makes a folder, with those above it, 700; corrects one there
 // with another mode; and refuses a file, or a link to a folder, leaving
 // what the link points to as it was.

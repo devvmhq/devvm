@@ -519,24 +519,18 @@ func checkPlan(g *storeGuard, p agentPlan) error {
 // applySettings puts p's settings files and folders into the store, as
 // apply says.
 func (sv saver) applySettings(p agentPlan) error {
-	g := newStoreGuard(sv.Dirs.Config)
-	if err := checkPlan(g, p); err != nil {
+	if err := checkPlan(newStoreGuard(sv.Dirs.Config), p); err != nil || len(p.files) == 0 && len(p.folders) == 0 {
 		return err
 	}
+	root, err := makeStoreDir(sv.Dirs.Config, p.store)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
 	write := func(rel string, data []byte, exec bool) error {
-		file := filepath.Join(p.store, filepath.FromSlash(rel))
-		if err := g.file(file); err != nil {
-			return err
-		}
-		return state.WriteFileMode(file, data, fileMode(exec))
+		return state.WriteFileIn(root, filepath.FromSlash(rel), data, fileMode(exec))
 	}
-	mkdir := func(rel string) error {
-		dir := filepath.Join(p.store, filepath.FromSlash(rel))
-		if err := g.folder(dir); err != nil {
-			return err
-		}
-		return os.MkdirAll(dir, 0o700)
-	}
+	mkdir := func(rel string) error { return root.MkdirAll(filepath.FromSlash(rel), 0o700) }
 	for _, f := range p.files {
 		if err := write(f.rel, f.data, f.exec); err != nil {
 			return err

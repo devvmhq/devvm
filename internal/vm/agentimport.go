@@ -63,6 +63,7 @@ type hostAgent struct {
 	// it's read as and what it was when it was listed (listedFile).
 	safe   *safefile.Root
 	listed map[string]listedFile
+	read   int64 // the bytes read of listed's files so far, at most saveMaxBytes
 }
 
 // listedFile is a file of an agent's folder as the import listed it: rel,
@@ -77,8 +78,9 @@ type listedFile struct {
 
 // readListed reads the file l through safe, the agent's folder, opening
 // each folder on its way from its parent and the file itself without
-// following a link, and fails unless it's the file that was listed.
-func readListed(safe *safefile.Root, l listedFile) ([]byte, fs.FileInfo, error) {
+// following a link, and fails unless it's the file that was listed, or
+// when it's more than limit bytes.
+func readListed(safe *safefile.Root, l listedFile, limit int64) ([]byte, fs.FileInfo, error) {
 	parts := strings.Split(l.rel, "/")
 	dir := safe
 	for _, name := range parts[:len(parts)-1] {
@@ -102,7 +104,7 @@ func readListed(safe *safefile.Root, l listedFile) ([]byte, fs.FileInfo, error) 
 	if !os.SameFile(l.fi, f.Info) {
 		return nil, nil, errors.New(l.rel + " changed while devvm read it")
 	}
-	data, err := f.ReadAll(saveMaxBytes)
+	data, err := f.ReadAll(limit)
 	return data, f.Info, err
 }
 
@@ -116,6 +118,25 @@ func (h *hostAgent) list(p string, l listedFile) {
 }
 
 func (h *hostAgent) empty() bool { return len(h.dirs) == 0 && len(h.files) == 0 && !h.hasLog }
+
+// errFolderTooMany is readSettings' error once an agent's folder holds more
+// entries than an import copies (saveMaxEntries), where its walk stops.
+var errFolderTooMany = errors.New("more entries than an import copies")
+
+// tooMuch reports whether what h lists of the agent's folder itself, its
+// folders and files and their sizes as listed, is more than one import
+// copies of it: devvm agent save's bounds, saveMaxEntries and
+// saveMaxBytes. A VM whose project folder is in the agent's folder could
+// otherwise fill the store, which every VM with the agent mounts. Files
+// read through links out of the folder have bounds of their own
+// (linkBudget).
+func (h *hostAgent) tooMuch() bool {
+	var bytes int64
+	for _, l := range h.listed {
+		bytes += l.fi.Size()
+	}
+	return len(h.dirs)+len(h.files) > saveMaxEntries || bytes > saveMaxBytes
+}
 
 func (h *hostAgent) close() {
 	if h.root != nil {
@@ -145,8 +166,9 @@ func (im AgentImport) Run(ctx context.Context, names []string, force bool) error
 			h.close()
 		}
 	}()
+	vms := im.warnProjectsInside(names)
 	for _, a := range names {
-		h, err := im.read(ctx, a)
+		h, err := im.read(ctx, a, vms)
 		if err != nil {
 			return err
 		}
@@ -219,21 +241,37 @@ func (im AgentImport) inStore(agent string) bool {
 // folder is never followed here: such a link goes in h.out, for
 // followLinks, and a link to a folder inside it is left out with a
 // warning. A login file that's a link is left out too, always.
-func (im AgentImport) read(ctx context.Context, agent string) (*hostAgent, error) {
+func (im AgentImport) read(ctx context.Context, agent string, vms []projectVM) (*hostAgent, error) {
 	h := &hostAgent{agent: agent}
 	home := im.Dirs.Home
 	folder := agents.Of(agent).Folder
-	if fi, err := os.Stat(filepath.Join(home, folder)); err == nil && fi.IsDir() {
-		if h.root, err = os.OpenRoot(filepath.Join(home, folder)); err != nil {
+	path := filepath.Join(home, folder)
+	// The folder is read where its path led when devvm resolved it, one link at a time; a path
+	// that a link in a VM's project folder leads out of it, as one that holds the agent's folder
+	// could, is that VM's choice, so the folder is left out.
+	target, hops, lerr := linkHops(path)
+	vm := throughVM(vms, target, hops)
+	if vm != "" {
+		im.Warn(msg.AgentImportLinkViaVM(path, vm))
+	}
+	if fi, err := os.Stat(target); lerr == nil && vm == "" && err == nil && fi.IsDir() {
+		if h.root, err = os.OpenRoot(target); err != nil {
 			return nil, err
 		}
-		if h.safe, err = openPhysical(paths.Physical(filepath.Join(home, folder))); err != nil {
+		if h.safe, err = openPhysical(target); err != nil {
 			h.close()
 			return nil, err
 		}
 		if err := im.readSettings(h, folder); err != nil {
 			h.close()
+			if errors.Is(err, errFolderTooMany) {
+				return nil, msg.AgentImportTooMuch(agent, path)
+			}
 			return nil, err
+		}
+		if h.tooMuch() {
+			h.close()
+			return nil, msg.AgentImportTooMuch(agent, path)
 		}
 	}
 	if opencodeKeepsDB(agent) && im.opencodeMajor(ctx) >= 2 {
@@ -244,6 +282,9 @@ func (im AgentImport) read(ctx context.Context, agent string) (*hostAgent, error
 		return h, nil
 	}
 	login := filepath.Join(home, filepath.FromSlash(secrets.LoginRel(agent)))
+	if vm != "" && paths.Within(login, path) {
+		return h, nil // in the folder that the VM's link leads elsewhere, left out with it
+	}
 	fi, err := os.Lstat(login)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -257,7 +298,16 @@ func (im AgentImport) read(ctx context.Context, agent string) (*hostAgent, error
 	case !fi.Mode().IsRegular():
 		return h, nil
 	}
-	h.login, err = claudeHostLogin(agent, login)
+	// Resolved once, one link at a time, and read where that led, never resolved again: a link
+	// that a VM swaps in on its way since then fails the read rather than lead elsewhere.
+	ltarget, lhops, err := linkHops(login)
+	if err == nil {
+		if lvm := throughVM(vms, ltarget, lhops); lvm != "" {
+			im.Warn(msg.AgentImportLinkViaVM(login, lvm))
+			return h, nil
+		}
+		h.login, err = claudeHostLogin(agent, ltarget)
+	}
 	if err != nil {
 		h.close()
 		return nil, msg.AgentLoginReadFailed(login, err.Error()).Because(err)
@@ -348,6 +398,9 @@ func (im AgentImport) readSettings(h *hostAgent, folder string) error {
 				return skipEntry(d)
 			}
 			im.listEntry(h, home, p, d)
+			if len(h.dirs)+len(h.files) > saveMaxEntries {
+				return errFolderTooMany // stopped at the bound, however many more the folder holds
+			}
 			return nil
 		})
 		if err != nil {
@@ -502,20 +555,20 @@ func (im AgentImport) checkStore(g *storeGuard, h *hostAgent) error {
 func (im AgentImport) saveSettings(h *hostAgent) error {
 	config, store := im.Dirs.Config, agentStore(im.Dirs, h.agent)
 	folder := agents.Of(h.agent).Folder
-	g := newStoreGuard(config)
-	if err := im.checkStore(g, h); err != nil {
+	if err := im.checkStore(newStoreGuard(config), h); err != nil {
 		return err
 	}
+	root, err := makeStoreDir(config, filepath.Join(store, filepath.FromSlash(folder)))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
 	keep := map[string]bool{}
 	for _, p := range h.dirs {
 		if err := clearKind(config, store, path.Join(folder, p), true); err != nil {
 			return err
 		}
-		dir := filepath.Join(store, folder, filepath.FromSlash(p))
-		if err := g.folder(dir); err != nil {
-			return err
-		}
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+		if err := root.MkdirAll(filepath.FromSlash(p), 0o700); err != nil {
 			return err
 		}
 		markKept(keep, path.Join(folder, p))
@@ -524,10 +577,7 @@ func (im AgentImport) saveSettings(h *hostAgent) error {
 		if err := clearKind(config, store, path.Join(folder, p), false); err != nil {
 			return err
 		}
-		if err := g.file(filepath.Join(store, folder, filepath.FromSlash(p))); err != nil {
-			return err
-		}
-		if err := im.saveFile(h, store, folder, p); err != nil {
+		if err := im.saveFile(h, root, store, folder, p); err != nil {
 			return err
 		}
 		markKept(keep, path.Join(folder, p))
@@ -539,12 +589,6 @@ func (im AgentImport) saveSettings(h *hostAgent) error {
 	return nil
 }
 
-// saveFile copies one settings file, p in the agent's folder, into the
-// store, keeping its owner's execute bit (a skill's script) but no other
-// user's write. Claude Code's plugin records name their folders by path,
-// so the copy names them in the store, where VMs mount them.
-// A file read through a link out of the folder (h.from) is read through
-// its root, as linkSource.read says.
 // readFile reads the settings file p in the agent's folder, which the
 // import listed: through a link's root (h.from), or as listed in the
 // folder itself (h.listed, readListed).
@@ -556,22 +600,30 @@ func (im AgentImport) readFile(h *hostAgent, folder, p string) ([]byte, fs.FileI
 	if !ok {
 		return nil, nil, errors.New(p + " wasn't listed")
 	}
-	data, fi, err := readListed(h.safe, l)
+	// What the folder's files grew to since they were listed counts too.
+	data, fi, err := readListed(h.safe, l, saveMaxBytes-h.read)
 	if err != nil {
 		return nil, nil, msg.AgentImportReadFailed(filepath.Join(im.Dirs.Home, folder, filepath.FromSlash(p)), err.Error()).Because(err)
 	}
+	h.read += int64(len(data))
 	return data, fi, nil
 }
 
-func (im AgentImport) saveFile(h *hostAgent, store, folder, p string) error {
-	src := filepath.FromSlash(p)
+// saveFile copies one settings file, p in the agent's folder, into the
+// store, through root, the agent's folder in the store (makeStoreDir),
+// keeping its owner's execute bit (a skill's script) but no other user's
+// write. Claude Code's plugin records name their folders by path, so the
+// copy names them in the store, where VMs mount them. A file read through
+// a link out of the folder (h.from) is read through its root, as
+// linkSource.read says.
+func (im AgentImport) saveFile(h *hostAgent, root *os.Root, store, folder, p string) error {
 	data, fi, err := im.readFile(h, folder, p)
 	if err != nil {
 		return err
 	}
 	data = claudePlugins(h.agent, p, data, filepath.Join(im.Dirs.Home, folder), filepath.Join(store, folder))
 	mode := fi.Mode().Perm()&0o755 | 0o600
-	return state.WriteFileMode(filepath.Join(store, folder, src), data, mode)
+	return state.WriteFileIn(root, filepath.FromSlash(p), data, mode)
 }
 
 // clearKind takes out what's at p in the store, relative to it, through

@@ -158,6 +158,11 @@ func AgentImportOpencodeSkipped(label string, provider string) M {
 	return M{id: "agent_import_opencode_skipped", vals: []val{{"label", label}, {"provider", provider}}}
 }
 
+// AgentImportProjectInside is [agent_import_project_inside]: "{{.vm}}'s project folder, {{.dir}}, overlaps {{.folder}}, so {{.vm}} can change the settings that devvm agent import copies for every VM. Keep the project somewhere else unless you trust {{.vm}}."
+func AgentImportProjectInside(dir string, folder string, vm vmname.VM) M {
+	return M{id: "agent_import_project_inside", vals: []val{{"dir", dir}, {"folder", folder}, {"vm", string(vm)}}}
+}
+
 // AgentImportReadFailed is [agent_import_read_failed]: "{{.file}} couldn't be read ({{.why}}), so it isn't imported. If it changed while devvm read it, run devvm agent import again."
 func AgentImportReadFailed(file string, why string) M {
 	return M{id: "agent_import_read_failed", vals: []val{{"file", file}, {"why", why}}}
@@ -171,6 +176,11 @@ func AgentImportReplace(agents string) M {
 // AgentImportRootRefused is [agent_import_root_refused]: "The folder {{.dir}} in config.toml's follow-links is, holds or is inside {{.place}}, so devvm never copies from it. Take it out of follow-links."
 func AgentImportRootRefused(dir string, place string) M {
 	return M{id: "agent_import_root_refused", vals: []val{{"dir", dir}, {"place", place}}}
+}
+
+// AgentImportTooMuch is [agent_import_too_much]: "{{.folder}} holds more of {{.agent}}'s settings than one import copies, 20,000 files and folders or 128 MiB, so devvm imported nothing. Take out what the folder doesn't need, such as a plugin's build files, then run devvm agent import again."
+func AgentImportTooMuch(agent string, folder string) M {
+	return M{id: "agent_import_too_much", vals: []val{{"agent", agent}, {"folder", folder}}}
 }
 
 // AgentKeyChanged is [agent_key_changed]: "{{.key}} isn't the key you added to devvm's SSH agent any more, so devvm didn't load it. If you replaced it, run devvm ssh-agent add {{.key}}."
@@ -5480,9 +5490,11 @@ var specs = map[string]spec{
 	"agent_import_nothing":            {},
 	"agent_import_opencode_failed":    {fields: []string{"reason"}},
 	"agent_import_opencode_skipped":   {fields: []string{"label", "provider"}},
+	"agent_import_project_inside":     {fields: []string{"dir", "folder", "vm"}},
 	"agent_import_read_failed":        {fields: []string{"file", "why"}},
 	"agent_import_replace":            {fields: []string{"agents"}},
 	"agent_import_root_refused":       {fields: []string{"dir", "place"}},
+	"agent_import_too_much":           {fields: []string{"agent", "folder"}},
 	"agent_key_changed":               {fields: []string{"key"}},
 	"agent_key_copy_failed":           {fields: []string{"agent", "vm"}},
 	"agent_key_empty":                 {},

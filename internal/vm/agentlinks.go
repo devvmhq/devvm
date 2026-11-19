@@ -336,27 +336,61 @@ type projectVM struct {
 func (f *follower) projectVMs() []projectVM {
 	if !f.read {
 		f.read = true
-		if inv, err := ReadStates(f.im.Dirs); err == nil {
-			for _, r := range inv.Recorded() {
-				if r.Dir != "" {
-					f.vms = append(f.vms, projectVM{name: r.Name, dir: paths.Physical(r.Dir)})
-				}
+		f.vms = projectVMs(f.im.Dirs)
+	}
+	return f.vms
+}
+
+// projectVMs are the VMs devvm has, each with its project folder; none
+// when their states can't be read.
+func projectVMs(d paths.Dirs) []projectVM {
+	var vms []projectVM
+	if inv, err := ReadStates(d); err == nil {
+		for _, r := range inv.Recorded() {
+			if r.Dir != "" {
+				vms = append(vms, projectVM{name: r.Name, dir: paths.Physical(r.Dir)})
 			}
 		}
 	}
-	return f.vms
+	return vms
+}
+
+// warnProjectsInside warns of each VM whose project folder is inside the
+// folder of one of the agents named, or holds it (agent_import_project_inside),
+// before the import reads anything: code in that VM can change what the
+// import copies, and every VM with the agent then reads it. It returns the
+// VMs it checked, which read takes too.
+func (im AgentImport) warnProjectsInside(names []string) []projectVM {
+	vms := projectVMs(im.Dirs)
+	for _, a := range names {
+		// By name too, so a folder that a VM could make just before the import is warned of.
+		folder := filepath.Join(im.Dirs.Home, agents.Of(a).Folder)
+		phys := paths.Physical(folder)
+		for _, v := range vms {
+			if isIn(v.dir, phys) || isIn(phys, v.dir) || isIn(folder, v.dir) {
+				im.Warn(msg.AgentImportProjectInside(v.dir, folder, v.name))
+			}
+		}
+	}
+	return vms
 }
 
 // through returns the VM, if any, whose project folder a link on l's way
 // is in (l.hops) while l's target isn't: that VM chose where l leads, so
 // l could lead to any file of this machine's, and it's left out, whatever
 // allows it.
-func (f *follower) through(l *linkOut) vmname.VM {
-	for _, v := range f.projectVMs() {
-		if isIn(l.target, v.dir) {
+func (f *follower) through(l *linkOut) vmname.VM { return throughVM(f.projectVMs(), l.target, l.hops) }
+
+// throughVM returns the VM of vms, if any, whose project folder a link on
+// the way to target (hops, linkHops') is in while target isn't: that VM
+// chose where the path leads, so it could lead to any file of this
+// machine's.
+func throughVM(vms []projectVM, target string, hops []string) vmname.VM {
+	for _, v := range vms {
+		if isIn(target, v.dir) {
 			continue
 		}
-		if slices.ContainsFunc(l.hops, func(h string) bool { return isIn(h, v.dir) }) {
+		if slices.ContainsFunc(hops, func(h string) bool { return isIn(h, v.dir) }) {
 			return v.name
 		}
 	}

@@ -7,12 +7,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/secrets"
+	"github.com/devvmhq/devvm/internal/state"
 )
 
 // importer is an AgentImport in a sandbox: a home folder of its own and
@@ -318,7 +322,7 @@ func TestAgentImportSwappedAfterListing(t *testing.T) {
 		if err := os.Symlink("../../CLAUDE.md", filepath.Join(vm, "x.md")); err != nil {
 			t.Fatal(err)
 		}
-		h, err := im.read(t.Context(), "claude")
+		h, err := im.read(t.Context(), "claude", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -584,10 +588,29 @@ func TestStoreOpsRefuseLinks(t *testing.T) {
 	if _, ok := errors.AsType[storeLink](clearKind(config, store, "x", false)); !ok {
 		t.Error("clearKind: no storeLink")
 	}
+	if r, err := makeStoreDir(config, filepath.Join(store, ".claude")); err == nil {
+		_ = r.Close()
+		t.Error("makeStoreDir: made through a link")
+	} else if _, ok := errors.AsType[storeLink](err); !ok {
+		t.Errorf("makeStoreDir: %v, not a storeLink", err)
+	}
 	for _, f := range []string{"keep.txt", "x/y"} {
 		if got := readFile(t, filepath.Join(victim, f)); got != "mine" {
 			t.Errorf("%s = %q", f, got)
 		}
+	}
+	if _, err := os.Lstat(filepath.Join(victim, ".claude")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("made in the folder the link leads to: %v", err)
+	}
+	// Made where nothing is, and opened: a write through the root lands in the store.
+	other := filepath.Join(config, "agents", "codex", ".codex")
+	r, err := makeStoreDir(config, other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	if err := state.WriteFileIn(r, "config.toml", []byte("x"), 0o600); err != nil || readFile(t, filepath.Join(other, "config.toml")) != "x" {
+		t.Errorf("a write through it: %v", err)
 	}
 }
 
@@ -606,6 +629,203 @@ func TestAgentImportNothing(t *testing.T) {
 	}
 	if !slices.Equal(im.got, []string{"agent_import_nothing"}) {
 		t.Errorf("none named: said %q", im.got)
+	}
+}
+
+// An agent's folder that holds more settings than one import copies, more
+// than 128 MiB of files or more than 20,000 files and folders, fails the
+// import before the store changes, naming the folder (the other tests
+// import folders within them).
+func TestAgentImportTooMuch(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		fill func(t *testing.T, skills string)
+		want string
+	}{
+		{"more than 128 MiB", func(t *testing.T, skills string) {
+			sparse(t, filepath.Join(skills, "big", "a"), saveMaxBytes/2)
+			sparse(t, filepath.Join(skills, "big", "b"), saveMaxBytes/2+1)
+		}, "agent_import_too_much"},
+		{"more than 20,000 entries", func(t *testing.T, skills string) {
+			for i := range saveMaxEntries {
+				sparse(t, filepath.Join(skills, "many", strconv.Itoa(i/1000), strconv.Itoa(i)), 0)
+			}
+		}, "agent_import_too_much"},
+	} {
+		im := newImporter(t)
+		home := im.Dirs.Home
+		write(t, home, map[string]string{".claude/settings.json": "{}"})
+		tc.fill(t, filepath.Join(home, ".claude", "skills"))
+		err := im.Run(t.Context(), []string{"claude"}, true)
+		if msg.IDOf(err) != tc.want {
+			t.Errorf("%s: %v, want %q", tc.name, msg.NamesOf(err), tc.want)
+		}
+		_, serr := os.Lstat(filepath.Join(agentStore(im.Dirs, "claude"), ".claude", "settings.json"))
+		if imported := serr == nil; imported != (tc.want == "") {
+			t.Errorf("%s: imported %v", tc.name, imported)
+		}
+		if tc.want != "" && !strings.Contains(msg.NamesOf(err), "folder="+filepath.Join(home, ".claude")) {
+			t.Errorf("%s: names %s", tc.name, msg.NamesOf(err))
+		}
+	}
+}
+
+// The files of an agent's folder share the 128 MiB as they're read, so
+// files that grew since they were listed fail the import once together
+// they pass it, naming the file; the control reads the same file.
+func TestAgentImportReadBudget(t *testing.T) {
+	for _, left := range []int64{5, 4} {
+		im := newImporter(t)
+		write(t, im.Dirs.Home, map[string]string{".claude/CLAUDE.md": "notes"})
+		h, err := im.read(t.Context(), "claude", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.read = saveMaxBytes - left // as if the folder's other files had grown since
+		err = im.save(t.Context(), h)
+		h.close()
+		if fits := left == 5; fits != (err == nil) {
+			t.Errorf("%d bytes left: %v", left, msg.NamesOf(err))
+		}
+		if left == 4 && (msg.IDOf(err) != "agent_import_read_failed" || !errors.Is(err, safefile.ErrTooLong)) {
+			t.Errorf("%d bytes left: %v", left, msg.NamesOf(err))
+		}
+	}
+}
+
+// sparse makes a file of size bytes at p, which takes no room on the disk.
+func sparse(t *testing.T, p string, size int64) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(p) //nolint:gosec // the test's own sandbox
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An import warns of each VM whose project folder is inside an agent's
+// folder it reads, as that VM can change what the import copies for every
+// VM; a VM whose folder is elsewhere gets no warning.
+func TestAgentImportProjectInside(t *testing.T) {
+	im := newImporter(t)
+	home := im.Dirs.Home
+	write(t, home, map[string]string{".claude/settings.json": "{}", ".claude/skills/mine/SKILL.md": "# s", "src/app/x": ""})
+	inside := paths.Physical(filepath.Join(home, ".claude", "skills", "mine")) // as a state records it
+	vmState(t, im.Dirs, "devvm-mine-0123456789abc4", func(st *state.VM) error { st.Dir = inside; return nil })
+	vmState(t, im.Dirs, "devvm-app-0123456789abc3", func(st *state.VM) error { st.Dir = filepath.Join(home, "src", "app"); return nil })
+	if err := im.Run(t.Context(), []string{"claude"}, true); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	want := "agent_import_project_inside dir=" + inside + " folder=" + filepath.Join(home, ".claude") + " vm=devvm-mine-0123456789abc4"
+	var warned []string
+	for _, g := range im.got {
+		if strings.HasPrefix(g, "agent_import_project_inside") {
+			warned = append(warned, g)
+		}
+	}
+	if !slices.Equal(warned, []string{want}) {
+		t.Errorf("warned %q, want %q", warned, want)
+	}
+}
+
+// A VM whose project folder holds an agent's folder gets a warning too,
+// and when a link in that project folder leads the agent's folder out of
+// it, as one to the home folder in pi's place, which the VM could have
+// chosen, the import leaves the folder out: nothing it leads to reaches
+// the store.
+func TestAgentImportProjectHolds(t *testing.T) {
+	im := newImporter(t)
+	home := im.Dirs.Home
+	write(t, home, map[string]string{".pi/agent/settings.json": "{}", "AGENTS.md": "the host's own", "skills/x/SKILL.md": "the host's"})
+	project := paths.Physical(filepath.Join(home, ".pi"))
+	vmState(t, im.Dirs, "devvm-pi-0123456789abc4", func(st *state.VM) error { st.Dir = project; return nil })
+	if err := im.Run(t.Context(), []string{"pi"}, true); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	folder := filepath.Join(home, ".pi", "agent")
+	if want := "agent_import_project_inside dir=" + project + " folder=" + folder + " vm=devvm-pi-0123456789abc4"; !slices.Contains(im.got, want) {
+		t.Errorf("said %q, want %q", im.got, want)
+	}
+	// The VM swaps pi's folder for a link to the home folder.
+	if err := os.RemoveAll(folder); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(home, folder); err != nil {
+		t.Fatal(err)
+	}
+	im.got = nil
+	if err := im.Run(t.Context(), []string{"pi"}, true); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	if want := "agent_import_link_via_vm path=" + folder + " vm=devvm-pi-0123456789abc4"; !slices.Contains(im.got, want) {
+		t.Errorf("said %q, want %q", im.got, want)
+	}
+	for _, f := range []string{"AGENTS.md", "skills"} {
+		if _, err := os.Lstat(filepath.Join(agentStore(im.Dirs, "pi"), ".pi", "agent", f)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the home folder's %s reached the store: %v", f, err)
+		}
+	}
+	// Led to Codex's folder instead, its login isn't taken for pi's.
+	write(t, home, map[string]string{".codex/auth.json": `{"codex": "CODEX LOGIN"}`})
+	if err := os.Remove(folder); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, ".codex"), folder); err != nil {
+		t.Fatal(err)
+	}
+	if err := im.Run(t.Context(), []string{"pi"}, true); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	if im.Secrets.HasLogin("pi") {
+		t.Error("another agent's login saved as pi's")
+	}
+}
+
+// A login file, at the path it resolved to, is read there without
+// following a link, as a regular file: one that a link or a FIFO took the
+// place of fails, and so does one whose folder a link took the place of
+// since its path was resolved, never read where that link leads.
+func TestAgentImportLoginNoFollow(t *testing.T) {
+	im := newImporter(t)
+	home := paths.Physical(im.Dirs.Home)
+	write(t, home, map[string]string{".codex/config.toml": "x", "elsewhere.json": `{"other": "another file"}`, ".pi/agent/auth.json": `{"pi": "pi's"}`})
+	if _, err := claudeHostLogin("codex", filepath.Join(home, "elsewhere.json")); err != nil {
+		t.Fatalf("a regular file: %v", err)
+	}
+	piLogin := filepath.Join(home, ".pi", "agent", "auth.json") // resolved, then its folder swapped
+	if err := os.RemoveAll(filepath.Join(home, ".pi", "agent")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, ".codex"), filepath.Join(home, ".pi", "agent")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, home, map[string]string{".codex/auth.json": `{"codex": "codex's"}`})
+	if got, err := claudeHostLogin("pi", piLogin); err == nil {
+		t.Errorf("read through a folder swapped for a link: %q", got)
+	}
+	if err := os.Remove(filepath.Join(home, ".codex", "auth.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "elsewhere.json"), filepath.Join(home, ".codex", "auth.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := claudeHostLogin("codex", filepath.Join(home, ".codex", "auth.json")); err == nil {
+		t.Error("read through a link")
+	}
+	fifo := filepath.Join(home, ".codex", "fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := claudeHostLogin("codex", fifo); err == nil {
+		t.Error("a FIFO read")
 	}
 }
 

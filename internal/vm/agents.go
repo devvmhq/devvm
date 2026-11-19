@@ -478,7 +478,7 @@ func cleanSeed(config, store string, sd agents.Seed) ([]string, error) {
 }
 
 // seedTemp reports whether name, in sd's folder, is a temporary file that
-// one of its entries is written through (state.WriteFileMode's), which a
+// one of its entries is written through (state.WriteFileIn's), which a
 // devvm agent import or save running at the same time renames into place.
 func seedTemp(sd agents.Seed, name string) bool {
 	for _, e := range sd.Entries {
