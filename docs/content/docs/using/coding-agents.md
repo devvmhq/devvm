@@ -191,7 +191,7 @@ Claude Code writes into its plugins folder as it runs, for each plugin's data, f
 - A plugin in the store loads when `enabledPlugins` in `~/.claude/settings.json` turns it on, as it does on this machine, and Claude Code keeps its data in the VM's own `~/.claude/plugins/data`.
 - A plugin you install in the VM goes into the VM's own folder, and only that VM has it until you [save it](#saving-a-vms-settings). The save copies the plugins you installed and their marketplaces into the store, and it never takes a plugin out of the store, so remove one in the store's folder yourself, or import your machine's plugins again.
 - Claude Code doesn't update the store's marketplaces in a VM, and `claude plugin marketplace update` refuses them, so update a marketplace on this machine and run `devvm agent import claude` again.
-- Neither `devvm agent import` nor `devvm agent save` copies what is each machine's own, such as each plugin's data, and an export of the VM's history leaves out the VM's plugins folder.
+- Neither `devvm agent import` nor `devvm agent save` copies what is each machine's own, such as each plugin's data, and an export of the VM's history leaves out the VM's plugins folder. When the store holds such entries, as an import by devvm 0.1.0 left there, a VM's start takes them out of the store and warns once, naming them, and leaves your own folder as it is. When devvm can't take them out, or the store's `~/.claude/plugins` is a link or below one, a VM with Claude Code doesn't start until that folder is one of its own that holds only `known_marketplaces.json`, `marketplaces` and `cache` ([how](../internals/agents.md#claude-codes-plugins)).
 
 ```sh
 claude plugin list   # in the VM: the store's plugins and the VM's own

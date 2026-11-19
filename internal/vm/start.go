@@ -43,7 +43,8 @@ type upOpts struct {
 }
 
 // bringUp takes t's VM, made and finished, to running, confined as its
-// state says, in these steps: its instance read once; its project
+// state says, in these steps: what of the agent store's seeds is each
+// machine's own taken out (cleanSeeds); its instance read once; its project
 // folder's identity recorded anew where a boot renumbered its disk
 // (renumbered); for a launch, its
 // agent folder mounts matched to the host's, and a running VM that gets
@@ -67,6 +68,9 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 	}
 	// A size its state can't hold, refused before anything runs (startOnce reads it again).
 	if _, err := storedSize(st); err != nil {
+		return backend.Confinement{}, err
+	}
+	if err := s.cleanSeeds(image.AgentsOf(tools.Names(st))); err != nil {
 		return backend.Confinement{}, err
 	}
 	if err := s.instance(ctx, t, o); err != nil {

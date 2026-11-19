@@ -1,6 +1,8 @@
 package vm
 
 import (
+	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -404,6 +406,125 @@ func agentMounts(d paths.Dirs, tools []string) (dirs, comma []string) {
 		}
 	}
 	return dirs, comma
+}
+
+// cleanSeeds takes out of devvm's agent store each entry of a seed's
+// folder that is each machine's own (agents.MachineOwn), such as Claude
+// Code's plugins' data and installed_plugins.json, and warns of what it
+// took out of each folder (agent_seed_cleaned). Only devvm agent import
+// of devvm 0.1.0 put them there, as it copied the whole plugins folder,
+// and every VM with the agent mounts the seed's folder whole, so a VM
+// could read them; today's import and save copy only a seed's Entries,
+// so this finds them once, at the first start after an upgrade. The
+// folder itself stays, so no VM's mounts change. Every start takes this
+// step before the VM runs (starter.bringUp). A folder it can't clean
+// fails the start of a VM with that agent (has, the agents the VM has),
+// which would read the entries, and is a warning for any other VM
+// (agent_seed_clean_failed).
+func (e *Env) cleanSeeds(has []string) error {
+	for _, d := range agents.Defs {
+		store := agentStore(e.Dirs, d.Name)
+		for _, sd := range d.Seeds {
+			dir := filepath.Join(store, filepath.FromSlash(sd.Rel))
+			gone, err := cleanSeed(e.Dirs.Config, store, sd)
+			if len(gone) > 0 {
+				e.Warn(msg.AgentSeedCleaned(d.Display, dir, shownList(gone)))
+			}
+			if err == nil {
+				continue
+			}
+			m := msg.AgentSeedCleanFailed(d.Display, dir, shownList(sd.Entries), err.Error()).Because(err)
+			if l := (seedLink{}); errors.As(err, &l) {
+				m = msg.AgentSeedLink(d.Display, dir, shownList(sd.Entries), l.path).Because(err)
+			}
+			if slices.Contains(has, d.Name) {
+				return m
+			}
+			e.Warn(m)
+		}
+	}
+	return nil
+}
+
+// cleanSeed takes out what of sd's folder in an agent's store, below
+// devvm's config folder config, is each machine's own (cleanSeeds), and
+// returns the names it took out. It reaches the folder through config as
+// a root, every part of its path below config a folder, never a link,
+// which only a hand-made store could have and which could lead to this
+// machine's own plugins folder: a link there is an error, as the VM's
+// mount follows it. A link among the folder's entries is taken out,
+// never followed. It leaves the temporary files that devvm agent import
+// and save write a seed's entries through (seedTemp), regular files.
+func cleanSeed(config, store string, sd agents.Seed) ([]string, error) {
+	rel, err := filepath.Rel(config, filepath.Join(store, filepath.FromSlash(sd.Rel)))
+	if err != nil || !filepath.IsLocal(rel) {
+		return nil, fmt.Errorf("the agent store isn't in %s", config)
+	}
+	root, err := os.OpenRoot(config)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	var fi fs.FileInfo
+	at := ""
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		at = filepath.Join(at, part)
+		fi, err = root.Lstat(at)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil, nil
+		case err != nil:
+			return nil, err
+		case fi.Mode()&fs.ModeSymlink != 0:
+			return nil, seedLink{filepath.Join(config, at)}
+		case !fi.IsDir():
+			return nil, nil // no folder, so nothing mounted
+		}
+	}
+	dir, err := root.OpenRoot(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+	// The folder opened is the one checked, never a link put in its place since.
+	if here, err := dir.Stat("."); err != nil || !os.SameFile(fi, here) {
+		return nil, fmt.Errorf("%s changed while devvm read it", filepath.Join(config, rel))
+	}
+	es, err := fs.ReadDir(dir.FS(), ".")
+	if err != nil {
+		return nil, err
+	}
+	var gone []string
+	for _, en := range es {
+		if !agents.MachineOwn(sd.Rel+"/"+en.Name()) || en.Type().IsRegular() && seedTemp(sd, en.Name()) {
+			continue
+		}
+		if err := dir.RemoveAll(en.Name()); err != nil {
+			return gone, err
+		}
+		gone = append(gone, en.Name())
+	}
+	return gone, nil
+}
+
+// seedLink is cleanSeed's error for a link at path, on the way to a seed's
+// folder (agent_seed_link).
+type seedLink struct{ path string }
+
+func (l seedLink) Error() string { return l.path + " is a link" }
+
+// seedTemp reports whether name, in sd's folder, is a temporary file that
+// one of its entries is written through (state.WriteFileMode's), which a
+// devvm agent import or save running at the same time renames into place.
+func seedTemp(sd agents.Seed, name string) bool {
+	for _, e := range sd.Entries {
+		if strings.HasPrefix(name, "."+e+".tmp-") {
+			return true
+		}
+	}
+	return false
 }
 
 // updateAgentDirs says how an existing VM's agent folder mounts change to

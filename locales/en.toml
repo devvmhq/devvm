@@ -3117,6 +3117,18 @@ other = "devvm's agent store has new folders for {{.vm}}: {{.dirs}}."
 description = "dirs is a comma-separated list of folders"
 other = "These agent folders for {{.vm}} are gone from devvm's agent store: {{.dirs}}."
 
+[agent_seed_cleaned]
+description = "entries are the names of the entries devvm took out of the folder dir, comma-separated; agent is the agent's name, such as Claude Code"
+other = "{{.entries}} are out of {{.dir}} in devvm's agent store now, because they're this machine's own, such as each plugin's data, which every VM with {{.agent}} could read. Your own folder in your home folder is left as it is."
+
+[agent_seed_clean_failed]
+description = "dir is a folder of devvm's agent store; keep is what it should hold, comma-separated; why is the error"
+other = "Entries of {{.dir}} in devvm's agent store that are this machine's own couldn't be taken out ({{.why}}), and every VM with {{.agent}} would read them. Take them out yourself, so that it holds only {{.keep}}."
+
+[agent_seed_link]
+description = "dir is a folder of devvm's agent store; link is the link on its path; keep is what the folder should hold, comma-separated"
+other = "{{.link}} is a link, which every VM with {{.agent}} would follow to read {{.dir}} in devvm's agent store. Replace the link with a folder of its own, so that {{.dir}} holds only {{.keep}}."
+
 [agent_import_none]
 other = "There's nothing of {{.agent}} to import, because this machine has neither its settings nor its login."
 

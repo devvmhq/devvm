@@ -418,6 +418,21 @@ func AgentSaveWithheld(path string, vm vmname.VM) M {
 	return M{id: "agent_save_withheld", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
+// AgentSeedCleanFailed is [agent_seed_clean_failed]: "Entries of {{.dir}} in devvm's agent store that are this machine's own couldn't be taken out ({{.why}}), and every VM with {{.agent}} would read them. Take them out yourself, so that it holds only {{.keep}}."
+func AgentSeedCleanFailed(agent string, dir string, keep string, why string) M {
+	return M{id: "agent_seed_clean_failed", vals: []val{{"agent", agent}, {"dir", dir}, {"keep", keep}, {"why", why}}}
+}
+
+// AgentSeedCleaned is [agent_seed_cleaned]: "{{.entries}} are out of {{.dir}} in devvm's agent store now, because they're this machine's own, such as each plugin's data, which every VM with {{.agent}} could read. Your own folder in your home folder is left as it is."
+func AgentSeedCleaned(agent string, dir string, entries string) M {
+	return M{id: "agent_seed_cleaned", vals: []val{{"agent", agent}, {"dir", dir}, {"entries", entries}}}
+}
+
+// AgentSeedLink is [agent_seed_link]: "{{.link}} is a link, which every VM with {{.agent}} would follow to read {{.dir}} in devvm's agent store. Replace the link with a folder of its own, so that {{.dir}} holds only {{.keep}}."
+func AgentSeedLink(agent string, dir string, keep string, link string) M {
+	return M{id: "agent_seed_link", vals: []val{{"agent", agent}, {"dir", dir}, {"keep", keep}, {"link", link}}}
+}
+
 // AgentSettingsImported is [agent_settings_imported]: "devvm imported {{.agent}}'s settings into {{.dir}}."
 func AgentSettingsImported(agent string, dir string) M {
 	return M{id: "agent_settings_imported", vals: []val{{"agent", agent}, {"dir", dir}}}
@@ -5472,6 +5487,9 @@ var specs = map[string]spec{
 	"agent_save_unparsed":             {fields: []string{"path", "vm"}},
 	"agent_save_unsafe":               {fields: []string{"path", "vm"}},
 	"agent_save_withheld":             {fields: []string{"path", "vm"}},
+	"agent_seed_clean_failed":         {fields: []string{"agent", "dir", "keep", "why"}},
+	"agent_seed_cleaned":              {fields: []string{"agent", "dir", "entries"}},
+	"agent_seed_link":                 {fields: []string{"agent", "dir", "keep", "link"}},
 	"agent_settings_imported":         {fields: []string{"agent", "dir"}},
 	"agent_settings_saved":            {fields: []string{"agent", "dir", "vm"}},
 	"agent_start_failed":              {fields: []string{"sock"}},

@@ -1,0 +1,106 @@
+# devvm 0.1.0's app VM (testdata/v0.1.0/GOOS: see fixture_v010.txtar),
+# with Claude Code's plugins in its agent store as 0.1.0's devvm agent
+# import left them: this machine's whole ~/.claude/plugins, each folder
+# 0700 and each file 0644, installed_plugins.json's paths named in the
+# store, and every Claude Code VM mounting the store's folder. Its next
+# launch takes out of the store what is this machine's own, such as a
+# plugin's data, says so once, and leaves the folder and so the VM's
+# mounts as they were: no edit but the ssh port's, and the VM's
+# plugins-seed links to a folder with no data/. A store devvm can't
+# clean, its plugins folder a link or an entry that can't go, keeps the
+# VM from starting, naming why.
+[!darwin] [!linux] skip 'a fixture for macOS and Linux only'
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+mkdir $HOME/src/db $HOME/src/app $HOME/src/web $HOME/src/scratch
+cd $HOME/src/app
+exec git init -q -b main
+exec git commit -q --allow-empty -m one
+fixture v0.1.0
+vm_name APP app
+
+# The store's plugins, as 0.1.0 copied them, and its Claude Code VMs'
+# mounts of them, after skills, in its agents' folders' order.
+exec sh $WORK/plugins.sh
+exec sed -i.bak -f $WORK/mount.sed $STUB_DIR/state.json
+exec limactl list --json
+stdout '"location":"\S*/agents/claude/\.claude/plugins","writable":false'
+
+stub_reset
+exec devvm
+stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
+stderr '^devvm: agent_seed_cleaned agent=Claude Code dir=\S*/agents/claude/\.claude/plugins entries=\.trash, data, installed_plugins\.json, mcpb$'
+! stderr 'unreadable|corrupt|layout_|replaced|refused|failed|agent_dirs_'
+stub_calls
+stdout '^limactl start --tty=false devvm-app-[0-9a-f]{14}$'
+stdout '^limactl edit --tty=false devvm-app-[0-9a-f]{14} --set \.ssh\.localPort=[0-9]+$'
+! stdout '(?s)limactl edit .*limactl edit'
+! stdout 'limactl (create|clone|delete)'
+
+# The seed is the store's folder, which keeps what a seed has, and
+# nothing else.
+exec tar -xOf $STUB_DIR/sync.tar links
+stdout '^\.claude/plugins-seed\n\S*/agents/claude/\.claude/plugins$'
+! exists $CFG/agents/claude/.claude/plugins/data
+! exists $CFG/agents/claude/.claude/plugins/installed_plugins.json
+! exists $CFG/agents/claude/.claude/plugins/mcpb
+! exists $CFG/agents/claude/.claude/plugins/.trash
+exists $CFG/agents/claude/.claude/plugins/known_marketplaces.json
+exists $CFG/agents/claude/.claude/plugins/marketplaces/m/.claude-plugin/marketplace.json
+exists $CFG/agents/claude/.claude/plugins/cache/m/p/1.0.0/.claude-plugin/plugin.json
+
+# Once only.
+exec devvm stop
+stub_reset
+exec devvm
+! stderr agent_seed_cleaned
+stub_calls
+! stdout 'limactl edit'
+exec devvm stop
+
+# A store devvm can't clean: a VM with Claude Code doesn't start, naming
+# why, and nothing of where a link leads goes. First the store's plugins
+# folder a link, as only a hand-made store has one, here to a folder
+# with a plugin's data.
+exec sh $WORK/linked.sh
+! exec devvm
+! stdout starting
+stderr '^devvm: agent_seed_link agent=Claude Code dir=\S*/agents/claude/\.claude/plugins keep=known_marketplaces\.json, marketplaces, cache link=\S*/agents/claude/\.claude/plugins$'
+exists $WORK/elsewhere/data/p/state.json
+# Then a folder of its own again, with an entry devvm can't take out.
+exec sh $WORK/locked.sh
+! exec devvm
+! stdout starting
+stderr '^devvm: agent_seed_clean_failed agent=Claude Code dir=\S*/agents/claude/\.claude/plugins keep=known_marketplaces\.json, marketplaces, cache why='
+exec chmod 700 $CFG/agents/claude/.claude/plugins/data
+
+-- linked.sh --
+# The store's plugins folder becomes a link to $WORK/elsewhere, which
+# holds a plugin's data; the folder itself goes to $WORK/plugins.real.
+set -e
+p="$CFG/agents/claude/.claude/plugins"
+mkdir -p "$WORK/elsewhere/data/p"
+echo '{"token":"testfake-elsewhere"}' >"$WORK/elsewhere/data/p/state.json"
+mv "$p" "$WORK/plugins.real"
+ln -s "$WORK/elsewhere" "$p"
+-- locked.sh --
+# The store's plugins folder is a folder again, with a plugin's data in
+# a folder its owner can't write, so its entry can't be taken out.
+set -e
+p="$CFG/agents/claude/.claude/plugins"
+rm "$p"
+mv "$WORK/plugins.real" "$p"
+mkdir -p "$p/data/p"
+echo '{}' >"$p/data/p/state.json"
+chmod 500 "$p/data"
+-- plugins.sh --
+p="$CFG/agents/claude/.claude/plugins"
+mkdir -m 700 "$p" "$p/data" "$p/data/p-m" "$p/mcpb" "$p/mcpb/b" "$p/.trash" "$p/marketplaces" "$p/marketplaces/m" "$p/marketplaces/m/.claude-plugin" "$p/cache" "$p/cache/m" "$p/cache/m/p" "$p/cache/m/p/1.0.0" "$p/cache/m/p/1.0.0/.claude-plugin" || exit 1
+printf '{"m":{"source":{"source":"github","repo":"o/m"},"installLocation":"%s/marketplaces/m"}}' "$p" >"$p/known_marketplaces.json"
+printf '{"version":2,"plugins":{"p@m":[{"scope":"user","installPath":"%s/cache/m/p/1.0.0","version":"1.0.0"}]}}' "$p" >"$p/installed_plugins.json"
+echo '{"name":"m","plugins":[{"name":"p","source":"./p"}]}' >"$p/marketplaces/m/.claude-plugin/marketplace.json"
+echo '{"name":"p","version":"1.0.0"}' >"$p/cache/m/p/1.0.0/.claude-plugin/plugin.json"
+echo '{"token":"testfake-plugin-data-v010"}' >"$p/data/p-m/state.json"
+echo '{}' >"$p/mcpb/b/manifest.json"
+chmod 644 "$p/known_marketplaces.json" "$p/installed_plugins.json" "$p/marketplaces/m/.claude-plugin/marketplace.json" "$p/cache/m/p/1.0.0/.claude-plugin/plugin.json" "$p/data/p-m/state.json" "$p/mcpb/b/manifest.json"
+-- mount.sed --
+s|\(\\"location\\":\\"\([^"]*\)/\.claude/skills\\",\\"writable\\":false}\)|\1,{\\"location\\":\\"\2/.claude/plugins\\",\\"writable\\":false}|g
