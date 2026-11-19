@@ -95,6 +95,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"layout_newer":                    "using/troubleshooting#a-newer-devvm-changed-devvms-folders",
 	"layout_unchecked":                "using/troubleshooting#a-file-devvm-cant-read",
 	"vm_state_unreadable":             "using/troubleshooting#a-file-devvm-cant-read",
+	"vm_state_broken":                 "using/troubleshooting#a-file-devvm-cant-read",
 	"vms_stray":                       "using/space#what-devvm-doctor-finds-in-vms",
 	"vm_folder_stateless":             "using/space#what-devvm-doctor-finds-in-vms",
 	"vms_unreadable":                  "using/space#what-devvm-doctor-finds-in-vms",

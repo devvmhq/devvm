@@ -59,6 +59,25 @@ stdout '^  "warnings": \[\n    "vm_folder_stateless path=\S+/vms/0123456789abcd"
 exists $VMS/devvm-old $VMS/notes.txt $VMS/0123456789abcd/lock
 rm $VMS
 
+# A VM whose state devvm can't read, warned about, naming it and why,
+# which names its file, and left as it is: a vm.json that isn't JSON, named by
+# its folder, and one whose section its package can't read, named by the
+# VM. A VM whose state reads gets no warning.
+mkdir $VMS/0123456789abcd $VMS/0123456789abce $VMS/0123456789abcf
+cp broken.json $VMS/0123456789abcd/vm.json
+cp badsection.json $VMS/0123456789abce/vm.json
+cp good.json $VMS/0123456789abcf/vm.json
+exec devvm doctor
+stderr '^devvm: vm_state_broken name=0123456789abcd why=.*/vms/0123456789abcd/vm.json.*$'
+stderr '^devvm: vm_state_broken name=devvm-bad-0123456789abce why=.*/vms/0123456789abce/vm.json.*size.*$'
+! stderr '0123456789abcf'
+stdout '^doctor_ok '
+exec devvm doctor --json
+stdout '"vm_state_broken name=0123456789abcd why=.*/vms/0123456789abcd/vm.json.*",'
+cmp $VMS/0123456789abcd/vm.json broken.json
+cmp $VMS/0123456789abce/vm.json badsection.json
+rm $VMS
+
 # A Linux host that can't pin .git: read-only-paths is none, a warning
 # says why, and doctor doesn't fail for it. macOS locks on the host, so it
 # has no such feature and no warning.
@@ -141,3 +160,11 @@ exit 126
 #!/bin/sh
 -- default.yaml --
 networks: [{vzNAT: true}]
+-- broken.json --
+{"version": 1, "name": "devvm-x-0123456789abcd",
+-- badsection.json --
+{"version": 1, "id": "aa", "name": "devvm-bad-0123456789abce", "image": "base", "dir": "/nowhere/bad",
+ "backend": "lima", "created": "2026-11-08T15:54:56Z", "made_by": "0.1.0", "size": {"cpus": 4}}
+-- good.json --
+{"version": 1, "id": "bb", "name": "devvm-good-0123456789abcf", "image": "base", "dir": "/nowhere/good",
+ "backend": "lima", "created": "2026-11-08T15:54:56Z", "made_by": "0.1.0", "size": {"cpus": "4"}}

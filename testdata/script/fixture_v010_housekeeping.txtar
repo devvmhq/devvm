@@ -5,8 +5,8 @@
 # --retention), devvm space --json and devvm doctor. None of it deletes
 # a VM or anything of one: every VM's state and run folder, every
 # shared tool image a VM's state names, no limactl delete of a VM, and
-# nothing says a state is unreadable or corrupt (doctor reads no VM's
-# state: devvm ls and devvm space read them all). A tool image no state
+# nothing says a state is unreadable or corrupt (devvm ls, devvm space
+# and doctor read them all). A tool image no state
 # names goes, which shows gc could delete one. On Linux, where 0.1.0
 # made each project VM's disk an overlay of its image's, gc keeps 0.1.0's
 # base image, as those VMs use it (image_in_use); on macOS it deletes it,
@@ -57,7 +57,7 @@ exec devvm space --json
 stdout '"what": "VMs",\n\s+"backend": "lima",\n\s+"count": 4,'
 ! stderr 'unreadable|corrupt'
 exec devvm doctor
-! stderr 'unreadable|corrupt|layout_'
+! stderr 'unreadable|corrupt|layout_|vm_state_broken'
 
 # Everything of every VM is still there.
 stub_calls

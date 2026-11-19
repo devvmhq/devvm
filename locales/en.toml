@@ -1002,6 +1002,10 @@ other = "Stopping this folder's VM failed: {{.reason}}."
 description = "reason is an error from the system, in English"
 other = "Listing the VMs failed: {{.reason}}."
 
+[vm_state_broken]
+description = "devvm doctor's warning: name is the VM's name, or its folder's name when the file can't be read; why is the error, which names the VM's state file"
+other = "The state of {{.name}} can't be read ({{.why}}), so devvm can't start or change that VM. Fix the file to use the VM again."
+
 [vm_state_unreadable]
 description = "devvm ls's warning for a VM's state file it can't read, which the error it carries explains; the VM's row has its name and status alone"
 other = "The VM state file {{.path}} can't be read, so devvm ls shows the VM's name and status alone, and commands on the VM fail. Fix the file to use the VM again."

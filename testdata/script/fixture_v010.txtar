@@ -111,6 +111,11 @@ cd $HOME/src/app
 [darwin] ! exec devvm mount-cache
 [darwin] stderr '^devvm: backend_lacks backend=lima feature=mount-cache what=devvm-app-[0-9a-f]{14}$'
 
+# devvm doctor reads every VM's state and each of its sections as a
+# launch does, and can use all of 0.1.0's.
+exec devvm doctor
+! stderr 'vm_state_broken|vm_state_unreadable|corrupt'
+
 # None of that wrote a file: the layout version is 0.1.0's, and every
 # state is as 0.1.0 left it.
 exec diff -r -x logs $WORK/before/data $DATA

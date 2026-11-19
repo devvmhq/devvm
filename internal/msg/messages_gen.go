@@ -5313,6 +5313,11 @@ func VMSize(size string, vm vmname.VM) M {
 	return M{id: "vm_size", vals: []val{{"size", size}, {"vm", string(vm)}}}
 }
 
+// VMStateBroken is [vm_state_broken]: "The state of {{.name}} can't be read ({{.why}}), so devvm can't start or change that VM. Fix the file to use the VM again."
+func VMStateBroken(name string, why string) M {
+	return M{id: "vm_state_broken", vals: []val{{"name", name}, {"why", why}}}
+}
+
 // VMStateUnreadable is [vm_state_unreadable]: "The VM state file {{.path}} can't be read, so devvm ls shows the VM's name and status alone, and commands on the VM fail. Fix the file to use the VM again."
 func VMStateUnreadable(path string) M {
 	return M{id: "vm_state_unreadable", vals: []val{{"path", path}}}
@@ -6506,6 +6511,7 @@ var specs = map[string]spec{
 	"vm_other_folder_rm":              {fields: []string{"vm", "was"}},
 	"vm_outdated":                     {fields: []string{"changed"}},
 	"vm_size":                         {fields: []string{"size", "vm"}},
+	"vm_state_broken":                 {fields: []string{"name", "why"}},
 	"vm_state_unreadable":             {fields: []string{"path"}},
 	"vm_tools_now":                    {fields: []string{"tools", "vm"}},
 	"vm_unfinished":                   {fields: []string{"vm"}},

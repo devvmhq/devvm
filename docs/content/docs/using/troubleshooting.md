@@ -108,6 +108,12 @@ A VM's own state file, `vm.json` in its folder in `vms/`, is the one to fix rath
 - devvm doesn't know which shared tools such a VM uses or which folders it mounts, so `devvm space`, `devvm images` and `devvm gc` fail and name the file.
 - devvm refuses to add a key to its own SSH agent, or to load one into it as a VM starts, because it can't tell whether that VM mounts the key's folder.
 
+To find every VM whose state devvm can't read, run doctor. It reads each VM's `vm.json` and each of its sections as every command on a VM reads them, and names each VM it can't read and why, the file included, without changing anything. Every command on such a VM fails until you fix its file:
+
+```sh
+devvm doctor   # warns of each VM whose vm.json, or a section of it, devvm can't read
+```
+
 ## devvm says a newer release is out
 
 When you run devvm in a terminal and a newer release is out, devvm says so in one line before it opens the VM, and it opens the VM as usual. Run `devvm upgrade` to install the release, or carry on with the devvm you have, because devvm never upgrades on its own. The line comes from devvm's daily check, and `devvm doctor` shows the newest release that check found and the day it found it. When you'd rather not see the line, set `release-check = false` in `config.toml`, or `DEVVM_NO_RELEASE_CHECK=1` in the environment ([the release check](settings.md#the-release-check)).

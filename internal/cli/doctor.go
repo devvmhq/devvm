@@ -66,6 +66,13 @@ func newDoctorCmd(a *app) *cobra.Command {
 					}
 					return state.VMFolderProblems(dirs)
 				},
+				States: func() []msg.M {
+					dirs, err := a.dirs()
+					if err != nil {
+						return nil
+					}
+					return vm.StateProblems(dirs)
+				},
 				Release: func() upgrade.Known {
 					dirs, err := a.dirs()
 					if err != nil {
@@ -170,8 +177,8 @@ func (d doctor) report(ctx context.Context, text func(msg.M) string, all []backe
 
 // warnings are doctor's warnings, which never make it fail: another devvm
 // first on PATH, low free space, a small host, policy files' lines that
-// aren't rules, what in the VMs' folder isn't a VM's, and running VMs'
-// proxies that aren't confined.
+// aren't rules, what in the VMs' folder isn't a VM's, VMs whose state
+// devvm can't read, and running VMs' proxies that aren't confined.
 func (d doctor) warnings(b backend.Backend) []msg.M {
 	var ms []msg.M
 	if m, ok := d.Path.other(); ok {
@@ -186,6 +193,9 @@ func (d doctor) warnings(b backend.Backend) []msg.M {
 	}
 	if d.Folders != nil {
 		ms = append(ms, d.Folders()...)
+	}
+	if d.States != nil {
+		ms = append(ms, d.States()...)
 	}
 	if m, ok := d.Pins.warning(); ok {
 		ms = append(ms, m)
@@ -226,6 +236,9 @@ type doctor struct {
 	// Folders are the warnings for what in the VMs' folder isn't a VM's
 	// (state.VMFolderProblems); nil for none.
 	Folders func() []msg.M
+	// States are the warnings for VMs whose state devvm can't read
+	// (vm.StateProblems); nil for none.
+	States func() []msg.M
 	// Release is what the daily release check last found
 	// (upgrade.ReadKnown); nil for nothing.
 	Release func() upgrade.Known
