@@ -458,7 +458,7 @@ var Defs = []Def{
 			Reaches: "pi's model catalog",
 		},
 	},
-	// Cursor's CLI, checked against its Linux package 2026.11.11-b912975 (read, not run): its
+	// Cursor's CLI, checked against its Linux package 2026.11.17-f532c45 (read, not run): its
 	// settings in ~/.cursor (CURSOR_CONFIG_DIR unset), its login in ~/.config/cursor
 	// (XDG_CONFIG_HOME's), its chats in ~/.cursor/chats. Its login shows an address to open in a
 	// browser on any machine and polls for the login (NO_OPEN_BROWSER=1 prints it rather than

@@ -31,7 +31,7 @@ opencode = "2"         # upstream marks its 1.x releases as GitHub's latest, whi
 pi = "latest"
 # The address and checksums are those of the package Cursor's install script (cursor.com/install) fetches for
 # this version; the musl platforms get the same, which their VMs refuse (glibc only).
-cursor = { version = "2026.11.11-b912975", platforms = { linux-x64 = { url = "https://downloads.cursor.com/lab/2026.11.11-b912975/linux/x64/agent-cli-package.tar.gz", checksum = "sha256:be01f42ad334f81d05a9992fcf060a52cc746f52cc451e849eb652146a6e3c91" }, linux-arm64 = { url = "https://downloads.cursor.com/lab/2026.11.11-b912975/linux/arm64/agent-cli-package.tar.gz", checksum = "sha256:f068af64ed91b5304605976586f690579679f740a41f388091a6b3a2e776987c" } } }
+cursor = { version = "2026.11.17-f532c45", platforms = { linux-x64 = { url = "https://downloads.cursor.com/lab/2026.11.17-f532c45/linux/x64/agent-cli-package.tar.gz", checksum = "sha256:189ed41d8963cd22dcdafbbd62f072cc55ac08374c922dbd04aee525f4018ab6" }, linux-arm64 = { url = "https://downloads.cursor.com/lab/2026.11.17-f532c45/linux/arm64/agent-cli-package.tar.gz", checksum = "sha256:dff929e5e5ace2ced880290095df5938545267d73fd1d84be669be75dbdc1558" } } }
 
 [settings]
 experimental = true

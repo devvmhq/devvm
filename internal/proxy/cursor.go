@@ -29,7 +29,7 @@ func cursorHost(host string) bool {
 }
 
 // cursorMinting are the RPCs of Cursor's that make, show or exchange a credential with the login,
-// by their paths, which every method of Connect's goes to, as the CLI's 2026.11.11-b912975
+// by their paths, which every method of Connect's goes to, as the CLI's 2026.11.17-f532c45
 // package defines them (read, not run): its CLI calls none of them. The login's bindings go to
 // none of DashboardService's but GetMe and GetUserPrivacyMode either.
 var cursorMinting = []string{

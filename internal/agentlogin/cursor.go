@@ -1,6 +1,6 @@
 package agentlogin
 
-// Cursor's CLI (checked against its Linux package 2026.11.11-b912975, read, not run) keeps its
+// Cursor's CLI (checked against its Linux package 2026.11.17-f532c45, read, not run) keeps its
 // login in $XDG_CONFIG_HOME/cursor/auth.json (~/.config/cursor/auth.json) on Linux, only its
 // user's to read: {"accessToken", "refreshToken", "apiKey"?, "bedrockCredentials"?}. On macOS it
 // keeps it in the Keychain, which devvm agent import doesn't read.
@@ -44,7 +44,7 @@ const (
 // cursorRoutes are where its CLI sends its login, as the package's own code calls each method,
 // and nowhere else, so a request to any other of the hosts' RPCs, such as DashboardService's that
 // make API keys, carries only the VM's placeholder: each route's hosts, and by service the methods
-// it calls there (Connect's /package.Service/Method), checked against its 2026.11.11-b912975
+// it calls there (Connect's /package.Service/Method), checked against its 2026.11.17-f532c45
 // package (read, not run). Its API (api2), with its traces; its agent's hosts, which api2's server
 // config names (agentUrl and agentnUrl, only checked to parse; Cursor names api5.cursor.sh's hosts,
 // which the package doesn't); its indexing's host, repo42.
