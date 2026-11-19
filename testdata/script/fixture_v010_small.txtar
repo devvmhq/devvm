@@ -1,0 +1,173 @@
+# devvm 0.1.0's state (testdata/v0.1.0/GOOS: see fixture_v010.txtar) in
+# smaller cases of what changed since:
+# - a proxy port 0.1.0 chose on one of the ports only VMs' ssh may have
+#   now moves at the VM's next start;
+# - on Linux, the start gives the guest's connections to the proxy the
+#   capped form of devvm _qemu connect, with its slots;
+# - devvm ports on 0.1.0's port forwarder's records (its pid and status,
+#   no list of what it forwarded) says nothing is held, taken, past the
+#   limit or refused;
+# - a stopped VM holds none of its listed ports: another VM forwards
+#   one, and the first, started again, says the other has it, and that
+#   a program here has another, never the limit or a refusal;
+# - the state an older release left for a folder whose name has
+#   separators in a row (#52), as 0.1.0 wrote it before Lima refused the
+#   name, without a created time, is replaced by the folder's VM;
+# - devvm adopt VM moves a VM to its folder's new path after a boot that
+#   numbered the disks' devices anew, which leaves the moved folder
+#   unrecognised.
+[!darwin] [!linux] skip 'a fixture for macOS and Linux only'
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+mkdir $HOME/src/db $HOME/src/app $HOME/src/web $HOME/src/scratch
+cd $HOME/src/app
+exec git init -q -b main
+exec git commit -q --allow-empty -m one
+cd $HOME/src/scratch
+exec git init -q
+fixture v0.1.0
+vm_name APP app
+vm_name SCRATCH scratch
+# The VMs' hostagent here: the test's runner, so their forwarders run on.
+exec sh -c 'echo $PPID > "$STUB_DIR/hostagent"'
+
+# devvm ports on 0.1.0's records of app's forwarder.
+cd $HOME/src/app
+exec devvm ports
+! stderr 'ports_(taken|held|limit|refused)'
+
+# app's proxy port on one of the ssh ports.
+exec sh -c 'p=${DEVVM_SSH_PORTS%%,*} && sed -i.bak "s/\"proxy\": [0-9]*/\"proxy\": $p/" "$APP_dir/vm.json" && rm "$APP_dir/vm.json.bak" && printf %s "$p" >"$WORK/refused"'
+stub_reset
+exec devvm
+stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
+! stderr 'unreadable|corrupt|layout_|failed'
+exec sh -c 'p=$(sed -n "s/.*\"proxy\": \([0-9]*\).*/\1/p" "$APP_dir/vm.json") && test -n "$p" && test "$p" != "$(cat "$WORK/refused")" && case ",$DEVVM_SSH_PORTS," in *",$p,"*) exit 1 ;; esac && grep -q "\"listen\": \"127.0.0.1:$p\"" "$APP_dir/run/proxy.json" && printf %s "$p" >"$WORK/proxy-port"'
+[linux] exec sh -c 'grep -qF " _qemu connect 127.0.0.1:$(cat "$WORK/proxy-port") ''$APP_dir/run/proxy.slots''" "$STUB_DIR/start-guestfwd-$APP"'
+exec devvm stop
+
+# app, stopped, holds none of its ports: scratch lists 3000 too, and
+# forwards it.
+exec sh -c 'printf "0100007F:%04X\n" '$FIXTURE_PORT_3000' > "$STUB_DIR/guest-ports"'
+cd $HOME/src/scratch
+exec devvm ports $FIXTURE_PORT_3000
+exec devvm
+! stderr 'ports_(taken|held|limit|refused)'
+exec sh -c 'for i in $(seq 1 40); do sed -n 2p "$SCRATCH_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$FIXTURE_PORT_3000' && exit 0; sleep 0.25; done; exit 1'
+# app, started again, lists another port too, which a program here has.
+cd $HOME/src/app
+listen_any TAKEN
+free_port R
+exec devvm ports $FIXTURE_PORT_3000,$FIXTURE_PORT_8080,$TAKEN,$R
+exec devvm
+stderr '^devvm: ports_held count=1 other='$SCRATCH' ports='$FIXTURE_PORT_3000' vm='$APP'$'
+stderr '^devvm: ports_taken count=1 ports='$TAKEN' vm='$APP'$'
+! stderr 'ports_(limit|refused)'
+# devvm ports says why app's forwarder couldn't take each listed port,
+# as its record says (in use, past its limit, refused), and of none for
+# an older devvm's record, which doesn't say why (reasons.sh).
+exec sh $WORK/reasons.sh five
+exec sh $WORK/reasons.sh three
+exec devvm ports --json
+stdout '"held_by": \[\n    \{\n      "vm": "'$SCRATCH'",\n      "ports": "'$FIXTURE_PORT_3000'"\n    \}\n  \]'
+exec devvm stop
+cd $HOME/src/scratch
+exec devvm stop
+
+# The leftover of a folder named x--y: 0.1.0's state of a VM it began
+# making, before Lima refused its name, so without a created time. It's
+# built from a made VM's state, so it also has what only a start wrote,
+# which leaves it no easier to read.
+mkdir $HOME/src/x--y
+cd $HOME/src/x--y
+exec devvm --network open --no-git-protect
+vm_name XY x-y
+exec devvm rm --force --no-export
+! exists $XY_dir/vm.json
+exec sh $WORK/leftover.sh $APP_dir/vm.json $XY_dir $HOME/src/x--y
+exec devvm ls
+! stdout 'devvm-x--y'
+! stderr .
+exec devvm --network open --no-git-protect
+stdout '^==> creating_from image=base vm='$XY'$'
+! stderr corrupt
+vm_state $XY_dir/vm.json
+stdout '^name='$XY'$'
+stdout '^alias=devvm-x-y$'
+exec devvm rm --force --no-export
+
+# app's folder after a boot that numbered the disks anew, then moved:
+# its identity is on another device and at another path, which devvm
+# never takes as the same folder (a copy that keeps the inode and birth
+# time, such as a snapshot, is at another path), so the folder is
+# offered nothing, and devvm adopt with the VM's name, whose folder is
+# gone, moves it there.
+renumber $APP_dir/vm.json
+cd $HOME/src
+mv app app-moved
+cd app-moved
+exec devvm adopt $APP --force
+stdout '==> vm_adopted dir=\S*/home/src/app-moved vm='$APP'$'
+vm_state $APP_dir/vm.json
+stdout '^dir=\S*/home/src/app-moved$'
+stub_reset
+exec devvm
+stdout '^==> starting what='$APP'$'
+! stderr 'unreadable|corrupt|refused|failed|folder_changed|other_folder'
+stub_calls
+stdout '^limactl shell --workdir \S*/home/src/app-moved '$APP'$'
+exec devvm stop
+
+-- reasons.sh --
+# reasons.sh five|three: writes app's forwarder's record as today's devvm
+# writes it (five lines: its pid, what it forwards, then the ports in
+# use, past its limit and refused) or as an older devvm did (three
+# lines, the third giving no reason), runs devvm ports, and checks its
+# warnings: each reason naming its own port, or none. app's forwarder,
+# waiting on a port scratch has, writes its own record as it checks
+# again, so a run whose record it replaced meanwhile is tried again, up
+# to 20 times; a run on the record as written is judged.
+pid=$(head -n1 "$APP_dir/run/ports.pid")
+i=0
+while [ "$i" -lt 20 ]; do
+  i=$((i + 1))
+  if [ "$1" = five ]; then
+    printf '%s\n\n%s\n%s\n%s\n' "$pid" "$TAKEN" "$FIXTURE_PORT_8080" "$R"
+  else
+    printf '%s\n\n%s\n' "$pid" "$FIXTURE_PORT_8080"
+  fi >"$WORK/record"
+  cp "$WORK/record" "$APP_dir/run/ports.forwarded"
+  devvm ports >/dev/null 2>"$WORK/ports.err" || { cat "$WORK/ports.err"; exit 1; }
+  if ! cmp -s "$WORK/record" "$APP_dir/run/ports.forwarded"; then
+    sleep 0.25
+    continue
+  fi
+  if [ "$1" = five ]; then
+    grep -qx "devvm: ports_taken count=1 ports=$TAKEN vm=$APP" "$WORK/ports.err" &&
+      grep -qx "devvm: ports_limit count=1 limit=256 ports=$FIXTURE_PORT_8080 vm=$APP" "$WORK/ports.err" &&
+      grep -qx "devvm: ports_refused count=1 ports=$R vm=$APP" "$WORK/ports.err" && exit 0
+  else
+    # The control: what it always says, that scratch has 3000.
+    grep -qx "devvm: ports_held count=1 other=$SCRATCH ports=$FIXTURE_PORT_3000 vm=$APP" "$WORK/ports.err" || { cat "$WORK/ports.err"; exit 1; }
+    grep -qE 'ports_(taken|limit|refused)' "$WORK/ports.err" || exit 0
+  fi
+  cat "$WORK/ports.err"
+  exit 1
+done
+echo "the forwarder replaced the record each time"
+exit 1
+-- leftover.sh --
+# leftover.sh STATE DIR FOLDER: DIR gets a state as 0.1.0 wrote for a new
+# VM of FOLDER before it asked Lima to make it, from STATE, a made VM's
+# state 0.1.0 wrote: its sections, its name and alias with FOLDER's runs
+# of separators kept, its folder's path, and no created time or start,
+# which only a made VM has.
+set -e
+h=$(basename "$2")
+d=$(cd "$3" && pwd -P)
+mkdir -p "$2"
+sed -e "s|\"name\": \"[^\"]*\"|\"name\": \"devvm-x--y-$h\"|" \
+  -e "s|\"alias\": \"[^\"]*\"|\"alias\": \"devvm-x--y\"|" \
+  -e "s|\"dir\": \"[^\"]*\"|\"dir\": \"$d\"|" \
+  -e '/"created":/d' -e '/"started":/d' "$1" >"$2/vm.json"
+grep -q '"name": "devvm-x--y-' "$2/vm.json"
+! grep -q '"created"' "$2/vm.json"

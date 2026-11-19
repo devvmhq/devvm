@@ -44,7 +44,9 @@ import (
 // or $STUB_DIR/hostagent's, a pid that lasts), which stop removes, its ssh
 // config ($LIMA_HOME/<name>/ssh.config, Lima's own options, host keys
 // unchecked) unless it exists, and the SSH agent it was given
-// ($SSH_AUTH_SOCK, or "unset") to $STUB_DIR/start-agent-<name>. shell
+// ($SSH_AUTH_SOCK, or "unset") to $STUB_DIR/start-agent-<name>, and the
+// command QEMU would run for the guest's connections to the proxy
+// ($DEVVM_GUESTFWD, empty when unset) to $STUB_DIR/start-guestfwd-<name>. shell
 // runs in the guest (guest.go).
 //
 // Its switches, in $STUB_DIR:
@@ -491,6 +493,10 @@ func (l *lima) start() error {
 		return nil
 	}
 	if err := l.put("start-agent-"+vm, []byte(l.agent()+"\n")); err != nil {
+		return err
+	}
+	// The command QEMU would run for each of the guest's connections to the proxy, on Linux.
+	if err := l.put("start-guestfwd-"+vm, []byte(l.getenv("DEVVM_GUESTFWD")+"\n")); err != nil {
 		return err
 	}
 	if cfg := filepath.Join(l.vmDir(vm), "ssh.config"); !exists(cfg) {

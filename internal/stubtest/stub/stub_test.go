@@ -288,14 +288,21 @@ func TestLimactlLifecycle(t *testing.T) {
 	if len(s.list()) != 2 {
 		t.Errorf("an edit made an instance: %+v", s.list())
 	}
-	// start: running, its ha.pid, ssh config and agent.
+	// start: running, its ha.pid, ssh config, agent and guestfwd command (none, unset).
 	s.env["SSH_AUTH_SOCK"] = "/agent"
 	s.write("hostagent", "4242\n")
 	s.ok("", "limactl", "start", "--tty=false", "a")
 	if s.list()[0].Status != "Running" || s.read("lima/a/ha.pid") != "4242\n" || s.read("start-agent-a") != "/agent\n" ||
-		!strings.Contains(s.read("lima/a/ssh.config"), "Host lima-a\n") {
+		!strings.Contains(s.read("lima/a/ssh.config"), "Host lima-a\n") || s.read("start-guestfwd-a") != "\n" {
 		t.Errorf("after start: %+v", s.list())
 	}
+	s.ok("", "limactl", "stop", "a")
+	s.env["DEVVM_GUESTFWD"] = "'/x/devvm' _qemu connect 127.0.0.1:5 '/s'"
+	s.ok("", "limactl", "start", "--tty=false", "a")
+	if got := s.read("start-guestfwd-a"); got != "'/x/devvm' _qemu connect 127.0.0.1:5 '/s'\n" {
+		t.Errorf("start's guestfwd = %q", got)
+	}
+	delete(s.env, "DEVVM_GUESTFWD")
 	s.ok("", "limactl", "stop", "a")
 	if s.list()[0].Status != "Stopped" || exists(filepath.Join(s.dir, "lima/a/ha.pid")) {
 		t.Errorf("after stop: %+v", s.list())

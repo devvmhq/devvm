@@ -289,7 +289,7 @@ func devvmEnvSettings() map[string]envSetting {
 		"DEVVM_SECRET_SERVICE":   {[]string{"internal/secrets/secrets.go"}, "a user setting: the Keychain service secrets are saved under"},
 		"DEVVM_FROM":             {[]string{"internal/cli/flags.go"}, "a user setting: --from's default"},
 		"DEVVM_MESSAGES":         {[]string{"internal/ui/style.go"}, "names mode, which tests and e2e read messages in: any build has it"},
-		"DEVVM_GUESTFWD":         {[]string{"internal/backend/lima/qemu.go"}, "what devvm gives its own QEMU wrapper, devvm _qemu"},
+		"DEVVM_GUESTFWD":         {[]string{"internal/backend/lima/qemu.go", "internal/stubtest/stub/limactl.go"}, "what devvm gives its own QEMU wrapper, devvm _qemu, which the limactl stub records for tests"},
 		"DEVVM_QEMU_NET":         {[]string{"internal/backend/lima/qemu.go"}, "what devvm gives its own QEMU wrapper, devvm _qemu"},
 		"DEVVM_QEMU_PINS":        {[]string{"internal/backend/lima/qemu.go", "internal/backend/lima/pins.go"}, "what devvm gives its own QEMU wrapper, devvm _qemu, and its namespace's pinned and keeper"},
 		"DEVVM_DAEMON_STATUS":    {[]string{"internal/daemon/status.go"}, "what devvm gives its own background processes: where each says it's ready"},
