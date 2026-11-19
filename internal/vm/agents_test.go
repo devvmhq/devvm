@@ -260,21 +260,7 @@ func exportOf(t *testing.T, names ...string) []byte {
 // absolute or with .., imports nothing; the rest leave out importSkips
 // and keep the files the VM has.
 func TestHistoryImportRuns(t *testing.T) {
-	if out, err := exec.CommandContext(t.Context(), "tar", "--version").Output(); err != nil || !strings.Contains(string(out), "GNU tar") {
-		t.Skip("no GNU tar")
-	}
-	run := func(t *testing.T, home string, export []byte) (string, error) {
-		t.Helper()
-		cmd := exec.CommandContext(t.Context(), "bash", "-c", historyImport()) //nolint:gosec // devvm's own import script
-		cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
-		var stderr bytes.Buffer
-		cmd.Stdin, cmd.Stderr = bytes.NewReader(export), &stderr
-		out, err := cmd.Output()
-		if err != nil {
-			t.Logf("tar's stderr: %s", stderr.String())
-		}
-		return string(out), err
-	}
+	needGNUTar(t)
 	for _, names := range [][]string{
 		{".claude/a", "/etc/devvm-import-test"},
 		{".claude/a", ".claude/../.bashrc"},
@@ -292,7 +278,7 @@ func TestHistoryImportRuns(t *testing.T) {
 	} {
 		t.Run(names[len(names)-1], func(t *testing.T) {
 			home := t.TempDir()
-			out, err := run(t, home, exportOf(t, names...))
+			out, err := runImport(t, home, exportOf(t, names...))
 			if err == nil || strings.TrimSpace(out) != historyUnsafe {
 				t.Errorf("imported: %q, %v", out, err)
 			}
@@ -320,7 +306,7 @@ func TestHistoryImportRuns(t *testing.T) {
 			".claude/link->/etc", ".claude/projects/up->../../.bashrc", ".claude/projects/in->p.jsonl", ".codex/",
 			".codex/sessions/s", ".codex/auth.json", ".local/share/opencode/auth.json", ".local/state/opencode/x",
 			".pi/agent/sessions/", ".pi/agent/sessions/--p--/s.jsonl")
-		if out, err := run(t, home, export); err != nil {
+		if out, err := runImport(t, home, export); err != nil {
 			t.Fatalf("%q, %v", out, err)
 		}
 		for p, want := range map[string]bool{
@@ -348,7 +334,7 @@ func TestHistoryImportRuns(t *testing.T) {
 		home, project := t.TempDir(), t.TempDir()
 		write(t, project, map[string]string{"CLAUDE.md": "mine", "skills/s.md": "mine", "auth.json": "mine", "bin": "mine", "plugins/x": "mine"})
 		export := exportOf(t, ".claude->"+project, ".codex->"+project, ".local/share/opencode->"+project, ".claude.json")
-		if out, err := run(t, home, export); err != nil {
+		if out, err := runImport(t, home, export); err != nil {
 			t.Fatalf("%q, %v", out, err)
 		}
 		for _, p := range []string{"CLAUDE.md", "skills/s.md", "auth.json", "bin", "plugins/x"} {
@@ -364,7 +350,7 @@ func TestHistoryImportRuns(t *testing.T) {
 		home := t.TempDir()
 		export := exportOf(t, "._.claude", ".claude/", ".claude/._projects", ".claude/projects/", ".claude/projects/._e2e",
 			".claude/projects/e2e/", ".claude/projects/e2e/._t.jsonl", ".claude/projects/e2e/t.jsonl")
-		if out, err := run(t, home, export); err != nil {
+		if out, err := runImport(t, home, export); err != nil {
 			t.Fatalf("%q, %v", out, err)
 		}
 		for p, want := range map[string]bool{
@@ -391,7 +377,7 @@ func TestHistoryImportRuns(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out, err := run(t, to, export); err != nil {
+		if out, err := runImport(t, to, export); err != nil {
 			t.Fatalf("%q, %v", out, err)
 		}
 		for _, f := range files {
@@ -400,6 +386,95 @@ func TestHistoryImportRuns(t *testing.T) {
 			}
 		}
 	})
+}
+
+// An export devvm 0.1.0 made, with its own script (testdata/v0.1.0-history-export.sh, which
+// 0.1.0's historyExport returned, frozen) in a home as a 0.1.0 VM had it: the store's folders
+// linked at their paths, Claude Code's plugins among them, its copied settings, sessions and
+// logins, and, where sqlite3 is, opencode's database. The export holds the links and the copied
+// settings, while 0.1.0's own excludes keep the logins out of it. It imports (skipped without GNU
+// tar): the history arrives, opencode's database included, while the links and the settings
+// stay out.
+func TestHistoryImportV010(t *testing.T) {
+	needGNUTar(t)
+	script, err := os.ReadFile(filepath.Join("testdata", "v0.1.0-history-export.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := t.TempDir()
+	_, noSqlite := exec.LookPath("sqlite3")
+	db := ".local/share/opencode/opencode.db"
+	if noSqlite == nil {
+		if err := os.MkdirAll(filepath.Join(old, filepath.Dir(db)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		sqlite(t, filepath.Join(old, db), "CREATE TABLE session (id TEXT); INSERT INTO session VALUES ('ses_v010');")
+	}
+	write(t, old, map[string]string{
+		".claude/projects/-home-u-app/s.jsonl": `{"type":"user"}`, ".claude/.credentials.json": "{}", ".claude/settings.json": "{}",
+		".claude/todos/t.json": "[]", ".claude.json": `{"oauthAccount":{}}`,
+		".codex/sessions/2026/11/08/r.jsonl": "{}", ".codex/auth.json": "{}", ".codex/history.jsonl": "{}",
+		".local/share/opencode/storage/session/s.json": "{}", ".local/share/opencode/auth.json": "{}",
+		".local/state/opencode/kv.json": "{}",
+	})
+	for _, rel := range []string{".claude/plugins", ".claude/skills"} {
+		if err := os.Symlink(filepath.Join("/host/config/devvm/agents/claude", rel), filepath.Join(old, rel)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	export := exec.CommandContext(t.Context(), "bash", "-c", string(script)) //nolint:gosec // 0.1.0's own script, frozen
+	export.Env = []string{"HOME=" + old, "PATH=" + os.Getenv("PATH")}
+	var stderr bytes.Buffer
+	export.Stderr = &stderr
+	tgz, err := export.Output()
+	if err != nil {
+		t.Fatalf("0.1.0's export: %v: %s", err, stderr.String())
+	}
+	// What the export holds, so that what the import leaves out was there to leave.
+	names := exportNames(t, tgz)
+	for p, want := range map[string]bool{
+		".claude/plugins": true, ".claude/skills": true, ".claude/settings.json": true, ".claude.json": true,
+		".claude/projects/-home-u-app/s.jsonl": true, db: noSqlite == nil,
+		".claude/.credentials.json": false, ".codex/auth.json": false, ".local/share/opencode/auth.json": false,
+	} {
+		if _, got := names[p]; got != want {
+			t.Errorf("0.1.0's export has %s: %v, want %v", p, got, want)
+		}
+	}
+	home := t.TempDir()
+	if out, err := runImport(t, home, tgz); err != nil || strings.Contains(out, historyUnsafe) {
+		t.Fatalf("%q, %v", out, err)
+	}
+	if noSqlite == nil {
+		if got := sqlite(t, filepath.Join(home, db), "SELECT id FROM session;"); got != "ses_v010\n" {
+			t.Errorf("opencode's sessions: %q", got)
+		}
+	}
+	for p, want := range map[string]bool{
+		".claude/projects/-home-u-app/s.jsonl": true, ".claude/todos/t.json": true, ".codex/sessions/2026/11/08/r.jsonl": true,
+		".codex/history.jsonl": true, ".local/share/opencode/storage/session/s.json": true, ".local/state/opencode/kv.json": true,
+		".claude/plugins": false, ".claude/skills": false, ".claude/.credentials.json": false, ".claude/settings.json": false,
+		".claude.json": false, ".codex/auth.json": false, ".local/share/opencode/auth.json": false,
+	} {
+		if _, err := os.Lstat(filepath.Join(home, p)); (err == nil) != want {
+			t.Errorf("%s: there %v, want %v", p, err == nil, want)
+		}
+	}
+}
+
+// runImport runs the import script (historyImport) in home, with export on its input, as the
+// VM's user does, and returns what it printed.
+func runImport(t *testing.T, home string, export []byte) (string, error) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", historyImport()) //nolint:gosec // devvm's own import script
+	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
+	var stderr bytes.Buffer
+	cmd.Stdin, cmd.Stderr = bytes.NewReader(export), &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Logf("tar's stderr: %s", stderr.String())
+	}
+	return string(out), err
 }
 
 // Claude Code's slug of a path, as Claude Code 2.1 computes it (the
