@@ -3169,6 +3169,14 @@ other = "devvm left out the link {{.path}}, because it leads to {{.target}}, whi
 description = "file is a file in an agent's folder in the home folder; why is the error"
 other = "{{.file}} couldn't be read ({{.why}}), so it isn't imported. If it changed while devvm read it, run devvm agent import again."
 
+[marketplace_secret]
+description = "name is a Claude Code marketplace; file is the file in devvm's agent store that holds the credential, its clone's git config or known_marketplaces.json; why is the keys or fields that hold it, comma-separated"
+other = "The marketplace {{.name}} that devvm copied has a password or an access token in {{.file}} ({{.why}}), which every VM with Claude Code can read. Take it out of that file and of the marketplace on this machine, and let a credential helper keep it."
+
+[marketplace_unchecked]
+description = "name is a Claude Code marketplace; file is its clone's git config in devvm's agent store, which git couldn't read; why is the error"
+other = "{{.file}}, of the marketplace {{.name}}, couldn't be checked for a password or an access token ({{.why}}), and every VM with Claude Code can read it. Look at the file yourself."
+
 [agent_store_link]
 description = "link is a link on the way to a folder or file of devvm's agent store"
 other = "{{.link}} is a link, and devvm never writes its agent store through a link. Replace the link with a folder of its own, then run the command again."

@@ -2768,6 +2768,16 @@ func MakingWaiting() M {
 	return M{id: "making_waiting"}
 }
 
+// MarketplaceSecret is [marketplace_secret]: "The marketplace {{.name}} that devvm copied has a password or an access token in {{.file}} ({{.why}}), which every VM with Claude Code can read. Take it out of that file and of the marketplace on this machine, and let a credential helper keep it."
+func MarketplaceSecret(file string, name string, why string) M {
+	return M{id: "marketplace_secret", vals: []val{{"file", file}, {"name", name}, {"why", why}}}
+}
+
+// MarketplaceUnchecked is [marketplace_unchecked]: "{{.file}}, of the marketplace {{.name}}, couldn't be checked for a password or an access token ({{.why}}), and every VM with Claude Code can read it. Look at the file yourself."
+func MarketplaceUnchecked(file string, name string, why string) M {
+	return M{id: "marketplace_unchecked", vals: []val{{"file", file}, {"name", name}, {"why", why}}}
+}
+
 // MiseChecksum is [mise_checksum]: "The mise {{.version}} download doesn't match its checksum, so devvm didn't use it."
 func MiseChecksum(version string) M {
 	return M{id: "mise_checksum", vals: []val{{"version", version}}}
@@ -5987,6 +5997,8 @@ var specs = map[string]spec{
 	"login_withheld":                  {fields: []string{"agent", "name", "providers"}},
 	"ls_failed":                       {fields: []string{"reason"}},
 	"making_waiting":                  {},
+	"marketplace_secret":              {fields: []string{"file", "name", "why"}},
+	"marketplace_unchecked":           {fields: []string{"file", "name", "why"}},
 	"mise_checksum":                   {fields: []string{"version"}},
 	"mise_download_failed":            {fields: []string{"version"}},
 	"mount_cache_clone":               {fields: []string{"mode", "vm"}},

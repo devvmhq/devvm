@@ -101,6 +101,13 @@ func (sv saver) applyAll(ctx context.Context, plans []agentPlan) error {
 			return err
 		}
 		sv.Info(msg.AgentSettingsSaved(p.agent, p.store, sv.s.vm))
+		var written []string
+		for _, d := range p.folders {
+			for _, f := range d.files {
+				written = append(written, f.rel)
+			}
+		}
+		warnMarketplaceSecrets(ctx, sv, p.store, written)
 	}
 	return nil
 }

@@ -132,7 +132,17 @@ func configRecords(ctx context.Context, dir string) ([]configRec, error) {
 // listConfig is the keys of the repo at dir's config file of scope
 // (--local, --worktree), never an included file's.
 func listConfig(ctx context.Context, dir, scope string) ([]configRec, error) {
-	out, err := hostgit.Output(ctx, "-C", dir, "config", scope, "--no-includes", "--null", "--list")
+	return configList(hostgit.Output(ctx, "-C", dir, "config", scope, "--no-includes", "--null", "--list"))
+}
+
+// listConfigFile is the keys of the git config file at file alone, never an
+// included file's, read by git without a repo (--file).
+func listConfigFile(ctx context.Context, file string) ([]configRec, error) {
+	return configList(hostgit.Output(ctx, "config", "--file", file, "--no-includes", "--null", "--list"))
+}
+
+// configList is git config --null --list's output as its keys, in order.
+func configList(out []byte, err error) ([]configRec, error) {
 	if err != nil {
 		return nil, err
 	}

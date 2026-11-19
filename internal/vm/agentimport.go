@@ -462,6 +462,8 @@ func (im AgentImport) save(ctx context.Context, h *hostAgent) error {
 		if err := im.saveSettings(h); err != nil {
 			return storeErr(err)
 		}
+		folder := agents.Of(h.agent).Folder
+		warnMarketplaceSecrets(ctx, im, agentStore(im.Dirs, h.agent), marketplaceFiles(folder, h.files))
 	}
 	if h.hasLog {
 		if err := im.Secrets.SaveLogin(ctx, h.agent, h.login); err != nil {
