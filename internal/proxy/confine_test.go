@@ -143,20 +143,36 @@ func TestLandlockConfinement(t *testing.T) {
 	}
 }
 
-// ReadConfined reads what the broker wrote beside its config, and nothing that isn't a
-// confinement.
+// ReadConfined reads what the running broker wrote beside its config, and nothing that isn't a
+// confinement. A file that names another broker, by its pid or its start, or none, or read
+// without the running broker's start, is one that hasn't said, as before the broker writes it.
 func TestReadConfined(t *testing.T) {
 	t.Parallel()
 	config := filepath.Join(t.TempDir(), "proxy.json")
-	if _, err := ReadConfined(config); !errors.Is(err, fs.ErrNotExist) {
+	running := BrokerID{PID: 4242, Start: "1700000000.000042"}
+	if _, err := ReadConfined(config, running); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("none written: %v", err)
 	}
-	must(t, writeAtomic(ConfinedFile(config), []byte("full seatbelt\n"), 0o600))
-	if c, err := ReadConfined(config); err != nil || c != (Confinement{Level: ConfinedFull, By: BySeatbelt}) {
+	must(t, writeAtomic(ConfinedFile(config), confinedFile(Confinement{Level: ConfinedFull, By: BySeatbelt}, running), 0o600))
+	if b, err := os.ReadFile(ConfinedFile(config)); err != nil || string(b) != "full seatbelt\n4242 1700000000.000042\n" {
+		t.Errorf("the file = %q, %v", b, err)
+	}
+	if c, err := ReadConfined(config, running); err != nil || c != (Confinement{Level: ConfinedFull, By: BySeatbelt}) {
 		t.Errorf("full seatbelt: %+v, %v", c, err)
 	}
-	must(t, writeAtomic(ConfinedFile(config), []byte("full \x1b[2J\n"), 0o600))
-	if _, err := ReadConfined(config); err == nil {
+	for _, other := range []BrokerID{{PID: 4243, Start: running.Start}, {PID: running.PID, Start: "1700000000.000043"}, {PID: running.PID}} {
+		if _, err := ReadConfined(config, other); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("read for %+v: %v", other, err)
+		}
+	}
+	for _, file := range []string{"full seatbelt\n", "full seatbelt\n4242 1700000000.000042", "full seatbelt\n4242 1700000000.000042\nmore\n"} {
+		must(t, writeAtomic(ConfinedFile(config), []byte(file), 0o600))
+		if _, err := ReadConfined(config, running); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%q: %v", file, err)
+		}
+	}
+	must(t, writeAtomic(ConfinedFile(config), []byte("full \x1b[2J\n4242 1700000000.000042\n"), 0o600))
+	if _, err := ReadConfined(config, running); err == nil {
 		t.Error("a line of other words: taken")
 	}
 }

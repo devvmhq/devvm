@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -153,18 +154,48 @@ func ParseConfinement(s string) (Confinement, error) {
 	return c, nil
 }
 
-// confinedMax bounds run/proxy.confined: one line of a few words.
+// confinedMax bounds run/proxy.confined: two lines of a few words.
 const confinedMax = 256
 
+// BrokerID names a VM's proxy's broker: its pid and when it started, as the system tells it
+// (IO.Started, platform.ProcessStart), one word of digits and dots. run/proxy.confined names the
+// broker that wrote it, so a file that a broker which has ended left behind, as a newer devvm's
+// broker leaves it when an older devvm, which never writes one, starts the VM's proxy after a
+// downgrade, is never taken for what the running broker says.
+type BrokerID struct {
+	PID   int
+	Start string
+}
+
+// String is the broker's line in run/proxy.confined: its pid and its start.
+func (b BrokerID) String() string { return strconv.Itoa(b.PID) + " " + b.Start }
+
+// confinedFile is what run/proxy.confined holds: how the child is confined (Confinement.String),
+// then the broker that wrote it (BrokerID.String), each on a line of its own.
+func confinedFile(c Confinement, by BrokerID) []byte {
+	return []byte(c.String() + "\n" + by.String() + "\n")
+}
+
 // ReadConfined is how the child of the broker whose config is at config is confined, as the
-// broker wrote it once the child was ready (ConfinedFile): fs.ErrNotExist before then, and for a
-// proxy that an older devvm started.
-func ReadConfined(config string) (Confinement, error) {
+// broker wrote it once the child was ready (ConfinedFile), when the file names running, the broker
+// that runs now. It's fs.ErrNotExist before then, for a proxy that an older devvm started, and
+// when the file names another broker, or none, or running's start isn't known: the file is then
+// another broker's, left behind.
+func ReadConfined(config string, running BrokerID) (Confinement, error) {
 	b, err := safefile.Read(ConfinedFile(config), confinedMax, safefile.Opts{})
 	if err != nil {
 		return Confinement{}, err
 	}
-	return ParseConfinement(string(b))
+	line, by, _ := strings.Cut(string(b), "\n")
+	if running.Start == "" || running.PID <= 0 || by != running.String()+"\n" || !digitsAndDots(running.Start) {
+		return Confinement{}, fmt.Errorf("%s names another proxy: %w", ConfinedFile(config), fs.ErrNotExist)
+	}
+	return ParseConfinement(line)
+}
+
+// digitsAndDots reports whether s is a start's one word (BrokerID): digits and dots only.
+func digitsAndDots(s string) bool {
+	return strings.IndexFunc(s, func(r rune) bool { return (r < '0' || r > '9') && r != '.' }) < 0
 }
 
 // confineChild is how the child is confined, given how its broker started it (spawned) and what

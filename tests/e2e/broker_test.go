@@ -112,8 +112,20 @@ func childConfined(run string) error {
 	if runtime.GOOS != "darwin" {
 		return nil
 	}
-	if got := strings.TrimSpace(readText(filepath.Join(run, "proxy.confined"))); got != "full seatbelt" {
+	if got, _, _ := strings.Cut(readText(filepath.Join(run, "proxy.confined")), "\n"); got != "full seatbelt" {
 		return fmt.Errorf("run/proxy.confined says %q, not full seatbelt", got)
+	}
+	return nil
+}
+
+// confinedBy checks that run/proxy.confined in the run folder run names the broker that runs:
+// its second line is the pid in run/proxy.pid and a start of digits and dots, as devvm doctor
+// reads it.
+func confinedBy(run string) error {
+	_, by, _ := strings.Cut(readText(filepath.Join(run, "proxy.confined")), "\n")
+	pid, start, ok := strings.Cut(strings.TrimSuffix(by, "\n"), " ")
+	if !ok || pid != strings.TrimSpace(readText(filepath.Join(run, "proxy.pid"))) || start == "" || strings.IndexFunc(start, func(r rune) bool { return (r < '0' || r > '9') && r != '.' }) >= 0 {
+		return fmt.Errorf("run/proxy.confined names the broker as %q", by)
 	}
 	return nil
 }
@@ -143,6 +155,9 @@ func netBroker(n *netRun) {
 			return errors.New("run/proxy.confined says nothing")
 		}
 		if err := childConfined(run); err != nil {
+			return err
+		}
+		if err := confinedBy(run); err != nil {
 			return err
 		}
 		env, err := childEnv(s, c, 4)

@@ -1685,19 +1685,56 @@ func TestNixCache(t *testing.T) {
 	}
 }
 
-// Unconfined warns of a running VM's proxy whose child isn't fully
-// confined, saying why, and says nothing of a confined one, one that
-// hasn't said, or one that doesn't run.
-func TestUnconfined(t *testing.T) {
+// A proxy.confined that a broker which has ended left behind, as a newer
+// devvm's broker leaves it when an older devvm starts the VM's proxy
+// after a downgrade, never speaks for the proxy running now: the older
+// devvm's one process gets proxy_old whatever the file says, whether it
+// names another broker, the same pid with another start, or no broker at
+// all. The control: the same file naming the running broker is read.
+func TestUnconfinedStaleMarker(t *testing.T) {
 	d, st := sandbox(t, "base")
 	p, f := testProxy(t, d)
 	files := d.VM(st.Name())
+	pid := runningBroker(t, f, files)
+	p.Started = func(got int) (string, error) {
+		if got != pid {
+			return "", errors.New("no such process")
+		}
+		return "1700000000.000042", nil
+	}
+	vm := st.Name().String()
+	must(t, os.WriteFile(files.ProxyConfig(), (proxy.Config{
+		Version: proxy.ConfigVersion, Listen: "127.0.0.1:1", VM: st.Name(), Password: redact.NewSecret("k3y"), DevvmSHA256: "0.1.0's",
+	}).Encode(), 0o600))
+	for marker, want := range map[string]string{
+		"none unsupported\n": "proxy_old vm=" + vm,
+		"full seatbelt\n":    "proxy_old vm=" + vm,
+		"full seatbelt\n" + strconv.Itoa(pid+1) + " 1700000000.000042\n":  "proxy_old vm=" + vm,
+		"full seatbelt\n" + strconv.Itoa(pid) + " 1600000000.000001\n":    "proxy_old vm=" + vm,
+		"none unsupported\n" + strconv.Itoa(pid) + " 1700000000.000042\n": "proxy_unconfined_unsupported vm=" + vm,
+	} {
+		must(t, os.WriteFile(proxy.ConfinedFile(files.ProxyConfig()), []byte(marker), 0o600))
+		var names []string
+		for _, m := range Unconfined(p, []*state.VM{st}) {
+			names = append(names, msg.NamesOf(m))
+		}
+		if got := strings.Join(names, "; "); got != want {
+			t.Errorf("%q: %q, want %q", marker, got, want)
+		}
+	}
+	// Without the running broker's start, devvm can't vouch for any file, and says so.
+	p.Started = func(int) (string, error) { return "", errors.New("no start") }
+	if got := Unconfined(p, []*state.VM{st}); len(got) != 1 || msg.NamesOf(got[0]) != "proxy_confinement_unknown vm="+vm+" why=no start" {
+		t.Errorf("no start: %v", got)
+	}
+}
+
+// runningBroker starts a process that the fake procs f take for the VM's
+// proxy's broker, with files its VM's files, and returns its pid.
+func runningBroker(t *testing.T, f *proxies, files paths.VM) int {
+	t.Helper()
 	if err := os.MkdirAll(files.Run(), 0o700); err != nil {
 		t.Fatal(err)
-	}
-	vms := []*state.VM{st}
-	if got := Unconfined(p, vms); len(got) != 0 {
-		t.Errorf("no proxy: %v", got)
 	}
 	broker := exec.CommandContext(t.Context(), "sleep", "30")
 	if err := broker.Start(); err != nil {
@@ -1713,6 +1750,26 @@ func TestUnconfined(t *testing.T) {
 	if err := daemon.WritePID(files.Proxy(".pid"), pid); err != nil {
 		t.Fatal(err)
 	}
+	return pid
+}
+
+// Unconfined warns of a running VM's proxy whose child isn't fully
+// confined, saying why, and says nothing of a confined one, one that
+// hasn't said, or one that doesn't run.
+func TestUnconfined(t *testing.T) {
+	d, st := sandbox(t, "base")
+	p, f := testProxy(t, d)
+	files := d.VM(st.Name())
+	if err := os.MkdirAll(files.Run(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	vms := []*state.VM{st}
+	if got := Unconfined(p, vms); len(got) != 0 {
+		t.Errorf("no proxy: %v", got)
+	}
+	pid := runningBroker(t, f, files)
+	p.Started = func(int) (string, error) { return "1700000000.000042", nil }
+	id := "\n" + strconv.Itoa(pid) + " 1700000000.000042\n"
 	// One that hasn't said: this binary's, still starting, gets none; another binary's, an
 	// older devvm's one process, which never says, or one whose config can't be read, gets
 	// proxy_old.
@@ -1755,7 +1812,7 @@ func TestUnconfined(t *testing.T) {
 		"none landlock check-failed":           "proxy_unconfined_check_failed log=" + log + " vm=" + vm,
 		"partial landlock check-failed":        "proxy_unconfined confinement=partial landlock check-failed log=" + log + " vm=" + vm,
 	} {
-		if err := os.WriteFile(proxy.ConfinedFile(files.ProxyConfig()), []byte(line+"\n"), 0o600); err != nil {
+		if err := os.WriteFile(proxy.ConfinedFile(files.ProxyConfig()), []byte(line+id), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		var names []string

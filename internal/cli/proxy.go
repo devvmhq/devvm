@@ -9,6 +9,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/proxy"
 	"github.com/devvmhq/devvm/internal/seatbelt"
 	"github.com/devvmhq/devvm/internal/ui"
@@ -47,6 +48,8 @@ func newProxyCmd(a *app) *cobra.Command {
 					Capture: netpolicy.Capturer{Dirs: d, Secrets: store},
 					// The VM's backend's logs, held to their cap while the VM runs.
 					KeepLogs: vmlog.KeepVM,
+					// Names the broker in run/proxy.confined, which devvm doctor reads.
+					Started: platform.ProcessStart,
 				}
 				// On macOS the child starts under Seatbelt, confined from its first instruction.
 				if runtime.GOOS == "darwin" {

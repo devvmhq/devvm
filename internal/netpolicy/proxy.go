@@ -45,6 +45,9 @@ type Proxy struct {
 	Start daemon.Starter
 	// Args returns a running process's arguments (platform.ProcessArgs).
 	Args func(pid int) ([]string, error)
+	// Started returns when a running process started (platform.ProcessStart),
+	// which the broker names itself by in run/proxy.confined.
+	Started func(pid int) (string, error)
 	// ExcludeFromBackup keeps a folder out of backups (macOS).
 	ExcludeFromBackup func(ctx context.Context, dir string) error
 	// InitCA readies a VM's CA and its next one (trust.InitCA).
@@ -78,7 +81,7 @@ type Proxy struct {
 func NewProxy(d paths.Dirs, assets fs.FS, self string, store *secrets.Store, r msg.Reporter) *Proxy {
 	return &Proxy{
 		Dirs: d, Assets: assets, Self: self, OS: runtime.GOOS, Secrets: store,
-		Start: daemon.Detach, Args: platform.ProcessArgs, ExcludeFromBackup: platform.ExcludeFromBackup,
+		Start: daemon.Detach, Args: platform.ProcessArgs, Started: platform.ProcessStart, ExcludeFromBackup: platform.ExcludeFromBackup,
 		InitCA:    trust.InitCA,
 		Listening: ports.Listening, PortRange: platform.ChoosablePorts(), Tick: 500 * time.Millisecond, Signal: daemon.SignalGroup, Getenv: os.Getenv,
 		Reporter: r,
@@ -149,19 +152,30 @@ func (p *Proxy) Stop(vm vmname.VM) bool {
 // Unconfined are devvm doctor's warnings for the VMs among vms whose
 // proxy runs with a child that isn't confined to only what it needs, as
 // its broker wrote once the child was ready (proxy.ReadConfined), one for
-// each, saying why. A proxy that hasn't said gets proxy_old when another
-// devvm binary started it (otherBinary): only a devvm from before the
-// proxy had a child, which is one process without a sandbox, never
-// says. One this binary started that hasn't said yet, still starting,
-// gets none.
+// each, saying why. Only what the running broker wrote counts, by its pid
+// and its start (proxy.BrokerID): a file that another broker left behind,
+// as a newer devvm's does when an older devvm starts the proxy after a
+// downgrade, is one that hasn't said. A proxy that hasn't said gets
+// proxy_old when another devvm binary started it (otherBinary): only a
+// devvm from before the proxy had a child, which is one process without
+// a sandbox, never says. One this binary started that hasn't said yet,
+// still starting, gets none.
 func Unconfined(p *Proxy, vms []*state.VM) []msg.M {
 	var ms []msg.M
 	for _, st := range vms {
 		vm := st.Name()
-		if _, ok := p.PID(vm); !ok {
+		pid, ok := p.PID(vm)
+		if !ok {
 			continue
 		}
-		c, err := proxy.ReadConfined(p.Dirs.VM(vm).ProxyConfig())
+		start, err := p.Started(pid)
+		if err != nil {
+			// Without its start, no file can be taken for the running broker's, so devvm
+			// can't vouch for its sandbox, and says so rather than nothing.
+			ms = append(ms, msg.ProxyConfinementUnknown(vm, err.Error()))
+			continue
+		}
+		c, err := proxy.ReadConfined(p.Dirs.VM(vm).ProxyConfig(), proxy.BrokerID{PID: pid, Start: start})
 		if errors.Is(err, fs.ErrNotExist) && otherBinary(p, vm) {
 			ms = append(ms, msg.ProxyOld(vm))
 			continue

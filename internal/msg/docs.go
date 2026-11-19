@@ -232,6 +232,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"proxy_unconfined_check_failed":   "using/troubleshooting#the-proxy-runs-without-a-sandbox",
 	"proxy_unconfined":                "using/troubleshooting#the-proxy-runs-without-a-sandbox",
 	"proxy_old":                       "using/troubleshooting#the-proxy-runs-without-a-sandbox",
+	"proxy_confinement_unknown":       "using/troubleshooting#the-proxy-runs-without-a-sandbox",
 	"proxy_unconfined_no_kernel":      "using/troubleshooting#the-proxy-runs-without-a-sandbox",
 	"proxy_unconfined_no_landlock":    "using/troubleshooting#the-proxy-runs-without-a-sandbox",
 	"proxy_unconfined_no_seccomp":     "using/troubleshooting#the-proxy-runs-without-a-sandbox",

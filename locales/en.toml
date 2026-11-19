@@ -2045,6 +2045,10 @@ other = "This kernel's Landlock can't keep {{.vm}}'s proxy from signalling your 
 [proxy_old]
 other = "{{.vm}}'s proxy runs as one process, without a sandbox, because an older devvm started it. Run devvm in the VM's folder to start it again."
 
+[proxy_confinement_unknown]
+description = "why is the error from reading when the VM's proxy started"
+other = "Whether {{.vm}}'s proxy runs in its sandbox can't be told, as devvm can't read when the proxy started ({{.why}}). Run devvm restart in the VM's folder, and report a bug if this warning stays."
+
 [proxy_unconfined]
 description = "confinement is how the proxy's child is confined, in devvm's own words, such as partial landlock"
 other = "{{.vm}}'s proxy isn't confined to only what it needs ({{.confinement}}). Check {{.log}} for why."

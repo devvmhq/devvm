@@ -56,6 +56,10 @@ type IO struct {
 	// vmlog.KeepVM, which rotates them): required with them. They're in the backend's folder for
 	// the VM, beside its disk, which the child never writes.
 	KeepLogs func(ctx context.Context, paths []string)
+	// Started is when the process pid started, as the system tells it (platform.ProcessStart),
+	// which run/proxy.confined names the broker by (BrokerID). nil: a file that names no start,
+	// which devvm doctor never takes for the running broker's.
+	Started func(pid int) (string, error)
 	// Seatbelt is the command that starts the child under macOS's Seatbelt, confined from its
 	// first instruction to what it needs, to which the broker adds devvm's executable and the
 	// child's arguments: sandbox-exec and the child's profile (seatbelt.Sandbox). An error that's
@@ -216,7 +220,13 @@ func runBroker(ctx context.Context, c Config, configPath string, std IO, tick ti
 	if err := daemon.WritePID(ChildPIDFile(configPath), p.child.PID()); err != nil {
 		l.Printf("the child's pid file: %v", err)
 	}
-	if err := writeAtomic(ConfinedFile(configPath), []byte(confined.String()+"\n"), 0o600); err != nil {
+	by := BrokerID{PID: os.Getpid()}
+	if std.Started != nil {
+		if by.Start, err = std.Started(by.PID); err != nil {
+			l.Printf("when the broker started: %v", err)
+		}
+	}
+	if err := writeAtomic(ConfinedFile(configPath), confinedFile(confined, by), 0o600); err != nil {
 		l.Printf("how the child is confined: %v", err)
 	}
 	l.Printf("listening on %s for %s, in a child (pid %d) confined: %s", ready.Addr, c.VM, p.child.PID(), confined)

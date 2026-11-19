@@ -3958,6 +3958,11 @@ func ProxyCAFailed(dir string) M {
 	return M{id: "proxy_ca_failed", vals: []val{{"dir", dir}}}
 }
 
+// ProxyConfinementUnknown is [proxy_confinement_unknown]: "Whether {{.vm}}'s proxy runs in its sandbox can't be told, as devvm can't read when the proxy started ({{.why}}). Run devvm restart in the VM's folder, and report a bug if this warning stays."
+func ProxyConfinementUnknown(vm vmname.VM, why string) M {
+	return M{id: "proxy_confinement_unknown", vals: []val{{"vm", string(vm)}, {"why", why}}}
+}
+
 // ProxyFailed is [proxy_failed]: "The VM's proxy failed: {{.reason}}."
 func ProxyFailed(reason string) M {
 	return M{id: "proxy_failed", vals: []val{{"reason", reason}}}
@@ -6220,6 +6225,7 @@ var specs = map[string]spec{
 	"project_unchecked":               {fields: []string{"vm"}},
 	"project_unmounted":               {fields: []string{"vm"}},
 	"proxy_ca_failed":                 {fields: []string{"dir"}},
+	"proxy_confinement_unknown":       {fields: []string{"vm", "why"}},
 	"proxy_failed":                    {fields: []string{"reason"}},
 	"proxy_old":                       {fields: []string{"vm"}},
 	"proxy_other_binary":              {fields: []string{"vm"}},
