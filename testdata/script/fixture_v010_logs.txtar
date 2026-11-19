@@ -1,0 +1,80 @@
+# devvm 0.1.0's app VM (testdata/v0.1.0/GOOS: see fixture_v010.txtar),
+# with the logs Lima's processes wrote in its Lima folder as 0.1.0 ran
+# it: its serial console's and its hostagent's, each past the 10 MiB a
+# log of a VM's keeps, holding the proxy's password, as Lima's start
+# logs it. A launch holds each to its cap, keeps the rest in a .1, and
+# leaves the password in neither: the log keeper takes its first look
+# in the proxy's broker, before limactl start, so it copies 0.1.0's
+# unredacted log into the .1, whose redaction this checks. (Real Lima
+# starts each log afresh at every start, which the stub doesn't, so the
+# 11 MiB log is still there as the keeper looks.) The launch pins the
+# new start's host keys in place of 0.1.0's: its known_hosts names the
+# new start, not 0.1.0's, and 0.1.0's key line is gone.
+[!darwin] [!linux] skip 'a fixture for macOS and Linux only'
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+mkdir $HOME/src/db $HOME/src/app $HOME/src/web $HOME/src/scratch
+cd $HOME/src/app
+exec git init -q -b main
+exec git commit -q --allow-empty -m one
+fixture v0.1.0
+vm_name APP app
+exec sh $WORK/logs.sh $LIMA_HOME/$APP $APP_dir
+exec sh -c 'grep -qF "$(cat "$WORK/pw")" "$LIMA_HOME/$APP/serialv.log" "$LIMA_HOME/$APP/ha.stderr.log"'
+cp $APP_dir/run/known_hosts $WORK/known_hosts-v010
+grep '^devvm-app-[0-9a-f]{14} ssh-ed25519 ' $WORK/known_hosts-v010
+
+stub_reset
+exec devvm
+stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
+stub_calls
+stdout '^limactl edit --tty=false devvm-app-[0-9a-f]{14} --set \.ssh\.localPort=[0-9]+$'
+! stdout '(?s)limactl edit .*limactl edit'
+
+# Each log under its cap, its rest in a .1, the password in neither.
+exec sh $WORK/capped.sh $LIMA_HOME/$APP serialv.log ha.stderr.log
+
+# The new start's host keys, pinned in place of 0.1.0's.
+exec sh -c 'head -1 "$WORK/known_hosts-v010" >"$WORK/start-v010" && ! head -1 "$APP_dir/run/known_hosts" | cmp -s - "$WORK/start-v010"'
+grep '\A# devvm: host keys of start [0-9]+ ' $APP_dir/run/known_hosts
+grep '^devvm-app-[0-9a-f]{14} ssh-ed25519 ' $APP_dir/run/known_hosts
+exec sh -c '! grep -qxF "$(sed -n 2p "$WORK/known_hosts-v010")" "$APP_dir/run/known_hosts"'
+exec devvm stop
+
+-- logs.sh --
+# logs.sh LIMA DIR: the VM's Lima folder LIMA gets a serial console's log
+# and its hostagent's error log of 11 MiB each, with the proxy's
+# password, from the VM's proxy config in DIR, near their start and at
+# their end, as a boot logs it (the rotation keeps only the end, so the
+# one there is what the .1's redaction meets); the password goes in
+# $WORK/pw.
+set -e
+pw=$(sed -n 's/.*"password": "\([^"]*\)".*/\1/p' "$2/run/proxy.json")
+test -n "$pw"
+printf %s "$pw" >"$WORK/pw"
+for f in serialv.log ha.stderr.log; do
+  {
+    echo "HTTPS_PROXY=http://devvm:$pw@192.168.5.2:3128"
+    yes 'a line of the boot, as the VM wrote it' | head -c 11534336
+    echo
+    echo "HTTPS_PROXY=http://devvm:$pw@192.168.5.2:3128"
+  } >"$1/$f"
+done
+-- capped.sh --
+# capped.sh LIMA LOG...: each LOG in the VM's Lima folder LIMA comes to
+# 10 MiB at most, with a .1 beside it, within 30 seconds each,
+# and neither holds the password in $WORK/pw.
+pw=$(cat "$WORK/pw")
+dir=$1
+shift
+for f in "$@"; do
+  i=0
+  while :; do
+    n=$(wc -c <"$dir/$f")
+    if [ -f "$dir/$f.1" ] && [ "$n" -le 10485760 ]; then break; fi
+    i=$((i + 1))
+    if [ "$i" -gt 60 ]; then echo "$f: $n bytes, $(ls "$dir")"; exit 1; fi
+    sleep 0.5
+  done
+  if grep -qF "$pw" "$dir/$f" "$dir/$f.1"; then echo "$f: holds the password"; exit 1; fi
+  grep -q 'a line of the boot' "$dir/$f.1" || { echo "$f.1: not the log"; exit 1; }
+done
