@@ -30,8 +30,8 @@ func cursorHost(host string) bool {
 
 // cursorMinting are the RPCs of Cursor's that make, show or exchange a credential with the login,
 // by their paths, which every method of Connect's goes to, as the CLI's 2026.11.17-f532c45
-// package defines them (read, not run): its CLI calls none of them. The login's bindings go to
-// none of DashboardService's but GetMe and GetUserPrivacyMode either.
+// package defines them (read, not run): its CLI calls none of them, and the login's bindings
+// (agentlogin's cursorRoutes) name none of them.
 var cursorMinting = []string{
 	"/aiserver.v1.AiService/MintRealtimeVoiceSecret",
 	"/aiserver.v1.AutomationsService/GetSentryAuthUrl",
@@ -90,8 +90,10 @@ var cursorPersists = []string{
 // cursorAccount are the services where the account's and its teams' own state is.
 var cursorAccount = []string{"/aiserver.v1.DashboardService/", "/aiserver.v1.AutomationsService/", "/aiserver.v1.BackgroundComposerService/"}
 
-// cursorChanges matches a method's name that starts with a verb that changes something.
-var cursorChanges = regexp.MustCompile(`(?i)^(apply|create|update|upsert|set|delete|remove|enable|disable|install|uninstall|register|add|invite|start|launch|trigger|run|test|pause|resume|rotate|revoke|refresh|toggle|archive|restore|move|rename|edit|modify|change|approve|accept|join|leave|transfer|grant|connect|disconnect|unlink|link|share|publish|import|sync|redeem|complete|schedule|cancel|stop|kill|send|post|put|patch|save|store|upload|attach|detach|assign|unassign|promote|demote|reset|clear|purge|migrate|claim|mark)`)
+// cursorChanges matches a method's name that starts with a verb that changes something. Each verb
+// was checked against the release's methods of cursorAccount's services, and the CLI calls none of
+// those it matches.
+var cursorChanges = regexp.MustCompile(`(?i)^(apply|create|update|upsert|set|delete|remove|enable|disable|install|uninstall|register|add|invite|start|launch|trigger|run|test|pause|resume|rotate|revoke|refresh|toggle|archive|restore|move|rename|edit|modify|change|approve|accept|join|leave|transfer|grant|connect|disconnect|unlink|link|share|publish|import|sync|redeem|complete|schedule|cancel|stop|kill|send|post|put|patch|save|store|upload|attach|detach|assign|unassign|promote|demote|reset|clear|purge|migrate|claim|mark|clone|commit|generate|mute|unmute|reindex|retry)`)
 
 // cursorAccountChange reports whether p, a method's clean path, changes the account (cursorPersists,
 // or a changing verb in cursorAccount's services).
@@ -105,7 +107,8 @@ func cursorAccountChange(p string) bool {
 // cursorMints is what a request to a Cursor host would get or make with the login the proxy puts
 // in, or "": a login's tokens, below /auth/ but for the poll it captures (GET api2's
 // /auth/poll), a credential, from one of cursorMinting's RPCs or any whose name says so
-// (cursorCredential), the agent store (cursorStore), a part of a reply, or anything at a path it
+// (cursorCredential), or below /cloud-agent/, where cursor-agent worker gets its identity tokens
+// (the CLI's interactive commands call nothing there), the agent store (cursorStore), a part of a reply, or anything at a path it
 // can't read as the host does.
 func cursorMints(host string, r *http.Request) string {
 	method, u := r.Method, r.URL
@@ -118,6 +121,8 @@ func cursorMints(host string, r *http.Request) string {
 		return "a part of a reply, which devvm can't read whole"
 	case strings.HasPrefix(lower+"/", "/auth/") && (host != cursorAPI || method != http.MethodGet || lower != "/auth/poll"):
 		return "a Cursor login's tokens"
+	case strings.HasPrefix(lower+"/", "/cloud-agent/"):
+		return "a Cursor cloud agent's credential"
 	case slices.ContainsFunc(cursorMinting, func(m string) bool { return strings.EqualFold(p, m) }),
 		cursorCredential.MatchString(p[strings.LastIndex(p, "/")+1:]):
 		return "a Cursor credential"
