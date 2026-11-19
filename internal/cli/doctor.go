@@ -83,7 +83,10 @@ func newDoctorCmd(a *app) *cobra.Command {
 					if err != nil {
 						return nil
 					}
-					return netpolicy.Unconfined(netpolicy.NewProxy(dirs, assets.FS, "", nil, u), inv.States())
+					// Its own binary, which a proxy that another devvm started differs from (proxy_old);
+					// none read counts every such proxy as another's.
+					self, _ := paths.Self()
+					return netpolicy.Unconfined(netpolicy.NewProxy(dirs, assets.FS, self, nil, u), inv.States())
 				},
 			}
 			if asJSON {

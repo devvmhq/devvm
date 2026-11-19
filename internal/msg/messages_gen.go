@@ -338,6 +338,11 @@ func AgentProviderRefreshFailed(agent string, display string, provider string, r
 	return M{id: "agent_provider_refresh_failed", vals: []val{{"agent", agent}, {"display", display}, {"provider", provider}, {"reason", reason}}}
 }
 
+// AgentRawOld is [agent_raw_old]: "{{.vm}} still runs with the SSH agent as an older devvm forwarded it, so anything in it can add or remove the agent's keys or lock the agent. Run devvm restart in its folder to give it devvm's relay of the agent."
+func AgentRawOld(vm vmname.VM) M {
+	return M{id: "agent_raw_old", vals: []val{{"vm", string(vm)}}}
+}
+
 // AgentRefreshFailed is [agent_refresh_failed]: "Refreshing {{.display}}'s login in devvm's agent store failed: {{.reason}}. Run devvm agent login {{.agent}} in a VM's folder to log in again."
 func AgentRefreshFailed(agent string, display string, reason string) M {
 	return M{id: "agent_refresh_failed", vals: []val{{"agent", agent}, {"display", display}, {"reason", reason}}}
@@ -3943,6 +3948,11 @@ func ProxyFailed(reason string) M {
 	return M{id: "proxy_failed", vals: []val{{"reason", reason}}}
 }
 
+// ProxyOld is [proxy_old]: "{{.vm}}'s proxy runs as one process, without a sandbox, because an older devvm started it. Run devvm in the VM's folder to start it again."
+func ProxyOld(vm vmname.VM) M {
+	return M{id: "proxy_old", vals: []val{{"vm", string(vm)}}}
+}
+
 // ProxyOtherBinary is [proxy_other_binary]: "{{.vm}}'s proxy is from another devvm binary, which denies the VM everything while it has a deny by method and path, and skips an allow by method and path, until it starts again. Run devvm in the VM's folder to start its proxy again."
 func ProxyOtherBinary(vm vmname.VM) M {
 	return M{id: "proxy_other_binary", vals: []val{{"vm", string(vm)}}}
@@ -5471,6 +5481,7 @@ var specs = map[string]spec{
 	"agent_on_risk":                   {fields: []string{"vm"}},
 	"agent_own_login_saved":           {fields: []string{"display", "vm"}},
 	"agent_provider_refresh_failed":   {fields: []string{"agent", "display", "provider", "reason"}},
+	"agent_raw_old":                   {fields: []string{"vm"}},
 	"agent_refresh_failed":            {fields: []string{"agent", "display", "reason"}},
 	"agent_save_ask":                  {fields: []string{"vm"}},
 	"agent_save_failed":               {fields: []string{"reason"}},
@@ -6192,6 +6203,7 @@ var specs = map[string]spec{
 	"project_unmounted":               {fields: []string{"vm"}},
 	"proxy_ca_failed":                 {fields: []string{"dir"}},
 	"proxy_failed":                    {fields: []string{"reason"}},
+	"proxy_old":                       {fields: []string{"vm"}},
 	"proxy_other_binary":              {fields: []string{"vm"}},
 	"proxy_password_howto":            {},
 	"proxy_password_in_config":        {fields: []string{"key"}},

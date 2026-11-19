@@ -1,0 +1,81 @@
+# devvm 0.1.0's app VM (testdata/v0.1.0/GOOS: see fixture_v010.txtar),
+# running as 0.1.0 left it when you upgrade, as in
+# fixture_v010_running.txtar, but forwarding devvm's own SSH agent as
+# 0.1.0 forwarded one: its choice devvm, its start recorded with that
+# choice and no relay, and Lima forwarding the agent itself. A launch
+# keeps the agent as 0.1.0 forwarded it, so the VM goes on working, and
+# warns that devvm restart gives it the relay, which it does, in the
+# start's one edit, the ssh port's.
+[!darwin] [!linux] skip 'a fixture for macOS and Linux only'
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+mkdir $HOME/src/db $HOME/src/app $HOME/src/web $HOME/src/scratch
+cd $HOME/src/app
+exec git init -q -b main
+exec git commit -q --allow-empty -m one
+fixture v0.1.0
+vm_name APP app
+
+# 0.1.0's start of app with devvm's agent, still running.
+json_set $APP_dir/vm.json agent.mode=devvm
+exec limactl edit --tty=false $APP --set .ssh.forwardAgent=true
+cd $WORK
+exec sh hostagent &hostagent&
+wait_file $WORK/hostagent.pid
+exec sh running.sh $APP $APP_dir devvm
+cd $HOME/src/app
+vm_state $APP_dir/vm.json
+stdout '^agent\.made\.started=devvm_[0-9a-f]{32}$'
+! stdout '^agent\.made\.relayed='
+
+stub_reset
+exec devvm
+! stdout starting
+stderr '^devvm: agent_raw_old vm=devvm-app-[0-9a-f]{14}$'
+! stderr 'unreadable|corrupt|layout_|replaced|refused|failed|unenforced'
+stub_calls
+! stdout 'limactl (stop|start|edit)'
+vm_state $APP_dir/vm.json
+! stdout '^agent\.made\.relayed='
+
+# devvm restart gives it the relay, with no edit but its ssh port's.
+# (Its new start's hostagent: hostagent's, which lasts.)
+cp $WORK/hostagent.pid $STUB_DIR/hostagent
+stub_reset
+exec devvm restart
+! stderr agent_raw_old
+stub_calls
+stdout '^limactl edit --tty=false devvm-app-[0-9a-f]{14} --set \.ssh\.localPort=[0-9]+$'
+! stdout '(?s)limactl edit .*limactl edit'
+vm_state $APP_dir/vm.json
+stdout '^agent\.made\.relayed=true$'
+stdout '^agent\.made\.started=devvm_[0-9a-f]{32}$'
+stub_reset
+exec devvm
+! stderr agent_raw_old
+stub_calls
+! stdout 'limactl (stop|start|edit)'
+exec devvm stop
+
+-- hostagent --
+# A hostagent of 0.1.0's start, which runs until the test ends: a VM's
+# start counts as devvm's, confined, only while its hostagent runs. It
+# ends on the interrupt the test's end sends.
+trap 'exit 0' INT TERM
+echo $$ >"$WORK/hostagent.pid.new" && mv "$WORK/hostagent.pid.new" "$WORK/hostagent.pid"
+while :; do sleep 1; done
+-- running.sh --
+# running.sh VM DIR MODE: VM, whose state is in DIR, runs on 0.1.0's
+# start of it, as fixture_v010_running.txtar's running.sh has it, its
+# agent section's start recorded with MODE.
+set -e
+read -r _ _ _ _ _ _ _ at <"$2/run/known_hosts"
+pid=$(cat "$WORK/hostagent.pid")
+test -n "$pid" && test -n "$at"
+echo "$pid" >"$LIMA_HOME/$1/ha.pid"
+touch -d "$at" "$LIMA_HOME/$1/ha.pid"
+echo "$pid 1" >"$2/run/started"
+sed -i.bak "1s/.*/# devvm: host keys of start $pid $at/" "$2/run/known_hosts"
+h=$(printf %s "$pid $at" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-32)
+sed -i.bak "s/\"started\": \"[a-z]*_[0-9a-f]*\"/\"started\": \"${3}_$h\"/" "$2/vm.json"
+rm -f "$2/run/known_hosts.bak" "$2/vm.json.bak"
+stub vm "$1" Running

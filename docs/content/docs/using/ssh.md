@@ -86,7 +86,7 @@ Once it finds Cursor's `cursor` command, `devvm cursor` reads that file, without
 
 ## Agent forwarding
 
-SSH agent forwarding is off by default. While it's on and you're connected, anything in the VM, coding agents included, can *use* the agent's keys, for example to push, to log in to servers or to sign any data, as `ssh-keygen -Y sign` does. It can't copy them, or remove them, lock the agent or add keys to it ([the SSH agents](../internals/processes.md#the-ssh-agents)), except in a VM that has run since before you upgraded devvm to this release, until its next start. Turn forwarding on for one VM when you need git over SSH there.
+SSH agent forwarding is off by default. While it's on and you're connected, anything in the VM, coding agents included, can *use* the agent's keys, for example to push, to log in to servers or to sign any data, as `ssh-keygen -Y sign` does. It can't copy them, or remove them, lock the agent or add keys to it ([the SSH agents](../internals/processes.md#the-ssh-agents)), except in a VM that has run since before you upgraded devvm to this release, until its next start. devvm warns of such a VM each time it opens it or changes its links, and `devvm restart` in its folder gives it the relay at once. Turn forwarding on for one VM when you need git over SSH there.
 
 ```sh
 devvm --ssh-agent                       # a new VM that forwards your SSH agent

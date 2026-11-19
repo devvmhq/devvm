@@ -1713,10 +1713,29 @@ func TestUnconfined(t *testing.T) {
 	if err := daemon.WritePID(files.Proxy(".pid"), pid); err != nil {
 		t.Fatal(err)
 	}
-	if got := Unconfined(p, vms); len(got) != 0 {
-		t.Errorf("a proxy that hasn't said: %v", got)
-	}
+	// One that hasn't said: this binary's, still starting, gets none; another binary's, an
+	// older devvm's one process, which never says, or one whose config can't be read, gets
+	// proxy_old.
 	log, vm := files.ProxyLog(), st.Name().String()
+	self, err := image.SHA256File(p.Self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for sum, want := range map[string]string{self: "", "0.1.0's": "proxy_old vm=" + vm, "": "proxy_old vm=" + vm} {
+		_ = os.Remove(files.ProxyConfig())
+		if sum != "" {
+			must(t, os.WriteFile(files.ProxyConfig(), (proxy.Config{
+				Version: proxy.ConfigVersion, Listen: "127.0.0.1:1", VM: st.Name(), Password: redact.NewSecret("k3y"), DevvmSHA256: sum,
+			}).Encode(), 0o600))
+		}
+		var names []string
+		for _, m := range Unconfined(p, vms) {
+			names = append(names, m.Names())
+		}
+		if got := strings.Join(names, "; "); got != want {
+			t.Errorf("a proxy that hasn't said, started by %q: %q, want %q", sum, got, want)
+		}
+	}
 	for line, want := range map[string]string{
 		"full seatbelt":                 "",
 		"none unsupported":              "proxy_unconfined_unsupported vm=" + vm,

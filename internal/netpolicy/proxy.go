@@ -149,8 +149,11 @@ func (p *Proxy) Stop(vm vmname.VM) bool {
 // Unconfined are devvm doctor's warnings for the VMs among vms whose
 // proxy runs with a child that isn't confined to only what it needs, as
 // its broker wrote once the child was ready (proxy.ReadConfined), one for
-// each, saying why. A proxy that hasn't said, such as one still starting
-// or one an older devvm started, gets none.
+// each, saying why. A proxy that hasn't said gets proxy_old when another
+// devvm binary started it (otherBinary): only a devvm from before the
+// proxy had a child, which is one process without a sandbox, never
+// says. One this binary started that hasn't said yet, still starting,
+// gets none.
 func Unconfined(p *Proxy, vms []*state.VM) []msg.M {
 	var ms []msg.M
 	for _, st := range vms {
@@ -159,6 +162,10 @@ func Unconfined(p *Proxy, vms []*state.VM) []msg.M {
 			continue
 		}
 		c, err := proxy.ReadConfined(p.Dirs.VM(vm).ProxyConfig())
+		if errors.Is(err, fs.ErrNotExist) && otherBinary(p, vm) {
+			ms = append(ms, msg.ProxyOld(vm))
+			continue
+		}
 		if err != nil || c.Level == proxy.ConfinedFull {
 			continue
 		}

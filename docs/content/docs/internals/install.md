@@ -73,7 +73,7 @@ It warns in these cases:
 - the disk that devvm's images and VMs go on has less free space than building base needs ([free space](../using/ports-size.md#free-space)),
 - this machine has less than the 8 GiB of memory or the 4 CPUs that devvm recommends ([requirements](../getting-started/install.md#requirements)),
 - a line of your policy files isn't a rule, which VMs' proxies skip ([rules](../safety/network.md#rules)),
-- a running VM's proxy runs without its sandbox, or with only part of it, as the proxy wrote in the VM's `run/proxy.confined` once it started, such as on a Linux kernel whose Landlock is older than ABI 6, which doctor names ([the proxy runs without a sandbox](../using/troubleshooting.md#the-proxy-runs-without-a-sandbox)).
+- a running VM's proxy runs without its sandbox, or with only part of it, as the proxy wrote in the VM's `run/proxy.confined` once it started, such as on a Linux kernel whose Landlock is older than ABI 6, which doctor names, or a proxy with no such file that another devvm binary started, by its config's `devvm_sha256`, which is an older devvm's one process, without a sandbox. A proxy that this devvm started and that hasn't written the file yet is still starting, and gets no warning ([the proxy runs without a sandbox](../using/troubleshooting.md#the-proxy-runs-without-a-sandbox)).
 
 It also gives a tip, which isn't a warning, when `safe.bareRepository` isn't `explicit` in your global or system git config, or in the files that `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` name: git then takes any folder shaped like a git folder for a bare repo, so a VM can make one that git run below it uses ([bare repos](../safety/git-protection.md#bare-repos)). doctor only reads the setting.
 

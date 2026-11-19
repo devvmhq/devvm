@@ -252,6 +252,7 @@ func (s starter) runningConfinement(ctx context.Context, b backend.Backend, st *
 		}
 		if sshagent.ReachOf(st, run.ID) == sshagent.Raw {
 			c.AgentSocket = s.agentSocket(mode)
+			s.Warn(msg.AgentRawOld(vm))
 		}
 	}
 	return c, nil

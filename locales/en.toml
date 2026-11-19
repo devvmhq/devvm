@@ -2042,6 +2042,9 @@ other = "This kernel's Landlock is older than ABI 4, so {{.vm}}'s proxy could bi
 [proxy_unconfined_old_signals]
 other = "This kernel's Landlock can't keep {{.vm}}'s proxy from signalling your other processes."
 
+[proxy_old]
+other = "{{.vm}}'s proxy runs as one process, without a sandbox, because an older devvm started it. Run devvm in the VM's folder to start it again."
+
 [proxy_unconfined]
 description = "confinement is how the proxy's child is confined, in devvm's own words, such as partial landlock"
 other = "{{.vm}}'s proxy isn't confined to only what it needs ({{.confinement}}). Check {{.log}} for why."
@@ -2284,6 +2287,9 @@ other = "There's no VM for {{.dir}}. Run devvm to make one, or devvm --ssh-agent
 
 [agent_on_risk]
 other = "While you're connected, anything in {{.vm}} can use the keys in your SSH agent."
+
+[agent_raw_old]
+other = "{{.vm}} still runs with the SSH agent as an older devvm forwarded it, so anything in it can add or remove the agent's keys or lock the agent. Run devvm restart in its folder to give it devvm's relay of the agent."
 
 [agent_devvm_risk]
 other = "While you're connected, anything in {{.vm}} can use the keys in devvm's SSH agent. Run devvm ssh-agent to list them."
