@@ -52,7 +52,7 @@ cd $HOME/src/scratch
 exec devvm ports $FIXTURE_PORT_3000
 exec devvm
 ! stderr 'ports_(taken|held|limit|refused)'
-exec sh -c 'for i in $(seq 1 40); do sed -n 2p "$SCRATCH_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$FIXTURE_PORT_3000' && exit 0; sleep 0.25; done; exit 1'
+wait_until 'sed -n 2p "$SCRATCH_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$FIXTURE_PORT_3000
 # app, started again, lists another port too, which a program here has.
 cd $HOME/src/app
 listen_any TAKEN

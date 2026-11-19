@@ -13,16 +13,16 @@ exec sh -c 'printf "0100007F:%04X\n" '$P' > "$STUB_DIR/guest-ports"'
 project a
 exec devvm --network open --no-git-protect --ports $P
 vm_name A a
-exec sh -c 'for i in $(seq 1 40); do sed -n 2p "$A_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$P' && exit 0; sleep 0.25; done; exit 1'
+wait_until 'sed -n 2p "$A_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$P
 exec devvm stop
-exec sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do ps -axww -o command= | grep -q -- "[_]ports -vm $A " || exit 0; sleep 0.5; done; exit 1'
+wait_until '! ps -axww -o command= | grep -q -- "[_]ports -vm $A "'
 
 # VM b lists P too, and forwards it: a, stopped, holds none of it.
 project b
 exec devvm --network open --no-git-protect --ports $P
 ! stderr 'ports_(taken|held)'
 vm_name B b
-exec sh -c 'for i in $(seq 1 40); do sed -n 2p "$B_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$P' && exit 0; sleep 0.25; done; exit 1'
+wait_until 'sed -n 2p "$B_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$P
 
 # a starts again: b keeps P, and a says so, and forwards it once b stops.
 # devvm ports and its JSON show who has it.
@@ -46,7 +46,7 @@ exec devvm ports --json
 # b stops: a forwards P at its next report.
 exec devvm stop
 exec sh -c 'printf "0100007F:%04X\n0100007F:0016\n" '$P' > "$STUB_DIR/guest-ports"'
-exec sh -c 'for i in $(seq 1 40); do sed -n 2p "$A_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$P' && exit 0; sleep 0.25; done; exit 1'
+wait_until 'sed -n 2p "$A_dir/run/ports.forwarded" 2>/dev/null | grep -qx '$P
 project a
 exec devvm ports --json
 ! stdout held_by
@@ -55,6 +55,6 @@ exec devvm ports --json
 project c
 exec devvm --network open --no-git-protect --ports all
 vm_name C c
-exec sh -c 'for i in $(seq 1 40); do grep -q "forwarding $C.s ports" "$C_dir/logs/ports.log" 2>/dev/null && exit 0; sleep 0.25; done; exit 1'
+wait_until 'grep -q "forwarding $C.s ports" "$C_dir/logs/ports.log" 2>/dev/null'
 ! grep 'port '$P': forwarded' $C_dir/logs/ports.log
 exec devvm stop

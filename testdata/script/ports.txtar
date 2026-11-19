@@ -81,7 +81,7 @@ exec sh -c 'ps -axww -o command= | grep -- "[_]ports -vm $WEB "'
 # None: its forwarder stops.
 exec devvm ports none
 stdout '^==> ports_forwarding ports=none vm=devvm-web-[0-9a-f]{14}$'
-exec sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do ps -axww -o command= | grep -q -- "[_]ports -vm $WEB " || exit 0; sleep 0.5; done; exit 1'
+wait_until '! ps -axww -o command= | grep -q -- "[_]ports -vm $WEB "'
 exec devvm ports $P
 
 # Stopped: changed at once, in the VM's state, which its next start
@@ -158,7 +158,7 @@ exec devvm ports
 ! stderr 'ports_(taken|limit|refused)'
 # Stopped, its forwarder stops too.
 exec devvm stop
-exec sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do ps -axww -o command= | grep -q -- "[_]ports -vm $WEB " || exit 0; sleep 0.5; done; exit 1'
+wait_until '! ps -axww -o command= | grep -q -- "[_]ports -vm $WEB "'
 
 # Completion: the keywords and add and rm.
 exec devvm __complete ports ''

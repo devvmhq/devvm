@@ -68,6 +68,7 @@ func scriptCmds() map[string]func(ts *testscript.TestScript, neg bool, args []st
 		"vm_name":        vmName,
 		"vm_state":       vmState,
 		"wait_file":      waitFile,
+		"wait_until":     waitUntil,
 	}
 }
 
@@ -364,6 +365,16 @@ func fakeHost() map[string]string {
 // call (bash and its own commands) can take a second.
 const waitFileTimeout = 60 * time.Second
 
+// waitUntilTimeout is how long wait_until waits: as long as the slowest
+// of what scripts wait for, a background devvm desktop's VNC server under
+// the full suite's load.
+const waitUntilTimeout = 90 * time.Second
+
+// waitGiveUp is the exit status by which a wait_until script says it can't
+// succeed: one no tool the scripts run gives, as grep and sed give 2 for a
+// file that isn't there yet.
+const waitGiveUp = 100
+
 // cpExe copies an executable, a new one mode 0755, for the script to run. It writes
 // it under syscall.ForkLock, as testscript's cp doesn't: on Linux a child
 // another script forks while the copy's write descriptor is open holds it
@@ -405,6 +416,36 @@ func waitFile(ts *testscript.TestScript, neg bool, args []string) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	ts.Fatalf("%s didn't appear in %s", args[0], waitFileTimeout)
+}
+
+// waitUntil is the one wait of the scripts for something that isn't a
+// file: it runs SCRIPT with sh -c, in the script's environment, every
+// 100 ms until it succeeds, and fails after waitUntilTimeout, at once when
+// every background command has ended (nothing is left to make it
+// succeed), or at once when SCRIPT exits waitGiveUp, which a script's check
+// that can't succeed any more gives, such as a session that ended. Its
+// last run's output is the command's, so stdout and stderr can check it.
+func waitUntil(ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 1 {
+		ts.Fatalf("usage: wait_until SCRIPT")
+	}
+	deadline := time.Now().Add(waitUntilTimeout)
+	for {
+		err := ts.Exec("sh", "-c", args[0])
+		if err == nil {
+			return
+		}
+		if e, ok := errors.AsType[*exec.ExitError](err); ok && e.ExitCode() == waitGiveUp {
+			ts.Fatalf("%s can't succeed: %v", args[0], err)
+		}
+		if bg := ts.BackgroundCmds(); len(bg) > 0 && !slices.ContainsFunc(bg, running) {
+			ts.Fatalf("%s didn't succeed: the background command ended", args[0])
+		}
+		if time.Now().After(deadline) {
+			ts.Fatalf("%s didn't succeed in %s: %v", args[0], waitUntilTimeout, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // running reports whether a background command's process hasn't been

@@ -18,7 +18,7 @@ exec sh -c 'ls "$VMS"/*/run | grep "links.pid" || true'
 exec devvm link add db 5432
 stdout '^==> link_added name=db port=5432 '
 ! stdout setting_set
-exec sh -c 'for i in $(seq 60); do grep -qx "devvm links: 127\.77\.0\.1:5432: carried" "$APP_dir"/logs/links.log && exit 0; sleep 0.5; done; exit 1'
+wait_until 'grep -qx "devvm links: 127\.77\.0\.1:5432: carried" "$APP_dir"/logs/links.log'
 exec sh -c 'kill -0 "$(cat "$APP_dir"/run/links.pid)"'
 exec sh -c 'ls "$RUN" | grep "^link-.*\.sock$"'
 exec devvm ls

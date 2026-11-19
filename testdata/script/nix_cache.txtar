@@ -10,7 +10,7 @@ env CACHE=$XDG_DATA_HOME/devvm/cache/nix-cache
 free_port PORT
 exec sh -c 'printf ''{"version": 1, "listen": "127.0.0.1:%s", "password": "k", "policies": ["nix.policy"], "log": "events.jsonl", "nix_cache": "cache", "nix_cache_max": 1000}\n'' "$PORT" > nix.json && chmod 600 nix.json'
 ! exec devvm _proxy -config nix.json &p&
-exec sh $WORK/waitfor 'nc -z 127.0.0.1 $PORT'
+wait_until 'nc -z 127.0.0.1 $PORT'
 exec curl -sS -x http://devvm:k@127.0.0.1:$PORT http://devvm.proxy/nix/nix-cache-info
 stdout '^Priority: 30$'
 stdout '^StoreDir: /nix/store$'
@@ -79,11 +79,3 @@ exec devvm images
 
 -- nix.policy --
 cache.nixos.org
--- waitfor --
-# waitfor CMD: CMD every 0.1 s until it succeeds, for 30 s at most.
-i=0
-until sh -c "$1"; do
-  i=$((i + 1))
-  [ "$i" -lt 300 ] || exit 1
-  sleep 0.1
-done

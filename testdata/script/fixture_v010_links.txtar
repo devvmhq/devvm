@@ -27,7 +27,7 @@ exec devvm
 stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
 ! stderr 'link_target_stopped|link_session_failed|link_port_taken'
 ! stderr 'unreadable|corrupt|layout_|failed'
-exec sh -c 'for i in $(seq 60); do grep -qx "devvm links: 127\.77\.0\.1:5432: carried" "$APP_dir"/logs/links.log && exit 0; if p=$(cat "$APP_dir"/run/links.pid 2>/dev/null) && ! kill -0 "$p" 2>/dev/null; then echo "the session ended"; exit 1; fi; sleep 0.5; done; cat "$APP_dir"/logs/links.log; exit 1'
+wait_until 'grep -qx "devvm links: 127\.77\.0\.1:5432: carried" "$APP_dir"/logs/links.log && exit 0; if p=$(cat "$APP_dir"/run/links.pid 2>/dev/null) && ! kill -0 "$p" 2>/dev/null; then echo "the session ended"; cat "$APP_dir"/logs/links.log; exit 100; fi; cat "$APP_dir"/logs/links.log; exit 1'
 exec sh -c 'kill -0 "$(cat "$APP_dir"/run/links.pid)"'
 # The link as 0.1.0 had it (as above), and the list written again: its
 # socket the session's own, in this sandbox's run folder.

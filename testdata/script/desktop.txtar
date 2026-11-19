@@ -40,7 +40,7 @@ stdout '^image=desktop$'
 exec limactl stop $DESK
 stub_reset
 ! exec devvm desktop --no-open &d&
-exec sh $WORK/waitfor 'p=$(sed -n "s/^ *\"desktop\": \([0-9][0-9]*\).*/\1/p" "$DESK_dir/vm.json") && [ -n "$p" ] && nc -z 127.0.0.1 "$p"'
+wait_until 'p=$(sed -n "s/^ *\"desktop\": \([0-9][0-9]*\).*/\1/p" "$DESK_dir/vm.json") && [ -n "$p" ] && nc -z 127.0.0.1 "$p"'
 kill -INT d
 wait d
 stdout '^==> starting what=devvm-desk-[0-9a-f]{14}$'
@@ -59,8 +59,8 @@ cp stdout $WORK/state1
 # about.
 stub_reset
 ! exec devvm desktop --clipboard &d&
-exec sh $WORK/waitfor 'nc -z 127.0.0.1 "$(sed -n "s/^ *\"desktop\": \([0-9][0-9]*\).*/\1/p" "$WORK/state1")"'
-[darwin] exec sh $WORK/waitfor 'grep -q "^open " "$STUB_LOG"'
+wait_until 'nc -z 127.0.0.1 "$(sed -n "s/^ *\"desktop\": \([0-9][0-9]*\).*/\1/p" "$WORK/state1")"'
+[darwin] wait_until 'grep -q "^open " "$STUB_LOG"'
 kill -INT d
 wait d
 ! stdout starting
@@ -72,7 +72,7 @@ exec sh -c 'grep -E "\"desktop\": [0-9]|\"password\": " "$DESK_dir/vm.json"'
 cmp stdout $WORK/state1
 [darwin] exec sh -c ': > "$STUB_DIR/open-fails" && : > "$STUB_LOG"'
 [darwin] ! exec devvm desktop &d&
-[darwin] exec sh $WORK/waitfor 'grep -q "^open " "$STUB_LOG"'
+[darwin] wait_until 'grep -q "^open " "$STUB_LOG"'
 [darwin] exec sleep 0.5
 [darwin] kill -INT d
 [darwin] wait d
@@ -81,7 +81,7 @@ cmp stdout $WORK/state1
 
 # The VM stops: so does devvm desktop, saying so.
 exec devvm desktop --no-open &d&
-exec sh $WORK/waitfor 'nc -z 127.0.0.1 "$(sed -n "s/^ *\"desktop\": \([0-9][0-9]*\).*/\1/p" "$WORK/state1")"'
+wait_until 'nc -z 127.0.0.1 "$(sed -n "s/^ *\"desktop\": \([0-9][0-9]*\).*/\1/p" "$WORK/state1")"'
 exec limactl stop $DESK
 wait d
 stdout '^==> desktop_vm_stopped vm=devvm-desk-[0-9a-f]{14}$'
@@ -92,14 +92,6 @@ cp $WORK/start-fails $STUB_DIR/shell-fails-on
 stderr 'desktop_start_failed vm=devvm-desk-[0-9a-f]{14}'
 rm $STUB_DIR/shell-fails-on
 
--- waitfor --
-# waitfor CMD: CMD every 0.1 s until it succeeds, for 90 s at most.
-i=0
-until sh -c "$1"; do
-  i=$((i + 1))
-  [ "$i" -lt 900 ] || exit 1
-  sleep 0.1
-done
 -- no-layer --
 'test' '-x' '/usr/local/bin/devvm-desktop'
 -- start-fails --

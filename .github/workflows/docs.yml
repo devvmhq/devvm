@@ -130,6 +130,10 @@ jobs:
       (github.event_name == 'release' && !github.event.release.prerelease) ||
       (github.event_name == 'workflow_dispatch' && inputs.site == 'devvm.dev')
     runs-on: ubuntu-latest
+    env:
+      # Only the tools the install step picks: mise run and a shim would otherwise install every
+      # tool in the tag's mise.toml, and a tool it missed fails the build rather than downloads.
+      MISE_AUTO_INSTALL: "false"
     steps:
       - id: tag
         name: The release's tag
@@ -160,10 +164,27 @@ jobs:
       - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         with:
           version: 2026.11.10
-          # No install_args: every tool in the tag's mise.toml, as a tag from before Hugo 0.170 names
-          # Hugo as hugo-extended.
+          # The next step installs only what the build needs.
+          install: false
           # What's published is built from no cache.
           cache: false
+      # Only what the build needs, at the versions of the tag's own mise.toml, as mise reads it: Go,
+      # for Hugo's modules, Hugo by the name the tag gives it (hugo-extended in a tag from before Hugo
+      # 0.170), and Node when the tag draws its diagrams.
+      - run: |
+          want='^(go|hugo|hugo-extended)$'
+          if [ -f docs/render-diagrams.mjs ]; then
+            want='^(go|hugo|hugo-extended|node)$'
+          fi
+          mapfile -t tools < <(mise ls --current --json |
+            jq -r --arg f "$(pwd -P)/mise.toml" 'to_entries[] | select(any(.value[]; .source.path == $f)) | .key' |
+            grep -E "$want")
+          if ! printf '%s\n' "${tools[@]}" | grep -qE '^hugo(-extended)?$'; then
+            echo "::error::The tag's mise.toml names no Hugo."
+            exit 1
+          fi
+          # --locked, as mise-action adds where the tag has a mise.lock: every download from the lock.
+          mise install --locked "${tools[@]}"
       # The tag's diagrams, drawn before the build, when its docs draw them (docs/render-diagrams.mjs);
       # an older tag's pages load Mermaid instead.
       - run: |
