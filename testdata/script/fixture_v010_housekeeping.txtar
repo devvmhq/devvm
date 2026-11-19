@@ -1,0 +1,90 @@
+# devvm 0.1.0's state (testdata/v0.1.0/GOOS: see fixture_v010.txtar)
+# through today's housekeeping: a launch whose daily retention is due,
+# as 0.1.0's last ran more than a day ago, then devvm gc, devvm gc with
+# every flag that deletes what no VM has (--orphans, --tool-images,
+# --retention), devvm space --json and devvm doctor. None of it deletes
+# a VM or anything of one: every VM's state and run folder, every
+# shared tool image a VM's state names, no limactl delete of a VM, and
+# nothing says a state is unreadable or corrupt (doctor reads no VM's
+# state: devvm ls and devvm space read them all). A tool image no state
+# names goes, which shows gc could delete one. On Linux, where 0.1.0
+# made each project VM's disk an overlay of its image's, gc keeps 0.1.0's
+# base image, as those VMs use it (image_in_use); on macOS it deletes it,
+# an older base than today's.
+[!darwin] [!linux] skip 'a fixture for macOS and Linux only'
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+mkdir $HOME/src/db $HOME/src/app $HOME/src/web $HOME/src/scratch
+cd $HOME/src/app
+exec git init -q -b main
+exec git commit -q --allow-empty -m one
+cd $HOME/src/web
+exec git init -q -b main
+exec git commit -q --allow-empty -m one
+fixture v0.1.0
+vm_name APP app
+vm_name DB db
+vm_name WEB web
+vm_name SCRATCH scratch
+# What 0.1.0's states name: its four VMs and their shared tool images.
+exec sh -c 'grep -ho "[a-z]*-[0-9][0-9.]*-[0-9a-f]\{12\}\.erofs" "$VMS"/*/vm.json | sort -u >"$WORK/named"'
+grep '^claude-' $WORK/named
+grep '^go-' $WORK/named
+# A tool image no state names, gc's to delete.
+exec sh -c 'cd "$DATA/tools" && f=$(sed -n "/^node-/p" "$WORK/named") && cp "$f" node-24.0.0-000000000000.erofs && cp "$f.json" node-24.0.0-000000000000.erofs.json'
+# On Linux, the VMs' disks as 0.1.0 made them: qcow2 overlays of the
+# image's disk, which Lima's folders here lack (the fixture keeps no
+# disks).
+[linux] exec sh $WORK/overlays.sh $APP $DB $WEB $SCRATCH
+
+# 0.1.0's retention last ran days ago, so the launch's is due.
+exec touch -t 202611010000 $DATA/retention.run
+stub_reset
+cd $HOME/src/app
+exec devvm
+stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
+! stderr 'unreadable|corrupt|layout_|failed'
+! exec sh -c 'test "$DATA/retention.run" -ot "$WORK/named"'
+exec devvm stop
+
+exec devvm gc --force
+! stderr 'unreadable|corrupt|failed'
+[linux] stderr '^devvm: image_in_use key=[0-9a-f]{12} vms='
+[darwin] stdout '^==> deleted_image image=base key=[0-9a-f]{12}$'
+exec devvm gc --orphans --tool-images --retention --force
+! stderr 'unreadable|corrupt|failed'
+! exists $DATA/tools/node-24.0.0-000000000000.erofs
+exec devvm space --json
+stdout '"what": "VMs",\n\s+"backend": "lima",\n\s+"count": 4,'
+! stderr 'unreadable|corrupt'
+exec devvm doctor
+! stderr 'unreadable|corrupt|layout_'
+
+# Everything of every VM is still there.
+stub_calls
+! stdout 'limactl delete.* devvm-(app|db|web|scratch)-'
+[linux] ! stdout 'limactl delete.* devvm-img-'
+exec sh -c 'for h in $(basename "$APP_dir") $(basename "$DB_dir") $(basename "$WEB_dir") $(basename "$SCRATCH_dir"); do test -f "$VMS/$h/vm.json" && test -d "$VMS/$h/run" || exit 1; done'
+exec sh -c 'while read -r f; do test -f "$DATA/tools/$f" || { echo "gone: $f"; exit 1; }; done <"$WORK/named"'
+exec devvm ls
+stdout '^devvm-app-[0-9a-f]{14} '
+stdout '^devvm-db-[0-9a-f]{14} '
+stdout '^devvm-web-[0-9a-f]{14} '
+stdout '^devvm-scratch-[0-9a-f]{14} '
+exec stub vms
+stdout '^devvm-app-[0-9a-f]{14} '
+stdout '^devvm-db-[0-9a-f]{14} '
+stdout '^devvm-web-[0-9a-f]{14} '
+stdout '^devvm-scratch-[0-9a-f]{14} '
+
+-- overlays.sh --
+# overlays.sh VM...: each VM's Lima folder gets its disk, a qcow2
+# overlay of the image's disk, as 0.1.0 made it with qemu-img create -b
+# (the stub's qemu-img info reads the backing file from
+# $STUB_DIR/backing-VM), and the image's folder its disk.
+set -e
+img=$(cd "$LIMA_HOME" && ls -d devvm-img-*)
+: >"$LIMA_HOME/$img/disk"
+for vm; do
+  : >"$LIMA_HOME/$vm/disk"
+  printf %s "$LIMA_HOME/$img/disk" >"$STUB_DIR/backing-$vm"
+done
