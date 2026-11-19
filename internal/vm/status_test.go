@@ -70,6 +70,52 @@ func TestSSHAddOffStatusLine(t *testing.T) {
 	}
 }
 
+// The commands other than a launch run the backend's every call under a
+// status line too, on a running VM and on a stopped one: each shows,
+// lists, changes or stops the folder's VM, and devvm rm deletes it last.
+func TestCommandStatusLines(t *testing.T) {
+	for _, running := range []bool{true, false} {
+		e, f, _ := upEnv(t, allNative())
+		f.ExecFunc = noDirect
+		st := existingVM(t, e, Options{Network: netpolicy.TierAllowlist})
+		if !running {
+			if err := f.Stop(t.Context(), st.Name()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		off := underStatus(f, fake(e))
+		for _, c := range []struct {
+			name string
+			run  func(context.Context) error
+		}{
+			{"ls", func(ctx context.Context) error { _, _, err := ListAll(ctx, e); return err }},
+			{"ports", func(ctx context.Context) error { _, err := (Settings{e}).Ports(ctx); return err }},
+			{"size", func(ctx context.Context) error { _, err := (Settings{e}).ShowSize(ctx, false); return err }},
+			{"network", func(ctx context.Context) error { _, err := (Net{e}).Network(ctx); return err }},
+			{"tools", func(ctx context.Context) error { _, err := (Tools{e}).List(ctx); return err }},
+			{"git-protect", func(ctx context.Context) error { _, err := (Settings{e}).GitProtect(ctx); return err }},
+			{"history export", func(ctx context.Context) error { return (Lifecycle{e}).Export(ctx, "") }},
+			{"stop", func(ctx context.Context) error { return (Lifecycle{e}).Stop(ctx) }},
+			{"rm", func(ctx context.Context) error { return (Lifecycle{e}).Rm(ctx, RmOptions{Force: true}) }},
+		} {
+			*off = nil
+			calls := len(f.Calls())
+			if err := c.run(t.Context()); err != nil {
+				t.Fatalf("running %v, %s: %v", running, c.name, msg.NamesOf(err))
+			}
+			if len(f.Calls()) == calls { // the control: the check sees the backend's calls
+				t.Errorf("running %v, %s: no backend call", running, c.name)
+			}
+			if *off != nil {
+				t.Errorf("running %v, %s: %q without a status line", running, c.name, *off)
+			}
+		}
+		if m, on := fake(e).Showing(); on {
+			t.Errorf("running %v: still showing %s", running, m.Names())
+		}
+	}
+}
+
 // A launch runs each slow step under a status line, the backend's every
 // call included: a new VM's, a stopped VM's and a running VM's, on a
 // confined tier and on the open one, so the user sees what devvm waits

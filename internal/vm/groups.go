@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
@@ -171,33 +170,26 @@ func (e Groups) warnClashes(vm vmname.VM, clashes []groupClash) {
 	}
 }
 
-// groupsNote is how long lockGroups waits before it says it's waiting.
-const groupsNote = 200 * time.Millisecond
-
 // lockGroups holds devvm's groups lock (paths.Dirs.GroupsLock) until unlock is
 // called or the process ends, waiting for another devvm that holds it
-// until ctx ends, and saying so with info (nil says nothing) after a
-// moment. Each join and leave, and each change that works a group's
+// until ctx ends, under a status line of status's (group_waiting; nil
+// shows none). Each join and leave, and each change that works a group's
 // links out again, holds it throughout, from reading the members' states
 // to writing them, so it reads what the one before wrote: two VMs
 // joining at once are checked one after the other, and all or none
 // holds. It's an OS lock on a file, which the OS lets go of when the
 // process holding it ends, however it ends.
-func lockGroups(ctx context.Context, d paths.Dirs, info func(msg.M)) (unlock func(), err error) {
+func lockGroups(ctx context.Context, d paths.Dirs, status func(msg.M) func()) (unlock func(), err error) {
 	if err := os.MkdirAll(d.Data, 0o700); err != nil {
 		return nil, err
 	}
-	return platform.LockFileWaiting(ctx, d.GroupsLock(), groupsNote, func() {
-		if info != nil {
-			info(msg.GroupWaiting())
-		}
-	})
+	return platform.LockFile(ctx, d.GroupsLock(), msg.Waiting(status, msg.GroupWaiting()))
 }
 
 // lock holds the groups lock (lockGroups) and reads t's state again, as
 // another devvm may have changed it while this one waited.
 func (e Groups) lock(ctx context.Context, t *target) (unlock func(), err error) {
-	unlock, err = lockGroups(ctx, e.Dirs, e.Info)
+	unlock, err = lockGroups(ctx, e.Dirs, e.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -621,7 +613,7 @@ func (e Groups) Leave(ctx context.Context) error {
 // links to it (unlinkTarget), and takes it out of its group, holding the
 // groups lock throughout: devvm rm.
 func (e Groups) forget(ctx context.Context, vm vmname.VM) error {
-	unlock, err := lockGroups(ctx, e.Dirs, e.Info)
+	unlock, err := lockGroups(ctx, e.Dirs, e.Status)
 	if err != nil {
 		return err
 	}

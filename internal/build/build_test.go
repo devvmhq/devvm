@@ -537,7 +537,7 @@ func TestBuildInProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unlock, err := platform.LockFile(ctx, path)
+	unlock, err := platform.LockFile(ctx, path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -550,8 +550,7 @@ func TestBuildInProgress(t *testing.T) {
 		return false
 	}
 	var said msg.Recorder
-	fake(b).OnInfo = said.Add
-	b.WaitNote = time.Millisecond
+	fake(b).OnStatus = said.Add
 
 	soon, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
@@ -559,7 +558,10 @@ func TestBuildInProgress(t *testing.T) {
 		t.Errorf("Build while another builds it = %v", err)
 	}
 	if !slices.Contains(said.Names(), "image_build_waiting image=foo+bar") {
-		t.Errorf("said %q", said.Names())
+		t.Errorf("showed %q", said.Names())
+	}
+	if m, on := fake(b).Showing(); on {
+		t.Errorf("still showing %s", m.Names())
 	}
 	ls, err := (Images{b}).Listing(ctx)
 	if err != nil {

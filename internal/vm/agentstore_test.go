@@ -26,7 +26,7 @@ func holdStoreLock(t *testing.T, d paths.Dirs) (unlock func()) {
 	if err := os.MkdirAll(d.Data, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	unlock, err := platform.LockFile(t.Context(), filepath.Join(d.Data, "agents.lock"))
+	unlock, err := platform.LockFile(t.Context(), filepath.Join(d.Data, "agents.lock"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

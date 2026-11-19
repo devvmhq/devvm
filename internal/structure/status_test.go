@@ -9,9 +9,10 @@ import (
 const ruleStatus = "status-lines"
 
 // slowCall is what slow work n is, "" for none: a host command made, host
-// git, a walk of a folder, a lookup of a volume, a request over HTTP, or
-// one of a backend's commands run outside a step (its Runner's Output or
-// Attach). A backend's own methods, such as Exec, aren't told apart by
+// git, a walk of a folder, a lookup of a volume, a request over HTTP, a
+// wait for a lock whose waiting (platform.Waiting) is nil, which shows
+// nothing while another devvm holds it, or one of a backend's commands run
+// outside a step (its Runner's Output or Attach). A backend's own methods, such as Exec, aren't told apart by
 // name: TestLaunchStatusLines checks a launch's.
 func slowCall(f srcFile, n ast.Node) string {
 	call, ok := n.(*ast.CallExpr)
@@ -54,6 +55,13 @@ func slowCall(f srcFile, n ast.Node) string {
 	} {
 		if pkg := importName(f, c.path); pkg != "" && name == pkg+"."+c.fn {
 			return c.what
+		}
+	}
+	if pkg := importName(f, "github.com/devvmhq/devvm/internal/platform"); pkg != "" && (name == pkg+".LockFile" || name == pkg+".LockFileShared") {
+		if len(call.Args) == 3 {
+			if id, ok := call.Args[2].(*ast.Ident); ok && id.Name == "nil" {
+				return "waits for a lock showing nothing"
+			}
 		}
 	}
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok && (sel.Sel.Name == "Output" || sel.Sel.Name == "Attach") {
@@ -148,6 +156,19 @@ func statusCases() []ruleCase {
 			files: file("type L struct{ Runner interface{ Output(*x.Cmd) ([]byte, error) } }\n\nfunc (l L) list(c *x.Cmd) { _, _ = l.Runner.Output(c) }\n"),
 			r:     on,
 			want:  &want{ruleStatus, "list a/a.go: L.list in statusSites"},
+		},
+		{
+			name: "a lock's wait that shows nothing",
+			files: map[string]string{"a/a.go": "package a\n\nimport (\n\t\"context\"\n\n\tp \"github.com/devvmhq/devvm/internal/platform\"\n)\n\n" +
+				"func lock(ctx context.Context) (func(), error) { return p.LockFile(ctx, \"x\", nil) }\n"},
+			r:    on,
+			want: &want{ruleStatus, "list a/a.go: lock in statusSites"},
+		},
+		{
+			name: "a lock's wait with a status line",
+			files: map[string]string{"a/a.go": "package a\n\nimport (\n\t\"context\"\n\n\t\"github.com/devvmhq/devvm/internal/platform\"\n)\n\n" +
+				"func lock(ctx context.Context, w platform.Waiting) (func(), error) { return platform.LockFileShared(ctx, \"x\", w) }\n"},
+			r: on,
 		},
 		{
 			name:  "a host command under a status line",

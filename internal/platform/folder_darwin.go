@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"golang.org/x/sys/unix"
 )
@@ -51,18 +50,11 @@ func openFolder(f *os.File) (FolderStat, error) {
 	}, nil
 }
 
-// UniqueFolderID reports whether id, the FolderID of the folder at path,
-// is that folder's alone, never a deleted one's or another volume's: it
-// has the folder's birth time, and the folder is on APFS or HFS+, which
-// never give a new folder a deleted one's inode number. Other file
+// uniqueFS reports whether a statfs is APFS's or HFS+'s, which never give
+// a new folder a deleted one's inode number, so a FolderID with the
+// folder's birth time is its alone (FolderStat.Unique). Other file
 // systems (exFAT, network shares) may make inode numbers up or use them
 // again.
-func UniqueFolderID(path, id string) bool {
-	var st unix.Statfs_t
-	return strings.Count(id, ":") == 2 && unix.Statfs(path, &st) == nil && uniqueFS(&st)
-}
-
-// uniqueFS reports whether a statfs is APFS's or HFS+'s (UniqueFolderID).
 func uniqueFS(st *unix.Statfs_t) bool {
 	fs := unix.ByteSliceToString(st.Fstypename[:])
 	return fs == "apfs" || fs == "hfs"

@@ -154,6 +154,11 @@ func newEnv(t *testing.T) env {
 	tl := New(d, os.DirFS(root), "0.1.0-test", &msg.Fake{
 		OnInfo: func(m msg.M) { said = append(said, "==> "+m.Names()) },
 		OnWarn: func(m msg.M) { said = append(said, "devvm: "+m.Names()) },
+		OnStatus: func(m msg.M) {
+			if m.ID() == "share_waiting" {
+				said = append(said, "status: "+m.Names())
+			}
+		},
 	}, platform.Host{})
 	tl.Self = "/devvm"
 	tl.Arch = "arm64"
@@ -161,7 +166,6 @@ func newEnv(t *testing.T) env {
 	tl.Mise = stubtest.Command(t, "mise")
 	// Never Microsoft's: a test that needs dotnet's releases serves them.
 	tl.dotnetURL = "http://127.0.0.1:0/%s/releases.json"
-	tl.ShareNote = time.Millisecond
 	tl.RetryDelay = time.Millisecond
 	tl.FreeSpace = func(string) (uint64, error) { return 1 << 40, nil }
 	tl.Detach = func(c daemon.Cmd) (int, error) {
@@ -1083,7 +1087,7 @@ func TestLockShare(t *testing.T) {
 	if _, err := e.LockShare(soon); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("LockShare while held = %v", msg.NamesOf(err))
 	}
-	if !slices.Contains(*e.said, "==> share_waiting dir="+e.Dirs.Tools()) {
+	if !slices.Contains(*e.said, "status: share_waiting dir="+e.Dirs.Tools()) {
 		t.Errorf("said %q", *e.said)
 	}
 	got := make(chan error, 1)
@@ -1378,28 +1382,24 @@ func TestMaking(t *testing.T) {
 	if _, err := m.Hold(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("Hold while excluded: %v", err)
 	}
-	// Hold waiting says so, once, and gets it once Exclude's let go.
-	var said msg.Recorder
-	m.Reporter = &msg.Fake{OnInfo: said.Add}
-	got := make(chan error, 1)
-	go func() {
-		u, err := m.Hold(t.Context())
-		if err == nil {
-			u()
-		}
-		got <- err
-	}()
-	time.Sleep(400 * time.Millisecond)
-	unlock()
-	if err := <-got; err != nil {
+	// Hold waits under a status line, shown once, and gets it once Exclude's let go.
+	var shown msg.Recorder
+	m.Reporter = &msg.Fake{OnStatus: func(m msg.M) {
+		shown.Add(m)
+		unlock() // the gc finishes
+	}}
+	u, err := m.Hold(t.Context())
+	if err != nil {
 		t.Errorf("Hold once let go: %v", err)
+	} else {
+		u()
 	}
-	if !slices.Equal(said.IDs(), []string{"making_waiting"}) {
-		t.Errorf("said %v", said.IDs())
+	if !slices.Equal(shown.IDs(), []string{"making_waiting"}) {
+		t.Errorf("shown %v", shown.IDs())
 	}
-	said.Reset()
-	if u, err := m.Hold(t.Context()); err != nil || len(said.IDs()) > 0 {
-		t.Errorf("Hold with nothing in the way: %v, said %v", err, said.IDs())
+	shown.Reset()
+	if u, err := m.Hold(t.Context()); err != nil || len(shown.IDs()) > 0 {
+		t.Errorf("Hold with nothing in the way: %v, shown %v", err, shown.IDs())
 	} else {
 		u()
 	}

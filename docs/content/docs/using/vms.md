@@ -178,7 +178,7 @@ A VM belongs to the folder it was made for, which devvm knows by its path and by
 - `devvm rm` deletes the VM and never exports its history, because its folder is gone. The VM may hold that project's work, so `--force` never answers this question.
 - `devvm adopt` gives the VM to this folder, with its files, secrets and allowlist. Its `.git` protection starts again, as if `.git` had just appeared. `devvm adopt --force` gives it without asking, which `devvm adopt` needs when there's no terminal.
 
-On Linux, once the VM has recorded its folder's volume, a Btrfs snapshot that you roll back to at the folder's path is another subvolume, so its folder is another folder too, as is the folder after you give its volume a new UUID, and you give it the VM with `devvm adopt`.
+When devvm can't read the folder at all, as when code in a VM that mounts it took away your read permission, it can't tell whether the folder is the VM's, so every command on the folder's VM refuses it, naming the folder and why it can't be read. Make the folder readable to you again, with `chmod u+rx` on it, and the VM opens as before. On Linux, once the VM has recorded its folder's volume, a Btrfs snapshot that you roll back to at the folder's path is another subvolume, so its folder is another folder too, as is the folder after you give its volume a new UUID, and you give it the VM with `devvm adopt`.
 
 ## A moved or renamed folder
 

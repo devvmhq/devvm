@@ -16,6 +16,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -471,7 +472,7 @@ func (v *VM) locked(ctx context.Context, claims bool, f func() error) error {
 		return err
 	}
 	defer held.take(vmLock, v.file.Lock())()
-	unlock, err := platform.LockFile(ctx, v.file.Lock())
+	unlock, err := platform.LockFile(ctx, v.file.Lock(), msg.Waiting(msg.StatusOf(ctx), msg.VMStateWaiting(v.name)))
 	if err != nil {
 		return err
 	}
@@ -495,7 +496,7 @@ func claimed(ctx context.Context, claims string, f func() error) error {
 		return err
 	}
 	defer held.take(claimsLock, claims)()
-	unclaim, err := platform.LockFile(ctx, claims)
+	unclaim, err := platform.LockFile(ctx, claims, msg.Waiting(msg.StatusOf(ctx), msg.ClaimsWaiting()))
 	if err != nil {
 		return err
 	}
@@ -526,7 +527,7 @@ func RemoveFolder(ctx context.Context, d paths.Dirs, name vmname.VM) error {
 		return nil
 	}
 	defer held.take(vmLock, f.Lock())()
-	unlock, err := platform.LockFile(ctx, f.Lock())
+	unlock, err := platform.LockFile(ctx, f.Lock(), msg.Waiting(msg.StatusOf(ctx), msg.VMStateWaiting(name)))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil // another devvm deleted it meanwhile
 	} else if err != nil {

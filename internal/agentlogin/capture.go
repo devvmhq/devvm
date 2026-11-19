@@ -296,7 +296,7 @@ func (f File) lockStore() (func(), error) {
 	if err := state.PrivateDir(filepath.Dir(f.Path)); err != nil {
 		return nil, err
 	}
-	return lockLogin(f.Path)
+	return lockLogin(f.Path, f.Waiting)
 }
 
 // CaptureRequest returns a token request's body as it goes on to the agent's endpoint, f the

@@ -429,12 +429,16 @@ func (f Forwards) proc(vm vmname.VM) daemon.Proc {
 // holds it throughout, so two at once (a start and devvm ports, or two
 // devvm ports) never leave a forwarder whose pid file names another, which
 // nothing would stop. Another devvm holding it is waited for, until ctx
-// ends.
+// ends, under a status line (forwarder_waiting) when f has a Reporter.
 func (f Forwards) Lock(ctx context.Context, vm vmname.VM) (unlock func(), err error) {
 	if err := state.PrivateDir(f.Dirs.VM(vm).Run()); err != nil {
 		return nil, err
 	}
-	return platform.LockFile(ctx, f.Dirs.VM(vm).Forwarder(".lock"))
+	var status func(msg.M) func()
+	if f.Reporter != nil {
+		status = f.Status
+	}
+	return platform.LockFile(ctx, f.Dirs.VM(vm).Forwarder(".lock"), msg.Waiting(status, msg.ForwarderWaiting(vm)))
 }
 
 // Stop stops the VM's forwarder, if it runs, waiting up to two seconds for

@@ -464,6 +464,7 @@ func devvmStatusSites() map[string]string {
 		"internal/platform/keychain_darwin.go: KeychainGet":       keychain,
 		"internal/platform/keychain_darwin.go: KeychainSet":       keychain,
 		"internal/platform/keychain_darwin.go: KeychainDelete":    keychain,
+		"internal/ports/ports.go: Allocator.Build":                "locks a build port's record it has just written, a new file that no other process holds, so it never waits",
 		"internal/platform/keychain_darwin.go: ExcludeFromBackup": "tmutil, under its caller's status line: an import's or a save's (agent_store_saving) and the proxy's start (checking_vm, starting)",
 		"internal/platform/pinrun_linux.go: Probe":                pinned,
 		"internal/platform/pinrun_linux.go: RunInNamespace":       pinned,

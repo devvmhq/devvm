@@ -366,6 +366,46 @@ func TestMountedByUnreadableParent(t *testing.T) {
 	}
 }
 
+// A project folder devvm can't read, as code in a VM that mounts it can
+// leave it, is never taken for another folder's (vm_other_folder): each
+// command on the folder's VM, a launch, adopt and rm, names the folder
+// and why it can't be read, and once it's readable again the launch goes
+// on as before.
+func TestUnreadableFolder(t *testing.T) {
+	e, _, _ := upEnv(t, allNative())
+	vm := existingVM(t, e, Options{Network: "open"}).Name()
+	if err := os.Chmod(e.Dir, 0o300); err != nil { //nolint:gosec // a folder: search without read, as a VM could leave it
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(e.Dir, 0o700) }) //nolint:gosec // a folder's own mode, back for the cleanup
+	if _, err := platform.StatFolder(e.Dir); err == nil {
+		t.Skip("an unreadable folder still opens here, as for root")
+	}
+	want := "vm_folder_unreadable dir=" + e.Dir + " vm=" + vm.String() + " why="
+	for name, run := range map[string]func() error{
+		"launch": func() error { return (Launch{e}).Up(t.Context(), Options{}) },
+		"adopt":  func() error { return (Lifecycle{e}).Adopt(t.Context(), "", true) },
+		"rm":     func() error { return (Lifecycle{e}).Rm(t.Context(), RmOptions{Force: true}) },
+	} {
+		if err := run(); !strings.HasPrefix(msg.NamesOf(err), want) {
+			t.Errorf("%s: %v, want %s…", name, msg.NamesOf(err), want)
+		}
+	}
+	// From a subfolder, the parent's VM is refused the same way, naming the parent.
+	web := e.Dir
+	sub := subfolder(t, e, web, "src/lib")
+	if err := (Launch{e}).Up(t.Context(), Options{}); !strings.HasPrefix(msg.NamesOf(err), want) {
+		t.Errorf("in %s: %v, want %s…", sub, msg.NamesOf(err), want)
+	}
+	if err := os.Chmod(web, 0o700); err != nil { //nolint:gosec // a folder's own mode, back
+		t.Fatal(err)
+	}
+	e.Dir = web
+	if err := (Launch{e}).Up(t.Context(), Options{}); err != nil {
+		t.Errorf("readable again: %v", msg.NamesOf(err))
+	}
+}
+
 func vmNames(t *testing.T, e *Env) []vmname.VM {
 	t.Helper()
 	ns, err := state.VMNames(e.Dirs)

@@ -30,7 +30,7 @@ func folderDevice(id string) string {
 // the one place two FolderIDs are compared. macOS numbers its disks'
 // devices in the order they appear at boot, so after a restart an
 // unchanged folder can have another device number. Only a folder whose ID
-// is its alone (UniqueFolderID), at a path with no link on it, matches on
+// is its alone (FolderStat.Unique), at a path with no link on it, matches on
 // another device: what a VM can put in a folder's place, a link or a new
 // folder, can't take an inode and a birth time, and a copy that keeps
 // both, such as a snapshot or a cloned disk, is at another path, unless

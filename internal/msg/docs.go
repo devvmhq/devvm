@@ -122,6 +122,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"bad_path":                        "backends/lima#limits",
 	"vm_name_no_room":                 "backends/lima#limits",
 	"vm_other_folder":                 "using/vms#a-folder-made-again",
+	"vm_folder_unreadable":            "using/vms#a-folder-made-again",
 	"vm_other_folder_rm":              "using/vms#a-folder-made-again",
 	"vm_other_folder_adopt":           "using/vms#a-folder-made-again",
 	"rm_unknown_vm":                   "using/vms#a-vm-whose-folder-is-gone",

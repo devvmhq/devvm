@@ -37,12 +37,7 @@ func lockStore(ctx context.Context, d paths.Dirs, r msg.Reporter) (unlock func()
 	if err := os.MkdirAll(d.Data, 0o700); err != nil {
 		return nil, err
 	}
-	var stop func()
-	unlock, err = platform.LockFileWaiting(ctx, d.AgentStoreLock(), 0, func() { stop = r.Status(msg.AgentStoreWaiting()) })
-	if stop != nil {
-		stop()
-	}
-	return unlock, err
+	return platform.LockFile(ctx, d.AgentStoreLock(), msg.Waiting(r.Status, msg.AgentStoreWaiting()))
 }
 
 // storeLink is the error for a link at path, on the way to a folder of

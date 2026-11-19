@@ -34,7 +34,8 @@ func migrations() []Migration { return nil }
 // run's start, under the version lock: the same version goes on, an
 // older one is migrated to this one, and a newer one is refused with
 // layout_newer, because a newer devvm changed the folders. A folder
-// without a version file gets this devvm's: nothing older has one.
+// without a version file gets this devvm's: nothing older has one. It
+// waits for the lock, and migrates, under ctx's status line (msg.StatusOf).
 func CheckLayout(ctx context.Context, d paths.Dirs) error {
 	return checkLayout(ctx, d, Layout, migrations())
 }
@@ -46,7 +47,8 @@ func checkLayout(ctx context.Context, d paths.Dirs, current int, ms []Migration)
 	if err := PrivateDir(filepath.Dir(d.VersionLock())); err != nil {
 		return err
 	}
-	unlock, err := platform.LockFile(ctx, d.VersionLock())
+	status := msg.StatusOf(ctx)
+	unlock, err := platform.LockFile(ctx, d.VersionLock(), msg.Waiting(status, msg.LayoutWaiting()))
 	if err != nil {
 		return err
 	}
@@ -70,6 +72,9 @@ func checkLayout(ctx context.Context, d paths.Dirs, current int, ms []Migration)
 	}
 	if !stale {
 		return nil
+	}
+	if len(ms[from-1:]) > 0 && status != nil {
+		defer status(msg.LayoutMigrating())() // a migration may move every VM's folder
 	}
 	for _, m := range ms[from-1:] {
 		if err := m(d); err != nil {

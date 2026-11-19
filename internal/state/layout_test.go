@@ -10,6 +10,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/platform"
 )
 
 // This devvm has a migration from each layout version before its own.
@@ -52,10 +53,20 @@ func TestCheckLayout(t *testing.T) {
 			}
 			var ran []int
 			var ms []Migration
+			lines := &statusLines{}
 			for i := range tt.current - 1 {
-				ms = append(ms, func(paths.Dirs) error { ran = append(ran, i+1); return nil })
+				ms = append(ms, func(paths.Dirs) error {
+					ran = append(ran, i+1)
+					if on := lines.showing(); on != "layout_migrating" {
+						t.Errorf("migration %d under %q", i+1, on)
+					}
+					return nil
+				})
 			}
-			err := checkLayout(t.Context(), d, tt.current, ms)
+			err := checkLayout(msg.WithStatus(t.Context(), lines.status), d, tt.current, ms)
+			if on := lines.showing(); on != "" || tt.wantRun == 0 && len(lines.shown) > 0 {
+				t.Errorf("status lines shown %q, still showing %q", lines.shown, on)
+			}
 			if tt.wantErr == "corrupt" {
 				if _, ok := errors.AsType[*CorruptError](err); !ok {
 					t.Fatalf("checkLayout = %v, want a CorruptError", err)
@@ -87,6 +98,52 @@ func TestCheckLayout(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// statusLines is a run's status lines (msg.WithStatus) for a test: those
+// shown, by their IDs, and the stack of those showing.
+type statusLines struct {
+	shown, on []string
+}
+
+func (s *statusLines) status(m msg.M) func() {
+	s.shown = append(s.shown, m.ID())
+	s.on = append(s.on, m.ID())
+	n := len(s.on)
+	return func() { s.on = s.on[:n-1] }
+}
+
+// showing is the innermost status line showing, "" for none.
+func (s *statusLines) showing() string {
+	if len(s.on) == 0 {
+		return ""
+	}
+	return s.on[len(s.on)-1]
+}
+
+// The layout's lock, held by another devvm, is waited for under a status
+// line (layout_waiting), which ends once the check has the lock.
+func TestCheckLayoutWaits(t *testing.T) {
+	d := testDirs(t)
+	if err := PrivateDir(filepath.Dir(d.VersionLock())); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := platform.LockFile(t.Context(), d.VersionLock(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	lines := &statusLines{}
+	status := func(m msg.M) func() {
+		unlock() // the other devvm finishes
+		return lines.status(m)
+	}
+	if err := checkLayout(msg.WithStatus(t.Context(), status), d, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(lines.shown, []string{"layout_waiting"}) || lines.showing() != "" {
+		t.Errorf("shown %q, still showing %q", lines.shown, lines.showing())
 	}
 }
 

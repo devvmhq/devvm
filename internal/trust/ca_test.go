@@ -14,9 +14,11 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 )
@@ -275,21 +277,27 @@ func TestInitCAMismatched(t *testing.T) {
 	both(t, ca)
 }
 
-// InitCA waits for the CA folder's lock no longer than its ctx.
+// InitCA waits for the CA folder's lock no longer than its ctx, under the
+// run's status line (ca_waiting).
 func TestInitCACancelled(t *testing.T) {
 	ca := paths.CA{Dir: t.TempDir()}
-	unlock, err := platform.LockFile(t.Context(), ca.Lock())
+	unlock, err := platform.LockFile(t.Context(), ca.Lock(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	var shown []string
+	status := func(m msg.M) func() { shown = append(shown, m.ID()); return func() {} }
+	ctx, cancel := context.WithTimeout(msg.WithStatus(t.Context(), status), 200*time.Millisecond)
 	defer cancel()
 	if err := InitCA(ctx, ca); err == nil {
 		t.Fatal("InitCA went on without the lock")
 	}
 	if _, err := os.Stat(ca.Cert()); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("InitCA wrote without the lock: %v", err)
+	}
+	if !slices.Equal(shown, []string{"ca_waiting"}) {
+		t.Errorf("waited under %q", shown)
 	}
 }
 

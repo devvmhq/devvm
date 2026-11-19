@@ -82,9 +82,6 @@ type Lima struct {
 	// DriverWait is how long Stop waits for a hostagent starting its
 	// driver before it stops the VM with --force.
 	DriverWait time.Duration
-	// OCINote is how long a --from conversion waits for another devvm's
-	// before it says so.
-	OCINote time.Duration
 	// Getenv reads the environment (the proxy settings, USER).
 	Getenv func(string) string
 	// Company is the company proxy builds go through (buildUpstream).
@@ -160,7 +157,7 @@ func New(d paths.Dirs, assets fs.FS, r msg.Reporter, host platform.Host, ubuntuU
 	}
 	l := withRoles(&Lima{
 		Dirs: d, Runner: logRunner{r.LoggedCmd}, OS: runtime.GOOS, Arch: runtime.GOARCH, Company: cp, Ports: ports.Allocator{Dirs: d, Listening: ports.Listening},
-		Self: self, Spawn: daemon.Spawn, Tick: 500 * time.Millisecond, Assets: assets, SSHTimeout: sshTimeout, DriverWait: driverWait, OCINote: 3 * time.Second, Getenv: os.Getenv,
+		Self: self, Spawn: daemon.Spawn, Tick: 500 * time.Millisecond, Assets: assets, SSHTimeout: sshTimeout, DriverWait: driverWait, Getenv: os.Getenv,
 		Ubuntu: finder, UbuntuURL: ubuntuURL, Memory: host.Memory, CPUs: host.CPUs,
 		MacOS: platform.MacOSVersion, KVM: "/dev/kvm",
 		DockerRunning: from.DockerRunning,

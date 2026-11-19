@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"testing"
 	"testing/fstest"
-	"time"
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
@@ -218,29 +217,29 @@ func TestCheckConverted(t *testing.T) {
 }
 
 // Conversions take turns: one waits while another devvm holds the lock,
-// saying so, and takes it once that one lets go; a lock file nothing
-// holds, as a devvm that crashed leaves it, is taken at once.
+// under a status line, and takes it once that one lets go; a lock file
+// nothing holds, as a devvm that crashed leaves it, is taken at once,
+// with none.
 func TestLockOCI(t *testing.T) {
 	l, _, _ := testLima(t, "darwin")
-	l.OCINote = 10 * time.Millisecond
-	var infos msg.Recorder
-	l.Reporter = &msg.Fake{OnInfo: infos.Add}
+	var shown msg.Recorder
+	var unlock func()
+	l.Reporter = &msg.Fake{OnStatus: func(m msg.M) {
+		shown.Add(m)
+		unlock() // the other devvm finishes
+	}}
 
 	writeTestFile(t, l.Dirs.OCIBuildLock(), "")
 	unlock, err := l.lockOCI(t.Context())
-	if err != nil || len(infos.IDs()) != 0 {
-		t.Fatalf("lockOCI on a file nothing holds: %v, infos %q", err, infos.IDs())
+	if err != nil || len(shown.IDs()) != 0 {
+		t.Fatalf("lockOCI on a file nothing holds: %v, shown %q", err, shown.IDs())
 	}
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		unlock()
-	}()
 	again, err := l.lockOCI(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(infos.IDs(), []string{"oci_waiting"}) {
-		t.Errorf("infos: %q", infos.IDs())
+	if !slices.Equal(shown.IDs(), []string{"oci_waiting"}) {
+		t.Errorf("shown: %q", shown.IDs())
 	}
 	again()
 }

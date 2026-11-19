@@ -1094,6 +1094,10 @@ other = "The path {{.dir}} has a comma or a control character, so devvm can't mo
 description = "max is a number of characters"
 other = "The {{.backend}} backend's VM names have at most {{.max}} characters, which leaves no room for the folder's name."
 
+[vm_folder_unreadable]
+description = "dir is the project folder devvm runs in, which it couldn't open and read; why is the error"
+other = "devvm can't read {{.dir}} ({{.why}}), so it can't tell whether {{.vm}} was made for this folder. Make the folder readable to you again, then run the command again."
+
 [vm_other_folder]
 other = "{{.vm}} was made for an earlier folder at {{.was}}, which was deleted or replaced. Run devvm rm to delete the VM, or devvm adopt to use it here."
 
@@ -1664,6 +1668,54 @@ other = "{{.name}} names {{.member}} in the group {{.group}} and is {{.vm}}'s ow
 
 [group_waiting]
 other = "waiting for another devvm to finish changing a group"
+
+[layout_waiting]
+description = "a status step: a run waits while another devvm checks the layout version of devvm's folders"
+other = "waiting for another devvm to finish checking devvm's folders"
+
+[layout_migrating]
+description = "a status step: devvm moves its folders to this devvm's layout version"
+other = "updating devvm's folders to this version's layout"
+
+[vm_state_waiting]
+description = "a status step: devvm waits while another devvm changes the VM's state"
+other = "waiting for another devvm to finish changing {{.vm}}"
+
+[claims_waiting]
+description = "a status step: devvm waits while another devvm chooses a VM's ssh name or host ports"
+other = "waiting for another devvm to finish choosing a VM's name or ports"
+
+[git_lock_waiting]
+description = "a status step: devvm waits while another devvm locks or unlocks a VM's repos for .git protection"
+other = "waiting for another devvm to finish protecting a VM's .git"
+
+[ca_waiting]
+description = "a status step: a launch waits while another readies the VM's CA"
+other = "waiting for another devvm to finish readying the VM's CA"
+
+[packages_waiting]
+description = "a status step: devvm waits while another devvm stores or deletes cached packages"
+other = "waiting for another devvm to finish with the package cache"
+
+[rebuilds_waiting]
+description = "a status step: devvm waits while another devvm changes an image's rebuild counter"
+other = "waiting for another devvm to finish changing a rebuild counter"
+
+[ubuntu_pin_waiting]
+description = "a status step: devvm waits while another devvm pins Ubuntu's cloud image"
+other = "waiting for another devvm to finish pinning Ubuntu's image"
+
+[custom_secrets_waiting]
+description = "a status step: devvm waits while another devvm changes your own secrets"
+other = "waiting for another devvm to finish changing your secrets"
+
+[agent_login_waiting]
+description = "a status step: devvm waits while another devvm, or a VM's proxy refreshing it, holds the agent's login in devvm's store"
+other = "waiting for another devvm or a VM's proxy to finish with {{.agent}}'s login"
+
+[forwarder_waiting]
+description = "a status step: devvm waits while another devvm stops or starts the VM's port forwarder"
+other = "waiting for another devvm to finish with {{.vm}}'s port forwarder"
 
 [group_left]
 other = "{{.vm}} isn't in the group {{.group}} any more."

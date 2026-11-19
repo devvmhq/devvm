@@ -100,6 +100,9 @@ type File struct {
 	// or pi's, from config.toml's [pass-keys]), unless devvm binds them; any other entry devvm
 	// doesn't bind is withheld.
 	Pass []string
+	// Waiting shows that a change to the file waits for its lock, which another devvm, or a VM's
+	// proxy refreshing the login, holds (lockLogin); nil shows nothing, as in the proxy.
+	Waiting func() (end func())
 }
 
 // Placeholder is the one shape of a placeholder that the proxy fills in, made the VM's own by its
@@ -228,17 +231,27 @@ func readJSON(path string) (map[string]any, error) {
 
 // lockLogin holds an exclusive lock on the login file's folder while a lookup reads, refreshes and
 // writes it back: VMs each have a proxy, and two refreshing with the same (rotating) refresh token
-// would lose one result or get the login revoked. It returns the unlock.
-func lockLogin(path string) (func(), error) {
+// would lose one result or get the login revoked. It returns the unlock. When another holds the
+// lock, it calls waiting, if any, before it waits, and what that returned once it has the lock,
+// so a run with a terminal shows a status line while it waits, and none when the lock is free.
+func lockLogin(path string, waiting func() (end func())) (func(), error) {
 	d, err := os.Open(filepath.Dir(path)) //nolint:forbidigo // a folder, locked, never read
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(d.Fd()), syscall.LOCK_EX); err != nil {
+	fd := int(d.Fd())
+	err = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+	if errors.Is(err, syscall.EWOULDBLOCK) {
+		if waiting != nil {
+			defer waiting()()
+		}
+		err = syscall.Flock(fd, syscall.LOCK_EX) // held only while a login is read, refreshed and written
+	}
+	if err != nil {
 		_ = d.Close()
 		return nil, err
 	}
-	return func() { _ = syscall.Flock(int(d.Fd()), syscall.LOCK_UN); _ = d.Close() }, nil
+	return func() { _ = syscall.Flock(fd, syscall.LOCK_UN); _ = d.Close() }, nil
 }
 
 // writeJSON replaces path atomically, keeping it mode 600.
@@ -399,7 +412,7 @@ func codexVM(m map[string]any, salt string) (map[string]any, []string) {
 }
 
 func (f File) codexGet(ctx context.Context, name string) (redact.Secret, error) {
-	unlock, err := lockLogin(f.Path)
+	unlock, err := lockLogin(f.Path, f.Waiting)
 	if err != nil {
 		return redact.Secret{}, err
 	}
@@ -527,7 +540,7 @@ func opencodeSplit(m map[string]any, pass []string) VMFile {
 }
 
 func (f File) opencodeGet(ctx context.Context, name string) (redact.Secret, error) {
-	unlock, err := lockLogin(f.Path)
+	unlock, err := lockLogin(f.Path, f.Waiting)
 	if err != nil {
 		return redact.Secret{}, err
 	}

@@ -192,7 +192,7 @@ func SaveLogins(ctx context.Context, s *Store, logins []Login) error {
 			if err := state.PrivateDir(dir); err != nil {
 				return err
 			}
-			unlock, err := agentlogin.LockLogin(file)
+			unlock, err := agentlogin.LockLogin(file, loginWaiting(s, l.Kind))
 			if err != nil {
 				return err
 			}
@@ -357,7 +357,23 @@ func NewStore(d paths.Dirs, r msg.Reporter) *Store {
 // login is an agent's login file in devvm's store, its placeholders
 // ending in salt.
 func (s *Store) login(kind, salt string) agentlogin.File {
-	return agentlogin.File{Kind: kind, Path: LoginFile(s.Dirs, kind), Salt: salt}
+	return agentlogin.File{Kind: kind, Path: LoginFile(s.Dirs, kind), Salt: salt, Waiting: loginWaiting(s, kind)}
+}
+
+// loginWaiting is the wait for the lock of the kind of login's file
+// (agentlogin.LockLogin): a status line of s's Reporter, none without
+// one.
+func loginWaiting(s *Store, kind string) func() func() {
+	return msg.Waiting(statusOf(s.Reporter), msg.AgentLoginWaiting(agentOf(kind)))
+}
+
+// statusOf is r's Status, for a lock's wait (msg.Waiting); nil without a
+// Reporter, which shows nothing.
+func statusOf(r msg.Reporter) func(msg.M) func() {
+	if r == nil {
+		return nil
+	}
+	return r.Status
 }
 
 // VMLogin returns the VM's copy of an agent's login file: placeholders

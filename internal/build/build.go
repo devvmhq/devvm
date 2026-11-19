@@ -10,7 +10,6 @@
 package build
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"io/fs"
@@ -63,9 +62,6 @@ type Env struct {
 	// FreeSpace returns the free space on the volume holding a path
 	// (platform.Host's), checked before each build; nil checks none.
 	FreeSpace func(path string) (uint64, error)
-	// WaitNote is how long a build waits for another devvm building the
-	// same image before it says so; 0 for buildWaitNote.
-	WaitNote time.Duration
 
 	// looked is set once lookUp has run, which holds lookMu: builds on
 	// one Env may run at once.
@@ -461,7 +457,7 @@ func (b Builds) buildWith(ctx context.Context, spec backend.ImageSpec, name imag
 		pk.taken.discard()
 		return out, err
 	}
-	return out, pk.taken.commit(ctx, spec.Key, b.LogWriter())
+	return out, pk.taken.commit(ctx, spec.Key, b.LogWriter(), b.Status)
 }
 
 // sayFitted says what base got when the backend fitted it to the host
@@ -472,20 +468,16 @@ func (b Builds) sayFitted(f backend.Size) {
 	}
 }
 
-// buildWaitNote is how long a build waits for another devvm building the
-// same image before it says so, when Env's WaitNote is 0.
-const buildWaitNote = 3 * time.Second
-
 // lockBuild holds the lock of the image with key, named name, while it's
-// built, waiting for another devvm that holds it and saying so. The
-// system lets go of it when its devvm ends, however it ends.
+// built, waiting for another devvm that holds it under a status line
+// (image_build_waiting). The system lets go of it when its devvm ends,
+// however it ends.
 func (b Builds) lockBuild(ctx context.Context, name image.Name, key string) (unlock func(), err error) {
 	path, err := state.ImageLock(b.Dirs, key)
 	if err != nil {
 		return nil, err
 	}
-	after := cmp.Or(b.WaitNote, buildWaitNote)
-	return platform.LockFileWaiting(ctx, path, after, func() { b.Info(msg.ImageBuildWaiting(name.String())) })
+	return platform.LockFile(ctx, path, msg.Waiting(b.Status, msg.ImageBuildWaiting(name.String())))
 }
 
 // bumpRebuild changes the rebuild counter of the image named name on this
@@ -495,7 +487,7 @@ func (b Builds) bumpRebuild(ctx context.Context, name image.Name) error {
 	if err := os.MkdirAll(b.Dirs.ImageLocks(), 0o700); err != nil {
 		return err
 	}
-	unlock, err := platform.LockFile(ctx, b.Dirs.RebuildsLock())
+	unlock, err := platform.LockFile(ctx, b.Dirs.RebuildsLock(), msg.Waiting(b.Status, msg.RebuildsWaiting()))
 	if err != nil {
 		return err
 	}

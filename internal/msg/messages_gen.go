@@ -358,6 +358,11 @@ func AgentLoginStdinAlone(agent string) M {
 	return M{id: "agent_login_stdin_alone", vals: []val{{"agent", agent}}}
 }
 
+// AgentLoginWaiting is [agent_login_waiting]: "waiting for another devvm or a VM's proxy to finish with {{.agent}}'s login"
+func AgentLoginWaiting(agent string) M {
+	return M{id: "agent_login_waiting", vals: []val{{"agent", agent}}}
+}
+
 // AgentNoKeys is [agent_no_keys]: "The SSH agent devvm runs has no keys, so git over SSH won't work in VMs that use it. Run devvm ssh-agent add KEY_FILE to add one."
 func AgentNoKeys() M {
 	return M{id: "agent_no_keys"}
@@ -738,6 +743,11 @@ func CAUnreadable(file string) M {
 	return M{id: "ca_unreadable", vals: []val{{"file", file}}}
 }
 
+// CAWaiting is [ca_waiting]: "waiting for another devvm to finish readying the VM's CA"
+func CAWaiting() M {
+	return M{id: "ca_waiting"}
+}
+
 // CheckingBackend is [checking_backend]: "checking {{.name}}"
 func CheckingBackend(name string) M {
 	return M{id: "checking_backend", vals: []val{{"name", name}}}
@@ -761,6 +771,11 @@ func CheckingTools() M {
 // CheckingVM is [checking_vm]: "checking {{.vm}}"
 func CheckingVM(vm vmname.VM) M {
 	return M{id: "checking_vm", vals: []val{{"vm", string(vm)}}}
+}
+
+// ClaimsWaiting is [claims_waiting]: "waiting for another devvm to finish choosing a VM's name or ports"
+func ClaimsWaiting() M {
+	return M{id: "claims_waiting"}
 }
 
 // ClaudeEnvTokenWins is [claude_env_token_wins]: "CLAUDE_CODE_OAUTH_TOKEN is set in devvm's environment, so VMs get that token, not the login devvm saved. Unset it to use the saved login."
@@ -1358,6 +1373,11 @@ func CustomSecretsUnreadable(path string, reason string) M {
 	return M{id: "custom_secrets_unreadable", vals: []val{{"path", path}, {"reason", reason}}}
 }
 
+// CustomSecretsWaiting is [custom_secrets_waiting]: "waiting for another devvm to finish changing your secrets"
+func CustomSecretsWaiting() M {
+	return M{id: "custom_secrets_waiting"}
+}
+
 // DefaultAgents is [default_agents]: "New VMs get these coding agents: {{.agents}}. To change them, run devvm setup --agents."
 func DefaultAgents(agents string) M {
 	return M{id: "default_agents", vals: []val{{"agents", agents}}}
@@ -1843,6 +1863,11 @@ func ForwarderFailed(reason string) M {
 	return M{id: "forwarder_failed", vals: []val{{"reason", reason}}}
 }
 
+// ForwarderWaiting is [forwarder_waiting]: "waiting for another devvm to finish with {{.vm}}'s port forwarder"
+func ForwarderWaiting(vm vmname.VM) M {
+	return M{id: "forwarder_waiting", vals: []val{{"vm", string(vm)}}}
+}
+
 // FromCachedNotFound is [from_cached_not_found]: "{{.host}} doesn't have {{.from}}, or it's private, so devvm uses the digest it last saw."
 func FromCachedNotFound(from string, host string) M {
 	return M{id: "from_cached_not_found", vals: []val{{"from", from}, {"host", host}}}
@@ -2081,6 +2106,11 @@ func GitLockLater(vm vmname.VM) M {
 // GitLockRaced is [git_lock_raced]: "{{.path}} moved while devvm was locking it, so devvm left it unlocked and undid the lock where it landed. Check .git before you run git here."
 func GitLockRaced(path string) M {
 	return M{id: "git_lock_raced", vals: []val{{"path", path}}}
+}
+
+// GitLockWaiting is [git_lock_waiting]: "waiting for another devvm to finish protecting a VM's .git"
+func GitLockWaiting() M {
+	return M{id: "git_lock_waiting"}
 }
 
 // GitLocked is [git_locked]: "devvm locked the hooks and config in .git for {{.vm}}. git on this machine still runs what a submodule or repo the VM adds says until devvm stop or the next launch names it, and only devvm clone on keeps the VM's code away from git here."
@@ -2648,6 +2678,11 @@ func LayersHelp() M {
 	return M{id: "layers_help"}
 }
 
+// LayoutMigrating is [layout_migrating]: "updating devvm's folders to this version's layout"
+func LayoutMigrating() M {
+	return M{id: "layout_migrating"}
+}
+
 // LayoutNewer is [layout_newer]: "{{.path}} says devvm's folders have layout version {{.version}}, newer than this devvm's {{.current}}, so a newer devvm changed them. Run that devvm, or upgrade this one."
 func LayoutNewer(current string, path string, version string) M {
 	return M{id: "layout_newer", vals: []val{{"current", current}, {"path", path}, {"version", version}}}
@@ -2656,6 +2691,11 @@ func LayoutNewer(current string, path string, version string) M {
 // LayoutUnchecked is [layout_unchecked]: "Checking the layout version of devvm's folders failed: {{.reason}}. Fix the file it names, or delete it."
 func LayoutUnchecked(reason string) M {
 	return M{id: "layout_unchecked", vals: []val{{"reason", reason}}}
+}
+
+// LayoutWaiting is [layout_waiting]: "waiting for another devvm to finish checking devvm's folders"
+func LayoutWaiting() M {
+	return M{id: "layout_waiting"}
 }
 
 // LimaArchUnsupported is [lima_arch_unsupported]: "The lima backend doesn't run on {{.arch}}. Use an arm64 or x86_64 machine."
@@ -3673,6 +3713,11 @@ func PackagesTakeFailed(vm vmname.VM) M {
 	return M{id: "packages_take_failed", vals: []val{{"vm", string(vm)}}}
 }
 
+// PackagesWaiting is [packages_waiting]: "waiting for another devvm to finish with the package cache"
+func PackagesWaiting() M {
+	return M{id: "packages_waiting"}
+}
+
 // PartNoneAlone is [part_none_alone]: "{{.flag}} takes none alone, or a list of names without it."
 func PartNoneAlone(flag string) M {
 	return M{id: "part_none_alone", vals: []val{{"flag", flag}}}
@@ -4256,6 +4301,11 @@ func ReadingVMs() M {
 // RebuildReplaces is [rebuild_replaces]: "Rebuilding {{.image}} replaces it and deletes the images built on it: {{.above}}.\ndevvm builds them again when they're next needed, and VMs keep the images they have."
 func RebuildReplaces(above string, image string) M {
 	return M{id: "rebuild_replaces", vals: []val{{"above", above}, {"image", image}}}
+}
+
+// RebuildsWaiting is [rebuilds_waiting]: "waiting for another devvm to finish changing a rebuild counter"
+func RebuildsWaiting() M {
+	return M{id: "rebuilds_waiting"}
 }
 
 // Remade is [remade]: "made {{.vm}} again from {{.image}}"
@@ -5108,6 +5158,11 @@ func UbuntuNewestOlder(newest string, pinned string) M {
 	return M{id: "ubuntu_newest_older", vals: []val{{"newest", newest}, {"pinned", pinned}}}
 }
 
+// UbuntuPinWaiting is [ubuntu_pin_waiting]: "waiting for another devvm to finish pinning Ubuntu's image"
+func UbuntuPinWaiting() M {
+	return M{id: "ubuntu_pin_waiting"}
+}
+
 // UbuntuUnreachable is [ubuntu_unreachable]: "devvm couldn't read the list of Ubuntu {{.version}}'s cloud images at {{.url}}. Check that you're online, then try again."
 func UbuntuUnreachable(url string, version string) M {
 	return M{id: "ubuntu_unreachable", vals: []val{{"url", url}, {"version", version}}}
@@ -5423,6 +5478,11 @@ func VMFolderStateless(path string) M {
 	return M{id: "vm_folder_stateless", vals: []val{{"path", path}}}
 }
 
+// VMFolderUnreadable is [vm_folder_unreadable]: "devvm can't read {{.dir}} ({{.why}}), so it can't tell whether {{.vm}} was made for this folder. Make the folder readable to you again, then run the command again."
+func VMFolderUnreadable(dir string, vm vmname.VM, why string) M {
+	return M{id: "vm_folder_unreadable", vals: []val{{"dir", dir}, {"vm", string(vm)}, {"why", why}}}
+}
+
 // VMHasNetworks is [vm_has_networks]: "{{.vm}} has a network that devvm didn't give it. Remove the networks from {{.file}}."
 func VMHasNetworks(file string, vm vmname.VM) M {
 	return M{id: "vm_has_networks", vals: []val{{"file", file}, {"vm", string(vm)}}}
@@ -5486,6 +5546,11 @@ func VMStateBroken(name string, why string) M {
 // VMStateUnreadable is [vm_state_unreadable]: "The VM state file {{.path}} can't be read, so devvm ls shows the VM's name and status alone, and commands on the VM fail. Fix the file to use the VM again."
 func VMStateUnreadable(path string) M {
 	return M{id: "vm_state_unreadable", vals: []val{{"path", path}}}
+}
+
+// VMStateWaiting is [vm_state_waiting]: "waiting for another devvm to finish changing {{.vm}}"
+func VMStateWaiting(vm vmname.VM) M {
+	return M{id: "vm_state_waiting", vals: []val{{"vm", string(vm)}}}
 }
 
 // VMToolsNow is [vm_tools_now]: "{{.vm}}'s shared tools are now {{.tools}}"
@@ -5685,6 +5750,7 @@ var specs = map[string]spec{
 	"agent_login_saved":               {fields: []string{"agent", "vm"}},
 	"agent_login_saved_for":           {fields: []string{"agent", "email", "vm"}},
 	"agent_login_stdin_alone":         {fields: []string{"agent"}},
+	"agent_login_waiting":             {fields: []string{"agent"}},
 	"agent_no_keys":                   {},
 	"agent_on_risk":                   {fields: []string{"vm"}},
 	"agent_own_login_saved":           {fields: []string{"display", "vm"}},
@@ -5761,11 +5827,13 @@ var specs = map[string]spec{
 	"ca_not_ca":                       {fields: []string{"file"}},
 	"ca_not_certificate":              {fields: []string{"file"}},
 	"ca_unreadable":                   {fields: []string{"file"}},
+	"ca_waiting":                      {},
 	"checking_backend":                {fields: []string{"name"}},
 	"checking_image":                  {fields: []string{"image"}},
 	"checking_network":                {fields: []string{"vm"}},
 	"checking_tools":                  {},
 	"checking_vm":                     {fields: []string{"vm"}},
+	"claims_waiting":                  {},
 	"claude_env_token_wins":           {},
 	"claude_no_login":                 {},
 	"claude_setup_token_saved":        {fields: []string{"vm"}},
@@ -5885,6 +5953,7 @@ var specs = map[string]spec{
 	"custom_secret_refused":           {fields: []string{"path", "secret"}},
 	"custom_secret_used":              {fields: []string{"hosts", "secret", "vm"}},
 	"custom_secrets_unreadable":       {fields: []string{"path", "reason"}},
+	"custom_secrets_waiting":          {},
 	"default_agents":                  {fields: []string{"agents"}},
 	"default_agents_none":             {},
 	"default_layer_gone":              {fields: []string{"dir", "layer", "vm"}},
@@ -5982,6 +6051,7 @@ var specs = map[string]spec{
 	"follow_links_invalid":            {fields: []string{"dir", "setting"}},
 	"forgot_orphan":                   {fields: []string{"vm"}},
 	"forwarder_failed":                {fields: []string{"reason"}},
+	"forwarder_waiting":               {fields: []string{"vm"}},
 	"from_cached_not_found":           {fields: []string{"from", "host"}},
 	"from_cached_unreachable":         {fields: []string{"from", "host"}},
 	"from_not_found":                  {fields: []string{"from", "host"}},
@@ -6030,6 +6100,7 @@ var specs = map[string]spec{
 	"git_kept_unread":                 {fields: []string{"state"}},
 	"git_lock_later":                  {fields: []string{"vm"}},
 	"git_lock_raced":                  {fields: []string{"path"}},
+	"git_lock_waiting":                {},
 	"git_locked":                      {fields: []string{"vm"}},
 	"git_locks_left":                  {fields: []string{"repos"}},
 	"git_nested_appeared":             {fields: []string{"repo", "vm"}},
@@ -6143,8 +6214,10 @@ var specs = map[string]spec{
 	"layer_name_reserved":             {fields: []string{"layer"}},
 	"layer_new_failed":                {fields: []string{"reason"}},
 	"layers_help":                     {},
+	"layout_migrating":                {},
 	"layout_newer":                    {fields: []string{"current", "path", "version"}},
 	"layout_unchecked":                {fields: []string{"reason"}},
+	"layout_waiting":                  {},
 	"lima_arch_unsupported":           {fields: []string{"arch"}},
 	"lima_edit_failed":                {fields: []string{"vm"}},
 	"lima_global_config":              {fields: []string{"files"}},
@@ -6348,6 +6421,7 @@ var specs = map[string]spec{
 	"packages_stale":                  {fields: []string{"date", "release", "suite"}},
 	"packages_stale_mirror":           {fields: []string{"date", "mirror", "release", "suite"}},
 	"packages_take_failed":            {fields: []string{"vm"}},
+	"packages_waiting":                {},
 	"part_none_alone":                 {fields: []string{"flag"}},
 	"part_other_flag":                 {fields: []string{"flag", "given", "other"}},
 	"password_prompt":                 {},
@@ -6465,6 +6539,7 @@ var specs = map[string]spec{
 	"reading_space":                   {},
 	"reading_vms":                     {},
 	"rebuild_replaces":                {fields: []string{"above", "image"}},
+	"rebuilds_waiting":                {},
 	"remade":                          {fields: []string{"image", "vm"}},
 	"remake_anyway":                   {},
 	"remake_clone":                    {fields: []string{"vm"}},
@@ -6635,6 +6710,7 @@ var specs = map[string]spec{
 	"ubuntu_bad_signature":            {fields: []string{"release", "url"}},
 	"ubuntu_mirror_invalid":           {fields: []string{"setting"}},
 	"ubuntu_newest_older":             {fields: []string{"newest", "pinned"}},
+	"ubuntu_pin_waiting":              {},
 	"ubuntu_unreachable":              {fields: []string{"url", "version"}},
 	"unfetched_commits":               {fields: []string{"refs"}},
 	"unfetched_commits_in":            {fields: []string{"refs", "repo"}},
@@ -6698,6 +6774,7 @@ var specs = map[string]spec{
 	"vm_create_failed":                {fields: []string{"vm"}},
 	"vm_current":                      {fields: []string{"image", "vm"}},
 	"vm_folder_stateless":             {fields: []string{"path"}},
+	"vm_folder_unreadable":            {fields: []string{"dir", "vm", "why"}},
 	"vm_has_networks":                 {fields: []string{"file", "vm"}},
 	"vm_lacks":                        {fields: []string{"has", "tool", "vm"}},
 	"vm_mount_cache":                  {fields: []string{"mode", "vm"}},
@@ -6711,6 +6788,7 @@ var specs = map[string]spec{
 	"vm_size":                         {fields: []string{"size", "vm"}},
 	"vm_state_broken":                 {fields: []string{"name", "why"}},
 	"vm_state_unreadable":             {fields: []string{"path"}},
+	"vm_state_waiting":                {fields: []string{"vm"}},
 	"vm_tools_now":                    {fields: []string{"tools", "vm"}},
 	"vm_unfinished":                   {fields: []string{"vm"}},
 	"vms_moved_here":                  {fields: []string{"vms"}},

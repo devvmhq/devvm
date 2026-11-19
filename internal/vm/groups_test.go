@@ -165,9 +165,9 @@ func TestCheckJoinName(t *testing.T) {
 	}
 }
 
-// The groups lock: another devvm waits for it, says so after a moment,
-// and gets it once the first lets go; one whose context ends first
-// doesn't.
+// The groups lock: another devvm waits for it under a status line, which
+// ends once it has the lock, and gets it once the first lets go; one
+// whose context ends first doesn't.
 func TestLockGroups(t *testing.T) {
 	d := paths.Dirs{Data: filepath.Join(t.TempDir(), "data")}
 	unlock, err := lockGroups(t.Context(), d, nil)
@@ -179,10 +179,16 @@ func TestLockGroups(t *testing.T) {
 	if _, err := lockGroups(ctx, d, nil); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("while held: %v", err)
 	}
-	var said msg.Recorder
+	var showed msg.Recorder
+	waiting, ended := make(chan struct{}), make(chan struct{})
+	status := func(m msg.M) func() {
+		showed.Add(m)
+		close(waiting)
+		return func() { close(ended) }
+	}
 	got := make(chan error, 1)
 	go func() {
-		u, err := lockGroups(t.Context(), d, said.Add)
+		u, err := lockGroups(t.Context(), d, status)
 		if err == nil {
 			u()
 		}
@@ -191,14 +197,19 @@ func TestLockGroups(t *testing.T) {
 	select {
 	case err := <-got:
 		t.Fatalf("took the held lock: %v", err)
-	case <-time.After(2 * groupsNote):
+	case <-waiting:
 	}
 	unlock()
 	if err := <-got; err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(said.Names(), []string{"group_waiting"}) {
-		t.Errorf("said %q", said.Names())
+	select {
+	case <-ended:
+	default:
+		t.Error("the status line didn't end")
+	}
+	if !slices.Equal(showed.Names(), []string{"group_waiting"}) {
+		t.Errorf("showed %q", showed.Names())
 	}
 	if _, err := os.Stat(filepath.Join(d.Data, "groups.lock")); err != nil {
 		t.Error(err)

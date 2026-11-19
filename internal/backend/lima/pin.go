@@ -41,7 +41,7 @@ func (l *images) PinOrigin(ctx context.Context, f *backend.From, how backend.Pin
 	if err := os.MkdirAll(l.Dirs.ImageLocks(), 0o700); err != nil {
 		return "", err
 	}
-	unlock, err := platform.LockFile(ctx, l.Dirs.UbuntuPinLock())
+	unlock, err := platform.LockFile(ctx, l.Dirs.UbuntuPinLock(), msg.Waiting(l.Status, msg.UbuntuPinWaiting()))
 	if err != nil {
 		return "", err
 	}

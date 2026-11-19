@@ -64,22 +64,13 @@ func statxID(st *unix.Statx_t) string {
 // zfsSuperMagic is OpenZFS's statfs type, which golang.org/x/sys lacks.
 const zfsSuperMagic = 0x2fc12fc1
 
-// UniqueFolderID reports whether id, the FolderID of the folder at path,
-// is that folder's alone, never a deleted one's or another file system's:
-// it has the folder's birth time, as an inode number alone is used again,
-// and the folder is on a local file system with stable inode numbers
-// (uniqueFS). FUSE, network shares and FAT may make inode numbers up.
-func UniqueFolderID(path, id string) bool {
-	var st unix.Statfs_t
-	if strings.Count(id, ":") != 2 || unix.Statfs(path, &st) != nil {
-		return false
-	}
-	return uniqueFS(st.Type)
-}
-
 // uniqueFS reports whether a statfs type is a local file system that keeps
 // each inode number for its file's life and reports a birth time through
-// statx: ext4, XFS, Btrfs, tmpfs, OpenZFS, F2FS and bcachefs.
+// statx: ext4, XFS, Btrfs, tmpfs, OpenZFS, F2FS and bcachefs. On one, a
+// FolderID with the folder's birth time is its alone, never a deleted
+// one's or another file system's (FolderStat.Unique), as an inode number
+// alone is used again; FUSE, network shares and FAT may make inode numbers
+// up.
 func uniqueFS(fsType int64) bool {
 	switch fsType {
 	case unix.EXT4_SUPER_MAGIC, unix.XFS_SUPER_MAGIC, unix.BTRFS_SUPER_MAGIC, unix.TMPFS_MAGIC,

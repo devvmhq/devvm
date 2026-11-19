@@ -78,9 +78,6 @@ type Env struct {
 	// Detach starts the daily check, which outlives the run
 	// (daemon.Detach).
 	Detach daemon.Starter
-	// ShareNote is how long LockShare waits for another devvm holding the
-	// share's lock before it says so.
-	ShareNote time.Duration
 	// Reporter is where it prints, the status line and run log its slow
 	// steps show on, and the run's cleanup stack. Env's own Warn says
 	// where the run log is too.
@@ -132,7 +129,7 @@ func New(d paths.Dirs, assets fs.FS, version string, r msg.Reporter, host platfo
 	t := &Env{
 		Dirs: d, Assets: assets, Self: self, Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH,
 		Getenv: os.Getenv, Client: newClient(), RetryDelay: time.Second, Now: time.Now, Detach: daemon.Detach,
-		ShareNote: 3 * time.Second, miseURL: miseURL, miseSums: miseSHA256, dotnetURL: dotnetReleases,
+		miseURL: miseURL, miseSums: miseSHA256, dotnetURL: dotnetReleases,
 		Reporter: r, FreeSpace: host.FreeSpace,
 	}
 	// The environment it reads is Getenv's, and the Proxy the one at each

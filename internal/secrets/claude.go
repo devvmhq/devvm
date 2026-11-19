@@ -61,7 +61,7 @@ func (c Claude) lock() (func(), error) {
 	if err := state.PrivateDir(dir); err != nil {
 		return nil, err
 	}
-	return agentlogin.LockFolder(dir)
+	return agentlogin.LockFolder(dir, loginWaiting(c.s, agents.Claude))
 }
 
 // saveToken saves a Claude Code token and takes the OAuth login away,

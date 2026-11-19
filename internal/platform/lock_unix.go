@@ -16,27 +16,19 @@ const lockTick = 50 * time.Millisecond
 
 // LockFile holds an exclusive lock on path (made if missing, mode 600)
 // until unlock is called or the process ends, waiting for another process
-// that holds it until ctx ends. Its descriptor isn't inherited (close on
-// exec), so a process started meanwhile doesn't keep it. The holder may
-// remove the file before it lets go: one that got the lock on the removed
-// file tries again on path.
-func LockFile(ctx context.Context, path string) (unlock func(), err error) {
-	return lockFile(ctx, path, syscall.LOCK_EX, 0, nil)
+// that holds it until ctx ends, while waiting (Waiting) says so. Its
+// descriptor isn't inherited (close on exec), so a process started
+// meanwhile doesn't keep it. The holder may remove the file before it lets
+// go: one that got the lock on the removed file tries again on path.
+func LockFile(ctx context.Context, path string, waiting Waiting) (unlock func(), err error) {
+	return lockFile(ctx, path, syscall.LOCK_EX, waiting)
 }
 
-// LockFileWaiting is LockFile that calls waiting once, when another
-// process still holds the lock after it has waited for after.
-func LockFileWaiting(ctx context.Context, path string, after time.Duration, waiting func()) (unlock func(), err error) {
-	return lockFile(ctx, path, syscall.LOCK_EX, after, waiting)
-}
-
-// LockFileSharedWaiting holds a shared lock on path, as LockFile does: any
+// LockFileShared holds a shared lock on path, as LockFile does: any
 // number of processes hold it at once, and it waits only while one holds
-// it exclusively (LockFile, TryLockFile). It calls waiting once, when
-// another process still holds the lock exclusively after it has waited for
-// after; a nil waiting is never called.
-func LockFileSharedWaiting(ctx context.Context, path string, after time.Duration, waiting func()) (unlock func(), err error) {
-	return lockFile(ctx, path, syscall.LOCK_SH, after, waiting)
+// it exclusively (LockFile, TryLockFile).
+func LockFileShared(ctx context.Context, path string, waiting Waiting) (unlock func(), err error) {
+	return lockFile(ctx, path, syscall.LOCK_SH, waiting)
 }
 
 // TryLockFile is LockFile without waiting: ok is false while another
@@ -78,10 +70,15 @@ func LockHeld(path string) (bool, error) {
 }
 
 // lockFile takes the lock how says (LOCK_EX or LOCK_SH) on path, trying
-// again lockTick apart until ctx ends; waiting, if any, is called once
-// after it has waited for after.
-func lockFile(ctx context.Context, path string, how int, after time.Duration, waiting func()) (unlock func(), err error) {
-	start := time.Now()
+// again lockTick apart until ctx ends; waiting, if any, is called once it
+// finds the lock held, and what it returned once the wait ends.
+func lockFile(ctx context.Context, path string, how int, waiting Waiting) (unlock func(), err error) {
+	var end func()
+	defer func() {
+		if end != nil {
+			end()
+		}
+	}()
 	for {
 		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // devvm's own lock file
 		if err != nil {
@@ -96,8 +93,8 @@ func lockFile(ctx context.Context, path string, how int, after time.Duration, wa
 			if got {
 				break
 			}
-			if waiting != nil && time.Since(start) >= after {
-				waiting()
+			if waiting != nil {
+				end = waiting()
 				waiting = nil
 			}
 			select {

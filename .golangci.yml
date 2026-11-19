@@ -145,6 +145,8 @@ linters:
           msg: change a file through what opened it (os.File's Chmod, Chown and Truncate, or an os.Root's methods), never by its path, which a VM can swap for a link between the open and the change; a path only devvm writes, such as a socket it just made, says why in a nolint.
         - pattern: ^netip\.Addr\.IsPrivate$
           msg: ask proxy.Public whether an address is on the internet, the one table of the ranges that aren't.
+        - pattern: ^msg\.StatusOf$
+          msg: show a lock's wait through the Reporter your constructor takes (msg.Waiting with its Status); only internal/state and internal/trust, which take none, read the run's status from the context.
         - pattern: ^redact\.Secret\.Reveal$
           msg: pass the redact.Secret on; its value is revealed only where it must be used (a header, a file only the user can read, the Keychain), with a //nolint:forbidigo that says why.
     # A value errchkjson proves encodes without fail drops the error; any
@@ -239,6 +241,10 @@ linters:
       - path: ^internal/(fetch|proxy)/|_test\.go$
         linters: [forbidigo]
         text: reach the web through internal/fetch
+      # The packages that take no Reporter show a lock's wait through the context.
+      - path: ^internal/(state|trust|msg)/|_test\.go$
+        linters: [forbidigo]
+        text: msg\.StatusOf
       # state's own writer; the proxy's (standard library only); the
       # message generator (a leaf); test stubs; and tests' fixtures.
       - path: ^internal/(state|proxy|msg/gen|stubtest)/|_test\.go$

@@ -85,7 +85,7 @@ func KeepsVolume(wasID, recorded, vol string) bool {
 }
 
 // FolderStat is what identifies a folder and its volume, read from the folder opened with no
-// link on its path (StatFolder): its FolderID; whether that's its alone (UniqueFolderID);
+// link on its path (StatFolder): its FolderID; whether that's its alone (uniqueFS);
 // whether its volume is mounted read-only, or is a snapshot; its mount point and the device
 // mounted there, by name (macOS, for VolumeUUID); its volume, read in the process where the
 // system gives it ("fsid:…" on Linux's ext4, btrfs and ZFS), "" otherwise; and its owner's

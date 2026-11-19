@@ -27,7 +27,8 @@ env DEVVM_FROM=
 # that digest; it's deleted before base is
 # created from what it wrote (outside the folder it wrote in), and the
 # temporary folder goes once base has started. The conversion lock's file,
-# left as a devvm that crashed leaves it, holds nothing.
+# left as a devvm that crashed leaves it, holds nothing, so the build goes
+# on (TestLockOCI checks that a free lock shows no wait).
 exec sh -c ': > "$LOCK"'
 exec sh -c 'echo musl > "$STUB_DIR/build-libc"'
 exec devvm --from $PIN build base
@@ -35,7 +36,6 @@ stdout '^==> building_image_from from=node:24@sha256:a{64} image=base key=[0-9a-
 ! stdout base_build_time
 stdout '^==> converting_in_vm from=node:24@sha256:a{64} vm=devvm-oci-build$'
 stdout '^==> image_ready image=base$'
-! stdout oci_waiting
 stub_calls
 ! stdout '^docker'
 stdout '^limactl create --tty=false --mount-none --name=devvm-oci-build --set \.images = \[\{"location":"file://.*/release-[0-9]{8}/ubuntu-26\.04-server-cloudimg-(arm64|amd64)\.img","arch":"(aarch64|x86_64)","digest":"sha256:[0-9a-f]{64}"\}\] --set \.mounts = \[\{"location":"/\S*/tmp/devvm-oci\.[0-9]+/vm","writable":true,"9p":\{"cache":"none"\}\},\{"location":"/\S*/tmp/devvm-oci\.[0-9]+/oci","writable":false\}\] --cpus=4 --memory=8 --disk=100 -$'

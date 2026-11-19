@@ -195,7 +195,8 @@ func execute(ctx context.Context, u *ui.UI, root *cobra.Command, args []string) 
 		}
 	}()
 	root.SetArgs(args)
-	cmd, err := root.ExecuteContextC(ctx)
+	// The packages that take no Reporter show their waits for a lock on the run's status line.
+	cmd, err := root.ExecuteContextC(msg.WithStatus(ctx, u.Status))
 	if err == nil {
 		return 0
 	}

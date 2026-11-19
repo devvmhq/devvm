@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
@@ -189,6 +191,60 @@ func TestVMUpdate(t *testing.T) {
 	}
 	if ca, _ := Section[counter](a, "a"); a.Dir != "/p" || ca.N != 2 {
 		t.Errorf("v after a failed change: dir %q, a=%d", a.Dir, ca.N)
+	}
+}
+
+// A change to a VM's state, a claim and a deletion each wait for another
+// devvm that holds the lock they take under the run's status line, which
+// names what they wait for and ends once they have it, and show none
+// when the lock is free.
+func TestVMLockWaits(t *testing.T) {
+	d := testDirs(t)
+	v, _ := New(d, vmP)
+	create(t, d, v, nil)
+	for _, tc := range []struct {
+		name, lock, want string
+		do               func(context.Context) error
+	}{
+		{"an update", d.VM(vmP).Lock(), "vm_state_waiting vm=" + vmP.String(), func(ctx context.Context) error {
+			return v.Update(ctx, func(*VM) error { return nil })
+		}},
+		{"a claim", d.ClaimsLock(), "claims_waiting", func(ctx context.Context) error {
+			return v.Claim(ctx, func(*VM) error { return nil })
+		}},
+		{"a deletion", d.VM(vmP).Lock(), "vm_state_waiting vm=" + vmP.String(), func(ctx context.Context) error {
+			return RemoveFolder(ctx, d, vmP)
+		}},
+	} {
+		for _, held := range []bool{false, true} {
+			var shown []string
+			var unlock func()
+			if held {
+				if err := PrivateDir(filepath.Dir(tc.lock)); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				if unlock, err = platform.LockFile(t.Context(), tc.lock, nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ended := 0
+			status := func(m msg.M) func() {
+				shown = append(shown, m.Names())
+				unlock() // the other devvm finishes
+				return func() { ended++ }
+			}
+			if err := tc.do(msg.WithStatus(t.Context(), status)); err != nil {
+				t.Fatalf("%s, held %v: %v", tc.name, held, err)
+			}
+			var want []string
+			if held {
+				want = []string{tc.want}
+			}
+			if !slices.Equal(shown, want) || ended != len(want) {
+				t.Errorf("%s, held %v: shown %q, ended %d", tc.name, held, shown, ended)
+			}
+		}
 	}
 }
 

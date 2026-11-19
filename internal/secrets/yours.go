@@ -178,7 +178,7 @@ func (y Yours) locked(ctx context.Context, do func(cs []Secret) error) error {
 	if err := state.PrivateDir(y.s.Dirs.Data); err != nil {
 		return err
 	}
-	unlock, err := platform.LockFile(ctx, y.s.Dirs.CustomSecretsLock())
+	unlock, err := platform.LockFile(ctx, y.s.Dirs.CustomSecretsLock(), msg.Waiting(statusOf(y.s.Reporter), msg.CustomSecretsWaiting()))
 	if err != nil {
 		return err
 	}

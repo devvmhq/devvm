@@ -36,8 +36,10 @@ type target struct {
 	in     backend.Instance
 	exists bool // the backend has it: in is its answer
 	// other: it was made for an earlier folder at f.Dir, deleted and made
-	// again since (sameFolder).
-	other bool
+	// again since (sameFolder), or, unread, devvm can't read the folder
+	// to tell, so it's taken for another folder's.
+	other  bool
+	unread error
 	// moved: the finder moved it here, from the path its folder had
 	// (finder.moveHere).
 	moved bool
@@ -146,7 +148,8 @@ func (e finder) target(ctx context.Context, n need) (*target, error) {
 }
 
 // check refuses t when it hasn't what n asks, in this order: there (else
-// noVM), made for this folder, no remake pending, its creation finished.
+// noVM), its folder readable (vm_folder_unreadable) unless n names the
+// VM, made for this folder, no remake pending, its creation finished.
 func (n need) check(t *target) error {
 	noVM := n.noVM
 	if noVM == nil {
@@ -157,6 +160,8 @@ func (n need) check(t *target) error {
 	switch {
 	case n.has == hasMachine && !t.exists, (n.has == hasVM || n.has == hasMade) && !there:
 		return noVM(t.f.Dir)
+	case n.name == "" && there && t.unread != nil:
+		return msg.VMFolderUnreadable(t.f.Dir, t.f.Name, t.unread.Error()).Because(t.unread)
 	case (n.folder || n.has == hasMade) && there && t.other:
 		return msg.VMOtherFolder(t.f.Name, t.st.Dir)
 	case n.has == hasMade && pending:
@@ -397,8 +402,13 @@ func (e finder) parentVM(ctx context.Context) (*target, error) {
 		found, fst = &pf, pst
 		return false, nil
 	})
-	if err != nil || found == nil || fst == nil || !e.sameFolder(ctx, *found, fst) {
+	if err != nil || found == nil || fst == nil {
 		return nil, err
+	}
+	if same, err := e.sameFolder(ctx, *found, fst); err != nil {
+		return nil, msg.VMFolderUnreadable(found.Dir, found.Name, err.Error()).Because(err)
+	} else if !same {
+		return nil, nil
 	}
 	p, err := e.inspect(ctx, *found, fst)
 	if err != nil || !p.exists {
@@ -543,7 +553,8 @@ func (e finder) inspect(ctx context.Context, f project.Folder, st *state.VM) (*t
 		return nil, err
 	}
 	t := e.newTarget(f, st, b)
-	t.other = !e.sameFolder(ctx, f, st)
+	same, err := e.sameFolder(ctx, f, st)
+	t.other, t.unread = !same, err
 	if err := t.refresh(ctx); err != nil {
 		return nil, err
 	}
@@ -575,14 +586,17 @@ func (e finder) inspect(ctx context.Context, f project.Folder, st *state.VM) (*t
 // sameFolder reports whether the VM was made for this folder (madeFor),
 // on the volume the state records (Env.keepsVolume), so a clone of the
 // disk mounted at the folder's own path isn't taken for it. The folder is
-// opened once.
-func (e finder) sameFolder(ctx context.Context, f project.Folder, st *state.VM) bool {
+// opened once. A folder that can't be opened isn't taken for the VM's,
+// and the error says why (vm_folder_unreadable).
+func (e finder) sameFolder(ctx context.Context, f project.Folder, st *state.VM) (bool, error) {
 	if !st.Exists() {
-		return true
+		return true, nil
 	}
-	// A folder that can't be opened isn't taken for the VM's: the launch is refused.
-	s, ok, _ := madeForOpen(f, st)
-	return ok && e.keepsVolume(ctx, st, s)
+	s, ok, err := madeForOpen(f, st)
+	if err != nil {
+		return false, err
+	}
+	return ok && e.keepsVolume(ctx, st, s), nil
 }
 
 // madeFor reports whether the VM was made for this folder: its path, and

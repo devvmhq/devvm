@@ -370,11 +370,11 @@ func ext4(path string) bool {
 
 // lockOCI takes the conversion lock, an OS lock on a file in devvm's data
 // folder, until unlock is called or devvm ends, however it ends. It waits
-// for another devvm that holds it, saying so after OCINote.
+// for another devvm that holds it, under a status line (oci_waiting).
 func (l *images) lockOCI(ctx context.Context) (unlock func(), err error) {
 	path := l.Dirs.OCIBuildLock()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	return platform.LockFileWaiting(ctx, path, l.OCINote, func() { l.Info(msg.OCIWaiting()) })
+	return platform.LockFile(ctx, path, msg.Waiting(l.Status, msg.OCIWaiting()))
 }

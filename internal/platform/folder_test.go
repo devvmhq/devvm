@@ -44,26 +44,32 @@ func TestFolderID(t *testing.T) {
 	}
 }
 
-// UniqueFolderID: an ID with a birth time of a folder on APFS or HFS+ on
-// macOS, or on one of uniqueFS's file systems on Linux; never a missing
-// folder.
-func TestUniqueFolderID(t *testing.T) {
-	dir := t.TempDir()
-	id, err := FolderID(dir)
+// StatFolder's Unique: an ID with a birth time of a folder on APFS or
+// HFS+ on macOS, or on one of uniqueFS's file systems on Linux; and a
+// missing folder has no stat at all.
+func TestStatFolderUnique(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	s, err := StatFolder(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := StatFolder(filepath.Join(dir, "missing")); err == nil {
+		t.Error("a missing folder's stat")
+	}
 	switch runtime.GOOS {
 	case "linux":
-		// The temporary folder's file system may be any (TestUniqueFS).
-		if UniqueFolderID(dir, "1:2") || UniqueFolderID(filepath.Join(dir, "missing"), "1:2:3.4") {
-			t.Error("UniqueFolderID: an ID without a birth time, or a missing folder")
+		// The temporary folder's file system may be any (TestUniqueFS); unique needs a birth time.
+		if s.Unique && strings.Count(s.ID, ":") != 2 {
+			t.Errorf("unique without a birth time: %+v", s)
 		}
-		t.Logf("%s: %s, unique %v", dir, id, UniqueFolderID(dir, id))
+		t.Logf("%s: %s, unique %v", dir, s.ID, s.Unique)
 	case "darwin":
 		// The tests' temporary folder is on the system's APFS volume.
-		if !UniqueFolderID(dir, id) || UniqueFolderID(filepath.Join(dir, "missing"), id) || UniqueFolderID(dir, "1:2") {
-			t.Errorf("UniqueFolderID(%s) = %v", dir, UniqueFolderID(dir, id))
+		if !s.Unique {
+			t.Errorf("StatFolder(%s) = %+v, not unique", dir, s)
 		}
 	}
 }
@@ -92,7 +98,11 @@ func TestSameFolder(t *testing.T) {
 	dev, rest, _ := strings.Cut(id, ":")
 	ino, birth, _ := strings.Cut(rest, ":")
 	renumbered := stubtest.Renumbered(id)
-	unique := UniqueFolderID(dir, id)
+	s, err := StatFolder(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unique := s.Unique
 	gone := filepath.Join(root, "gone")
 	for _, tc := range []struct {
 		name                 string

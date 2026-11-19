@@ -23,12 +23,12 @@ import (
 // LockShare holds the share's lock, for a build writing tool images or a
 // swap of the lock, until unlock is called or the process ends, however
 // it ends: it's an OS lock on an open file. Another devvm holding it is
-// waited for until ctx ends, saying so after ShareNote.
+// waited for until ctx ends, under a status line (share_waiting).
 func (t *Env) LockShare(ctx context.Context) (unlock func(), err error) {
 	if err := os.MkdirAll(t.Dirs.Tools(), 0o700); err != nil {
 		return nil, err
 	}
-	return platform.LockFileWaiting(ctx, t.Dirs.ShareLock(), t.ShareNote, func() { t.Info(msg.ShareWaiting(t.Dirs.Tools())) })
+	return platform.LockFile(ctx, t.Dirs.ShareLock(), msg.Waiting(t.Status, msg.ShareWaiting(t.Dirs.Tools())))
 }
 
 // ShareBusy reports whether another devvm holds the share's lock

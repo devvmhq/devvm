@@ -523,16 +523,23 @@ func TestClaudeCopy(t *testing.T) {
 	}
 }
 
-// One lookup at a time per login folder: a second waits until the first has written back.
+// One lookup at a time per login folder: a second waits until the first has written back,
+// showing its waiting once it finds the lock held, which ends once it has it; a free lock shows
+// none.
 func TestLockLogin(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "auth.json")
-	unlock, err := lockLogin(p)
-	if err != nil {
-		t.Fatal(err)
+	waits, ends := 0, 0
+	waiting := func() func() {
+		waits++
+		return func() { ends++ }
+	}
+	unlock, err := lockLogin(p, waiting)
+	if err != nil || waits != 0 {
+		t.Fatalf("a free lock: %v, waits %d", err, waits)
 	}
 	got := make(chan bool)
 	go func() {
-		u, err := lockLogin(p)
+		u, err := lockLogin(p, waiting)
 		if err == nil {
 			u()
 		}
@@ -545,6 +552,9 @@ func TestLockLogin(t *testing.T) {
 	}
 	unlock()
 	<-got
+	if waits != 1 || ends != 1 {
+		t.Errorf("held: waits %d, ends %d", waits, ends)
+	}
 }
 
 // An MCP server's host goes into the allowlist: only a DNS name, on 443.

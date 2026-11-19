@@ -14,6 +14,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/state"
@@ -52,7 +53,7 @@ func InitCA(ctx context.Context, ca paths.CA) error {
 	if err := state.PrivateDir(ca.Dir); err != nil {
 		return err
 	}
-	unlock, err := platform.LockFile(ctx, ca.Lock())
+	unlock, err := platform.LockFile(ctx, ca.Lock(), msg.Waiting(msg.StatusOf(ctx), msg.CAWaiting()))
 	if err != nil {
 		return err
 	}

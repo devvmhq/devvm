@@ -713,13 +713,14 @@ func packageOf(entry string) (state.Package, error) {
 // commit stores what the build gave back, once the image is built: each
 // file in the cache under its SHA-256 (one there already is the same
 // file, once its SHA-256 says so; one that changed is replaced, which the
-// run log, log, notes), then key's set, under the cache's lock.
-func (t *taken) commit(ctx context.Context, key string, log io.Writer) error {
+// run log, log, notes), then key's set, under the cache's lock, whose wait
+// shows on status's line.
+func (t *taken) commit(ctx context.Context, key string, log io.Writer, status func(msg.M) func()) error {
 	defer t.discard()
 	if err := os.MkdirAll(t.dirs.ImageLocks(), 0o700); err != nil {
 		return err
 	}
-	unlock, err := platform.LockFile(ctx, t.dirs.PackagesLock())
+	unlock, err := platform.LockFile(ctx, t.dirs.PackagesLock(), msg.Waiting(status, msg.PackagesWaiting()))
 	if err != nil {
 		return err
 	}
@@ -810,7 +811,7 @@ func (b Images) DeletePackages(ctx context.Context, s StalePackages) error {
 	if err := os.MkdirAll(b.Dirs.ImageLocks(), 0o700); err != nil {
 		return err
 	}
-	unlock, err := platform.LockFile(ctx, b.Dirs.PackagesLock())
+	unlock, err := platform.LockFile(ctx, b.Dirs.PackagesLock(), msg.Waiting(b.Status, msg.PackagesWaiting()))
 	if err != nil {
 		return err
 	}

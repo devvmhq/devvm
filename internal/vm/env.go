@@ -200,7 +200,7 @@ func NewEnv(d paths.Dirs, assets fs.FS, self, version string, reg *backend.Regis
 			return inv.GitKeeper(vm)
 		}
 		p.Serial = func(ctx context.Context, f func() error) error {
-			unlock, err := platform.LockFile(ctx, d.GitLock())
+			unlock, err := platform.LockFile(ctx, d.GitLock(), msg.Waiting(r.Status, msg.GitLockWaiting()))
 			if err != nil {
 				return err
 			}

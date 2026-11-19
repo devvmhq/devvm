@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"os"
-	"time"
 
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
@@ -20,25 +19,22 @@ import (
 // devvm starts don't inherit it.
 type Making struct {
 	Dirs paths.Dirs
-	// Reporter says Hold is waiting; nil says nothing.
+	// Reporter shows that Hold is waiting; nil shows nothing.
 	msg.Reporter
 }
 
-// makingNote is how long Hold waits before it says it's waiting.
-const makingNote = 200 * time.Millisecond
-
 // Hold holds the lock shared until unlock is called or the process ends:
 // any number of devvms hold it at once. It waits while devvm gc --tool-images or
-// retention has it, until ctx ends, saying so after a moment.
+// retention has it, until ctx ends, under a status line (making_waiting).
 func (m Making) Hold(ctx context.Context) (unlock func(), err error) {
 	if err := os.MkdirAll(m.Dirs.Data, 0o700); err != nil {
 		return nil, err
 	}
-	return platform.LockFileSharedWaiting(ctx, m.Dirs.MakingLock(), makingNote, func() {
-		if m.Reporter != nil {
-			m.Info(msg.MakingWaiting())
-		}
-	})
+	var status func(msg.M) func()
+	if m.Reporter != nil {
+		status = m.Status
+	}
+	return platform.LockFileShared(ctx, m.Dirs.MakingLock(), msg.Waiting(status, msg.MakingWaiting()))
 }
 
 // Exclude takes the lock alone without waiting, so no VM starts being
