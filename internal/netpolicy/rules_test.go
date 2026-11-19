@@ -280,7 +280,8 @@ func TestPolicyNotRegular(t *testing.T) {
 
 // NotRules warns of each line that isn't a rule in the policy files you
 // edit: every VM's, each VM's own and your layers'; one that reads as a
-// deny warns that its VMs' proxies deny everything.
+// deny warns that its VMs' proxies deny everything. Another VM's state
+// that can't be read takes none of them away.
 func TestNotRules(t *testing.T) {
 	root := t.TempDir()
 	d := paths.Dirs{Data: filepath.Join(root, "data"), Config: filepath.Join(root, "config")}
@@ -291,6 +292,7 @@ func TestNotRules(t *testing.T) {
 		d.VM("devvm-x-0123456789abcd").Policy():   "!!x.test\nfine.test\n",
 		filepath.Join(d.Layers(), "pg.sh"):        "not a policy\n",
 		filepath.Join(d.VMs(), "other", "policy"): "!!not.a.vm\n",
+		d.VM("devvm-y-0123456789abce").State():    "not json",
 	}
 	for f, s := range files {
 		if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {

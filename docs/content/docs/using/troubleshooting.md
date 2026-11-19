@@ -108,7 +108,7 @@ A VM's own state file, `vm.json` in its folder in `vms/`, is the one to fix rath
 - devvm doesn't know which shared tools such a VM uses or which folders it mounts, so `devvm space`, `devvm images` and `devvm gc` fail and name the file.
 - devvm refuses to add a key to its own SSH agent, or to load one into it as a VM starts, because it can't tell whether that VM mounts the key's folder.
 
-To find every VM whose state devvm can't read, run doctor. It reads each VM's `vm.json` and each of its sections as every command on a VM reads them, and names each VM it can't read and why, the file included, without changing anything. Every command on such a VM fails until you fix its file:
+To find every VM whose state devvm can't read, run doctor. It reads each VM's `vm.json` and each of its sections as every command on a VM reads them, and names each VM it can't read and why, the file included, once, even when it can't read the VM's folder, without changing anything. Such a VM doesn't hide doctor's other warnings, such as a line of another VM's policy file that isn't a rule. Every command on such a VM fails until you fix its file:
 
 ```sh
 devvm doctor   # warns of each VM whose vm.json, or a section of it, devvm can't read

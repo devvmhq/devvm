@@ -91,9 +91,11 @@ var cursorPersists = []string{
 var cursorAccount = []string{"/aiserver.v1.DashboardService/", "/aiserver.v1.AutomationsService/", "/aiserver.v1.BackgroundComposerService/"}
 
 // cursorChanges matches a method's name that starts with a verb that changes something. Each verb
-// was checked against the release's methods of cursorAccount's services, and the CLI calls none of
-// those it matches.
-var cursorChanges = regexp.MustCompile(`(?i)^(apply|create|update|upsert|set|delete|remove|enable|disable|install|uninstall|register|add|invite|start|launch|trigger|run|test|pause|resume|rotate|revoke|refresh|toggle|archive|restore|move|rename|edit|modify|change|approve|accept|join|leave|transfer|grant|connect|disconnect|unlink|link|share|publish|import|sync|redeem|complete|schedule|cancel|stop|kill|send|post|put|patch|save|store|upload|attach|detach|assign|unassign|promote|demote|reset|clear|purge|migrate|claim|mark|clone|commit|generate|mute|unmute|reindex|retry)`)
+// was checked against the release's methods of cursorAccount's services: every method it matches
+// changes something, none only reads, and the CLI calls none of them. So verbs whose methods also
+// read, such as Check, Batch, Resolve and Submit, which the CLI's SubmitFeedback starts with, aren't
+// among them.
+var cursorChanges = regexp.MustCompile(`(?i)^(apply|create|update|upsert|set|delete|remove|enable|disable|install|uninstall|register|add|invite|start|launch|trigger|run|test|pause|resume|rotate|revoke|refresh|toggle|archive|restore|move|rename|edit|modify|change|approve|accept|join|leave|transfer|grant|connect|disconnect|unlink|link|share|publish|import|sync|redeem|complete|schedule|cancel|stop|kill|send|post|put|patch|save|store|upload|attach|detach|assign|unassign|promote|demote|reset|clear|purge|migrate|claim|mark|clone|commit|generate|mute|unmute|reindex|retry|merge|fork|write|pin|unpin|rerun|confirm|request|release|acquire|activate|deactivate|notify|make|open|ensure|park|copy|bulk|advance|abort|wake|snapshot|seed|reply|opt|hand|fail|use|skip|decide|unshare|undelete|unpublish|unprepare|unresolve|enroll|unenroll|upgrade|suspend|switch|duplicate|dismiss|deregister|deliver|decline|convert|close|append|execute|provision|mutate|inject|finish|finalize|reassign|reinstall|reject|renew|reorder|reparent|replace|resend|rmdir|report|record)`)
 
 // cursorAccountChange reports whether p, a method's clean path, changes the account (cursorPersists,
 // or a changing verb in cursorAccount's services).

@@ -2,6 +2,7 @@ package state
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -37,6 +38,22 @@ func VMNames(d paths.Dirs) ([]vmname.VM, error) {
 	}
 	slices.Sort(names)
 	return names, nil
+}
+
+// ReadableVMs are the states of the VMs whose state reads (ReadAll), by
+// name, as VMNames has them, so one that can't be read takes no other away:
+// for what only warns, never for what must count every VM, such as a
+// port's allocation, which VMNames fails for.
+func ReadableVMs(d paths.Dirs) []*VM {
+	all, _ := ReadAll(d)
+	var out []*VM
+	for _, r := range all {
+		if r.Err == nil && r.VM != nil {
+			out = append(out, r.VM)
+		}
+	}
+	slices.SortFunc(out, func(a, b *VM) int { return cmp.Compare(a.Name(), b.Name()) })
+	return out
 }
 
 // Read is one VM folder's state as ReadAll read it: the state, or why it

@@ -113,8 +113,9 @@ func TestCheckLayoutMigrationFails(t *testing.T) {
 }
 
 // doctor's findings in the VMs' folder: what isn't a VM's folder, and a
-// VM's folder without vm.json, and one it can't read, which it says
-// rather than leaving out; a VM's folder with one is fine.
+// VM's folder without vm.json, and the VMs' folder when it can't read it;
+// a VM's folder with vm.json is fine, and one it can't read is left to
+// the state's check (vm.StateProblems), which names it and why.
 func TestVMFolderProblems(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root reads any folder")
@@ -136,7 +137,6 @@ func TestVMFolderProblems(t *testing.T) {
 		"vm_folder_stateless path=" + d.VMDir(lockOnly),
 		"vms_stray path=" + filepath.Join(d.VMs(), "devvm-old") + " vms=" + d.VMs(),
 		"vms_stray path=" + filepath.Join(d.VMs(), "notes.txt") + " vms=" + d.VMs(),
-		"vms_unreadable path=" + d.VMDir(locked),
 	}
 	if got := problemNames(VMFolderProblems(d)); !slices.Equal(got, want) {
 		t.Errorf("VMFolderProblems = %q, want %q", got, want)

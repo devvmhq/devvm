@@ -1099,6 +1099,21 @@ func TestOtherBinaries(t *testing.T) {
 	if !slices.Equal(warned, []string{want, want}) {
 		t.Errorf("another binary's proxy: %q, want %q twice", warned, want)
 	}
+	// Another VM whose state can't be read takes no VM's warning away.
+	broken := d.VM("devvm-y-0123456789abce").State()
+	if err := os.MkdirAll(filepath.Dir(broken), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(broken, []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	warned = nil
+	if p.OtherBinaries(narrowed, ""); !slices.Equal(warned, []string{want}) {
+		t.Errorf("beside a state that can't be read: %q, want %q", warned, want)
+	}
+	if err := os.Remove(broken); err != nil {
+		t.Fatal(err)
+	}
 	pid, _ := p.PID(st.Name())
 	delete(f.args, pid)
 	warned = nil

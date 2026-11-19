@@ -31,6 +31,8 @@ stdout '^limactl edit --tty=false devvm-app-[0-9a-f]{14} --set \.ssh\.localPort=
 ! stdout '(?s)limactl edit .*limactl edit'
 
 # Each log under its cap, its rest in a .1, the password in neither.
+wait_until '[ -f "$LIMA_HOME/$APP/serialv.log.1" ] && [ "$(wc -c <"$LIMA_HOME/$APP/serialv.log")" -le 10485760 ]'
+wait_until '[ -f "$LIMA_HOME/$APP/ha.stderr.log.1" ] && [ "$(wc -c <"$LIMA_HOME/$APP/ha.stderr.log")" -le 10485760 ]'
 exec sh $WORK/capped.sh $LIMA_HOME/$APP serialv.log ha.stderr.log
 
 # The new start's host keys, pinned in place of 0.1.0's.
@@ -60,21 +62,13 @@ for f in serialv.log ha.stderr.log; do
   } >"$1/$f"
 done
 -- capped.sh --
-# capped.sh LIMA LOG...: each LOG in the VM's Lima folder LIMA comes to
-# 10 MiB at most, with a .1 beside it, within 30 seconds each,
-# and neither holds the password in $WORK/pw.
+# capped.sh LIMA LOG...: neither each LOG in the VM's Lima folder LIMA,
+# which wait_until saw come to 10 MiB at most with a .1 beside it, nor
+# the .1, holds the password in $WORK/pw, and the .1 holds the log.
 pw=$(cat "$WORK/pw")
 dir=$1
 shift
 for f in "$@"; do
-  i=0
-  while :; do
-    n=$(wc -c <"$dir/$f")
-    if [ -f "$dir/$f.1" ] && [ "$n" -le 10485760 ]; then break; fi
-    i=$((i + 1))
-    if [ "$i" -gt 60 ]; then echo "$f: $n bytes, $(ls "$dir")"; exit 1; fi
-    sleep 0.5
-  done
   if grep -qF "$pw" "$dir/$f" "$dir/$f.1"; then echo "$f: holds the password"; exit 1; fi
   grep -q 'a line of the boot' "$dir/$f.1" || { echo "$f.1: not the log"; exit 1; }
 done

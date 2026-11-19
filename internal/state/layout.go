@@ -103,8 +103,9 @@ func readVersion(path string) (int, error) {
 // folders (vms_stray): anything not a folder named like a hash
 // (vmname.IsHash); and the VMs' folders without a state file
 // (vm_folder_stateless), which a devvm that stopped while making or
-// deleting a VM leaves; and what it can't read (vms_unreadable), with
-// why. It changes nothing.
+// deleting a VM leaves; and the VMs' folder itself when it can't read it
+// (vms_unreadable), with why. A VM's folder it can't read is
+// vm.StateProblems', so doctor warns of it once. It changes nothing.
 func VMFolderProblems(d paths.Dirs) []msg.M {
 	es, err := os.ReadDir(d.VMs())
 	if errors.Is(err, fs.ErrNotExist) {
@@ -119,10 +120,9 @@ func VMFolderProblems(d paths.Dirs) []msg.M {
 			ms = append(ms, msg.VMsStray(path, d.VMs()))
 			continue
 		}
+		// A folder whose vm.json can't be looked at is vm.StateProblems', which names the VM and why.
 		if _, err := os.Lstat(paths.VM{Dir: path}.State()); errors.Is(err, fs.ErrNotExist) {
 			ms = append(ms, msg.VMFolderStateless(path))
-		} else if err != nil {
-			ms = append(ms, msg.VMsUnreadable(path).Because(err))
 		}
 	}
 	return ms

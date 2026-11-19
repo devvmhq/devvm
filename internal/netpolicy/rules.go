@@ -113,18 +113,13 @@ type namedAllowlist struct {
 }
 
 // allowlists are the allowlists an allow by method and path joins: st's
-// VM's, or with st nil, each VM's, as -g's file joins every VM's. A VM's
-// that can't be read is left out, with a warning naming it.
+// VM's, or with st nil, each VM's, as -g's file joins every VM's. A VM
+// whose state can't be read is left out (state.ReadableVMs), and takes no
+// other VM's out with it; devvm doctor names it.
 func allowlists(p *Proxy, st *state.VM) []namedAllowlist {
 	sts := []*state.VM{st}
 	if st == nil {
-		sts = nil
-		vms, _ := state.VMNames(p.Dirs)
-		for _, vm := range vms {
-			if s, err := state.ReadVM(p.Dirs, vm); err == nil && s.Exists() {
-				sts = append(sts, s)
-			}
-		}
+		sts = state.ReadableVMs(p.Dirs)
 	}
 	out := make([]namedAllowlist, 0, len(sts))
 	for _, s := range sts {
@@ -175,7 +170,10 @@ func (p *Proxy) OtherBinaries(rules []string, vm vmname.VM) {
 	}
 	vms := []vmname.VM{vm}
 	if vm == "" {
-		vms, _ = state.VMNames(p.Dirs)
+		vms = nil
+		for _, st := range state.ReadableVMs(p.Dirs) {
+			vms = append(vms, st.Name())
+		}
 	}
 	for _, v := range vms {
 		if otherBinary(p, v) {
@@ -415,14 +413,16 @@ func WriteRules(w io.Writer, files []RuleFile) error {
 }
 
 // NotRules returns doctor's warnings (PolicyWarnings) for the policy files
-// you edit: every VM's, your layers' and each VM's own.
+// you edit: every VM's, your layers' and each VM's own, so a VM whose
+// state can't be read, which doctor warns of on its own
+// (vm.StateProblems), takes no other VM's warnings away
+// (state.ReadableVMs).
 func NotRules(d paths.Dirs) []msg.M {
 	files := []string{d.Policy()}
 	layers, _ := filepath.Glob(filepath.Join(d.Layers(), "*.policy"))
 	files = append(files, layers...)
-	vms, _ := state.VMNames(d)
-	for _, vm := range vms {
-		files = append(files, d.VM(vm).Policy())
+	for _, st := range state.ReadableVMs(d) {
+		files = append(files, d.VM(st.Name()).Policy())
 	}
 	return PolicyWarnings(files)
 }

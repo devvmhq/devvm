@@ -76,6 +76,14 @@ exec devvm doctor --json
 stdout '"vm_state_broken name=0123456789abcd why=.*/vms/0123456789abcd/vm.json.*",'
 cmp $VMS/0123456789abcd/vm.json broken.json
 cmp $VMS/0123456789abce/vm.json badsection.json
+# A VM's folder devvm can't read: one warning, naming it and why, not two.
+mkdir $VMS/0123456789abd0
+cp good.json $VMS/0123456789abd0/vm.json
+chmod 0000 $VMS/0123456789abd0
+exec devvm doctor
+stderr -count=1 '^devvm: .*0123456789abd0'
+stderr '^devvm: vm_state_broken name=0123456789abd0 why=.*/vms/0123456789abd0/vm.json.*$'
+chmod 0700 $VMS/0123456789abd0
 rm $VMS
 
 # A Linux host that can't pin .git: read-only-paths is none, a warning

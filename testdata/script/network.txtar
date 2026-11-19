@@ -121,7 +121,10 @@ rm $STUB_DIR/net-direct
 # A running VM whose proxy is gone and can't start again (another program
 # took its port) is stopped, never left running without it.
 cd $WORK/net
-exec sh -c 'pp=$(sed -n "s/^ *\"proxy\": \([0-9]*\).*/\1/p" "$NET_dir/vm.json"); pkill -f -- "_proxy -config $NET_dir/run/proxy.json"; sleep 0.5; printf "{\"version\": 1, \"listen\": \"127.0.0.1:%s\", \"password\": \"k\", \"lifeline\": \"%s\"}\n" "$pp" "$WORK/squat.none" > "$WORK/squat.json"; chmod 600 "$WORK/squat.json"; devvm _proxy -config "$WORK/squat.json" >/dev/null 2>&1 & echo $! > "$WORK/squat.pid"; sleep 1'
+exec sh -c 'sed -n "s/^ *\"proxy\": \([0-9]*\).*/\1/p" "$NET_dir/vm.json" > "$WORK/squat.port"; pkill -f -- "_proxy -config $NET_dir/run/proxy.json"; true'
+wait_until '! nc -z 127.0.0.1 "$(cat "$WORK/squat.port")"'
+exec sh -c 'printf "{\"version\": 1, \"listen\": \"127.0.0.1:%s\", \"password\": \"k\", \"lifeline\": \"%s\"}\n" "$(cat "$WORK/squat.port")" "$WORK/squat.none" > "$WORK/squat.json"; chmod 600 "$WORK/squat.json"; devvm _proxy -config "$WORK/squat.json" >/dev/null 2>&1 & echo $! > "$WORK/squat.pid"'
+wait_until 'nc -z 127.0.0.1 "$(cat "$WORK/squat.port")"'
 stub_reset
 ! exec devvm
 stderr '^devvm: net_proxy_down_stopped vm=devvm-net-[0-9a-f]{14}$'

@@ -145,6 +145,50 @@ func TestCursorMints(t *testing.T) {
 	}
 }
 
+// In the account's services, a method for each verb that a check of the pinned release
+// (2026.11.17-f532c45, read, not run) found changing something is refused: every method each
+// verb matches there changes something, none only reads, and the CLI calls none. The CLI's own
+// calls in those services pass, Submit's and Resolve's among them, which is why neither verb is
+// refused.
+func TestCursorChangingVerbs(t *testing.T) {
+	const d, b, a = "/aiserver.v1.DashboardService/", "/aiserver.v1.BackgroundComposerService/", "/aiserver.v1.AutomationsService/"
+	for _, p := range []string{
+		d + "MergeOrganizationIdentityProvider", b + "ForkBackgroundComposer", b + "WriteMachineTextFile",
+		b + "PinBackgroundComposers", b + "UnpinBackgroundComposers", a + "RerunGrokBotAutomationFromCard",
+		d + "ConfirmGithubInstallation", d + "RequestOrganizationGroupAnthropicEfs", b + "ReleasePrivateWorkerClaim",
+		b + "AcquireAgentStoreFileLock", d + "ActivatePromotion", d + "DeactivateGrokAdminGuardrail",
+		d + "NotifyBugbotTeamAdmins", b + "MakePRBackgroundComposer", b + "OpenPRBackgroundComposer",
+		d + "EnsureXaiCursorTeamForMerge", d + "ParkUnifyGrokOAuthForAppSheet", d + "CopyOrganizationTeamSettingsToTeam",
+		d + "BulkMoveOrganizationMembers", d + "AdvanceXaiUnificationIntent", b + "AbortAgentStoreMultipartWrites",
+		b + "WakeBackgroundComposer", b + "SnapshotAndSaveEnvironment", b + "SeedStagedProjects",
+		b + "ReplyToReviewThread", d + "OptOutNewPricing", d + "HandOffMcpOAuthCode", b + "FailPrivateWorkerClaim",
+		d + "UseSandBankedReset", d + "SkipPrivacyModeGracePeriod", d + "DecideAppReviewOverride",
+		b + "UnshareBackgroundComposerArtifact", b + "UndeleteAgentStoreFiles", d + "UnpublishPlugin",
+		d + "UnprepareXaiCursorTeamMergeCheckout", b + "UnresolveReviewThread", d + "EnrollInGlassEarlyPreview",
+		d + "UnenrollFromGlassEarlyPreview", d + "UpgradeToYearly", d + "SuspendTeamServiceAccount",
+		d + "SwitchTeamPrivacyMode", b + "DuplicateEnvironment", b + "DismissStagedProject",
+		b + "DeregisterPrivateWorkerPool", b + "DeliverMainBotEvalEvent", b + "DeclineProjectInvite",
+		b + "ConvertPullRequestFromDraft", b + "CloseEventSubscription", d + "AppendRsiRecord", d + "ExecuteSandMcpTool",
+		d + "ProvisionUnifyGrokAccount", b + "MutateProjectTrackedTasks", b + "InjectBackgroundComposerContext",
+		d + "FinishSetupGithubEnterpriseApp", d + "FinalizeIndividualUnification", a + "ReassignAutomationOwner",
+		b + "ReinstallProjectSlackApp", d + "RejectPlugin", b + "RenewAgentStoreFileLock", b + "ReorderPendingFollowup",
+		b + "ReparentBackgroundComposer", d + "ReplaceTeamLlmGatewayCredential", d + "ResendTeamPendingInvite",
+		b + "RmdirAgentStore", d + "ReportGrokCreditPackPurchase", d + "RecordSandAuditEvents",
+	} {
+		if cursorMints(cursorAPI, &http.Request{Method: http.MethodPost, URL: &url.URL{Path: p}, Header: http.Header{}}) == "" {
+			t.Errorf("%s passes", p)
+		}
+	}
+	for _, p := range []string{
+		a + "ValidateAutomationSpec", d + "ResolvePluginsByRef", d + "SubmitFeedback", d + "SubmitFeedbackAnon",
+		d + "GetEffectiveUserPlugins", b + "GetBackgroundComposerStatus", b + "ListPrivateWorkers",
+	} {
+		if got := cursorMints(cursorAPI, &http.Request{Method: http.MethodPost, URL: &url.URL{Path: p}, Header: http.Header{}}); got != "" {
+			t.Errorf("the CLI's own %s refused: %s", p, got)
+		}
+	}
+}
+
 // What of a request to a Cursor host asks for a compressed reply goes: HTTP's, Connect's and
 // gRPC's.
 func TestCursorUnencoded(t *testing.T) {
