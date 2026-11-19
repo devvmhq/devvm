@@ -50,6 +50,9 @@ type UI struct {
 	// rawInput puts the terminal devvm reads from into raw mode, returning
 	// what undoes it.
 	rawInput func() (restore func(), err error)
+	// saveTerminal saves the state of the terminal devvm reads from,
+	// returning what puts it back (Terminal).
+	saveTerminal func() (restore func(), err error)
 	// getenv reads the terminal's character set.
 	getenv func(string) string
 	// verboseOn streams the run log to stderr, noInput refuses every
@@ -109,7 +112,7 @@ func New(stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) 
 	u := &UI{
 		stdout: stdout, stderr: stderr, stdin: bufio.NewReader(stdin),
 		termWidth: func() int { return 0 }, termSize: func() (int, int) { return 0, 0 }, rawInput: rawTerminal,
-		getenv: getenv, runLogs: runLogs, interruptGrace: time.Second,
+		saveTerminal: savedTerminal, getenv: getenv, runLogs: runLogs, interruptGrace: time.Second,
 	}
 	u.outStyle, u.errStyle = newStyle(u.getenv, false), newStyle(u.getenv, false)
 	u.readPassword = u.readTerminal
@@ -181,13 +184,35 @@ func Files(u *UI) (stdout, stderr *os.File) {
 // a terminal, its stdin and stdout both terminals and stderr a file, and
 // nil files otherwise: what a command in a VM that draws on the terminal
 // gets (an agent's login), since the backend gives it a terminal in the
-// VM only when its streams are one (backend.ExecOpts).
-func Terminal(u *UI) (stdout, stderr *os.File) {
+// VM only when its streams are one (backend.ExecOpts). With the files
+// comes restore, which puts the terminal back as it was now, for the
+// caller to call once the command ends: the backend's ssh holds the
+// terminal in raw mode while it runs, and one that a signal kills, such
+// as one an interrupt sends, leaves it so. A cleanup puts it back too, if
+// the run ends first.
+func Terminal(u *UI) (stdout, stderr *os.File, restore func()) {
 	stdout, stderr = Files(u)
 	if !u.stdinTTY || !u.stdoutTTY || stdout == nil || stderr == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return stdout, stderr
+	put, err := u.saveTerminal()
+	if err != nil {
+		return stdout, stderr, func() {} // a state it can't read, it can't put back
+	}
+	var once sync.Once
+	back := func() { once.Do(put) }
+	remove := u.AddCleanup(func(context.Context) { back() })
+	return stdout, stderr, func() { back(); remove() }
+}
+
+// savedTerminal saves the state of the terminal devvm reads from,
+// returning what puts it back.
+func savedTerminal() (restore func(), err error) {
+	old, err := term.GetState(fd(os.Stdin))
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = term.Restore(fd(os.Stdin), old) }, nil
 }
 
 type lockedWriter struct {

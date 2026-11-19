@@ -203,6 +203,16 @@ func TestWriteFileIn(t *testing.T) {
 	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
 		t.Errorf("written outside the root: %v", entries)
 	}
+	// A write that fails at its rename, onto a folder, leaves no temporary file.
+	if err := os.MkdirAll(filepath.Join(dir, "c", "d", "e"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileIn(root, filepath.Join("c", "d"), []byte("x"), 0o600); err == nil {
+		t.Error("written over a folder")
+	}
+	if entries, _ := os.ReadDir(filepath.Join(dir, "c")); len(entries) != 1 {
+		t.Errorf("left %v", entries)
+	}
 }
 
 // PrivateDir makes a folder, with those above it, 700; corrects one there

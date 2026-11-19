@@ -494,6 +494,7 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"agent_import_read_failed":        "using/coding-agents#importing-from-this-machine",
 	"agent_import_too_much":           "using/coding-agents#importing-from-this-machine",
 	"agent_import_project_inside":     "using/coding-agents#importing-from-this-machine",
+	"agent_import_states_unread":      "using/coding-agents#importing-from-this-machine",
 	"marketplace_secret":              "using/coding-agents#mounts",
 	"marketplace_unchecked":           "using/coding-agents#mounts",
 	"agent_import_link_refused":       "using/coding-agents#links-out-of-an-agents-folder",

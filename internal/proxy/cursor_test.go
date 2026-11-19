@@ -88,7 +88,6 @@ func TestCursorMints(t *testing.T) {
 		{"api2.cursor.sh", "POST", "/aiserver.v1.BackgroundComposerService/UnmuteBackgroundComposers", true},
 		{"api2.cursor.sh", "POST", "/aiserver.v1.DashboardService/CloneGrokCollection", true},
 		{"api2.cursor.sh", "POST", "/aiserver.v1.DashboardService/CommitOrganizationNetworkBlocklistUpload", true},
-		{"api2.cursor.sh", "POST", "/aiserver.v1.DashboardService/GenerateGrokCollectionDescription", true},
 		{"api2.cursor.sh", "POST", "/aiserver.v1.DashboardService/GenerateTeamGrokBotScimIdpSigningKey", true},
 		{"api2.cursor.sh", "POST", "/aiserver.v1.DashboardService/ReindexAndApplyTeamMarketplaceChanges", true},
 		{"api2.cursor.sh", "POST", "/aiserver.v1.DashboardService/ReindexGrokCollectionDocument", true},
@@ -146,10 +145,11 @@ func TestCursorMints(t *testing.T) {
 }
 
 // In the account's services, a method for each verb that a check of the pinned release
-// (2026.11.17-f532c45, read, not run) found changing something is refused: every method each
-// verb matches there changes something, none only reads, and the CLI calls none. The CLI's own
-// calls in those services pass, Submit's and Resolve's among them, which is why neither verb is
-// refused.
+// (2026.11.17-f532c45, read, not run) found changing something is refused, and the CLI calls none
+// of them. The CLI's own calls in those services pass, Submit's and Resolve's among them, which is
+// why neither verb is refused, and so does a method that only reads, which no verb matches. Every
+// path the CLI's login goes to (agentlogin's cursorRoutes) passes too, which agentlogin's
+// TestCursorCapture checks, as this package can't import agentlogin, which imports it.
 func TestCursorChangingVerbs(t *testing.T) {
 	const d, b, a = "/aiserver.v1.DashboardService/", "/aiserver.v1.BackgroundComposerService/", "/aiserver.v1.AutomationsService/"
 	for _, p := range []string{
@@ -182,10 +182,17 @@ func TestCursorChangingVerbs(t *testing.T) {
 	for _, p := range []string{
 		a + "ValidateAutomationSpec", d + "ResolvePluginsByRef", d + "SubmitFeedback", d + "SubmitFeedbackAnon",
 		d + "GetEffectiveUserPlugins", b + "GetBackgroundComposerStatus", b + "ListPrivateWorkers",
+		// A method that only reads, which no verb matches: it drafts a description and only returns it.
+		d + "GenerateGrokCollectionDescription",
 	} {
 		if got := cursorMints(cursorAPI, &http.Request{Method: http.MethodPost, URL: &url.URL{Path: p}, Header: http.Header{}}); got != "" {
-			t.Errorf("the CLI's own %s refused: %s", p, got)
+			t.Errorf("%s refused: %s", p, got)
 		}
+	}
+	// test refuses TestAutomationFilter, which only reads, for this one, which has Cursor's servers
+	// send a request anywhere.
+	if cursorMints(cursorAPI, &http.Request{Method: http.MethodPost, URL: &url.URL{Path: d + "TestTeamCustomerTelemetryDestinationConnection"}, Header: http.Header{}}) == "" {
+		t.Error("TestTeamCustomerTelemetryDestinationConnection passes")
 	}
 }
 

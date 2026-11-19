@@ -178,7 +178,12 @@ func AgentImportRootRefused(dir string, place string) M {
 	return M{id: "agent_import_root_refused", vals: []val{{"dir", dir}, {"place", place}}}
 }
 
-// AgentImportTooMuch is [agent_import_too_much]: "{{.folder}} holds more of {{.agent}}'s settings than one import copies, 20,000 files and folders or 128 MiB, so devvm imported nothing. Take out what the folder doesn't need, such as a plugin's build files, then run devvm agent import again."
+// AgentImportStatesUnread is [agent_import_states_unread]: "Reading {{.path}} failed ({{.why}}), so devvm can't tell whether a VM's project folder overlaps an agent's folder it imports. Run devvm doctor, which names what's wrong with it."
+func AgentImportStatesUnread(path string, why string) M {
+	return M{id: "agent_import_states_unread", vals: []val{{"path", path}, {"why", why}}}
+}
+
+// AgentImportTooMuch is [agent_import_too_much]: "{{.folder}} holds more of {{.agent}}'s settings than one import copies, 20,000 files, folders and links, 128 MiB or a file of 16 MiB, so devvm imported nothing. Take out what the folder doesn't need, such as a plugin's build files, then run devvm agent import again."
 func AgentImportTooMuch(agent string, folder string) M {
 	return M{id: "agent_import_too_much", vals: []val{{"agent", agent}, {"folder", folder}}}
 }
@@ -5499,6 +5504,7 @@ var specs = map[string]spec{
 	"agent_import_read_failed":        {fields: []string{"file", "why"}},
 	"agent_import_replace":            {fields: []string{"agents"}},
 	"agent_import_root_refused":       {fields: []string{"dir", "place"}},
+	"agent_import_states_unread":      {fields: []string{"path", "why"}},
 	"agent_import_too_much":           {fields: []string{"agent", "folder"}},
 	"agent_key_changed":               {fields: []string{"key"}},
 	"agent_key_copy_failed":           {fields: []string{"agent", "vm"}},

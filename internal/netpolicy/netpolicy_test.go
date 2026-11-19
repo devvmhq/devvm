@@ -1193,6 +1193,28 @@ func TestNarrowNotesUnreadable(t *testing.T) {
 	}
 }
 
+// An allow by method for every VM (-g) checks each VM's allowlist, and a
+// VM whose state can't be read takes no other VM's out: the VM whose
+// allowlist allows the host whole is still named.
+func TestNarrowNotesBesideBroken(t *testing.T) {
+	d, st := sandbox(t, "base")
+	p, _ := testProxy(t, d)
+	var got []string
+	p.Reporter = &msg.Fake{OnAny: func(m msg.M) { got = append(got, m.Names()) }}
+	broken := d.VM("devvm-y-0123456789abce").State()
+	if err := os.MkdirAll(filepath.Dir(broken), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(broken, []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p.NarrowNotes([]string{"api.github.com GET"}, nil, false)
+	want := []string{"rule_narrows_nothing host=api.github.com rule=api.github.com GET vms=" + st.Name().String()}
+	if !slices.Equal(got, want) {
+		t.Errorf("said %q, want %q", got, want)
+	}
+}
+
 // PID names only a process running as the VM's proxy.
 func TestPID(t *testing.T) {
 	d, st := sandbox(t, "base")

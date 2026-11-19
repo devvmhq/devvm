@@ -115,9 +115,17 @@ func WriteFileIn(root *os.Root, name string, data []byte, mode os.FileMode) erro
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", name, err)
 	}
-	_, err = f.Write(data)
-	if err == nil && mode.Perm() != 0o600 {
-		err = f.Chmod(mode.Perm())
+	return finishTemp(f, data, mode.Perm(), name, func() error { return root.Rename(tmp, name) }, func() error { return root.Remove(tmp) })
+}
+
+// finishTemp is the end of every whole-file write: it writes data to f, a
+// new temporary file of mode 600, gives it perm, syncs and closes it, and
+// puts it in place (rename). On any failure it takes the temporary file
+// out (remove) and names the file it was writing, name.
+func finishTemp(f *os.File, data []byte, perm os.FileMode, name string, rename, remove func() error) error {
+	_, err := f.Write(data)
+	if err == nil && perm != 0o600 {
+		err = f.Chmod(perm)
 	}
 	if err == nil {
 		err = f.Sync()
@@ -126,10 +134,10 @@ func WriteFileIn(root *os.Root, name string, data []byte, mode os.FileMode) erro
 		err = cerr
 	}
 	if err == nil {
-		err = root.Rename(tmp, name)
+		err = rename()
 	}
 	if err != nil {
-		_ = root.Remove(tmp)
+		_ = remove() // the write's own error is the one to name
 		return fmt.Errorf("writing %s: %w", name, err)
 	}
 	return nil
@@ -153,25 +161,8 @@ func writeFileMode(path string, data []byte, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	tmp := f.Name()
-	_, err = f.Write(data)
-	if err == nil && perm != 0o600 { // CreateTemp makes it 600
-		err = f.Chmod(perm)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Rename(tmp, path)
-	}
-	if err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("writing %s: %w", path, err)
-	}
-	return nil
+	tmp := f.Name() // CreateTemp makes it 600
+	return finishTemp(f, data, perm, path, func() error { return os.Rename(tmp, path) }, func() error { return os.Remove(tmp) })
 }
 
 // removeFile deletes path; a missing file is not an error.

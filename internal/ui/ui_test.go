@@ -434,9 +434,10 @@ func TestTerminal(t *testing.T) {
 	} {
 		u := New(strings.NewReader(""), c.w, c.errW, env{}.get)
 		u.stdinTTY, u.stdoutTTY = c.stdin, c.stdout
-		gotOut, gotErr := Terminal(u)
-		if (gotOut == nil) != (gotErr == nil) {
-			t.Errorf("%s: Terminal = %v, %v, a half pair", c.name, gotOut, gotErr)
+		u.saveTerminal = func() (func(), error) { return func() {}, nil }
+		gotOut, gotErr, restore := Terminal(u)
+		if (gotOut == nil) != (gotErr == nil) || (gotOut == nil) != (restore == nil) {
+			t.Errorf("%s: Terminal = %v, %v, restore %v: files and restore come together or not at all", c.name, gotOut, gotErr, restore != nil)
 		}
 		if got := gotOut != nil; got != c.want {
 			t.Errorf("%s: Terminal = %v, %v, want files %v", c.name, gotOut, gotErr, c.want)
@@ -444,5 +445,40 @@ func TestTerminal(t *testing.T) {
 		if c.want && (gotOut != out || gotErr != errOut) {
 			t.Errorf("%s: Terminal = %v, %v, want devvm's own", c.name, gotOut, gotErr)
 		}
+	}
+}
+
+// Terminal saves the terminal's state, and what it returns puts it back
+// once, as does a cleanup when the run ends first, as an interrupted
+// one's does; a terminal whose state can't be read has nothing to put
+// back.
+func TestTerminalRestores(t *testing.T) {
+	out, err := os.CreateTemp(t.TempDir(), "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	for _, ended := range []bool{false, true} {
+		u := New(strings.NewReader(""), out, out, env{}.get)
+		u.stdinTTY, u.stdoutTTY = true, true
+		saved, restored := 0, 0
+		u.saveTerminal = func() (func(), error) { saved++; return func() { restored++ }, nil }
+		_, _, restore := Terminal(u)
+		if ended {
+			u.runCleanups()
+		}
+		restore()
+		u.runCleanups()
+		if saved != 1 || restored != 1 {
+			t.Errorf("run ended first %v: saved %d, restored %d, want once each", ended, saved, restored)
+		}
+	}
+	u := New(strings.NewReader(""), out, out, env{}.get)
+	u.stdinTTY, u.stdoutTTY = true, true
+	u.saveTerminal = func() (func(), error) { return nil, errors.New("not a terminal") }
+	if _, _, restore := Terminal(u); restore == nil {
+		t.Error("a state it can't read: no restore")
+	} else {
+		restore()
 	}
 }

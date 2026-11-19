@@ -58,8 +58,11 @@ type Env struct {
 	// when devvm runs on a terminal, its input and output both terminals
 	// (ui.Terminal), and nil files otherwise: what an agent's login in the
 	// VM draws on, since the backend gives a command in the VM a terminal
-	// only when its own output is one. Its caller sets it; nil is none.
-	Terminal func() (stdout, stderr *os.File)
+	// only when its own output is one. With the files comes restore, never
+	// nil then, which puts the terminal back as it was, called once the
+	// command ends, as the backend's ssh can leave it in raw mode when a
+	// signal ends it. Its caller sets it; nil is none.
+	Terminal func() (stdout, stderr *os.File, restore func())
 	// OpenURL opens a URL with macOS's open (devvm desktop's vnc://, in
 	// Screen Sharing).
 	OpenURL func(ctx context.Context, url string) error

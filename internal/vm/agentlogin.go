@@ -145,9 +145,13 @@ func (e AgentLogin) login(ctx context.Context, t *target, o AgentLoginOptions) e
 		e.Info(msg.AgentLoginForward(o.Agent, strconv.Itoa(loginPort), vm))
 	}
 	argv := append([]string{"bash", "-lc", loginScript, "devvm"}, cmd.Run(o.Device, o.SetupToken)...)
-	opts, onTerminal := e.loginOpts()
-	if o.SetupToken && !onTerminal {
+	opts, restore := e.loginOpts()
+	if restore == nil && o.SetupToken {
 		e.Warn(msg.SetupTokenNoTerminal(o.Agent))
+	}
+	if restore != nil {
+		// Last, once the login and endLogin are done: the terminal as it was before.
+		defer restore()
 	}
 	// Interrupted, the run ends the login in the VM too, here or, past
 	// the run's grace for this command, in its cleanups.
@@ -171,23 +175,24 @@ func (e AgentLogin) login(ctx context.Context, t *target, o AgentLoginOptions) e
 	return nil
 }
 
-// loginOpts are the login's streams, and whether they're a terminal:
-// devvm's input, and on a terminal (Terminal) its output as the files
-// they are, so the backend gives the login a terminal in the VM
-// (backend.ExecOpts), which a full-screen login (claude setup-token)
-// draws on; without one, devvm's writers, pipes. Either way the login's
-// output reaches devvm's output alone, never the run log.
-func (e AgentLogin) loginOpts() (backend.ExecOpts, bool) {
+// loginOpts are the login's streams, and on a terminal what puts the
+// terminal back as it was (nil without one): devvm's input, and on a
+// terminal (Terminal) its output as the files they are, so the backend
+// gives the login a terminal in the VM (backend.ExecOpts), which a
+// full-screen login (claude setup-token) draws on; without one, devvm's
+// writers, pipes. Either way the login's output reaches devvm's output
+// alone, never the run log.
+func (e AgentLogin) loginOpts() (backend.ExecOpts, func()) {
 	o := backend.ExecOpts{Stdin: os.Stdin, Stdout: e.Stdout(), Stderr: e.Stderr()}
 	if e.Terminal == nil {
-		return o, false
+		return o, nil
 	}
-	out, errOut := e.Terminal()
+	out, errOut, restore := e.Terminal()
 	if out == nil {
-		return o, false
+		return o, nil
 	}
 	o.Stdout, o.Stderr = out, errOut
-	return o, true
+	return o, restore
 }
 
 // loginScript runs the agent's login in a login shell (commandScript's

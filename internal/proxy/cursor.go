@@ -91,11 +91,16 @@ var cursorPersists = []string{
 var cursorAccount = []string{"/aiserver.v1.DashboardService/", "/aiserver.v1.AutomationsService/", "/aiserver.v1.BackgroundComposerService/"}
 
 // cursorChanges matches a method's name that starts with a verb that changes something. Each verb
-// was checked against the release's methods of cursorAccount's services: every method it matches
-// changes something, none only reads, and the CLI calls none of them. So verbs whose methods also
-// read, such as Check, Batch, Resolve and Submit, which the CLI's SubmitFeedback starts with, aren't
-// among them.
-var cursorChanges = regexp.MustCompile(`(?i)^(apply|create|update|upsert|set|delete|remove|enable|disable|install|uninstall|register|add|invite|start|launch|trigger|run|test|pause|resume|rotate|revoke|refresh|toggle|archive|restore|move|rename|edit|modify|change|approve|accept|join|leave|transfer|grant|connect|disconnect|unlink|link|share|publish|import|sync|redeem|complete|schedule|cancel|stop|kill|send|post|put|patch|save|store|upload|attach|detach|assign|unassign|promote|demote|reset|clear|purge|migrate|claim|mark|clone|commit|generate|mute|unmute|reindex|retry|merge|fork|write|pin|unpin|rerun|confirm|request|release|acquire|activate|deactivate|notify|make|open|ensure|park|copy|bulk|advance|abort|wake|snapshot|seed|reply|opt|hand|fail|use|skip|decide|unshare|undelete|unpublish|unprepare|unresolve|enroll|unenroll|upgrade|suspend|switch|duplicate|dismiss|deregister|deliver|decline|convert|close|append|execute|provision|mutate|inject|finish|finalize|reassign|reinstall|reject|renew|reorder|reparent|replace|resend|rmdir|report|record)`)
+// was checked against the release's 1,463 methods of cursorAccount's services: every method it
+// matches changes something or acts outside the VM, and the CLI calls none of them. So verbs whose
+// methods also read, such as Check, Batch, Resolve, Generate and Submit, which the CLI's
+// SubmitFeedback starts with, aren't among them. One method that test matches only reads,
+// TestAutomationFilter, a dry run of an automation's filter on a sample: test stays, for
+// TestTeamCustomerTelemetryDestinationConnection, which has Cursor's servers send a request with
+// any headers to any address. A verb that matches nothing in the release, such as launch or edit,
+// is there for the methods Cursor adds, and so is one that matches only methods that
+// cursorCredential refuses too, such as rotate, park or replace.
+var cursorChanges = regexp.MustCompile(`(?i)^(apply|create|update|upsert|set|delete|remove|enable|disable|install|uninstall|register|add|invite|start|launch|trigger|run|test|pause|resume|rotate|revoke|refresh|toggle|archive|restore|move|rename|edit|modify|change|approve|accept|join|leave|transfer|grant|connect|disconnect|unlink|link|share|publish|import|sync|redeem|complete|schedule|cancel|stop|kill|send|post|put|patch|save|store|upload|attach|detach|assign|unassign|promote|demote|reset|clear|purge|migrate|claim|mark|clone|commit|mute|unmute|reindex|retry|merge|fork|write|pin|unpin|rerun|confirm|request|release|acquire|activate|deactivate|notify|make|open|ensure|park|copy|bulk|advance|abort|wake|snapshot|seed|reply|opt|hand|fail|use|skip|decide|unshare|undelete|unpublish|unprepare|unresolve|enroll|unenroll|upgrade|suspend|switch|duplicate|dismiss|deregister|deliver|decline|convert|close|append|execute|provision|mutate|inject|finish|finalize|reassign|reinstall|reject|renew|reorder|reparent|replace|resend|rmdir|report|record)`)
 
 // cursorAccountChange reports whether p, a method's clean path, changes the account (cursorPersists,
 // or a changing verb in cursorAccount's services).

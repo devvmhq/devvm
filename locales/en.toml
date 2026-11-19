@@ -3219,7 +3219,11 @@ other = "devvm left out the link {{.path}}, because it leads through a link in {
 
 [agent_import_too_much]
 description = "folder is the agent's folder in the home folder"
-other = "{{.folder}} holds more of {{.agent}}'s settings than one import copies, 20,000 files and folders or 128 MiB, so devvm imported nothing. Take out what the folder doesn't need, such as a plugin's build files, then run devvm agent import again."
+other = "{{.folder}} holds more of {{.agent}}'s settings than one import copies, 20,000 files, folders and links, 128 MiB or a file of 16 MiB, so devvm imported nothing. Take out what the folder doesn't need, such as a plugin's build files, then run devvm agent import again."
+
+[agent_import_states_unread]
+description = "path is a VM's state file, or the folder of the VMs' states, that devvm agent import couldn't read; why is the error"
+other = "Reading {{.path}} failed ({{.why}}), so devvm can't tell whether a VM's project folder overlaps an agent's folder it imports. Run devvm doctor, which names what's wrong with it."
 
 [agent_import_project_inside]
 description = "dir is the VM's project folder; folder is the agent's folder in the home folder, which holds it or is in it"

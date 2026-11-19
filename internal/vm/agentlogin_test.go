@@ -178,25 +178,32 @@ func TestAgentLoginTerminal(t *testing.T) {
 	}
 	login := AgentLogin{e}
 	o := AgentLoginOptions{Agent: agents.Claude, SetupToken: true}
+	restored := 0
+	onTerminal := func() (*os.File, *os.File, func()) { return out, errOut, func() { restored++ } }
 	for _, c := range []struct {
 		name     string
-		terminal func() (stdout, stderr *os.File)
+		terminal func() (stdout, stderr *os.File, restore func())
 		stdout   io.Writer
 		stderr   io.Writer
 		warned   []string
+		restored int
 	}{
-		{"a terminal", func() (*os.File, *os.File) { return out, errOut }, out, errOut, nil},
-		{"no terminal", func() (*os.File, *os.File) { return nil, nil }, e.Stdout(), e.Stderr(), []string{"setup_token_no_terminal agent=claude"}},
-		{"no seam", nil, e.Stdout(), e.Stderr(), []string{"setup_token_no_terminal agent=claude"}},
+		{"a terminal", onTerminal, out, errOut, nil, 1},
+		{"no terminal", func() (*os.File, *os.File, func()) { return nil, nil, nil }, e.Stdout(), e.Stderr(), []string{"setup_token_no_terminal agent=claude"}, 0},
+		{"no seam", nil, e.Stdout(), e.Stderr(), []string{"setup_token_no_terminal agent=claude"}, 0},
 	} {
 		var said msg.Recorder
 		fake(e).OnWarn = said.Add
 		e.Terminal = c.terminal
+		restored = 0
 		if err := login.login(t.Context(), tg, o); err != nil {
 			t.Fatalf("%s: %v", c.name, msg.NamesOf(err))
 		}
 		if names := said.Names(); !slices.Equal(names, c.warned) {
 			t.Errorf("%s: warned %q, want %q", c.name, names, c.warned)
+		}
+		if restored != c.restored {
+			t.Errorf("%s: the terminal put back %d times, want %d", c.name, restored, c.restored)
 		}
 		got := loginOpts()
 		if got.Stdout != c.stdout || got.Stderr != c.stderr {
@@ -205,6 +212,32 @@ func TestAgentLoginTerminal(t *testing.T) {
 		if got.Stdin != os.Stdin {
 			t.Errorf("%s: the login's stdin %v, want devvm's", c.name, got.Stdin)
 		}
+	}
+	// Interrupted, as a signal to devvm cancels the run, the login in the VM ends, then the
+	// terminal is put back as it was, once.
+	ended := func() bool {
+		for _, c := range f.Calls() {
+			if c.Method != "Exec" || len(c.Args) < 2 {
+				continue
+			}
+			if argv, ok := c.Args[1].([]string); ok && slices.Contains(argv, endScript) {
+				return true
+			}
+		}
+		return false
+	}
+	restored = 0
+	endedFirst := false
+	e.Terminal = func() (*os.File, *os.File, func()) {
+		return out, errOut, func() { restored++; endedFirst = ended() }
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := login.login(ctx, tg, o); !errors.Is(err, context.Canceled) {
+		t.Errorf("interrupted: %v", msg.NamesOf(err))
+	}
+	if restored != 1 || !endedFirst {
+		t.Errorf("interrupted: the terminal put back %d times, after the login ended %v", restored, endedFirst)
 	}
 }
 

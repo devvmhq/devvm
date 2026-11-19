@@ -395,7 +395,7 @@ func (e finder) parentVM(ctx context.Context) (*target, error) {
 		found, fst = &pf, pst
 		return false, nil
 	})
-	if err != nil || found == nil || !e.sameFolder(ctx, *found, fst) {
+	if err != nil || found == nil || fst == nil || !e.sameFolder(ctx, *found, fst) {
 		return nil, err
 	}
 	p, err := e.inspect(ctx, *found, fst)

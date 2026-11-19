@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -162,9 +163,11 @@ func TestAgentImport(t *testing.T) {
 		t.Errorf("excluded from backups %q", im.excluded)
 	}
 	want := []string{
-		"agent_settings_imported agent=claude dir=" + claude, "agent_login_imported agent=claude file=" + secrets.LoginFile(im.Dirs, "claude"),
-		"agent_settings_imported agent=codex dir=" + codex, "agent_login_imported agent=codex file=" + secrets.LoginFile(im.Dirs, "codex"),
-		"agent_settings_imported agent=opencode dir=" + opencode, "agent_login_imported agent=opencode file=" + secrets.LoginFile(im.Dirs, "opencode"),
+		"agent_settings_imported agent=claude dir=" + claude, "agent_settings_imported agent=codex dir=" + codex,
+		"agent_settings_imported agent=opencode dir=" + opencode,
+		"agent_login_imported agent=claude file=" + secrets.LoginFile(im.Dirs, "claude"),
+		"agent_login_imported agent=codex file=" + secrets.LoginFile(im.Dirs, "codex"),
+		"agent_login_imported agent=opencode file=" + secrets.LoginFile(im.Dirs, "opencode"),
 	}
 	if !slices.Equal(im.got, want) {
 		t.Errorf("said %q", im.got)
@@ -336,7 +339,7 @@ func TestAgentImportSwappedAfterListing(t *testing.T) {
 				}
 			}
 		}
-		err = im.save(t.Context(), h)
+		err = im.save(t.Context(), []*hostAgent{h})
 		h.close()
 		store := filepath.Join(agentStore(im.Dirs, "claude"), ".claude/skills/vm")
 		if !swap {
@@ -569,7 +572,8 @@ func TestAgentImportLinkedStoreOfAnother(t *testing.T) {
 	}
 }
 
-// pruneStore and clearKind reach the store from devvm's config folder,
+// pruneStore and makeStoreDir, which an import's every write goes through
+// (clearKind's included), reach the store from devvm's config folder,
 // never through a link, so what a link leads to keeps everything.
 func TestStoreOpsRefuseLinks(t *testing.T) {
 	config := t.TempDir()
@@ -585,14 +589,13 @@ func TestStoreOpsRefuseLinks(t *testing.T) {
 	if _, ok := errors.AsType[storeLink](pruneStore(config, store, map[string]bool{})); !ok {
 		t.Error("pruneStore: no storeLink")
 	}
-	if _, ok := errors.AsType[storeLink](clearKind(config, store, "x", false)); !ok {
-		t.Error("clearKind: no storeLink")
-	}
-	if r, err := makeStoreDir(config, filepath.Join(store, ".claude")); err == nil {
-		_ = r.Close()
-		t.Error("makeStoreDir: made through a link")
-	} else if _, ok := errors.AsType[storeLink](err); !ok {
-		t.Errorf("makeStoreDir: %v, not a storeLink", err)
+	for _, dir := range []string{store, filepath.Join(store, ".claude")} {
+		if r, err := makeStoreDir(config, dir); err == nil {
+			_ = r.Close()
+			t.Errorf("makeStoreDir(%s): made through a link", dir)
+		} else if _, ok := errors.AsType[storeLink](err); !ok {
+			t.Errorf("makeStoreDir(%s): %v, not a storeLink", dir, err)
+		}
 	}
 	for _, f := range []string{"keep.txt", "x/y"} {
 		if got := readFile(t, filepath.Join(victim, f)); got != "mine" {
@@ -633,39 +636,72 @@ func TestAgentImportNothing(t *testing.T) {
 }
 
 // An agent's folder that holds more settings than one import copies, more
-// than 128 MiB of files or more than 20,000 files and folders, fails the
-// import before the store changes, naming the folder (the other tests
-// import folders within them).
+// than 128 MiB of files, a file of more than 16 MiB, or more than 20,000
+// entries of any kind (a link and a FIFO count as a file does), fails the
+// import before the store changes, naming the folder. A folder at each
+// bound lists whole (the other tests import folders within them). The
+// folder's settings.json and skills folder are two of its entries and 2
+// of its bytes.
 func TestAgentImportTooMuch(t *testing.T) {
+	// many fills skills with n entries: a link that leads nowhere, a FIFO,
+	// and files.
+	many := func(n int) func(*testing.T, string) {
+		return func(t *testing.T, skills string) {
+			if err := os.MkdirAll(skills, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("nowhere", filepath.Join(skills, "link")); err != nil {
+				t.Fatal(err)
+			}
+			if err := syscall.Mkfifo(filepath.Join(skills, "fifo"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			for i := range n - 2 {
+				sparse(t, filepath.Join(skills, strconv.Itoa(i)), 0)
+			}
+		}
+	}
+	// bytes fills skills with files of n bytes in all, none more than 16 MiB.
+	bytes := func(n int64) func(*testing.T, string) {
+		return func(t *testing.T, skills string) {
+			for i := 0; n > 0; i++ {
+				size := min(n, saveMaxFile)
+				sparse(t, filepath.Join(skills, strconv.Itoa(i)), size)
+				n -= size
+			}
+		}
+	}
 	for _, tc := range []struct {
 		name string
 		fill func(t *testing.T, skills string)
-		want string
+		fits bool
 	}{
-		{"more than 128 MiB", func(t *testing.T, skills string) {
-			sparse(t, filepath.Join(skills, "big", "a"), saveMaxBytes/2)
-			sparse(t, filepath.Join(skills, "big", "b"), saveMaxBytes/2+1)
-		}, "agent_import_too_much"},
-		{"more than 20,000 entries", func(t *testing.T, skills string) {
-			for i := range saveMaxEntries {
-				sparse(t, filepath.Join(skills, "many", strconv.Itoa(i/1000), strconv.Itoa(i)), 0)
-			}
-		}, "agent_import_too_much"},
+		{"128 MiB", bytes(saveMaxBytes - 2), true},
+		{"a byte more than 128 MiB", bytes(saveMaxBytes - 1), false},
+		{"a file of 16 MiB and a byte", func(t *testing.T, skills string) { sparse(t, filepath.Join(skills, "big"), saveMaxFile+1) }, false},
+		{"20,000 entries", many(saveMaxEntries - 2), true},
+		{"20,001 entries", many(saveMaxEntries - 1), false},
 	} {
 		im := newImporter(t)
 		home := im.Dirs.Home
 		write(t, home, map[string]string{".claude/settings.json": "{}"})
 		tc.fill(t, filepath.Join(home, ".claude", "skills"))
+		if tc.fits {
+			// Listed whole, not copied: the copy's bounds are TestAgentImportReadBudget's.
+			h, err := im.read(t.Context(), "claude", nil)
+			if err != nil {
+				t.Errorf("%s: %v", tc.name, msg.NamesOf(err))
+			} else {
+				h.close()
+			}
+			continue
+		}
 		err := im.Run(t.Context(), []string{"claude"}, true)
-		if msg.IDOf(err) != tc.want {
-			t.Errorf("%s: %v, want %q", tc.name, msg.NamesOf(err), tc.want)
+		if want := "agent_import_too_much agent=claude folder=" + filepath.Join(home, ".claude"); msg.NamesOf(err) != want {
+			t.Errorf("%s: %v, want %s", tc.name, msg.NamesOf(err), want)
 		}
-		_, serr := os.Lstat(filepath.Join(agentStore(im.Dirs, "claude"), ".claude", "settings.json"))
-		if imported := serr == nil; imported != (tc.want == "") {
-			t.Errorf("%s: imported %v", tc.name, imported)
-		}
-		if tc.want != "" && !strings.Contains(msg.NamesOf(err), "folder="+filepath.Join(home, ".claude")) {
-			t.Errorf("%s: names %s", tc.name, msg.NamesOf(err))
+		if _, err := os.Lstat(filepath.Join(agentStore(im.Dirs, "claude"), ".claude", "settings.json")); err == nil {
+			t.Errorf("%s: imported", tc.name)
 		}
 	}
 }
@@ -682,13 +718,215 @@ func TestAgentImportReadBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 		h.read = saveMaxBytes - left // as if the folder's other files had grown since
-		err = im.save(t.Context(), h)
+		err = im.save(t.Context(), []*hostAgent{h})
 		h.close()
 		if fits := left == 5; fits != (err == nil) {
 			t.Errorf("%d bytes left: %v", left, msg.NamesOf(err))
 		}
 		if left == 4 && (msg.IDOf(err) != "agent_import_read_failed" || !errors.Is(err, safefile.ErrTooLong)) {
 			t.Errorf("%d bytes left: %v", left, msg.NamesOf(err))
+		}
+	}
+}
+
+// Claude Code's plugin records name their folders in the store, a longer
+// path than the home folder's, so the copy grows; what it grows counts
+// against the bytes the folder has left, so the store never gets more
+// than the import checked. Exactly what's left fits, one byte more fails,
+// naming the folder; and a copy past 16 MiB fails whatever is left.
+func TestAgentImportPluginsGrow(t *testing.T) {
+	for _, over := range []int{0, 1} {
+		im := newImporter(t)
+		home := im.Dirs.Home
+		rec := `{"a":"` + filepath.Join(home, ".claude", "plugins", "x") + `"}`
+		write(t, home, map[string]string{".claude/plugins/known_marketplaces.json": rec})
+		h, err := im.read(t.Context(), "claude", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grown := len(filepath.Join(agentStore(im.Dirs, "claude"), ".claude")) - len(filepath.Join(home, ".claude"))
+		if grown <= 0 {
+			t.Fatalf("the store's path is no longer than the home folder's: %d", grown)
+		}
+		h.read = saveMaxBytes - int64(len(rec)+grown-over)
+		err = im.save(t.Context(), []*hostAgent{h})
+		h.close()
+		store := filepath.Join(agentStore(im.Dirs, "claude"), ".claude", "plugins", "known_marketplaces.json")
+		if over == 0 {
+			if err != nil || !strings.Contains(readFile(t, store), agentStore(im.Dirs, "claude")) {
+				t.Errorf("exactly what's left: %v", msg.NamesOf(err))
+			}
+			continue
+		}
+		if want := "agent_import_too_much agent=claude folder=" + filepath.Join(home, ".claude"); msg.NamesOf(err) != want {
+			t.Errorf("one byte more: %v, want %s", msg.NamesOf(err), want)
+		}
+		if _, err := os.Lstat(store); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("one byte more: written (%v)", err)
+		}
+	}
+	h := &hostAgent{}
+	if !h.grew("x", saveMaxFile, 0) || h.grew("x", saveMaxFile+1, 0) {
+		t.Error("a copy of 16 MiB and one byte more: not the bound")
+	}
+}
+
+// The import's two handles on an agent's folder, its root and the folder
+// opened one folder at a time, must be one folder: one swapped between
+// the two opens, as a VM whose project folder holds it could, fails.
+func TestSameFolder(t *testing.T) {
+	a, b := paths.Physical(t.TempDir()), paths.Physical(t.TempDir())
+	root, err := os.OpenRoot(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	for dir, same := range map[string]bool{a: true, b: false} {
+		safe, err := openPhysical(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := sameFolder(root, safe, a); (err == nil) != same {
+			t.Errorf("%s against %s: %v", a, dir, err)
+		}
+		_ = safe.Close()
+	}
+	// The import itself: a folder swapped between the two opens fails it, naming the folder.
+	im := newImporter(t)
+	claude := filepath.Join(im.Dirs.Home, ".claude")
+	write(t, im.Dirs.Home, map[string]string{".claude/settings.json": "{}", "other/settings.json": "{}"})
+	im.betweenOpens = func() {
+		if err := os.Rename(claude, claude+".old"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(filepath.Join(im.Dirs.Home, "other"), claude); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h, err := im.read(t.Context(), "claude", nil)
+	if err == nil {
+		h.close()
+	}
+	if msg.IDOf(err) != "agent_import_read_failed" || !strings.Contains(msg.NamesOf(err), "file="+claude) {
+		t.Errorf("swapped between the opens: %v", msg.NamesOf(err))
+	}
+}
+
+// An import interrupted while it stages puts nothing in place and leaves
+// no staging folder; and an interrupted run's cleanup takes a staging
+// folder out on its own, as when the run ends before the import does.
+func TestAgentImportInterrupted(t *testing.T) {
+	im := newImporter(t)
+	home, store := im.Dirs.Home, agentStore(im.Dirs, "claude")
+	write(t, store, map[string]string{".claude/CLAUDE.md": "old"})
+	write(t, home, map[string]string{".claude/CLAUDE.md": "new"})
+	h, err := im.read(t.Context(), "claude", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.close()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := im.save(ctx, []*hostAgent{h}); !errors.Is(err, context.Canceled) {
+		t.Errorf("save interrupted: %v", err)
+	}
+	staging := func() []string {
+		ms, _ := filepath.Glob(filepath.Join(store, stagePrefix+"*"))
+		return ms
+	}
+	if got := readFile(t, filepath.Join(store, ".claude", "CLAUDE.md")); got != "old" || len(staging()) != 0 {
+		t.Errorf("save interrupted: the store's file %q, staging folders %q", got, staging())
+	}
+	var cleanups []func(context.Context)
+	im.fake.OnCleanup = func(f func(context.Context)) func() {
+		cleanups = append(cleanups, f)
+		return func() {}
+	}
+	im.fake.Interrupt = true
+	s, err := im.stage(h)
+	if err != nil || len(staging()) != 1 || len(cleanups) != 1 {
+		t.Fatalf("stage: %v, staging folders %q, cleanups %d", err, staging(), len(cleanups))
+	}
+	cleanups[0](t.Context())
+	if len(staging()) != 0 {
+		t.Errorf("an interrupted run's cleanup left %q", staging())
+	}
+	s.discard()
+}
+
+// A staging folder that a killed import left isn't the agent's: the
+// import doesn't ask before replacing a store that holds only that, and
+// the next import of the agent takes it out, even with no settings to
+// copy.
+func TestAgentImportStageLeftover(t *testing.T) {
+	for _, settings := range []bool{true, false} {
+		im := newImporter(t)
+		store := agentStore(im.Dirs, "codex")
+		write(t, store, map[string]string{stagePrefix + "x/.codex/config.toml": "left"})
+		files := map[string]string{".codex/auth.json": `{"OPENAI_API_KEY":"k"}`}
+		if settings {
+			files[".codex/config.toml"] = "model = \"x\"\n"
+		}
+		write(t, im.Dirs.Home, files)
+		if err := im.Run(t.Context(), []string{"codex"}, false); err != nil {
+			t.Fatalf("settings %v: %v", settings, msg.NamesOf(err))
+		}
+		for _, g := range im.got {
+			if strings.HasPrefix(g, "asked ") {
+				t.Errorf("settings %v: %s", settings, g)
+			}
+		}
+		if _, err := os.Lstat(filepath.Join(store, stagePrefix+"x")); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("settings %v: the leftover stays (%v)", settings, err)
+		}
+	}
+}
+
+// An import that fails partway, at a file that changed since it was
+// listed, leaves the store as it was: none of its other files, the
+// store's own kept, and no staging folder. The control: the same import
+// with nothing changed replaces the store's.
+func TestAgentImportFailsWhole(t *testing.T) {
+	for _, change := range []bool{false, true} {
+		im := newImporter(t)
+		home, store := im.Dirs.Home, agentStore(im.Dirs, "claude")
+		write(t, store, map[string]string{".claude/CLAUDE.md": "old", ".claude/skills/old.md": "old"})
+		write(t, home, map[string]string{".claude/CLAUDE.md": "new", ".claude/skills/a.md": "a"})
+		h, err := im.read(t.Context(), "claude", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last := h.files[len(h.files)-1]; change {
+			p := filepath.Join(home, ".claude", filepath.FromSlash(last))
+			if err := os.Remove(p); err != nil {
+				t.Fatal(err)
+			}
+			write(t, home, map[string]string{".claude/" + last: "another"})
+		}
+		err = im.save(t.Context(), []*hostAgent{h})
+		h.close()
+		var got []string
+		_ = filepath.WalkDir(store, func(p string, d fs.DirEntry, err error) error {
+			if err == nil && p != store {
+				rel, _ := filepath.Rel(store, p)
+				if !d.IsDir() {
+					rel += "=" + readFile(t, p)
+				}
+				got = append(got, filepath.ToSlash(rel))
+			}
+			return nil
+		})
+		want := []string{".claude", ".claude/CLAUDE.md=new", ".claude/skills", ".claude/skills/a.md=a"}
+		if change {
+			want = []string{".claude", ".claude/CLAUDE.md=old", ".claude/skills", ".claude/skills/old.md=old"}
+			if msg.IDOf(err) != "agent_import_read_failed" {
+				t.Errorf("changed: %v", msg.NamesOf(err))
+			}
+		} else if err != nil {
+			t.Errorf("unchanged: %v", msg.NamesOf(err))
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("changed %v: the store has %q, want %q", change, got, want)
 		}
 	}
 }
@@ -721,17 +959,23 @@ func TestAgentImportProjectInside(t *testing.T) {
 	inside := paths.Physical(filepath.Join(home, ".claude", "skills", "mine")) // as a state records it
 	vmState(t, im.Dirs, "devvm-mine-0123456789abc4", func(st *state.VM) error { st.Dir = inside; return nil })
 	vmState(t, im.Dirs, "devvm-app-0123456789abc3", func(st *state.VM) error { st.Dir = filepath.Join(home, "src", "app"); return nil })
+	// A state that can't be read, whose VM's folder devvm can't check, says so, and takes no other VM's warning away.
+	broken := im.Dirs.VM("devvm-gone-0123456789abc5").State()
+	write(t, filepath.Dir(broken), map[string]string{filepath.Base(broken): "not json"})
 	if err := im.Run(t.Context(), []string{"claude"}, true); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	want := "agent_import_project_inside dir=" + inside + " folder=" + filepath.Join(home, ".claude") + " vm=devvm-mine-0123456789abc4"
+	want := []string{
+		"agent_import_states_unread path=" + broken,
+		"agent_import_project_inside dir=" + inside + " folder=" + filepath.Join(home, ".claude") + " vm=devvm-mine-0123456789abc4",
+	}
 	var warned []string
 	for _, g := range im.got {
-		if strings.HasPrefix(g, "agent_import_project_inside") {
-			warned = append(warned, g)
+		if strings.HasPrefix(g, "agent_import_project_inside") || strings.HasPrefix(g, "agent_import_states_unread") {
+			warned = append(warned, strings.Split(g, " why=")[0])
 		}
 	}
-	if !slices.Equal(warned, []string{want}) {
+	if !slices.Equal(warned, want) {
 		t.Errorf("warned %q, want %q", warned, want)
 	}
 }
