@@ -21,6 +21,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/state"
@@ -457,9 +458,20 @@ func (sv saver) folder(store, rel string, names []string) (planFolder, error) {
 }
 
 // compare lists what f adds, changes and removes of the store's folder,
-// read through it as a root, so no link out of it is followed.
+// read through it as a root, so no link out of it is followed. A name of
+// the VM's is the store's file that the store's volume reads it as
+// (storeFiles), so on a volume that ignores case, the VM's foo.md
+// changes the store's Foo.md rather than adding a file and removing
+// another.
 func (f *planFolder) compare(store string) error {
-	have, err := storeFiles(filepath.Join(store, filepath.FromSlash(f.rel)))
+	var names []string
+	for _, pf := range f.files {
+		names = append(names, strings.TrimPrefix(pf.rel, f.rel+"/"))
+	}
+	for _, k := range f.kept {
+		names = append(names, strings.TrimPrefix(k, f.rel+"/"))
+	}
+	have, err := storeFiles(filepath.Join(store, filepath.FromSlash(f.rel)), names)
 	if err != nil {
 		return err
 	}
@@ -496,8 +508,13 @@ type storeFile struct {
 
 // storeFiles returns what's in a folder of the store but folders, by its
 // path relative to it; none when it isn't there, or isn't a folder, which
-// the save then refuses (sameKind).
-func storeFiles(dir string) (map[string]storeFile, error) {
+// the save then refuses (sameKind). When the store's volume reads one of
+// names, the VM's, as a file the store has under another name, such as
+// Foo.md for foo.md on a volume that ignores case, the store's file is
+// listed under the VM's name. A file with more than one name, a hard
+// link, is never listed so: the diff then shows its names removed, more
+// than the save takes out, never less.
+func storeFiles(dir string, names []string) (map[string]storeFile, error) {
 	have := map[string]storeFile{}
 	if fi, err := os.Lstat(dir); err == nil && !fi.IsDir() {
 		return have, nil
@@ -509,7 +526,13 @@ func storeFiles(dir string) (map[string]storeFile, error) {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
+	byID := map[string]string{} // each file's path, by what it is (platform.DevIno), but a hard link's
 	err = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if fi, ierr := d.Info(); ierr == nil && platform.Links(fi) == 1 {
+				byID[platform.DevIno(fi)] = p
+			}
+		}
 		switch {
 		case err != nil:
 			return err
@@ -530,7 +553,30 @@ func storeFiles(dir string) (map[string]storeFile, error) {
 		have[p] = storeFile{data: data, exec: fi.Mode()&0o100 != 0}
 		return nil
 	})
-	return have, err
+	if err != nil {
+		return nil, err
+	}
+	delete(byID, "") // a system that can't tell
+	vms := map[string]bool{}
+	for _, n := range names {
+		vms[n] = true
+	}
+	for _, n := range names {
+		if _, ok := have[n]; ok {
+			continue
+		}
+		fi, err := root.Lstat(filepath.FromSlash(n))
+		if err != nil {
+			continue // not there, or a part above it isn't a folder
+		}
+		// Two names of the VM's for one of the store's stay apart: the save fails on them (storeStage.claim).
+		if p, ok := byID[platform.DevIno(fi)]; ok && !vms[p] {
+			have[n] = have[p]
+			delete(have, p)
+			delete(byID, platform.DevIno(fi))
+		}
+	}
+	return have, nil
 }
 
 // storeFileMax is the most of a store's file devvm agent save reads, to
@@ -563,11 +609,14 @@ func fileMode(exec bool) os.FileMode {
 	return 0o600
 }
 
-// stage writes p's settings files, and its folders' files, whole into a
-// new staging folder of its agent's store (newStage), not yet in place,
-// after taking out what killed imports and saves left there
+// stage writes p's settings files, and its folders and their files, whole
+// into a new staging folder of its agent's store (newStage), not yet in
+// place, after taking out what killed imports and saves left there
 // (sweepStages); nil for a plan with none, such as one of the .claude.json
-// subset alone.
+// subset alone. Two of the VM's names that the store's volume takes for
+// one, such as A.md and a.md on a volume that ignores case, a name left
+// out (kept) included, fail the save, naming both
+// (agent_save_names_collide): in the store, one would replace the other.
 func (sv saver) stage(p agentPlan) (_ *storeStage, err error) {
 	config := sv.Dirs.Config
 	if err := sweepStages(config, p.store); err != nil {
@@ -588,13 +637,38 @@ func (sv saver) stage(p agentPlan) (_ *storeStage, err error) {
 	if err := s.root.Mkdir(s.tmp, 0o700); err != nil {
 		return nil, err
 	}
+	claim := func(rel string, write bool) error {
+		err := s.claim(rel, write)
+		if c, ok := errors.AsType[nameClash](err); ok {
+			return msg.AgentSaveNamesCollide(c.a, c.b, sv.s.vm).Because(err)
+		}
+		return err
+	}
 	files := slices.Clone(p.files)
 	for _, d := range p.folders {
+		for _, dir := range append([]string{d.rel}, d.dirs...) {
+			if err := claim(dir, true); err != nil {
+				return nil, err
+			}
+			if err := s.root.MkdirAll(filepath.Join(s.tmp, filepath.FromSlash(dir)), 0o700); err != nil {
+				return nil, err
+			}
+		}
 		files = append(files, d.files...)
 	}
 	for _, f := range files {
+		if err := claim(f.rel, true); err != nil {
+			return nil, err
+		}
 		if err := state.WriteFileIn(s.root, filepath.Join(s.tmp, filepath.FromSlash(f.rel)), f.data, fileMode(f.exec)); err != nil {
 			return nil, err
+		}
+	}
+	for _, d := range p.folders {
+		for _, k := range d.kept {
+			if err := claim(k, false); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return s, nil

@@ -143,6 +143,11 @@ func AgentImportLinkViaVM(path string, vm vmname.VM) M {
 	return M{id: "agent_import_link_via_vm", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
+// AgentImportNamesCollide is [agent_import_names_collide]: "The volume that holds devvm's agent store reads {{.a}} and {{.b}} as one name, as when it ignores case, so devvm imported nothing. Rename one of them, then run devvm agent import again."
+func AgentImportNamesCollide(a string, b string) M {
+	return M{id: "agent_import_names_collide", vals: []val{{"a", a}, {"b", b}}}
+}
+
 // AgentImportNone is [agent_import_none]: "There's nothing of {{.agent}} to import, because this machine has neither its settings nor its login."
 func AgentImportNone(agent string) M {
 	return M{id: "agent_import_none", vals: []val{{"agent", agent}}}
@@ -418,6 +423,11 @@ func AgentSaveLinkLeftOut(path string, vm vmname.VM) M {
 	return M{id: "agent_save_link_left_out", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
+// AgentSaveNamesCollide is [agent_save_names_collide]: "The volume that holds devvm's agent store reads {{.a}} and {{.b}} in {{.vm}} as one name, as when it ignores case, so devvm saved nothing. Rename one of them in {{.vm}}, then run devvm agent save again."
+func AgentSaveNamesCollide(a string, b string, vm vmname.VM) M {
+	return M{id: "agent_save_names_collide", vals: []val{{"a", a}, {"b", b}, {"vm", string(vm)}}}
+}
+
 // AgentSaveNoAgent is [agent_save_no_agent]: "{{.vm}} has no agent, so there are no settings to save."
 func AgentSaveNoAgent(vm vmname.VM) M {
 	return M{id: "agent_save_no_agent", vals: []val{{"vm", string(vm)}}}
@@ -473,7 +483,7 @@ func AgentSaveStoreFolder(path string, vm vmname.VM) M {
 	return M{id: "agent_save_store_folder", vals: []val{{"path", path}, {"vm", string(vm)}}}
 }
 
-// AgentSaveTooMuch is [agent_save_too_much]: "{{.vm}} sent more than devvm saves at once, so devvm saved nothing. Take out what the agents' settings folders don't need, such as a plugin's build files."
+// AgentSaveTooMuch is [agent_save_too_much]: "{{.vm}} sent more than devvm saves at once, 20,000 files, folders and links, 128 MiB, a file of 16 MiB, folders 128 deep or a path of 4,096 bytes, so devvm saved nothing. Take out what the agents' settings folders don't need, such as a plugin's build files."
 func AgentSaveTooMuch(vm vmname.VM) M {
 	return M{id: "agent_save_too_much", vals: []val{{"vm", string(vm)}}}
 }
@@ -5727,6 +5737,7 @@ var specs = map[string]spec{
 	"agent_import_link_too_big":       {fields: []string{"path"}},
 	"agent_import_link_unread_state":  {fields: []string{"path", "state"}},
 	"agent_import_link_via_vm":        {fields: []string{"path", "vm"}},
+	"agent_import_names_collide":      {fields: []string{"a", "b"}},
 	"agent_import_none":               {fields: []string{"agent"}},
 	"agent_import_nothing":            {},
 	"agent_import_opencode_failed":    {fields: []string{"reason"}},
@@ -5782,6 +5793,7 @@ var specs = map[string]spec{
 	"agent_save_failed":               {fields: []string{"reason"}},
 	"agent_save_kind_left_out":        {fields: []string{"path", "vm"}},
 	"agent_save_link_left_out":        {fields: []string{"path", "vm"}},
+	"agent_save_names_collide":        {fields: []string{"a", "b", "vm"}},
 	"agent_save_no_agent":             {fields: []string{"vm"}},
 	"agent_save_none":                 {fields: []string{"agent", "vm"}},
 	"agent_save_not_read":             {fields: []string{"vm"}},

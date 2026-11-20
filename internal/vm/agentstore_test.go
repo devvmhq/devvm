@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"archive/tar"
 	"context"
 	"errors"
 	"io/fs"
@@ -16,6 +17,7 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/secrets"
+	"github.com/devvmhq/devvm/internal/state"
 )
 
 // holdStoreLock holds the agent store's lock, as another devvm writing
@@ -512,6 +514,228 @@ func TestAgentSaveLoginLock(t *testing.T) {
 		} else if err != nil || after == saveOldLogin {
 			t.Errorf("let go: %v, login %s", msg.NamesOf(err), after)
 		}
+	}
+}
+
+// foldsCase skips the test unless its temp folders are on a volume that
+// ignores the case of names, as macOS's APFS does by default.
+func foldsCase(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	write(t, dir, map[string]string{"probe": ""})
+	if _, err := os.Lstat(filepath.Join(dir, "PROBE")); err != nil {
+		t.Skip("this volume tells names that differ only in case apart")
+	}
+}
+
+// On a volume that ignores case, a save compares the VM's names with the
+// store's as the volume does: the VM's foo.md is the store's Foo.md, and
+// its sub folder the store's Sub, so each is a change, never a file added
+// and another removed, and the store keeps what the VM sent, under the
+// store's names, while what the VM's folder lost goes.
+func TestAgentSaveCaseOnly(t *testing.T) {
+	foldsCase(t)
+	st := newSaveTest(t, saveTar(t, true,
+		te{name: ".claude/skills/"},
+		te{name: ".claude/skills/foo.md", data: "new"},
+		te{name: ".claude/skills/sub/"},
+		te{name: ".claude/skills/sub/a.md", data: "a2"},
+		te{name: ".claude/skills/ph.md", data: "devvm-redacted"}, // left out, so the store keeps its PH.md
+	), "claude")
+	store := st.store("claude")
+	write(t, store, map[string]string{".claude/skills/Foo.md": "old", ".claude/skills/Sub/a.md": "a", ".claude/skills/Sub/gone.md": "gone", ".claude/skills/PH.md": "the store's"})
+	plans, err := st.plans([]string{"claude"})
+	if err != nil || len(plans) != 1 || len(plans[0].folders) != 1 {
+		t.Fatalf("plans = %+v, %v", plans, err)
+	}
+	d := plans[0].folders[0]
+	if len(d.added) != 0 || !slices.Equal(d.changed, []string{"foo.md", "sub/a.md"}) || !slices.Equal(d.removed, []string{"Sub/gone.md"}) {
+		t.Errorf("added %q, changed %q, removed %q", d.added, d.changed, d.removed)
+	}
+	if err := st.applyAll(t.Context(), plans); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	want := []string{
+		"claude/.claude", "claude/.claude/skills", "claude/.claude/skills/Foo.md=new", "claude/.claude/skills/PH.md=the store's",
+		"claude/.claude/skills/Sub", "claude/.claude/skills/Sub/a.md=a2",
+	}
+	if got := storeTree(t, store); !slices.Equal(got, want) {
+		t.Errorf("the store has %q, want %q", got, want)
+	}
+	if p, err := st.plan("claude"); err != nil || p.changed() {
+		t.Errorf("plan again = %+v, %v", p, err)
+	}
+}
+
+// On a volume that ignores case, a store's file with a second name, a
+// hard link only a hand-made store has, is never the VM's file of the
+// same name but its case: the diff shows the VM's foo.md added and both
+// of the store's names removed, more than the save takes out (Foo.md
+// gets the VM's foo.md in place), never less, as when it showed a change
+// to Foo.md and the save took out Zed.md.
+func TestAgentSaveCaseOnlyHardLink(t *testing.T) {
+	foldsCase(t)
+	st := newSaveTest(t, saveTar(t, true, te{name: ".claude/skills/"}, te{name: ".claude/skills/foo.md", data: "new"}), "claude")
+	store := st.store("claude")
+	write(t, store, map[string]string{".claude/skills/Foo.md": "old"})
+	if err := os.Link(filepath.Join(store, ".claude/skills/Foo.md"), filepath.Join(store, ".claude/skills/Zed.md")); err != nil {
+		t.Fatal(err)
+	}
+	plans, err := st.plans([]string{"claude"})
+	if err != nil || len(plans) != 1 || len(plans[0].folders) != 1 {
+		t.Fatalf("plans = %+v, %v", plans, err)
+	}
+	d := plans[0].folders[0]
+	if !slices.Equal(d.added, []string{"foo.md"}) || len(d.changed) != 0 || !slices.Equal(d.removed, []string{"Foo.md", "Zed.md"}) {
+		t.Errorf("added %q, changed %q, removed %q", d.added, d.changed, d.removed)
+	}
+	if err := st.applyAll(t.Context(), plans); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	if got, want := storeTree(t, store), []string{"claude/.claude", "claude/.claude/skills", "claude/.claude/skills/Foo.md=new"}; !slices.Equal(got, want) {
+		t.Errorf("the store has %q, want %q", got, want)
+	}
+}
+
+// On a volume that ignores case, two names in the VM that differ only in
+// case, files, folders or a file the save leaves out, would be one in the
+// store, so a save of them fails, naming both, before the store changes.
+func TestAgentSaveNamesCollide(t *testing.T) {
+	foldsCase(t)
+	for _, c := range []struct {
+		es   []te
+		a, b string
+	}{
+		{es: []te{{name: ".claude/skills/A.md", data: "1"}, {name: ".claude/skills/a.md", data: "2"}}, a: ".claude/skills/A.md", b: ".claude/skills/a.md"},
+		{es: []te{{name: ".claude/skills/D/"}, {name: ".claude/skills/D/x.md", data: "1"}, {name: ".claude/skills/d/"}, {name: ".claude/skills/d/y.md", data: "2"}}, a: ".claude/skills/D", b: ".claude/skills/d"},
+		{es: []te{{name: ".claude/skills/f.md", data: "1"}, {name: ".claude/skills/F.md", kind: tar.TypeFifo}}, a: ".claude/skills/f.md", b: ".claude/skills/F.md"},
+		{es: []te{{name: ".claude/skills/E/"}, {name: ".claude/skills/e/"}}, a: ".claude/skills/E", b: ".claude/skills/e"}, // empty folders
+	} {
+		st := newSaveTest(t, saveTar(t, true, append([]te{{name: ".claude/skills/"}}, c.es...)...), "claude")
+		store := st.store("claude")
+		write(t, store, map[string]string{".claude/skills/F.md": "the store's", ".claude/skills/a.md": "the store's"})
+		before := storeTree(t, store)
+		plans, err := st.plans([]string{"claude"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = st.applyAll(t.Context(), plans)
+		if want := "agent_save_names_collide a=" + c.a + " b=" + c.b + " vm=vm"; msg.NamesOf(err) != want {
+			t.Errorf("%s: %v, want %s", c.a, msg.NamesOf(err), want)
+		}
+		if got := storeTree(t, store); !slices.Equal(got, before) {
+			t.Errorf("%s: the store changed: %q, was %q", c.a, got, before)
+		}
+	}
+}
+
+// On a volume that ignores case, an import whose file differs from the
+// store's only in case replaces the store's, keeping the store's name,
+// rather than taking it out with what the home folder no longer has.
+func TestAgentImportCaseOnly(t *testing.T) {
+	foldsCase(t)
+	im := newImporter(t)
+	store := agentStore(im.Dirs, "claude")
+	write(t, store, map[string]string{".claude/skills/Foo.md": "old", ".claude/skills/Sub/a.md": "a", ".claude/skills/gone.md": "gone"})
+	write(t, im.Dirs.Home, map[string]string{".claude/skills/foo.md": "new", ".claude/skills/sub/a.md": "a2"})
+	if err := im.Run(t.Context(), []string{"claude"}, true); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	want := []string{"claude/.claude", "claude/.claude/skills", "claude/.claude/skills/Foo.md=new", "claude/.claude/skills/Sub", "claude/.claude/skills/Sub/a.md=a2"}
+	if got := storeTree(t, store); !slices.Equal(got, want) {
+		t.Errorf("the store has %q, want %q", got, want)
+	}
+}
+
+// An import's two names that the store's volume reads as one, as A.md and
+// a.md would be from a home folder on a volume that tells case apart,
+// fail it while it stages them, naming both in the home folder, before
+// the store changes. The home folder here ignores case too, so the second
+// name is added to what the import listed, read as the first.
+func TestAgentImportNamesCollide(t *testing.T) {
+	foldsCase(t)
+	for _, c := range []struct {
+		file bool // a second file's name, or a second folder's
+		a, b string
+	}{
+		{file: true, a: ".claude/skills/a.md", b: ".claude/skills/A.md"},
+		{a: ".claude/skills/B", b: ".claude/skills/b"},
+	} {
+		im := newImporter(t)
+		write(t, im.Dirs.Home, map[string]string{".claude/skills/a.md": "a", ".claude/skills/B/x.md": "x"})
+		h, err := im.read(t.Context(), "claude", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.file {
+			h.files = append(h.files, "skills/A.md")
+			h.listed["skills/A.md"] = h.listed["skills/a.md"]
+		} else {
+			h.dirs = append(h.dirs, "skills/b")
+		}
+		s, err := im.stage(h)
+		if s != nil {
+			s.discard()
+		}
+		h.close()
+		home := func(rel string) string { return filepath.Join(im.Dirs.Home, filepath.FromSlash(rel)) }
+		if got, want := msg.NamesOf(err), "agent_import_names_collide a="+home(c.a)+" b="+home(c.b); got != want {
+			t.Errorf("%s: %s, want %s", c.b, got, want)
+		}
+		if got := storeTree(t, agentStore(im.Dirs, "claude")); len(got) != 0 {
+			t.Errorf("%s: the store has %q", c.b, got)
+		}
+	}
+}
+
+// Staging and pruning go by what a name is on the store's volume, on any
+// volume: a second name of a file the stage wrote, as a hard link stands
+// in for a name the volume reads as another here, is a clash (claim), and
+// something there the stage didn't write is an error of another kind. A
+// file with a second name is kept only by the name keep has (pruneIn), so
+// the other goes, as the save's diff shows it (storeFiles).
+func TestStoreNamesByWhatTheyAre(t *testing.T) {
+	im := newImporter(t)
+	s, err := newStage(im.Reporter, im.Dirs.Config, agentStore(im.Dirs, "claude"), "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.discard)
+	at := func(rel string) string { return filepath.Join(s.tmp, filepath.FromSlash(rel)) }
+	if err := s.claim("d/x", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteFileIn(s.root, at("d/x"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.root.Link(at("d/x"), at("d/y")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.claim("d/x", true); err != nil {
+		t.Errorf("a name staged again: %v", err)
+	}
+	if err := s.claim("d/y", false); !errors.Is(err, nameClash{a: "d/x", b: "d/y"}) {
+		t.Errorf("a second name: %v", err)
+	}
+	if err := s.root.Mkdir(at("e"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.claim("e/z", true); err == nil {
+		t.Error("what the stage didn't write: no error")
+	} else if _, clash := errors.AsType[nameClash](err); clash {
+		t.Errorf("what the stage didn't write: a clash, %v", err)
+	}
+
+	var taken []string
+	folder, err := fs.Sub(s.root.FS(), s.tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneIn(folder, map[string]bool{"d": true, "d/x": true}, "", func(p string) error { taken = append(taken, p); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(taken, []string{"d/y", "e"}) {
+		t.Errorf("pruned %q, want d/y and e", taken)
 	}
 }
 

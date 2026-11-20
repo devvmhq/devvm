@@ -18,6 +18,7 @@ import (
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/secrets"
 )
 
@@ -221,6 +222,39 @@ func TestReadSent(t *testing.T) {
 	}
 	if _, err := readSent(strings.NewReader("not a tar stream, but long enough to be read as one's header"), "vm", claude); msg.IDOf(err) != "agent_save_not_read" {
 		t.Errorf("readSent of junk = %v", err)
+	}
+	// Folders nested deeper than an import walks, or a path longer than it
+	// makes (safefile.MaxDepth, MaxPath), each measured from the agent's
+	// folder, as the import's walk measures them; at the bound, read whole.
+	deep := func(levels int) []te { // folders below skills
+		es, at := []te{{name: ".claude/skills/"}}, ".claude/skills"
+		for range levels {
+			at += "/s"
+			es = append(es, te{name: at + "/"})
+		}
+		return es
+	}
+	long := func(length int) []te { // folders below skills, the deepest path this long from ~/.claude
+		es, at := []te{{name: ".claude/skills/"}}, "skills"
+		for len(at) < length {
+			at += "/" + strings.Repeat("s", min(200, length-len(at)-1))
+			es = append(es, te{name: ".claude/" + at + "/"})
+		}
+		return es
+	}
+	for _, c := range []struct {
+		name string
+		es   []te
+		want string
+	}{
+		{"at the depth bound", deep(safefile.MaxDepth), ""},
+		{"one deeper", deep(safefile.MaxDepth + 1), "agent_save_too_much"},
+		{"at the path bound", long(safefile.MaxPath), ""},
+		{"a byte longer", long(safefile.MaxPath + 1), "agent_save_too_much"},
+	} {
+		if _, err := readSent(bytes.NewReader(saveTar(t, false, c.es...)), "vm", claude); msg.IDOf(err) != c.want {
+			t.Errorf("readSent, %s: %v, want %q", c.name, err, c.want)
+		}
 	}
 	many := []te{{name: ".claude/skills/"}}
 	for i := range saveMaxEntries {

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -20,6 +21,7 @@ import (
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/paths"
+	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/secrets"
 	"github.com/devvmhq/devvm/internal/state"
@@ -730,6 +732,63 @@ type storeStage struct {
 	done  []func() error
 	aside int
 	keep  bool
+	// staged is each path the staging folder holds, by its path relative
+	// to the store, as it was named (claim).
+	staged map[string]bool
+}
+
+// nameClash is the error for two names, by their paths relative to the
+// store, that the store's volume takes for one, such as A.md and a.md on
+// a volume that ignores case: written into the store, one would replace
+// the other (claim).
+type nameClash struct{ a, b string }
+
+func (c nameClash) Error() string {
+	return "the store's volume reads " + c.a + " and " + c.b + " as one name"
+}
+
+// claim checks rel, a path relative to the store that the stage will
+// write, before it writes it: the staging folder, on the store's volume,
+// holds only what the stage wrote, so a part of rel that's there already
+// under no name the stage wrote is a name the volume takes for one the
+// stage wrote, which it fails on (nameClash), naming both. The volume
+// decides, whatever it ignores of names: case, or how Unicode writes a
+// letter. It reads names by the staging folder's rules, which are the
+// store's on macOS, where a volume's rules hold for every folder; Linux's
+// ext4 can ignore case in some folders alone (casefold), which a store
+// set up so could have and its staging folder not. With write, rel and
+// the folders above it count as written.
+func (s *storeStage) claim(rel string, write bool) error {
+	if s.staged == nil {
+		s.staged = map[string]bool{}
+	}
+	var parts []string
+	for p := rel; p != "." && p != "/"; p = path.Dir(p) {
+		parts = append(parts, p)
+	}
+	for _, p := range slices.Backward(parts) {
+		if s.staged[p] {
+			continue
+		}
+		fi, err := s.root.Lstat(filepath.FromSlash(path.Join(s.tmp, p)))
+		if errors.Is(err, fs.ErrNotExist) {
+			break // nothing below it is there either
+		} else if err != nil {
+			return err
+		}
+		for c := range s.staged {
+			if there, err := s.root.Lstat(filepath.FromSlash(path.Join(s.tmp, c))); err == nil && os.SameFile(fi, there) {
+				return nameClash{a: c, b: p}
+			}
+		}
+		return fmt.Errorf("%s is in the staging folder, though devvm didn't write it", p)
+	}
+	if write {
+		for _, p := range parts {
+			s.staged[p] = true
+		}
+	}
+	return nil
 }
 
 // asideDir is the folder of an import's or a save's staging folder that
@@ -818,16 +877,36 @@ func (im AgentImport) stage(h *hostAgent) (_ *storeStage, err error) {
 		}
 	}()
 	for _, p := range h.dirs {
+		if err := im.claim(s, path.Join(folder, p)); err != nil {
+			return nil, err
+		}
 		if err := root.MkdirAll(filepath.Join(s.tmp, folder, filepath.FromSlash(p)), 0o700); err != nil {
 			return nil, err
 		}
 	}
 	for _, p := range h.files {
+		if err := im.claim(s, path.Join(folder, p)); err != nil {
+			return nil, err
+		}
 		if err := im.stageFile(s, folder, p); err != nil {
 			return nil, err
 		}
 	}
 	return s, nil
+}
+
+// claim checks rel, a path of the home folder that the import writes in
+// the store, against what s staged before it (storeStage.claim): two
+// names that the store's volume takes for one, as when the home folder is
+// on a volume that tells names apart by case and the store on one that
+// doesn't, fail the import, naming both (agent_import_names_collide).
+func (im AgentImport) claim(s *storeStage, rel string) error {
+	err := s.claim(rel, true)
+	if c, ok := errors.AsType[nameClash](err); ok {
+		home := func(p string) string { return filepath.Join(im.Dirs.Home, filepath.FromSlash(p)) }
+		return msg.AgentImportNamesCollide(home(c.a), home(c.b)).Because(err)
+	}
+	return err
 }
 
 // newStage opens the agent's store, store, from devvm's config folder
@@ -1098,16 +1177,40 @@ func markKept(keep map[string]bool, p string) {
 
 // pruneIn takes what's in folder, a folder of the store opened through
 // the root that newStage opened, that isn't kept, out with take, each by
-// its path relative to folder, but nothing of the folder skip.
+// its path relative to folder, but nothing of the folder skip. What's
+// kept is what keep names as the volume reads the name: on a volume that
+// ignores case, the store's Foo.md is a kept foo.md, which the apply just
+// put in place under the store's name (held). A file the store has under
+// two names, a hard link, is kept only by the name keep has.
 func pruneIn(folder fs.FS, keep map[string]bool, skip string, take func(string) error) error {
+	held := map[string]bool{}
+	for k := range keep {
+		if fi, err := fs.Lstat(folder, k); err == nil && (fi.IsDir() || platform.Links(fi) == 1) {
+			held[platform.DevIno(fi)] = true
+		}
+	}
+	delete(held, "") // a system that can't tell
+	kept := func(p string, d fs.DirEntry) (bool, error) {
+		if keep[p] {
+			return true, nil
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return false, err
+		}
+		return held[platform.DevIno(fi)], nil
+	}
 	return fs.WalkDir(folder, ".", func(p string, d fs.DirEntry, err error) error {
 		switch {
 		case err != nil:
 			return err
 		case p == skip:
 			return fs.SkipDir
-		case p == "." || keep[p]:
+		case p == ".":
 			return nil
+		}
+		if k, err := kept(p, d); err != nil || k {
+			return err
 		}
 		if err := take(p); err != nil {
 			return err

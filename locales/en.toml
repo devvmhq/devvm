@@ -3377,6 +3377,10 @@ other = "Putting {{.stores}} back as they were failed ({{.undo}}) after the impo
 description = "folder is the agent's folder in the home folder"
 other = "{{.folder}} holds more of {{.agent}}'s settings than one import copies, 20,000 files, folders and links, 128 MiB, a file of 16 MiB, folders 128 deep or a path of 4,096 bytes, so devvm imported nothing. Take out what the folder doesn't need, such as a plugin's build files, then run devvm agent import again."
 
+[agent_import_names_collide]
+description = "a and b are paths in the home folder that devvm's agent store's volume reads as one, such as A.md and a.md when the home folder's volume tells case apart and the store's doesn't"
+other = "The volume that holds devvm's agent store reads {{.a}} and {{.b}} as one name, as when it ignores case, so devvm imported nothing. Rename one of them, then run devvm agent import again."
+
 [agent_import_states_unread]
 description = "path is a VM's state file, or the folder of the VMs' states, that devvm agent import couldn't read; why is the error"
 other = "Reading {{.path}} failed ({{.why}}), so devvm can't tell whether a VM's project folder overlaps an agent's folder it imports. Run devvm doctor, which names what's wrong with it."
@@ -3450,6 +3454,10 @@ other = "devvm's agent store has a folder at {{.path}}, where {{.vm}} has a file
 description = "path is a file of devvm's agent store where the VM has a folder"
 other = "devvm's agent store has a file at {{.path}}, where {{.vm}} has a folder, so devvm saved nothing. Move the store's file aside, then run devvm agent save again."
 
+[agent_save_names_collide]
+description = "a and b are paths in the VM, relative to its home folder, that devvm's agent store's volume reads as one, such as A.md and a.md on a volume that ignores case"
+other = "The volume that holds devvm's agent store reads {{.a}} and {{.b}} in {{.vm}} as one name, as when it ignores case, so devvm saved nothing. Rename one of them in {{.vm}}, then run devvm agent save again."
+
 [agent_save_undo_failed]
 description = "stores are the folders of agents' settings in devvm's store that weren't put back, comma-separated; vm is the VM whose settings were being saved; why is what failed the save; undo is what failed putting them back; dirs are the staging folders that hold what wasn't put back"
 other = "Putting {{.stores}} back as they were failed ({{.undo}}) after saving {{.vm}}'s settings failed ({{.why}}), so they may hold some of them. Copy what you need from {{.dirs}}, which the next import or save deletes, then run devvm agent save again."
@@ -3461,7 +3469,7 @@ other = "devvm saved {{.agent}}'s settings from {{.vm}} into {{.dir}}."
 other = "{{.vm}} sent {{.path}}, which isn't among the agents' settings, so devvm saved nothing."
 
 [agent_save_too_much]
-other = "{{.vm}} sent more than devvm saves at once, so devvm saved nothing. Take out what the agents' settings folders don't need, such as a plugin's build files."
+other = "{{.vm}} sent more than devvm saves at once, 20,000 files, folders and links, 128 MiB, a file of 16 MiB, folders 128 deep or a path of 4,096 bytes, so devvm saved nothing. Take out what the agents' settings folders don't need, such as a plugin's build files."
 
 [agent_save_link_left_out]
 other = "devvm left out the link {{.path}} in {{.vm}}, because it saves only links to files inside the same settings folder."

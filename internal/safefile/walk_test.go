@@ -220,8 +220,8 @@ func (d batchDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	return d.ReadDirFile.ReadDir(n)
 }
 
-// A chain of folders deeper than walkMaxDepth, or a path longer than
-// walkMaxPath, stops the walk with ErrTooMany, though it holds few
+// A chain of folders deeper than MaxDepth, or a path longer than
+// MaxPath, stops the walk with ErrTooMany, though it holds few
 // entries; a chain at the depth bound walks whole.
 func TestWalkDepth(t *testing.T) {
 	chain := func(depth int, name string) fstest.MapFS {
@@ -232,9 +232,9 @@ func TestWalkDepth(t *testing.T) {
 		fsys fstest.MapFS
 		ok   bool
 	}{
-		{"at the depth bound", chain(walkMaxDepth, "a"), true},
-		{"one deeper", chain(walkMaxDepth+1, "a"), false},
-		{"a long path", chain(walkMaxPath/200+1, strings.Repeat("a", 200)), false},
+		{"at the depth bound", chain(MaxDepth, "a"), true},
+		{"one deeper", chain(MaxDepth+1, "a"), false},
+		{"a long path", chain(MaxPath/200+1, strings.Repeat("a", 200)), false},
 	} {
 		err := Walk(t.Context(), tc.fsys, ".", &Bound{Max: 1000}, func(_ string, _ fs.DirEntry, err error) error { return err })
 		if (err == nil) != tc.ok || !tc.ok && !errors.Is(err, ErrTooMany) {

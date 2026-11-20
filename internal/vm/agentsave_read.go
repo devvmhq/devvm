@@ -11,6 +11,7 @@ import (
 
 	"github.com/devvmhq/devvm/internal/agents"
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/safefile"
 	"github.com/devvmhq/devvm/internal/shell"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
@@ -169,6 +170,13 @@ func (s *sent) add(tr io.Reader, h *tar.Header, name string, agents []string) er
 	if _, dup := s.entries[name]; dup || !ok {
 		return unsafe
 	}
+	// A chain of folders a VM nests deep would cost each of the save's
+	// opens and paths its depth, and the save the square of it: the
+	// import's bounds hold, measured as its walk measures them, from the
+	// agent's folder (safefile.MaxDepth, MaxPath).
+	if rel := strings.TrimPrefix(name, agentFolder(agent)+"/"); strings.Count(rel, "/") > safefile.MaxDepth || len(rel) > safefile.MaxPath {
+		return msg.AgentSaveTooMuch(s.vm)
+	}
 	if name != top {
 		if p := s.entries[path.Dir(name)]; p == nil || p.kind != 'd' {
 			return unsafe // in no folder the stream has, such as one below a link
@@ -190,6 +198,9 @@ func (s *sent) add(tr io.Reader, h *tar.Header, name string, agents []string) er
 	s.entries[name] = e
 	return nil
 }
+
+// agentFolder is the agent's folder in the home folder, such as .claude.
+func agentFolder(agent string) string { return agents.Of(agent).Folder }
 
 // errTooBig is readCapped's error for a file over its limit.
 var errTooBig = errors.New("too big")

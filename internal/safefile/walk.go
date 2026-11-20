@@ -20,14 +20,15 @@ type Bound struct{ Max, Seen int }
 // walkBatch is how many entries Walk reads of a folder at a time.
 const walkBatch = 256
 
-// walkMaxDepth and walkMaxPath bound how deep Walk goes below its root
-// and how long a path it makes: each folder is opened by its path from
-// the root, one name at a time, and its path kept, so a chain of folders
-// that a VM nests deep would cost each open and each path its depth, and
-// the walk the square of it.
+// MaxDepth and MaxPath bound how deep Walk goes below its root and how
+// long a path it makes: each folder is opened by its path from the root,
+// one name at a time, and its path kept, so a chain of folders that a VM
+// nests deep would cost each open and each path its depth, and the walk
+// the square of it. devvm agent save holds the paths a VM sends to them
+// too.
 const (
-	walkMaxDepth = 128
-	walkMaxPath  = 4096
+	MaxDepth = 128
+	MaxPath  = 4096
 )
 
 // Walk walks the tree at root in fsys as fs.WalkDir does, in lexical order, giving fn each entry
@@ -36,7 +37,7 @@ const (
 // b.Max it stops with ErrTooMany, before fn sees any of that folder's entries. So a folder that
 // a VM filled with millions of entries costs a walk no more than b.Max entries and a batch,
 // where fs.WalkDir reads a folder whole before it looks at any bound. It stops with ErrTooMany
-// too at a folder more than walkMaxDepth below root, or a path longer than walkMaxPath. fsys
+// too at a folder more than MaxDepth below root, or a path longer than MaxPath. fsys
 // opens a folder as an fs.ReadDirFile, as os.DirFS, an os.Root's FS and a Root's FS do. It
 // stops with ctx's error once ctx ends, as at Ctrl-C or a deadline, before it reads a folder or
 // its next batch.
@@ -61,7 +62,7 @@ func Walk(ctx context.Context, fsys fs.FS, root string, b *Bound, fn fs.WalkDirF
 // walk is Walk below its root: fn on the entry d at name, depth below the root, then on what's
 // in it when it's a folder.
 func walk(ctx context.Context, fsys fs.FS, name string, d fs.DirEntry, depth int, b *Bound, fn fs.WalkDirFunc) error {
-	if depth > walkMaxDepth || len(name) > walkMaxPath {
+	if depth > MaxDepth || len(name) > MaxPath {
 		return ErrTooMany
 	}
 	if err := fn(name, d, nil); err != nil || !d.IsDir() {
