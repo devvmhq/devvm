@@ -931,8 +931,10 @@ func TestAgentImportFailsWhole(t *testing.T) {
 			t.Fatal(err)
 		}
 		if last := h.files[len(h.files)-1]; change {
+			// Renamed aside, not removed: a removed file's inode can go to the
+			// new one at once (ext4), which then is the file listed.
 			p := filepath.Join(home, ".claude", filepath.FromSlash(last))
-			if err := os.Remove(p); err != nil {
+			if err := os.Rename(p, filepath.Join(home, "listed")); err != nil {
 				t.Fatal(err)
 			}
 			write(t, home, map[string]string{".claude/" + last: "another"})
