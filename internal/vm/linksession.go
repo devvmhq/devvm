@@ -357,7 +357,8 @@ func policyUnenforced(ctx context.Context, b backend.Backend, client, target *st
 // warnUnenforced warns when client's links to target, found as devvm
 // link add and publish check them, are refused for now because the target
 // runs with its network tier not in force (policyUnenforced). A stopped
-// target isn't warned of, as its tier applies when it next starts.
+// target isn't warned of, as its tier applies when it next starts. It
+// asks the target's backend under a status line.
 func (e Links) warnUnenforced(ctx context.Context, client, target *state.VM) {
 	if !netpolicy.TierOf(client).Confined() {
 		return
@@ -366,10 +367,11 @@ func (e Links) warnUnenforced(ctx context.Context, client, target *state.VM) {
 	if err != nil {
 		return
 	}
-	if in, err := c.Backend.Inspect(ctx, target.Name()); err != nil || in.Status != backend.StatusRunning {
-		return
-	}
-	if policyUnenforced(ctx, c.Backend, client, target) {
+	stop := e.Status(msg.CheckingVM(target.Name()))
+	in, err := c.Backend.Inspect(ctx, target.Name())
+	unenforced := err == nil && in.Status == backend.StatusRunning && policyUnenforced(ctx, c.Backend, client, target)
+	stop()
+	if unenforced {
 		e.Warn(msg.LinkTargetUnenforced(target.Name().String(), client.Name()))
 	}
 }

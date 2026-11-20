@@ -307,6 +307,7 @@ description = "what is a VM's name, or a build VM as its steps name it (tools_bu
 other = "starting {{.what}}"
 
 [stopping]
+description = "a status step: devvm stops a VM, for devvm stop, a restart, a move or a remake, and the backend's own stop command"
 other = "stopping {{.vm}}"
 
 [deleting]
@@ -325,7 +326,7 @@ description = "a status step: a command looks for its VM, asking the backend abo
 other = "finding the VM"
 
 [checking_vm]
-description = "a status step: a launch checks the VM and its project folder on this machine before it starts the VM or goes on with it"
+description = "a status step: a launch checks the VM and its project folder on this machine before it starts the VM or goes on with it, and devvm link add, devvm link publish and a group's changes check whether a VM that a link leads to runs with its network tier in force"
 other = "checking {{.vm}}"
 
 [checking_network]
@@ -783,7 +784,7 @@ description = "a status step: devvm applies the retention settings, before a com
 other = "applying the retention settings"
 
 [reading_vms]
-description = "a status step: devvm ls reads every backend's VMs and looks up each one's project folder"
+description = "a status step: devvm ls reads every backend's VMs and looks up each one's project folder, and devvm link asks the backends about the VMs its links lead to"
 other = "reading the VMs"
 
 [images_failed]
@@ -1602,6 +1603,14 @@ other = "{{.vms}} have no links to {{.vm}} any more."
 [links_update_failed]
 description = "the reason follows"
 other = "Updating {{.vm}}'s links failed, so it gets them when it next starts."
+
+[proxy_applying_tier]
+description = "a status step: devvm gives a running VM's proxy the VM's new network tier, between two tiers that confine it, starting the proxy again when it must"
+other = "giving {{.vm}}'s proxy its new network tier"
+
+[links_applying]
+description = "a status step: devvm asks whether a VM whose links changed runs, as after devvm link add or rm, devvm link publish or unpublish, a group's change or the deletion of a VM it links to, and when it does, sends it its setup again, starts its link session and waits for the session to say what came of each new link"
+other = "giving {{.vm}} its links"
 
 [tier_linked_clients]
 description = "vms lists the VMs on a stricter tier than tier that link to vm, comma-separated"

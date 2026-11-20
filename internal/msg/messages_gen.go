@@ -2873,6 +2873,11 @@ func LinkUnknownTarget(target string) M {
 	return M{id: "link_unknown_target", vals: []val{{"target", target}}}
 }
 
+// LinksApplying is [links_applying]: "giving {{.vm}} its links"
+func LinksApplying(vm vmname.VM) M {
+	return M{id: "links_applying", vals: []val{{"vm", string(vm)}}}
+}
+
 // LinksTargetGone is [links_target_gone]: "{{.vms}} have no links to {{.vm}} any more."
 func LinksTargetGone(count int, vm vmname.VM, vms string) M {
 	return M{id: "links_target_gone", plural: true, count: count, vals: []val{{"count", strconv.Itoa(count)}, {"vm", string(vm)}, {"vms", vms}}}
@@ -4171,6 +4176,11 @@ func ProjectUnchecked(vm vmname.VM) M {
 // ProjectUnmounted is [project_unmounted]: "{{.vm}}'s project folder isn't mounted in the VM, so what's written there goes to the VM's own disk. Run devvm restart to mount it again."
 func ProjectUnmounted(vm vmname.VM) M {
 	return M{id: "project_unmounted", vals: []val{{"vm", string(vm)}}}
+}
+
+// ProxyApplyingTier is [proxy_applying_tier]: "giving {{.vm}}'s proxy its new network tier"
+func ProxyApplyingTier(vm vmname.VM) M {
+	return M{id: "proxy_applying_tier", vals: []val{{"vm", string(vm)}}}
 }
 
 // ProxyCAFailed is [proxy_ca_failed]: "Creating the proxy's CA in {{.dir}} failed."
@@ -6283,6 +6293,7 @@ var specs = map[string]spec{
 	"link_tier_mismatch":              {fields: []string{"target", "target_tier", "tier", "vm"}},
 	"link_trust":                      {fields: []string{"target", "vm"}},
 	"link_unknown_target":             {fields: []string{"target"}},
+	"links_applying":                  {fields: []string{"vm"}},
 	"links_target_gone":               {plural: true, fields: []string{"count", "vm", "vms"}},
 	"links_update_failed":             {fields: []string{"vm"}},
 	"load_key":                        {fields: []string{"cmd", "key"}},
@@ -6543,6 +6554,7 @@ var specs = map[string]spec{
 	"project_in_vm_folder":            {fields: []string{"dir", "vm"}},
 	"project_unchecked":               {fields: []string{"vm"}},
 	"project_unmounted":               {fields: []string{"vm"}},
+	"proxy_applying_tier":             {fields: []string{"vm"}},
 	"proxy_ca_failed":                 {fields: []string{"dir"}},
 	"proxy_confinement_unknown":       {fields: []string{"vm", "why"}},
 	"proxy_failed":                    {fields: []string{"reason"}},

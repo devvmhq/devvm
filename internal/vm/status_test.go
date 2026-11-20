@@ -4,18 +4,22 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/backend/backendtest"
+	"github.com/devvmhq/devvm/internal/daemon"
 	"github.com/devvmhq/devvm/internal/gitprotect"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/platform"
 	"github.com/devvmhq/devvm/internal/sshagent"
+	"github.com/devvmhq/devvm/internal/state"
 )
 
 // underStatus records each call to f made with no status line of fake's
@@ -103,17 +107,57 @@ func TestSSHAddOffStatusLine(t *testing.T) {
 // The commands other than a launch run the backend's every call under a
 // status line too, on a running VM and on a stopped one: each shows,
 // lists, changes or stops the folder's VM, and devvm rm deletes it last.
+// Their questions are answered in a terminal as a user would, each with
+// no status line showing: the lock's picker with the hosts it starts with
+// ticked, and each restart with yes. Links and a group have a second VM,
+// api, which runs, then stops, then goes; a link session starts under a
+// status line too.
 func TestCommandStatusLines(t *testing.T) {
 	for _, running := range []bool{true, false} {
 		e, f, _ := upEnv(t, allNative())
+		f.LifelineFile = filepath.Join(e.Dirs.Lima, "vm", "ha.pid")
 		f.ExecFunc = noDirect
 		st := existingVM(t, e, Options{Network: netpolicy.TierAllowlist})
+		vm := st.Name()
+		api, apiVM := secondVM(t, e, netpolicy.TierAllowlist)
+		if err := (Links{Env: api}).Publish(t.Context(), "5432", true); err != nil {
+			t.Fatal(msg.NamesOf(err))
+		}
+		if err := (Groups{api}).Join(t.Context(), "web", ""); err != nil {
+			t.Fatal(msg.NamesOf(err))
+		}
 		if !running {
-			if err := f.Stop(t.Context(), st.Name()); err != nil {
+			if err := f.Stop(t.Context(), vm); err != nil {
 				t.Fatal(err)
 			}
 		}
-		off := underStatus(f, fake(e))
+		ui := fake(e)
+		ui.Terminal, ui.Picks = true, true
+		off := underStatus(f, ui)
+		var asked []string
+		ask := func(what string) {
+			asked = append(asked, what)
+			if m, on := ui.Showing(); on {
+				*off = append(*off, what+" under "+m.ID())
+			}
+		}
+		ui.OnConfirm = func(m msg.M) bool { ask(m.ID()); return true }
+		ui.OnAsk = func(m msg.M) bool { ask(m.ID()); return false }
+		ui.OnAnswer = func(m msg.M) string { ask(m.ID()); return "" }
+		e.PickMany = func(_ msg.M, parts []PickPart) ([]PickPart, error) { ask("picker"); return parts, nil }
+		start := e.Proxy.Start
+		e.Proxy.Start = func(c daemon.Cmd) (int, error) {
+			if _, on := ui.Showing(); !on && len(c.Args) > 0 {
+				*off = append(*off, "start "+c.Args[0]) // a proxy or a link session
+			}
+			return start(c)
+		}
+		// What some cases must ask, so the check sees their questions: a
+		// stopped VM's change applies when it starts, with nothing asked.
+		asks := map[string]string{"network lock": "picker"}
+		if running {
+			asks["mount-cache none"], asks["size --cpus 2"] = "restart_now", "restart_now"
+		}
 		for _, c := range []struct {
 			name string
 			run  func(context.Context) error
@@ -145,17 +189,62 @@ func TestCommandStatusLines(t *testing.T) {
 			{"network allow", func(ctx context.Context) error {
 				return (Net{e}).PolicyChange(ctx, []string{"example.com"}, RuleChange{})
 			}},
+			{"network lock", func(ctx context.Context) error {
+				st, err := state.ReadVM(e.Dirs, vm)
+				if err != nil {
+					return err
+				}
+				learnedLog(t, e, vm, netpolicy.LearningOf(st).Since)
+				return (Net{e}).Lock(ctx, LockOptions{})
+			}},
+			{"mount-cache", func(ctx context.Context) error { _, err := (Settings{e}).MountCache(ctx); return err }},
+			{"mount-cache none", func(ctx context.Context) error {
+				in := f.Instances[vm]
+				in.ProjectCache = backend.CacheMmap // as a VM made before devvm chose a mode
+				f.Instances[vm] = in
+				return (Settings{e}).SetMountCache(ctx, backend.CacheNone)
+			}},
+			{"link add", func(ctx context.Context) error {
+				return (Links{Env: e}).Add(ctx, LinkAdd{Target: apiVM.String(), Port: 5432})
+			}},
+			{"link", func(ctx context.Context) error { _, err := (Links{Env: e}).List(ctx); return err }},
+			{"link rm", func(ctx context.Context) error {
+				err := (Links{Env: e}).Rm(ctx, apiVM.String(), 5432)
+				e.linkRuns.stop(ctx, vm) // as a session with no links left ends on its own
+				return err
+			}},
+			{"group join", func(ctx context.Context) error { return (Groups{e}).Join(ctx, "web", "") }},
+			// In the group, api gets a link to each port the folder's VM publishes.
+			{"link publish", func(ctx context.Context) error { return (Links{Env: e}).Publish(ctx, "3000", true) }},
+			{"link unpublish", func(ctx context.Context) error { return (Links{Env: e}).Publish(ctx, "3000", false) }},
+			{"group", func(ctx context.Context) error { _, err := (Groups{e}).Show(ctx); return err }},
+			{"group leave", func(ctx context.Context) error { return (Groups{e}).Leave(ctx) }},
+			{"link add, api stopped", func(ctx context.Context) error {
+				if err := f.Stop(ctx, apiVM); err != nil {
+					return err
+				}
+				*off = nil // the test's own stop
+				return (Links{Env: e}).Add(ctx, LinkAdd{Target: apiVM.String(), Port: 5432})
+			}},
+			{"link, api stopped", func(ctx context.Context) error { _, err := (Links{Env: e}).List(ctx); return err }},
+			{"rm api", func(ctx context.Context) error { return (Lifecycle{api}).Rm(ctx, RmOptions{Force: true}) }},
 			{"git-protect off", func(ctx context.Context) error { return (Settings{e}).SetGitProtect(ctx, gitprotect.Off) }},
 			{"git-protect on", func(ctx context.Context) error { return (Settings{e}).SetGitProtect(ctx, gitprotect.On) }},
 			{"ssh-agent off", func(ctx context.Context) error { return (Settings{e}).SetSSHAgent(ctx, sshagent.Off) }},
 			{"history export", func(ctx context.Context) error { return (Lifecycle{e}).Export(ctx, "") }},
+			// Last but for the stops and rm, as it starts a stopped VM.
+			{"restart", func(ctx context.Context) error { return (Launch{e}).Restart(ctx, Options{}) }},
 			{"stop", func(ctx context.Context) error { return (Lifecycle{e}).Stop(ctx) }},
+			{"stop, stopped", func(ctx context.Context) error { return (Lifecycle{e}).Stop(ctx) }},
 			{"rm", func(ctx context.Context) error { return (Lifecycle{e}).Rm(ctx, RmOptions{Force: true}) }},
 		} {
-			*off = nil
+			*off, asked = nil, nil
 			calls := len(f.Calls())
 			if err := c.run(t.Context()); err != nil {
 				t.Fatalf("running %v, %s: %v", running, c.name, msg.NamesOf(err))
+			}
+			if want := asks[c.name]; want != "" && !slices.Contains(asked, want) {
+				t.Errorf("running %v, %s: asked %q, want %s", running, c.name, asked, want)
 			}
 			if len(f.Calls()) == calls { // the control: the check sees the backend's calls
 				t.Errorf("running %v, %s: no backend call", running, c.name)

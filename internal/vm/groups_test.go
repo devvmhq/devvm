@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/devvmhq/devvm/internal/msg"
+	"github.com/devvmhq/devvm/internal/netpolicy"
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/state"
 	"github.com/devvmhq/devvm/internal/vmname"
@@ -240,16 +241,8 @@ func TestGroupJoinLearning(t *testing.T) {
 func TestGroupJoinsAtOnce(t *testing.T) {
 	e, _, _ := upEnv(t, allNative())
 	off := existingVM(t, e, Options{Network: "open"})
-	e2 := *e
-	wire(&e2)
-	e2.Dir = filepath.Join(filepath.Dir(e.Dir), "api")
-	if err := os.MkdirAll(e2.Dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := (Launch{&e2}).Up(t.Context(), Options{Network: "open"}); err != nil {
-		t.Fatal(msg.NamesOf(err))
-	}
-	if err := setNetwork(t.Context(), Net{&e2}, true); err != nil {
+	e2, _ := secondVM(t, e, netpolicy.TierOpen)
+	if err := setNetwork(t.Context(), Net{e2}, true); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
 	vms, err := state.VMNames(e.Dirs)
@@ -259,7 +252,7 @@ func TestGroupJoinsAtOnce(t *testing.T) {
 	for range 10 {
 		errs := make([]error, 2)
 		var wg sync.WaitGroup
-		for i, env := range []*Env{e, &e2} {
+		for i, env := range []*Env{e, e2} {
 			wg.Go(func() { errs[i] = Groups{env}.Join(t.Context(), "web", "") })
 		}
 		wg.Wait()
@@ -270,7 +263,7 @@ func TestGroupJoinsAtOnce(t *testing.T) {
 		if len(members) != 1 || (errs[0] == nil) == (errs[1] == nil) {
 			t.Fatalf("members %d, joins %q, %q", len(members), msg.NamesOf(errs[0]), msg.NamesOf(errs[1]))
 		}
-		for i, env := range []*Env{e, &e2} {
+		for i, env := range []*Env{e, e2} {
 			want := []string{"group_tier_mismatch group=web tier=allowlist vm=", "group_tier_mismatch group=web tier=open vm="}[i]
 			if errs[i] != nil && !strings.HasPrefix(msg.NamesOf(errs[i]), want) {
 				t.Errorf("join %d: %s", i, msg.NamesOf(errs[i]))

@@ -41,8 +41,11 @@ func (t *target) running(ctx context.Context) (backend.Run, error) {
 	return t.b.Running(ctx, t.f.Name)
 }
 
-// stop stops the VM: it's stopped from then on (t.in).
+// stop stops the VM, under a status line, as every stop of a folder's VM
+// does (a restart, devvm stop, a move and a remake): it's stopped from
+// then on (t.in).
 func (t *target) stop(ctx context.Context) error {
+	defer t.e.Status(msg.Stopping(t.f.Name))()
 	if err := t.b.Stop(ctx, t.f.Name); err != nil {
 		return err
 	}

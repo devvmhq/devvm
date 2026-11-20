@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -135,8 +136,75 @@ func (a *agentCalls) run(_ context.Context, _ bool, argv ...string) (string, int
 	return "", 0
 }
 
-// testProxy runs each VM's "proxy" as a sleep that says it listens, with
-// no Keychain and no backups. A signal to one returns once it has ended
+// sleeper starts a sleep that stands in for one of devvm's background
+// processes until the test ends, however slow, and returns its pid and
+// what closes once it has ended and been reaped.
+func sleeper(t *testing.T) (int, <-chan struct{}, error) {
+	cmd := exec.CommandContext(t.Context(), "sleep", "3600")
+	if err := cmd.Start(); err != nil {
+		return 0, nil, err
+	}
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
+	return cmd.Process.Pid, done, nil
+}
+
+// linkSession is what a link session of vm, one of testProxy's sleeps,
+// says in its log, as a real one does: each of the VM's links carried,
+// at once and, until done, each time its links change, read again every
+// few milliseconds. What it returns closes once it says nothing more, so
+// nothing writes the VM's folder after the session is reaped.
+func linkSession(d paths.Dirs, vm vmname.VM, done <-chan struct{}) (<-chan struct{}, error) {
+	exited := make(chan struct{})
+	said := map[string]bool{}
+	say := func() error {
+		st, err := state.ReadVM(d, vm)
+		if err != nil {
+			return err
+		}
+		links, err := ReadLinks(st)
+		if err != nil {
+			return err
+		}
+		now, lines := map[string]bool{}, ""
+		for _, l := range links {
+			line := "devvm links: " + l.Addr.String() + ":" + strconv.Itoa(l.Port) + ": carried\n"
+			if now[line] = true; !said[line] {
+				lines += line
+			}
+		}
+		said = now
+		if lines == "" {
+			return nil
+		}
+		f, err := os.OpenFile(d.VM(vm).LinksLog(), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+		if err != nil {
+			return err
+		}
+		_, err = f.WriteString(lines)
+		return errors.Join(err, f.Close())
+	}
+	err := say()
+	go func() {
+		defer close(exited)
+		for {
+			select {
+			case <-done:
+				return
+			case <-time.After(5 * time.Millisecond):
+				if err == nil {
+					_ = say() // a state being written reads again next time
+				}
+			}
+		}
+	}()
+	return exited, err
+}
+
+// testProxy runs each VM's "proxy" as a sleep that says it listens, and
+// each link session as one that says each link is carried (linkSession),
+// with no Keychain and no backups. A signal to one returns once it has ended
 // and been reaped, as Stop's few milliseconds (Tick) are too short for
 // the reaping goroutine on a busy machine: until then its pid is alive,
 // a zombie still named in args, and Stop would give up on it.
@@ -147,26 +215,39 @@ func testProxy(t *testing.T, d paths.Dirs) *netpolicy.Proxy {
 	p := netpolicy.NewProxy(d, assets.FS, "/devvm", store, testUI(t))
 	var mu sync.Mutex
 	args := map[int][]string{}
-	ended := map[int]chan struct{}{}
+	ended := map[int]<-chan struct{}{}
 	p.Start = func(c daemon.Cmd) (int, error) {
 		path, a := c.Path, c.Args
-		cmd := exec.CommandContext(t.Context(), "sleep", "3600") // until the test ends, however slow
-		if err := cmd.Start(); err != nil {
+		links := len(a) == 2 && a[0] == "_links"
+		var exited <-chan struct{}
+		if links {
+			// Registered before the sleep's own, so it runs after it: the
+			// session's last words are said before its folder goes.
+			t.Cleanup(func() {
+				if exited != nil {
+					<-exited
+				}
+			})
+		}
+		pid, done, err := sleeper(t)
+		if err != nil {
 			return 0, err
 		}
-		done := make(chan struct{})
-		go func() { _ = cmd.Wait(); close(done) }()
-		t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
 		mu.Lock()
 		defer mu.Unlock()
-		args[cmd.Process.Pid] = append([]string{path}, a...)
-		ended[cmd.Process.Pid] = done
+		args[pid] = append([]string{path}, a...)
+		if links {
+			exited, err = linkSession(d, vmname.VM(a[1]), done)
+			ended[pid] = exited // a signal returns once it says nothing more
+			return pid, err
+		}
+		ended[pid] = done
 		// It listens where its config says: _proxy -config FILE.
 		cfg, err := proxy.ReadConfig(a[2])
 		if err != nil {
 			return 0, err
 		}
-		return cmd.Process.Pid, daemon.WriteStatus(c.Status, cmd.Process.Pid, cfg.Listen)
+		return pid, daemon.WriteStatus(c.Status, pid, cfg.Listen)
 	}
 	p.Args = func(pid int) ([]string, error) {
 		mu.Lock()
@@ -208,19 +289,16 @@ func testForwarders(t *testing.T, e *Env, f *backendtest.Fake) *[][]string {
 	fw := vmssh.NewForwards(e.Dirs, e.Registry.Review, "/devvm")
 	fw.Run, fw.Tick = short, time.Millisecond
 	fw.Detach = func(c daemon.Cmd) (int, error) {
-		cmd := exec.CommandContext(t.Context(), "sleep", "3600") // until the test ends, however slow
-		if err := cmd.Start(); err != nil {
+		pid, _, err := sleeper(t)
+		if err != nil {
 			return 0, err
 		}
-		done := make(chan struct{})
-		go func() { _ = cmd.Wait(); close(done) }()
-		t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
 		mu.Lock()
 		defer mu.Unlock()
 		a := append([]string{c.Path}, c.Args...)
 		*starts = append(*starts, a)
-		args[cmd.Process.Pid] = a
-		return cmd.Process.Pid, daemon.WriteStatus(c.Status, cmd.Process.Pid, "")
+		args[pid] = a
+		return pid, daemon.WriteStatus(c.Status, pid, "")
 	}
 	fw.Args = func(pid int) ([]string, error) {
 		mu.Lock()
@@ -304,6 +382,19 @@ func existingVM(t *testing.T, e *Env, o Options) *state.VM {
 		t.Fatal(err)
 	}
 	return st
+}
+
+// secondVM makes a second VM beside e's, on the tier given, in a project
+// folder named api, and returns its Env and its name.
+func secondVM(t *testing.T, e *Env, tier netpolicy.Tier) (*Env, vmname.VM) {
+	t.Helper()
+	api := *e
+	wire(&api)
+	api.Dir = filepath.Join(filepath.Dir(e.Dir), "api")
+	if err := os.MkdirAll(api.Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return &api, existingVM(t, &api, Options{Network: tier}).Name()
 }
 
 func vmName(t *testing.T, e *Env) vmname.VM {

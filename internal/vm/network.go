@@ -222,7 +222,11 @@ func (e Net) applyTier(ctx context.Context, t *target, from, to netpolicy.Tier, 
 	}
 	if from.Confined() && to.Confined() {
 		if running {
-			if _, err := e.Proxy.PrepareRunning(ctx, b, st); err != nil {
+			// Under a status line, as the proxy may start again for the new tier.
+			stop := e.Status(msg.ProxyApplyingTier(vm))
+			_, err := e.Proxy.PrepareRunning(ctx, b, st)
+			stop()
+			if err != nil {
 				return err
 			}
 			say(msg.SettingApplied(vm))
@@ -324,9 +328,13 @@ func (e Net) Lock(ctx context.Context, o LockOptions) error {
 	for _, m := range netpolicy.PolicyWarnings([]string{file}) {
 		e.Warn(m)
 	}
-	// Whether it runs, as it does now; the rules added are said once its
-	// proxy has them.
-	if t.in, err = t.b.Inspect(ctx, vm); err != nil {
+	// Whether it runs, as it does now, read under a status line of its own,
+	// as applyTier shows its own for the proxy's new tier; the rules added
+	// are said once its proxy has them.
+	stop := e.Status(msg.FindingVM())
+	t.in, err = t.b.Inspect(ctx, vm)
+	stop()
+	if err != nil {
 		return err
 	}
 	return e.applyTier(ctx, t, from, to, msg.NetLocked(added, vm))

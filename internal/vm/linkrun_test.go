@@ -4,7 +4,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -274,19 +273,16 @@ func linkRunsEnv(t *testing.T, logged string) (linkRuns, *[][]string) {
 	var started [][]string
 	e.Proxy.Start = func(c daemon.Cmd) (int, error) {
 		path, a, out := c.Path, c.Args, c.Out
-		cmd := exec.CommandContext(t.Context(), "sleep", "3600") // until the test ends, however slow
-		if err := cmd.Start(); err != nil {
+		pid, _, err := sleeper(t)
+		if err != nil {
 			return 0, err
 		}
-		done := make(chan struct{})
-		go func() { _ = cmd.Wait(); close(done) }()
-		t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
 		mu.Lock()
 		defer mu.Unlock()
-		args[cmd.Process.Pid] = append([]string{path}, a...)
+		args[pid] = append([]string{path}, a...)
 		started = append(started, a)
-		_, err := out.WriteString(logged)
-		return cmd.Process.Pid, err
+		_, err = out.WriteString(logged)
+		return pid, err
 	}
 	e.Proxy.Args = func(pid int) ([]string, error) {
 		mu.Lock()

@@ -339,12 +339,14 @@ type LinkListed struct {
 }
 
 // List returns the folder's VM's links, with each target's folder and
-// status and whether the link applies.
+// status and whether the link applies, the targets read under a status
+// line.
 func (e Links) List(ctx context.Context) ([]LinkListed, error) {
 	t, err := e.finder.target(ctx, need{has: hasMade})
 	if err != nil {
 		return nil, err
 	}
+	defer e.Status(msg.ReadingVMs())()
 	links, err := ReadLinks(t.st)
 	if err != nil {
 		return nil, err

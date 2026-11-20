@@ -264,9 +264,12 @@ func guestLinks(d paths.Dirs, st *state.VM) ([]GuestLink, error) {
 // which reads its links again each second. It waits for the session to
 // say what came of added, the links that are new, in its log after from
 // (logSize, before the change was written). It reports whether the client
-// runs: a stopped one gets them at its next start.
+// runs: a stopped one gets them at its next start. It runs under a status
+// line, as it asks the backend, runs commands in the VM and waits for the
+// session.
 func (e linkRuns) apply(ctx context.Context, b backend.Backend, st *state.VM, added []Link, from int64) (bool, error) {
 	vm := st.Name()
+	defer e.Status(msg.LinksApplying(vm))()
 	in, err := b.Inspect(ctx, vm)
 	if err != nil || in.Status != backend.StatusRunning {
 		return false, err
