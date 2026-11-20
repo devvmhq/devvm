@@ -27,18 +27,19 @@ func shells() map[string]string {
 // fails until it's listed here.
 func dynamicScripts() map[string]string {
 	return map[string]string{
-		"internal/backend/lima/lima.go " + `"cd " + shell.Quote(dir) + " && exec " + shell.QuoteJoin(argv)`: "Exec's own wrapper: a cd and an exec of words each quoted (shell.Quote)",
-		"internal/backend/lima/packages.go " + `"rm -rf " + d + " && mkdir -p " + d + " && tar -x -C " + d`: "a fixed command around a quoted path",
-		"internal/backend/lima/packages.go " + `"mkdir -p " + d + "/out && tar -c -C " + d + "/out ."`:      "a fixed command around a quoted path",
-		"internal/backend/lima/remount.go script":                                                           "a fixed umount and mount around a quoted path, which start_test compares word for word",
-		"internal/backend/lima/remount.go check":                                                            "a fixed mountpoint test around quoted paths",
-		"internal/vm/mountcache.go script":                                                                  "a fixed mountpoint test around a quoted path",
-		"internal/vm/agentsave.go agentSaveScript(agents)":                                                  "built from the agents' registry: internal/vm's TestBuiltScriptsShellcheck checks it",
-		"internal/vm/lifecycle.go historyExport()":                                                          "built from the agents' registry: internal/vm's TestBuiltScriptsShellcheck checks it",
-		"internal/vm/lifecycle.go historyImport()":                                                          "built from the agents' registry: internal/vm's TestBuiltScriptsShellcheck checks it",
-		"internal/devcontainer/devcontainer.go s":                                                           "a devcontainer.json's own command, the user's, not devvm's",
-		"internal/vm/opencode.go string(script)":                                                            "assets/guest/opencode.sh, which lint:code's shellcheck checks with the assets",
-		"internal/vm/paste.go script":                                                                       "assets/guest/paste.sh, through pasteArgv, which lint:code's shellcheck checks with the assets",
+		"internal/backend/lima/lima.go " + `"cd " + shell.Quote(dir) + " && " + colorTerm(o.ColorTerm) + "exec " + shell.QuoteJoin(argv)`: "Exec's own wrapper: a cd, COLORTERM's export (colorTerm) and an exec of words each quoted (shell.Quote)",
+		"internal/backend/lima/lima.go " + "colorTerm(o.ColorTerm) + `exec \"$SHELL\" --login`":                                           "Shell's login shell after COLORTERM's export, its value quoted (shell.Quote)",
+		"internal/backend/lima/packages.go " + `"rm -rf " + d + " && mkdir -p " + d + " && tar -x -C " + d`:                               "a fixed command around a quoted path",
+		"internal/backend/lima/packages.go " + `"mkdir -p " + d + "/out && tar -c -C " + d + "/out ."`:                                    "a fixed command around a quoted path",
+		"internal/backend/lima/remount.go script":                                                                                         "a fixed umount and mount around a quoted path, which start_test compares word for word",
+		"internal/backend/lima/remount.go check":                                                                                          "a fixed mountpoint test around quoted paths",
+		"internal/vm/mountcache.go script":                                                                                                "a fixed mountpoint test around a quoted path",
+		"internal/vm/agentsave.go agentSaveScript(agents)":                                                                                "built from the agents' registry: internal/vm's TestBuiltScriptsShellcheck checks it",
+		"internal/vm/lifecycle.go historyExport()":                                                                                        "built from the agents' registry: internal/vm's TestBuiltScriptsShellcheck checks it",
+		"internal/vm/lifecycle.go historyImport()":                                                                                        "built from the agents' registry: internal/vm's TestBuiltScriptsShellcheck checks it",
+		"internal/devcontainer/devcontainer.go s":                                                                                         "a devcontainer.json's own command, the user's, not devvm's",
+		"internal/vm/opencode.go string(script)":                                                                                          "assets/guest/opencode.sh, which lint:code's shellcheck checks with the assets",
+		"internal/vm/paste.go script":                                                                                                     "assets/guest/paste.sh, through pasteArgv, which lint:code's shellcheck checks with the assets",
 	}
 }
 

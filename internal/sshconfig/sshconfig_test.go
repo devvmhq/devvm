@@ -153,7 +153,8 @@ func setAlias(t *testing.T, d paths.Dirs, vm vmname.VM, alias string) {
 	}
 }
 
-// pinned is what every entry turns off, whatever a Host * says.
+// pinned is what every entry turns off, whatever a Host * says, and the
+// COLORTERM it sends.
 const pinned = `  ForwardX11 no
   ForwardX11Trusted no
   Tunnel no
@@ -163,6 +164,7 @@ const pinned = `  ForwardX11 no
   ProxyCommand none
   UpdateHostKeys no
   HashKnownHosts no
+  SendEnv COLORTERM
 `
 
 // keyOf is a made-up ed25519 host key of vm's, in ssh's wire format.

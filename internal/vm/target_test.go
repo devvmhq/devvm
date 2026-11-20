@@ -51,3 +51,27 @@ func TestTargetAfterStartAndStop(t *testing.T) {
 		t.Errorf("size %+v, want its state's 2 CPUs", tg.in.Size)
 	}
 }
+
+// A shell in the VM and an agent's login get the host terminal's
+// COLORTERM when it says 24-bit color, truecolor or 24bit, and nothing
+// for any other value or none, which a shell in the VM would take as it
+// is.
+func TestColorTerm(t *testing.T) {
+	e, f, _ := upEnv(t, allNative())
+	existingVM(t, e, Options{Network: "open"})
+	for host, want := range map[string]string{
+		"truecolor": "truecolor", "24bit": "24bit", "": "",
+		"TrueColor": "", "256color": "", "truecolor ": "", "x' && touch /tmp/p && '": "", "truecolor\n": "",
+	} {
+		e.Getenv = func(k string) string { return map[string]string{"COLORTERM": host}[k] }
+		if err := (Launch{e}).Up(t.Context(), Options{}); err != nil {
+			t.Fatal(msg.NamesOf(err))
+		}
+		if got := shellOpts(call(f, "Shell")).ColorTerm; got != want {
+			t.Errorf("COLORTERM=%q: the shell's %q, want %q", host, got, want)
+		}
+		if o, _ := (AgentLogin{e}).loginOpts(); o.ColorTerm != want {
+			t.Errorf("COLORTERM=%q: an agent's login's %q, want %q", host, o.ColorTerm, want)
+		}
+	}
+}

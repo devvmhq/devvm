@@ -97,9 +97,23 @@ func (t *target) exec(ctx context.Context, argv []string, o backend.ExecOpts) er
 }
 
 // shell is the command that opens a shell in the running VM, in the
-// folder it opens in (shellDir), its connection carrying the VM's agent.
+// folder it opens in (shellDir), its connection carrying the VM's agent,
+// with the host terminal's COLORTERM (colorTerm).
 func (t *target) shell(ctx context.Context) (backend.Command, error) {
-	return t.b.Shell(ctx, t.f.Name, backend.ShellOpts{Dir: t.shellDir(ctx, t.e.vmLog()), Agent: t.agent})
+	return t.b.Shell(ctx, t.f.Name, backend.ShellOpts{Dir: t.shellDir(ctx, t.e.vmLog()), Agent: t.agent, ColorTerm: colorTerm(t.e.Getenv)})
+}
+
+// colorTerm is the host terminal's COLORTERM, as getenv has it, that a
+// shell or an agent's login in the VM gets: only truecolor and 24bit, the
+// values that say the terminal shows 24-bit color, pass; any other, or
+// none, is "". Quoting would make any value safe, but devvm sends a VM
+// only values it knows.
+func colorTerm(getenv func(string) string) string {
+	switch v := getenv("COLORTERM"); v {
+	case "truecolor", "24bit":
+		return v
+	}
+	return ""
 }
 
 // shellDir is the folder in a running VM that its shell and editors open

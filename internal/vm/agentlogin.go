@@ -181,9 +181,10 @@ func (e AgentLogin) login(ctx context.Context, t *target, o AgentLoginOptions) e
 // gives the login a terminal in the VM (backend.ExecOpts), which a
 // full-screen login (claude setup-token) draws on; without one, devvm's
 // writers, pipes. Either way the login's output reaches devvm's output
-// alone, never the run log.
+// alone, never the run log, and the login gets the host terminal's
+// COLORTERM (colorTerm).
 func (e AgentLogin) loginOpts() (backend.ExecOpts, func()) {
-	o := backend.ExecOpts{Stdin: os.Stdin, Stdout: e.Stdout(), Stderr: e.Stderr()}
+	o := backend.ExecOpts{Stdin: os.Stdin, Stdout: e.Stdout(), Stderr: e.Stderr(), ColorTerm: colorTerm(e.Getenv)}
 	if e.Terminal == nil {
 		return o, nil
 	}

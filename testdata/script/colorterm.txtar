@@ -1,0 +1,50 @@
+# The host terminal's COLORTERM: a shell in the VM and an agent's login
+# get it when it's truecolor or 24bit, set by the command devvm runs in
+# the VM (limactl shell's own SendEnv never reaches it); any other value,
+# or none, sets nothing, and the shell is limactl shell's own.
+
+# A new VM's first shell.
+project web
+env COLORTERM=truecolor
+exec devvm --network open --no-git-protect --agents codex
+stub_calls
+stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14} sh -c export COLORTERM=''truecolor'' && exec "\$SHELL" --login\n\z'
+
+# A shell in the running VM.
+env COLORTERM=24bit
+stub_reset
+exec devvm
+stub_calls
+stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14} sh -c export COLORTERM=''24bit'' && exec "\$SHELL" --login\n\z'
+
+# Any other value, or none: nothing.
+env COLORTERM='truecolor'';touch /tmp/p'
+stub_reset
+exec devvm
+stub_calls
+stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
+env COLORTERM=256color
+stub_reset
+exec devvm
+stub_calls
+stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
+env COLORTERM=
+stub_reset
+exec devvm
+stub_calls
+stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
+
+# An agent's login, with truecolor, then with another value. (The stub
+# saves no login, so devvm says so.)
+env COLORTERM=truecolor
+stub_reset
+! exec devvm agent login codex --device-code
+stderr '^devvm: agent_login_not_saved agent=codex vm=devvm-web-[0-9a-f]{14}$'
+stub_calls
+stdout ' sh -c cd ''/'' && export COLORTERM=''truecolor'' && exec ''bash'' ''-lc'' .* ''login'' ''--device-auth''$'
+env COLORTERM=xterm
+stub_reset
+! exec devvm agent login codex --device-code
+stub_calls
+stdout ' sh -c cd ''/'' && exec ''bash'' ''-lc'' .* ''login'' ''--device-auth''$'
+! stdout COLORTERM

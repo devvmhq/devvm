@@ -1145,6 +1145,39 @@ func TestExecAndShell(t *testing.T) {
 	}
 }
 
+// Exec and Shell set the COLORTERM they're given in the guest's shell,
+// quoted, before the command or the login shell, which limactl shell's
+// own SendEnv doesn't (lima-vm/lima#2208); with none, they're as they
+// were, and Shell leaves the login shell to limactl shell.
+func TestExecAndShellColorTerm(t *testing.T) {
+	for _, c := range []struct {
+		colorTerm string
+		exec      string
+		shell     []string
+	}{
+		{"", `cd '/p' && exec 'tput' 'colors'`, nil},
+		{"truecolor", `cd '/p' && export COLORTERM='truecolor' && exec 'tput' 'colors'`, []string{"sh", "-c", `export COLORTERM='truecolor' && exec "$SHELL" --login`}},
+		{"24bit", `cd '/p' && export COLORTERM='24bit' && exec 'tput' 'colors'`, []string{"sh", "-c", `export COLORTERM='24bit' && exec "$SHELL" --login`}},
+		{"it's", `cd '/p' && export COLORTERM='it'\''s' && exec 'tput' 'colors'`, []string{"sh", "-c", `export COLORTERM='it'\''s' && exec "$SHELL" --login`}},
+	} {
+		l, f, _ := testLima(t, "darwin")
+		if err := l.Exec(t.Context(), "v", []string{"tput", "colors"}, backend.ExecOpts{Dir: "/p", ColorTerm: c.colorTerm}); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"limactl", "shell", "--workdir", "/", "v", "sh", "-c", c.exec}
+		if got := f.calls[0].argv; !slices.Equal(got, want) {
+			t.Errorf("Exec with COLORTERM %q ran %q, want %q", c.colorTerm, got, want)
+		}
+		cmd, err := l.Shell(t.Context(), "v", backend.ShellOpts{Dir: "/p", ColorTerm: c.colorTerm})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := append([]string{"shell", "--workdir", "/p", "v"}, c.shell...); !slices.Equal(cmd.Args[1:], want) {
+			t.Errorf("Shell with COLORTERM %q ran %q, want %q", c.colorTerm, cmd.Args[1:], want)
+		}
+	}
+}
+
 // Exec gives limactl shell the command's streams as they are, so a
 // terminal's files reach it as files: limactl shell gives the command a
 // terminal in the VM (ssh -t) only when its own stdout is one, which an

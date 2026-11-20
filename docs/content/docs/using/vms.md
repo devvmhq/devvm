@@ -26,6 +26,8 @@ flowchart TD
   running ~~~ outdated
 ```
 
+The shell, and an agent's login with `devvm agent login`, get your terminal's `COLORTERM` when it's `truecolor` or `24bit`, so programs in the VM, such as coding agents, show 24-bit color as they do on this machine ([how](../internals/lima.md#a-shells-colors)).
+
 ## Restarting and stopping
 
 ```sh

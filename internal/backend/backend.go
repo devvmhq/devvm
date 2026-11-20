@@ -655,13 +655,17 @@ type ExecOpts struct {
 	// carries, the VM's own (Confinement.AgentSocket); "" for none. The
 	// backend never takes one from devvm's environment.
 	Agent string
+	// ColorTerm is the COLORTERM the command gets, the host terminal's
+	// when it's one devvm passes on (vm's colorTerm); "" sets none.
+	ColorTerm string
 }
 
-// ShellOpts is where an interactive shell in a VM opens and the ssh-agent
-// its connection carries, as ExecOpts has them.
+// ShellOpts is where an interactive shell in a VM opens, the ssh-agent
+// its connection carries and the COLORTERM it gets, as ExecOpts has them.
 type ShellOpts struct {
-	Dir   string // the folder in the VM
-	Agent string // the ssh-agent socket; "" for none
+	Dir       string // the folder in the VM
+	Agent     string // the ssh-agent socket; "" for none
+	ColorTerm string // the COLORTERM; "" for none
 }
 
 // Command is a host command to run: Path with Args (Args[0] included), in

@@ -638,27 +638,48 @@ func (in instance) backend() backend.Instance {
 
 // Exec runs argv in the VM, in o.Dir. limactl shell passes each of its
 // arguments to the guest's shell quoted; the command devvm builds for it
-// (the folder, then argv) is quoted word by word too.
+// (the folder, then o.ColorTerm's COLORTERM when it's set (colorTerm),
+// then argv) is quoted word by word too.
 func (l *machines) Exec(ctx context.Context, vm vmname.VM, argv []string, o backend.ExecOpts) error {
 	dir := o.Dir
 	if dir == "" {
 		dir = "/"
 	}
-	cmd := l.limactl(ctx, "shell", "--workdir", "/", vm.String(), "sh", "-c", "cd "+shell.Quote(dir)+" && exec "+shell.QuoteJoin(argv))
+	cmd := l.limactl(ctx, "shell", "--workdir", "/", vm.String(), "sh", "-c", "cd "+shell.Quote(dir)+" && "+colorTerm(o.ColorTerm)+"exec "+shell.QuoteJoin(argv))
 	withAgent(cmd, o.Agent)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = o.Stdin, o.Stdout, o.Stderr
 	return l.Runner.Attach(cmd)
 }
 
 // Shell returns limactl shell in o.Dir, carrying o.Agent, for the caller
-// to run in its place.
+// to run in its place. With o.ColorTerm, it runs the VM's login shell
+// itself, as limactl shell does without a command, after setting
+// COLORTERM.
 func (l *machines) Shell(ctx context.Context, vm vmname.VM, o backend.ShellOpts) (backend.Command, error) {
-	cmd := l.limactl(ctx, "shell", "--workdir", o.Dir, vm.String())
+	args := []string{"shell", "--workdir", o.Dir, vm.String()}
+	if o.ColorTerm != "" {
+		args = append(args, "sh", "-c", colorTerm(o.ColorTerm)+`exec "$SHELL" --login`)
+	}
+	cmd := l.limactl(ctx, args...)
 	withAgent(cmd, o.Agent)
 	if cmd.Err != nil {
 		return backend.Command{}, cmd.Err
 	}
 	return backend.Command{Path: cmd.Path, Args: cmd.Args, Env: cmd.Env, Dir: cmd.Dir}, nil
+}
+
+// colorTerm is the guest shell's command that sets COLORTERM to v, quoted,
+// before what follows it: nothing for "". limactl shell asks ssh to send
+// the host's COLORTERM (SendEnv), but its session rides Lima's shared ssh
+// connection, opened without it, so it never arrives
+// (https://github.com/lima-vm/lima/issues/2208): this can go once Lima
+// sends it, though then any value of the host's arrives, not only the
+// ones devvm passes on.
+func colorTerm(v string) string {
+	if v == "" {
+		return ""
+	}
+	return "export COLORTERM=" + shell.Quote(v) + " && "
 }
 
 // sshLogin is the options of Lima's ssh config, lowercase, that say how

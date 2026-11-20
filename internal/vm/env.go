@@ -77,6 +77,8 @@ type Env struct {
 	Environ []string
 	// What a VM's setup sends of the host's settings: the environment
 	// (TZ, LANG, LC_ALL), the timezone, and git's settings in a folder.
+	// Its shells and agents' logins get COLORTERM from Getenv too
+	// (colorTerm).
 	Getenv    func(string) string
 	HostTZ    func() string
 	GitConfig func(ctx context.Context, dir, key string) string

@@ -212,6 +212,11 @@ func (c *Config) entry(buf *strings.Builder, alias string, in backend.Instance, 
 		"  ProxyCommand none",
 		"  UpdateHostKeys no",
 		"  HashKnownHosts no",
+		// The terminal's 24-bit color, which the VM's sshd accepts where
+		// its image's config does (base's Ubuntu): ssh sends no
+		// COLORTERM unless asked, and a SendEnv adds to a Host *'s
+		// rather than replacing it.
+		"  SendEnv COLORTERM",
 	)
 	lines = append(lines,
 		"  Hostname "+vmssh.Loopback, "  Port "+strconv.Itoa(login.Port),

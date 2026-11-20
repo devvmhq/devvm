@@ -64,8 +64,10 @@ func projectBase(s *S) *webVM {
 	w := &webVM{}
 	w.p, _ = s.NewProject("web")
 	_, _ = s.Run(Cmd{Args: []string{"git", "-C", w.p, "init", "-q"}})
-	// The shell devvm opens reads its commands from devvm's input: these, then it ends.
-	vm, res, _ := s.Launch(w.p, "pwd; echo e2e-shell-ran", "--network", "open", "--cpus", "2", "--memory", "3", "--disk", "120")
+	// The shell devvm opens reads its commands from devvm's input: these, then it ends. It's
+	// started from a terminal with 24-bit color, which a fresh VM's first shell gets.
+	args := []string{s.sb.devvm, "--network", "open", "--cpus", "2", "--memory", "3", "--disk", "120"}
+	vm, res, _ := s.launch(Cmd{Args: args, Dir: w.p, Stdin: "pwd; echo e2e-shell-ran; echo colorterm=$COLORTERM\n", Env: []string{"COLORTERM=truecolor"}})
 	w.vm, w.launch = vm, res.Out
 	// A running VM, as the golden fixtures have it (--golden), and its overlay disk on Linux.
 	if vm != "" {
@@ -87,6 +89,13 @@ func projectBase(s *S) *webVM {
 		}
 		return nil
 	})
+	s.Check("a fresh VM's first shell gets the host terminal's COLORTERM", func() error {
+		if !res.Has("colorterm=truecolor") {
+			return errors.New("the shell's COLORTERM isn't truecolor")
+		}
+		return nil
+	})
+	projectColorTerm(s, w)
 	// devvm in a subfolder opens the folder's VM there, says so, and makes none.
 	_ = os.MkdirAll(filepath.Join(p, "src", "lib"), 0o755) //nolint:gosec // a project's folder, as its user's mkdir makes it
 	s.Check("devvm in a subfolder opens the folder's VM in the subfolder", func() error {
@@ -174,6 +183,46 @@ func projectGuide(s *S, w *webVM) {
 		}
 		if _, err := s.InVM(w.vm, `echo x >> /usr/share/doc/devvm/README.md`); err == nil {
 			return errors.New("the VM's user wrote the guide")
+		}
+		return nil
+	})
+}
+
+// projectColorTerm: a shell devvm opens on a terminal in the running VM
+// is a login shell on a terminal, in the folder, with the host terminal's COLORTERM when
+// it's one devvm passes on, and without it otherwise. What's typed comes
+// back on the terminal, so what the shell prints is computed ($((…))),
+// never what was typed.
+func projectColorTerm(s *S, w *webVM) {
+	shell := func(colorterm string) (Res, error) {
+		return s.Run(Cmd{
+			Args:  OnTTY(s.sb.devvm),
+			Dir:   w.p,
+			Stdin: "tty -s && shopt -q login_shell && [ \"$PWD\" = " + shell.Quote(w.p) + " ] && echo shell-$((1+1)); echo \"ct$((1+1))=[$COLORTERM]\"; exit\n",
+			Env:   []string{"COLORTERM=" + colorterm},
+		})
+	}
+	s.Check("a shell on a terminal in the running VM is a login shell with the host's COLORTERM=24bit", func() error {
+		r, err := shell("24bit")
+		switch {
+		case err != nil:
+			return err
+		case !strings.Contains(r.Out, "shell-2"):
+			return errors.New("not a login shell on a terminal in the folder:\n" + r.Out)
+		case !strings.Contains(r.Out, "ct2=[24bit]"):
+			return errors.New("its COLORTERM isn't 24bit:\n" + r.Out)
+		}
+		return nil
+	})
+	s.Check("... and none for a COLORTERM devvm doesn't pass on", func() error {
+		r, err := shell("yes';echo x")
+		switch {
+		case err != nil:
+			return err
+		case !strings.Contains(r.Out, "shell-2"):
+			return errors.New("not a login shell on a terminal in the folder:\n" + r.Out)
+		case !strings.Contains(r.Out, "ct2=[]"):
+			return errors.New("it has a COLORTERM:\n" + r.Out)
 		}
 		return nil
 	})
@@ -427,6 +476,14 @@ func projectSSH(s *S, w *webVM) {
 		r, _ := s.Run(Cmd{Args: append(ssh[:3:3], "devvm-web", "hostname")})
 		if Trim(r.Stdout) != "web" {
 			return errors.New("hostname: " + r.Out)
+		}
+		return nil
+	})
+	s.Check("ssh devvm-web gets the host terminal's COLORTERM", func() error {
+		r, _ := s.Run(Cmd{Args: append(ssh[:3:3], "devvm-web", `echo "[${COLORTERM:-}]"`), Env: []string{"COLORTERM=truecolor"}})
+		if Trim(r.Stdout) != "[truecolor]" {
+			accept, _ := s.InVM(vm, "sudo sshd -T | grep -i acceptenv")
+			return errors.New("COLORTERM: " + r.Out + "\nthe VM's sshd: " + accept.Out)
 		}
 		return nil
 	})

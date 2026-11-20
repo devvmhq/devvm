@@ -22,6 +22,7 @@ You can also point ssh at the file, as in `ssh -F ~/.local/share/devvm/ssh_confi
 - **Each entry checks the VM's own host keys,** which devvm reads from the VM once each time it starts and keeps in the VM's folder, `~/.local/share/devvm/vms/<hash>/run/known_hosts`. ssh refuses a host key that doesn't match, and a VM whose keys devvm can't read gets no entry.
 - **Each entry reaches the VM on this machine's loopback, `127.0.0.1`,** as the VM's user with the VM's own key. A VM whose backend names any other address, or no user or key, gets no entry, so ssh never takes your connection somewhere else.
 - **The entries need OpenSSH 8.7 or newer** (`ssh -V`), and an older ssh refuses them.
+- **ssh sends your terminal's `COLORTERM`,** so programs in the VM show 24-bit color when your terminal does. It's the only variable the entries send beyond the ones your own ssh config sends, and a VM made with `--from` gets it only when its image's sshd accepts it, as devvm's base does.
 - **Keep remote forwards out of `Host *`.** The entries turn off what else your ssh config could share with a VM, but they can't turn off a `RemoteForward` of yours.
 
 <!-- markdownlint-disable-next-line MD033 -- the section's anchor before its rename, which released versions' messages link to -->
