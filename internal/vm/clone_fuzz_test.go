@@ -178,7 +178,9 @@ func FuzzParseLFSPointer(f *testing.F) {
 		oids, sizes := 0, 0
 		for _, l := range lines[1:] {
 			oids += strings.Count(l+" ", "oid sha256:"+o.oid+" ") * boolInt(strings.HasPrefix(l, "oid "))
-			sizes += boolInt(l == "size "+strconv.FormatInt(o.size, 10) || strings.HasPrefix(l, "size ") && strings.TrimLeft(l[5:], "+0") == strconv.FormatInt(o.size, 10))
+			if n, err := strconv.ParseInt(strings.TrimPrefix(l, "size "), 10, 64); strings.HasPrefix(l, "size ") && err == nil && n == o.size {
+				sizes++ // as git-lfs reads it: "+1", "007" and "-0" too
+			}
 		}
 		switch {
 		case !strings.HasPrefix(s, v) || !strings.HasSuffix(s, "\n"):

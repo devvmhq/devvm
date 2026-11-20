@@ -2,6 +2,7 @@ package agentlogin
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/url"
@@ -506,12 +507,60 @@ func FuzzCapture(f *testing.F) {
 		if err := json.Unmarshal(out, &vm); err != nil || vm == nil {
 			t.Fatalf("the VM's reply isn't a JSON object: %q", out)
 		}
+		rest := withoutPlaceholders(t, vm)
 		for _, tok := range tokens {
-			if strings.Contains(string(out), tok) && !keptElsewhere(r, tok) {
+			if strings.Contains(rest, tok) && !keptElsewhere(r, tok) {
 				t.Fatalf("the VM's reply holds the token %q: %s", tok, out)
 			}
 		}
 	})
+}
+
+// withoutPlaceholders is the VM's reply as JSON without devvm's own placeholders, which a token
+// can match by chance (a short one is a prefix of fakeJWT's header): devvm-proxy-managed, and a
+// JWT-shaped placeholder whose header and claims are fakeJWT's, devvm's mark and an expiry.
+func withoutPlaceholders(t *testing.T, vm map[string]any) string {
+	t.Helper()
+	header := strings.SplitN(fakeJWT(nil), ".", 2)[0]
+	rest := map[string]any{}
+	for k, v := range vm {
+		s, _ := v.(string)
+		parts := strings.Split(s, ".")
+		if s == managed || len(parts) == 3 && parts[0] == header && parts[2] == jwtMark && devvmClaims(parts[1]) {
+			continue
+		}
+		rest[k] = v
+	}
+	b, err := json.Marshal(rest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// devvmClaims reports whether seg, a JWT's encoded claims, holds only the claims devvm's
+// placeholders have: its mark and an expiry.
+func devvmClaims(seg string) bool {
+	raw, err := base64.RawURLEncoding.DecodeString(seg)
+	if err != nil {
+		return false
+	}
+	var c map[string]any
+	if json.Unmarshal(raw, &c) != nil {
+		return false
+	}
+	for k, v := range c {
+		switch s, _ := v.(string); {
+		case k == "devvm" && strings.HasPrefix(s, "placeholder-"):
+		case k == "exp":
+			if _, ok := v.(float64); !ok {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // keptElsewhere reports whether a field of r besides its tokens holds tok, which the VM's reply

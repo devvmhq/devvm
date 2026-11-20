@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("version https://git-lfs.github.com/spec/v1\noid sha256:abababababababababababababababababababababababababababababababab\nsize -0\n")
