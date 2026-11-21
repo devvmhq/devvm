@@ -391,7 +391,7 @@ devvm reads only an image, a PDF or a copied file's reference from the clipboard
 - **One copied file**, after devvm asks you about it.
 - **Nothing over 64 MiB**, whether it's an image, a PDF or a file.
 
-devvm checks that an image's or a PDF's bytes are the type the clipboard claims ([how](../internals/design.md#pasting-images)). Text is never sent, so paste text, such as an error message, into the agent's terminal yourself. The app you copied from hands over what you copied when devvm asks for it, and devvm waits for it at most 30 seconds, then stops waiting, sends nothing and says so, so copy it again, or wait until the app responds, then run devvm paste again. On macOS, devvm reads the clipboard of the session you're logged in to, so run devvm paste in a terminal on that Mac, not over ssh.
+devvm checks that an image's or a PDF's bytes are the type the clipboard claims ([how](../contributing/design.md#pasting-images)). Text is never sent, so paste text, such as an error message, into the agent's terminal yourself. The app you copied from hands over what you copied when devvm asks for it, and devvm waits for it at most 30 seconds, then stops waiting, sends nothing and says so, so copy it again, or wait until the app responds, then run devvm paste again. On macOS, devvm reads the clipboard of the session you're logged in to, so run devvm paste in a terminal on that Mac, not over ssh.
 
 What devvm gets depends on the app you copied from:
 
@@ -402,7 +402,7 @@ What devvm gets depends on the app you copied from:
 
 ### Copied files
 
-Before devvm sends a copied file, it shows the file's path on this machine and asks, [y/N], because the clipboard can name any file of yours, such as a key in `~/.ssh` that you didn't mean to copy. Answer no and nothing is sent. An image or a PDF is sent without a question, because it's only what you copied. devvm sends a copied file under a name of its own that keeps only the file's extension, when it's letters and digits alone and at most 16 of them, so `my shot (1).png` becomes `paste-20261109-153012-7f3a9c01.png`, and `Makefile` becomes `paste-20261109-153012-7f3a9c01` ([why](../internals/design.md#pasting-images)).
+Before devvm sends a copied file, it shows the file's path on this machine and asks, [y/N], because the clipboard can name any file of yours, such as a key in `~/.ssh` that you didn't mean to copy. Answer no and nothing is sent. An image or a PDF is sent without a question, because it's only what you copied. devvm sends a copied file under a name of its own that keeps only the file's extension, when it's letters and digits alone and at most 16 of them, so `my shot (1).png` becomes `paste-20261109-153012-7f3a9c01.png`, and `Makefile` becomes `paste-20261109-153012-7f3a9c01` ([why](../contributing/design.md#pasting-images)).
 
 It sends one file at a time, and it refuses:
 
@@ -467,7 +467,7 @@ devvm reads and writes the clipboard with `wl-paste` and `wl-copy` in a Wayland 
 sudo apt install wl-clipboard   # or xclip for X11; dnf, pacman and zypper have both
 ```
 
-devvm looks for them only in the system's folders, never elsewhere on your `PATH` ([which folders, and why](../internals/design.md#pasting-images)). Run devvm paste from a terminal in your desktop session, because without either variable there's no clipboard to read. If `WAYLAND_DISPLAY` or `DISPLAY` names a session that's over, as in a tmux window left from an earlier login, devvm tells you that `wl-paste` or `xclip` failed and what it said, rather than that the clipboard is empty. Copying the path leaves `wl-copy` or `xclip` running until you copy something else, because a Linux clipboard's contents live in the program that copied them.
+devvm looks for them only in the system's folders, never elsewhere on your `PATH` ([which folders, and why](../contributing/design.md#pasting-images)). Run devvm paste from a terminal in your desktop session, because without either variable there's no clipboard to read. If `WAYLAND_DISPLAY` or `DISPLAY` names a session that's over, as in a tmux window left from an earlier login, devvm tells you that `wl-paste` or `xclip` failed and what it said, rather than that the clipboard is empty. Copying the path leaves `wl-copy` or `xclip` running until you copy something else, because a Linux clipboard's contents live in the program that copied them.
 
 ## History
 

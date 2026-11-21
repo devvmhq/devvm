@@ -18,4 +18,5 @@ These pages explain how devvm does what the other sections describe, for readers
 - [Lima](lima.md): devvm's Lima home, confinement, clones and port forwarding on Lima.
 - [Processes](processes.md): what each of devvm's processes holds, reads, writes and is confined by, the listeners a VM's bytes reach, and why devvm is written in Go.
 - [Coding agents](agents.md): how the agents' settings, logins and history reach a VM, and what devvm checks when it imports, saves and exports them.
-- [Design notes](design.md): why devvm is built this way, what failed, and what's still open.
+
+Why devvm is built this way, what failed and what's still open is in the [design notes](../contributing/design.md), under Contributing.

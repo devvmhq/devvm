@@ -104,7 +104,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 
 - **A backend implements `backend.Backend`'s four roles, declares `Caps` for every feature and returns errors, never ending the run:** [How a backend plugs in](docs/content/docs/contributing/extending.md#how-a-backend-plugs-in); a new `Feature` goes in `backend.Features` and [the feature table](docs/content/docs/internals/backends.md#the-feature-table).
 - **A missing feature fails, naming the VM and what to do; never fall back silently** ([Missing and unreviewed features](docs/content/docs/internals/backends.md#missing-and-unreviewed-features)).
-- **Every emulation is refused until reviewed:** a design note in `docs/content/docs/internals/design.md`, a threat check with the security-audit skill, and e2e checks proving the guarantee; then it's marked reviewed in `Caps`.
+- **Every emulation is refused until reviewed:** a design note in `docs/content/docs/contributing/design.md`, a threat check with the security-audit skill, and e2e checks proving the guarantee; then it's marked reviewed in `Caps`.
 - Backend-specific code stays in its package; what isn't (`.git` protection, the proxy) stays out.
 - **Lima edits only what differs:** any `limactl edit` gives the VM new ssh host keys at its next boot, so `Start` compares first and makes one edit ([What devvm sets on a VM](docs/content/docs/internals/lima.md#what-devvm-sets-on-a-vm)).
 

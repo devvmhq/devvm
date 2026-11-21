@@ -19,7 +19,7 @@ import (
 )
 
 // linkSection: links between VMs, each check the end-to-end proof of a
-// row of the design note's threat check (internals/design.md, "Links
+// row of the design note's threat check (contributing/design.md, "Links
 // between VMs"). Three small VMs without network policy, lkdb and lkapi
 // the targets, lkapp the client, then network policy on the client and
 // the first target; ports $P47240-$P47249, and 80. devvm runs with a soft

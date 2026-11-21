@@ -16,7 +16,7 @@ import (
 // On a Linux host that pins, .git is on: its hooks and config are pinned
 // read-only in the user and mount namespace devvm runs the VM's QEMU in,
 // and .git itself can't be renamed. These are the design note's checks
-// (internals/design.md, read-only paths).
+// (contributing/design.md, read-only paths).
 
 // pinnedProcs are the processes of vm's QEMU namespace on this host: QEMU
 // itself, by its arguments, once it runs in a namespace other than this

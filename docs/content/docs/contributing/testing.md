@@ -317,7 +317,7 @@ The workflow keeps the failures in one issue, "Fuzzing found failing inputs":
 
 ### What each target checks
 
-The parsers of what a VM can write, its output and its files, and of what comes from the network fail closed, so they take only what their format allows, within its caps. A secret's value goes only where it's bound, and a redaction leaves no planted secret behind. The host readers' targets are differential, which means each one checks one reader against a frozen copy of how it read a host before devvm read every host in one form, and allows only the differences that [One form of a host](../internals/design.md#one-form-of-a-host) lists.
+The parsers of what a VM can write, its output and its files, and of what comes from the network fail closed, so they take only what their format allows, within its caps. A secret's value goes only where it's bound, and a redaction leaves no planted secret behind. The host readers' targets are differential, which means each one checks one reader against a frozen copy of how it read a host before devvm read every host in one form, and allows only the differences that [One form of a host](design.md#one-form-of-a-host) lists.
 
 | Target | Package | What it checks |
 | --- | --- | --- |
