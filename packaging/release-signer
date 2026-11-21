@@ -1,3 +1,5 @@
 # The keys whose signed tags scripts/release.sh builds a release from, one fingerprint per line.
-# The maintainer's SSH tag-signing key (ssh-keygen -lf ~/.ssh/id_ed25519.pub):
+# The maintainer's SSH tag-signing keys (ssh-keygen -lf ~/.ssh/id_ed25519.pub), one for each machine
+# that releases:
 SHA256:sQAS6FYL6RTqcKUWa8dKpWptCuD/wa4KDEi1P1W8k1Y
+SHA256:DE2jMyqcLx/VsXeYFQCml7ZrvpkRHKbjPMHRX/CCV98
