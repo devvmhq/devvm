@@ -34,8 +34,9 @@ Failures and processes:
 Changes:
 
 1. **[Extend the owner, and wait for a third copy.](standards.md#extend-the-owner-and-wait-for-a-third-copy)** Find the owner first, and give a judge one owner at once.
-2. **[Mind what's already running and released.](standards.md#mind-whats-already-running-and-released)** The CHANGELOG says what a running VM keeps, and a change to state runs on every frozen fixture.
+2. **[Mind what's already running and released.](standards.md#mind-whats-already-running-and-released)** The CHANGELOG's What to do says what to run for a running VM, and a change to state runs on every frozen fixture.
 3. **[Claim only what the code does, where precision belongs.](standards.md#claim-only-what-the-code-does-where-precision-belongs)** Precise pages hold every limit, and headline pages keep their short claims.
+4. **[Add the change's changelog line by audience.](../../../docs/content/docs/contributing/maintaining.md#releasing)** A change that someone could notice adds one outcome sentence and its links to Unreleased, in the group of the people who notice it, and its full story to the release page in `releases/`.
 
 Tests:
 

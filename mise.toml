@@ -76,6 +76,9 @@ run = [
   "go test ./internal/cli/docgen -run '^TestExplainers$'",
   # Prose: no user page has a run of long paragraphs or a wall of one.
   "go test ./internal/cli/docgen -run '^TestUserPageProse$'",
+  # The changelog: each entry from 0.2.0-rc.1 on, and Unreleased, sorted
+  # by audience in its groups, one short line each with its links.
+  "go test ./internal/cli/docgen -run '^TestChangelog(Shape|Problems)$'",
   # The site builds with no warning, a deprecation's included, into a folder
   # the run removes, and its pages and stylesheets load nothing from another
   # host.

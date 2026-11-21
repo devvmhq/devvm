@@ -65,7 +65,7 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 - **devvm's own files never get a shared copy on disk:** the proxy reads them from the binary, base.yaml and scripts go on stdin, `--from`'s build writes its scripts into its own temp folder.
 - **Credentials never go into images.** Host agent history never goes into VMs.
 - **Never auto-delete project VMs:** they may hold unsaved work. Warn instead.
-- **Every release's state keeps working** until 1.0: a change to state runs its new commands on every frozen `testdata/v<release>/` fixture (never edited or regenerated) in the same commit, and a change for existing state gets a Breaking changelog entry ([Released state](docs/content/docs/contributing/structure.md#released-state)).
+- **Every release's state keeps working** until 1.0: a change to state runs its new commands on every frozen `testdata/v<release>/` fixture (never edited or regenerated) in the same commit, and a change for existing state gets a changelog line, in What to do when users must act ([Released state](docs/content/docs/contributing/structure.md#released-state)).
 - **The startup check only reports.** Never install host software without asking.
 - **Image keys hash everything that goes into an image**, the backend included; a tool image's key is in [Building tools](docs/content/docs/internals/images.md#building-tools).
 - **Pin every download** in `assets/`'s `layers/`, `features/`, `shared-tools/build.sh`, `oci/build.sh`: `<tool>_version` and `<tool>_sha256_arm64`/`_amd64` at the top, picked with the prelude's `devvm_sha`, fetched with `devvm-fetch` (`oci/build.sh`: `sha256sum`). No `curl | sh`, no "latest". Upstream-checked exceptions: shared tools (`MISE_LOCKED=1`), Ubuntu's signed `SHA256SUMS`, Lima in `install.sh`. Go checks a download's SHA-256 before use.
@@ -144,5 +144,6 @@ Each package's concerns and identifiers: [The packages](docs/content/docs/contri
 
 - **One commit when each task is complete**, its docs and review included. Conventional Commits: `type(scope): summary`, types `feat`, `fix`, `docs`, `test`, `refactor`, `build`, `ci`, `chore`.
 - **Don't commit until the gate passes**, with whatever `mise run fmt` changed in the commit.
+- **Changelog:** a change adds its changelog line by audience (who notices) and its full story to `releases/` ([Releasing](docs/content/docs/contributing/maintaining.md#releasing)).
 - **Task IDs from any tracker never go in commit messages, code comments or docs.**
 - **AGENTS.md stays short:** one line per path or rule. Inventories (functions, messages, test names) go in the commit message, not here.
