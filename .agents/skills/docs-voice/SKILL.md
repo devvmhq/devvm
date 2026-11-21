@@ -17,7 +17,7 @@ devvm's docs should read like a guide a colleague wrote: full sentences that say
 - **What it does first.** Describe the behavior, then its limits and exceptions. Use negatives for guarantees.
 - **The reader's order.** Lead a page or section with what the reader wants to do, then how, then the details and edge cases.
 - **Exact.** Keep every flag, path, command, message, number and limit. Plain wording never means vaguer wording.
-- **Present tense, current state.** Describe how devvm works now. Don't mention older behavior, what changed or what moved.
+- **Present tense, current state.** Describe how devvm works now. Don't mention older behavior, what changed or what moved. The one exception is the release pages in `docs/content/docs/releases/`, which tell each change's story, what was wrong and what changed included, as Contributing's Writing docs says.
 - **House rules.** Write commands as devvm x or in backticks, never in quotes. Never write "please", "note that" or "simply". Use sentence-case headings. Address the reader as "you".
 
 ## Commands first on user pages

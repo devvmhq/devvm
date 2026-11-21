@@ -4,6 +4,7 @@
 # a line here.
 getting-started: rocket
 using: wrench
+releases: information-circled
 safety: locked
 backends: cube
 compared: view-grid

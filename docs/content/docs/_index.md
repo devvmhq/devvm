@@ -3,11 +3,12 @@ title: Docs
 explainer: The guides, in the order you'll need them
 ---
 
-The docs are in the order you'll need them: getting devvm running, using it day to day, staying safe, choosing a backend and comparing devvm with other tools, then every command, how devvm works and how to change it.
+The docs are in the order you'll need them: getting devvm running, using it day to day, what changed in each release, staying safe, choosing a backend and comparing devvm with other tools, then every command, how devvm works and how to change it.
 
 {{< cards >}}
 {{< section-card path="getting-started" >}}Installing devvm, making your first VM, and the commands you use most.{{< /section-card >}}
 {{< section-card path="using" >}}Images and toolchains, ports and size, coding agents, editors, settings, and what to do when something fails.{{< /section-card >}}
+{{< section-card path="releases" >}}Each release's changes in full: what was wrong, what changed and what to do.{{< /section-card >}}
 {{< section-card path="safety" >}}The habits that keep you safe, network tiers, `.git` protection, and what devvm does about each attack.{{< /section-card >}}
 {{< section-card path="backends" >}}What runs the VMs: Lima.{{< /section-card >}}
 {{< section-card path="compared" >}}How devvm differs from Docker Sandboxes, other VM and OS sandboxes, and hosted ones.{{< /section-card >}}
