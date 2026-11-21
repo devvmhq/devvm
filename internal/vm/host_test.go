@@ -55,7 +55,9 @@ func legacyPrivateHost(host string) bool {
 // refuses localhost; and a host with anything but printable ASCII isn't folded in Unicode (the
 // Kelvin sign into k), as the proxy refuses such a host. A host private before is private still,
 // but one with a stray bracket ([::, from the scp-like [[::]:path), which strings.Trim read as an
-// address and is none: git reaches no such host, and the proxy refuses it.
+// address and is none: git reaches no such host, and the proxy refuses it. An IPv6 address with a
+// zone is private, as proxy.Public calls none the internet's, where a zoned public address wasn't;
+// and one whose zone is "." keeps its dot (::1%.), so it's the address it is, private as it was.
 func FuzzPromisorHostSite(f *testing.F) {
 	for _, s := range []string{
 		"https://github.com/x/y.git", "https://GitHub.com./x", "git@Host.example.:x", "git@localhost.:x",
@@ -77,7 +79,8 @@ func FuzzPromisorHostSite(f *testing.F) {
 		if legacyPrivateHost(lhost) && !privateHost(host) && !strings.ContainsAny(lhost, "[]") {
 			t.Fatalf("%q: %q was private, %q isn't", u, lhost, host)
 		}
-		if privateHost(host) && !legacyPrivateHost(lhost) && !strings.HasSuffix(lhost, ".") {
+		a, isAddr := proxy.NormHost(host).Addr()
+		if privateHost(host) && !legacyPrivateHost(lhost) && !strings.HasSuffix(lhost, ".") && (!isAddr || a.Zone() == "") {
 			t.Fatalf("%q: %q is private, %q wasn't", u, host, lhost)
 		}
 	})

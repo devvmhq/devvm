@@ -564,6 +564,13 @@ func TestInternal(t *testing.T) {
 			t.Errorf("%s shouldn't be public", s)
 		}
 	}
+	// An address with a zone is never the internet's, whatever its address: netip's prefixes never
+	// contain one, so the ranges alone would miss the documentation range's.
+	for _, s := range []string{"2606:4700::1111%x", "2001:db8::1%x", "::1%.", "fe80::1%en0"} {
+		if a := netip.MustParseAddr(s); Public(a) || !own.internal(a) {
+			t.Errorf("%s: public %v, internal %v; want internal", s, Public(a), own.internal(a))
+		}
+	}
 }
 
 // This machine's own 6to4 address is internal, as its other addresses are, and so is the rest of its

@@ -102,6 +102,7 @@ func TestBrokerDial(t *testing.T) {
 		{"192.168.1.1:80", false},
 		{"169.254.169.254:80", false},
 		{"[fe80::1%en0]:443", false},
+		{"[::1%.]:6000", false},
 		{ownAddr + ":443", false},
 		{"1.1.1.1:0", false},
 		{"198.18.0.1:443", false},
@@ -237,6 +238,9 @@ func TestBrokerLookup(t *testing.T) {
 		{"127.1.", false},
 		{"[::1].", false},
 		{"::1.", false},
+		{"::1%.", false}, // Go's resolver reads ::1% as ::1
+		{"::1%..", false},
+		{"::1%lo0.", false},
 		{".", false},
 		{"", false},
 		{"exa mple.com.", false},

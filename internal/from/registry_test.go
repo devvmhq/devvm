@@ -222,6 +222,7 @@ func TestPublicAddr(t *testing.T) {
 		"0.1.2.3": false, "::": false, "::ffff:127.0.0.1": false, "::ffff:10.0.0.1": false, "224.0.0.1": false,
 		"198.18.0.1": false, "255.255.255.255": false,
 		"64:ff9b::10.0.0.1": false, "2002:a00:1::1": false, "fec0::1": false, "2001:db8::1": false,
+		"2606:4700::1111%x": false, "::1%.": false, // a zone: never the internet's
 	} {
 		if got := publicHost(s); got != want {
 			t.Errorf("publicHost(%s) = %v", s, got)

@@ -409,9 +409,13 @@ func (h *hostAddrs) internal(a netip.Addr) bool {
 
 // Public reports whether a is an address of the public internet: none of the ranges the floor
 // refuses (loopback, private, link-local, multicast and the rest of notPublic), a NAT64 or 6to4
-// address judged by the IPv4 address in it. This machine's own public addresses are the floor's too
-// (hostAddrs), which Public doesn't know. devvm network lock leaves out what isn't.
+// address judged by the IPv4 address in it, and never an address with an IPv6 zone. This machine's
+// own public addresses are the floor's too (hostAddrs), which Public doesn't know. devvm network
+// lock leaves out what isn't.
 func Public(a netip.Addr) bool {
+	if a.Zone() != "" { // a zone scopes an address to one link, and no prefix contains it
+		return false
+	}
 	a = a.Unmap()
 	if v4, _, ok := embeddedIPv4(a); ok {
 		a = v4

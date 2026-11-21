@@ -1,14 +1,21 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestNormHost(t *testing.T) {
@@ -30,6 +37,14 @@ func TestNormHost(t *testing.T) {
 		"Ké.example.":    "Ké.example.",   // nor anything else in a host that isn't ASCII
 		"a b.example":    "a b.example",
 		"":               "",
+		// An IPv6 address with a zone is the address it is: a zone of "." keeps its dot, which
+		// would leave an empty zone, ::1%, no address to netip but ::1 to Go's resolver.
+		"::1%.":        "::1%.",
+		"::1%..":       "::1%..",
+		"FE80::1%Lo0.": "fe80::1%lo0.",
+		"::1%":         "::1%",
+		"[::1%.]":      "[::1%.]",
+		"127.0.0.1%x.": "127.0.0.1%x", // no address with or without its dot
 	} {
 		if got := NormHost(in); got != want {
 			t.Errorf("NormHost(%q) = %q, want %q", in, got, want)
@@ -56,12 +71,121 @@ func TestNormHost(t *testing.T) {
 			t.Errorf("%q: an address %v, HostOK %v; want %v", s, ok, HostOK(s), want)
 		}
 	}
+	// An address with a zone, "." included, is one, which HostOK refuses; with an empty zone it's
+	// none, and HostOK refuses it too.
+	for s, want := range map[string]bool{"::1%.": true, "[::1%.]": true, "::1%lo0": true, "::1%": false, "[::1%]": false} {
+		if _, ok := NormHost(s).Addr(); ok != want || HostOK(NormHost(s).String()) {
+			t.Errorf("%q: an address %v, HostOK %v; want an address %v, never HostOK", s, ok, HostOK(NormHost(s).String()), want)
+		}
+	}
 	for hp, want := range map[string]string{
 		"[::1]:443": "::1", "[::1]": "::1", "1.2.3.4:443": "1.2.3.4",
 		"[evil.com]:443": "[evil.com]", "[1.2.3.4]:443": "[1.2.3.4]", "1.2.3.4]": "1.2.3.4]", "[[::1]]": "[[::1]]",
+		"[::1%.]:443": "::1%.", "[::1%]:443": "[::1%]",
 	} {
 		if h, _ := splitHostPort(hp, 443); h != want {
 			t.Errorf("splitHostPort(%q) = %q, want %q", hp, h, want)
+		}
+	}
+}
+
+// A host that's a zoned address, or the empty zone a dropped dot would leave, reaches nothing on
+// any tier: a CONNECT, a plain request and a transparent connection's request get 400 before any
+// lookup or connection, even on the open tier, which reaches loopback by its address, and with a
+// rule naming ::1 itself; and its TLS server name is refused.
+func TestZonedHostsRefused(t *testing.T) {
+	t.Parallel()
+	// Hosts that are an IPv6 address with a zone, or an address with something after a "%": a
+	// zone of ".", which a dropped trailing dot would empty (::1%, which Go's resolver reads as ::1
+	// though netip reads no address), an empty one, and each as a request writes it, raw and
+	// escaped (%25). Each is true when a CONNECT's or an absolute-form request's target reaches
+	// the proxy: net/http refuses the others' URLs first (a raw %, an empty zone, an unbracketed
+	// IPv6 address, an IPv4 one in brackets). A transparent connection's Host reaches it always.
+	zonedHosts := map[string]bool{
+		"[::1%25.]": true, "[::1%25..]": true, "[::1%25lo0]": true, "[::1%25lo0.]": true,
+		"[::ffff:127.0.0.1%25.]": true, "[fe80::1%25.]": true, "[::%25.]": true, "127.0.0.1%25.": true,
+		"[::1%.]": false, "[::1%]": false, "[::1%25]": false, "[::1%..]": false, "::1%.": false, "::1%25.": false,
+		"[127.0.0.1%25.]": false,
+	}
+	for tier, c := range map[string]struct {
+		c        Config
+		rules    string
+		loopback bool // [::1]:443 is reachable
+	}{
+		"open":      {Config{Open: true}, "", true},
+		"internet":  {Config{}, "**\n", false},
+		"allowlist": {Config{}, "example.com\n", false},
+		"loopback":  {Config{}, "::1\n127.0.0.1\n", true},
+		"none":      {Config{}, "", false},
+	} {
+		dir := t.TempDir()
+		writeCA(t, dir)
+		c.c.CA, c.c.CAKey = filepath.Join(dir, "ca.pem"), filepath.Join(dir, "ca.key")
+		s := testServer(t, c.c, c.rules)
+		s.helloWait = 200 * time.Millisecond
+		var reached atomic.Int32
+		s.egress.lookup = func(_ context.Context, _, host string) ([]netip.Addr, error) {
+			reached.Add(1)
+			return nil, errors.New("a lookup of " + host)
+		}
+		s.egress.connect = func(_ context.Context, _, addr string) (net.Conn, error) {
+			reached.Add(1)
+			return nil, errors.New("a connection to " + addr)
+		}
+		addr := listen(t, s)
+		// The three ways in, each a request for host h: CONNECT, absolute form and a transparent
+		// connection's Host.
+		ways := map[string]func(h string) (int, string){
+			"CONNECT": func(h string) (int, string) {
+				return roundTrip(t, addr, "CONNECT "+h+":443 HTTP/1.1\r\nHost: "+h+":443\r\n\r\n")
+			},
+			"GET": func(h string) (int, string) {
+				return roundTrip(t, addr, "GET http://"+h+"/ HTTP/1.1\r\nHost: "+h+"\r\n\r\n")
+			},
+			"transparent": func(h string) (int, string) {
+				tc := openTransparent(t.Context(), t, addr, "", 80)
+				_, _ = io.WriteString(tc, "GET / HTTP/1.1\r\nHost: "+h+"\r\n\r\n")
+				resp, err := http.ReadResponse(tc.r, nil)
+				if err != nil {
+					return 0, err.Error()
+				}
+				defer func() { _ = resp.Body.Close() }()
+				b, _ := io.ReadAll(resp.Body)
+				return resp.StatusCode, string(b)
+			},
+		}
+		for h, reaches := range zonedHosts {
+			for way, send := range ways {
+				code, body := send(h)
+				if code != http.StatusBadRequest || !strings.Contains(body, "not a host name") && (reaches || way == "transparent") {
+					t.Errorf("%s: %s %q: %d %q, want the proxy's 400", tier, way, h, code, body)
+				}
+			}
+		}
+		if n := reached.Load(); n != 0 {
+			t.Errorf("%s: %d lookups or connections", tier, n)
+		}
+		// The control: where loopback's address is reachable, the address itself reaches it each way.
+		if c.loopback {
+			for way, send := range ways {
+				before := reached.Load()
+				_, _ = send("[::1]")
+				if reached.Load() == before {
+					t.Errorf("%s: %s [::1] reached nothing", tier, way)
+				}
+			}
+		}
+	}
+	// No rule names one, so no allow reaches it and no deny is skipped by it: a deny that does is
+	// broken, which denies everything.
+	for _, r := range []string{"::1%.", "[::1%.]:443", "::1%", "::1%lo0", "*.::1%."} {
+		if ValidRule(r) || ValidRule("!"+r) || !BrokenDeny(PolicyLine{N: 1, Text: "!" + r}) {
+			t.Errorf("%q: a rule", r)
+		}
+	}
+	for _, sni := range []string{"::1%", "::1%.", "::1%lo0", "[::1%]", "127.0.0.1%x"} {
+		if h, why := sniHost(sni); h != "" || why == "" {
+			t.Errorf("sniHost(%q) = %q, %q; want it refused", sni, h, why)
 		}
 	}
 }
@@ -230,6 +354,14 @@ func legacyLocal(host string) bool {
 	return host == "localhost" || strings.HasSuffix(host, ".localhost")
 }
 
+// zoneDot reports whether h, a host in NormHost's form, is an IPv6 address with a zone that keeps
+// its trailing dot, which the sites dropped, giving lh: HostOK refuses both, the zone's address
+// (::1%.) and what dropping the dot left, an empty zone (::1%) or a zone without its dot.
+func zoneDot(h, lh string) bool {
+	a, ok := hostAddr(h)
+	return ok && a.Zone() != "" && strings.TrimSuffix(h, ".") == lh && !HostOK(h) && !HostOK(lh)
+}
+
 // twoDots reports whether s ends in two dots or more, which NormHost leaves as they are, where
 // the sites dropped one: either way it's no host (HostOK), and no rule matches it but **.
 func twoDots(s string) bool { return strings.HasSuffix(s, "..") }
@@ -245,6 +377,7 @@ func hostSeeds() []string {
 		"localhost", "LOCALHOST.", "x.localhost", "devvm.proxy", "Db.devvm.internal.", ".", "..", "", " example.com ",
 		"example.com:x", "*", ".example.com", "10.0.0.0/8", "127.1", "0x7f000001",
 		"1.2.3.4]", "[[::1]]", "[1.2.3.4]:443", "[::1", "[::ffff:1.2.3.4]", "[::].", "[::1].:443",
+		"::1%.", "[::1%.]:443", "::1%", "::1%..", "FE80::1%Lo0.", "127.0.0.1%x.",
 	}
 }
 
@@ -268,13 +401,14 @@ func FuzzHostSites(f *testing.F) {
 // where one went before; HostOK refuses both, so the request gets 400 either way. Brackets around
 // anything but an IPv6 address, or stray ones ([evil.com]:443, [1.2.3.4], 1.2.3.4], [[::1]]), stay,
 // so HostOK refuses the host and the request gets 400, where strings.Trim or net.SplitHostPort took
-// them off and the name or address in them was judged.
+// them off and the name or address in them was judged. An IPv6 address whose zone ends in a dot
+// keeps it (zoneDot): HostOK refuses it with its dot and without, so the request gets 400 either way.
 func splitSite(t *testing.T, s string) {
 	for _, def := range []int{80, 443} {
 		h, p := splitHostPort(s, def)
 		lh, lp := legacySplitHostPort(s, def)
 		brackets := strings.ContainsAny(s, "[]") && !HostOK(h)
-		if p != lp || h != lh && !brackets && (HostOK(h) || HostOK(lh) || !twoDots(h)) {
+		if p != lp || h != lh && !brackets && !zoneDot(h, lh) && (HostOK(h) || HostOK(lh) || !twoDots(h)) {
 			t.Fatalf("splitHostPort(%q) = %q, %d; was %q, %d", s, h, p, lh, lp)
 		}
 	}
@@ -287,16 +421,19 @@ func splitSite(t *testing.T, s string) {
 // trailing dots: no rule matches either form but **, which matches both. A stray bracket, an IPv4
 // address in brackets, or a dot after a bracket ([1.2.3.4], ::1], [::].) is no address, where
 // strings.Trim made it one that address rules matched: HostOK refuses each, so the proxy never
-// judges one, and no other caller's host has brackets.
+// judges one, and no other caller's host has brackets. An IPv6 address whose zone ends in a dot
+// keeps it (zoneDot), so ::1%. is the address it is, where dropping the dot made it ::1%, no
+// address: HostOK refuses both, no rule names an address with a zone (netip's prefixes contain
+// none), and proxy.Public calls none the internet's, so every caller of Public judges it internal.
 func policySite(t *testing.T, s string) {
 	h, lh := NormHost(s), legacyPolicyHost(s)
 	_, isAddr := h.Addr()
 	_, err := netip.ParseAddr(strings.Trim(lh, "[]"))
-	if isAddr != (err == nil) && (h.OK() || !strings.ContainsAny(s, "[]")) {
+	if isAddr != (err == nil) && (h.OK() || !strings.ContainsAny(s, "[]")) && !zoneDot(h.String(), lh) {
 		t.Fatalf("%q: an address %v; the policy read %q, an address %v", s, isAddr, lh, err == nil)
 	}
 	switch {
-	case h.String() == lh:
+	case h.String() == lh, zoneDot(h.String(), lh):
 		return
 	case strings.HasSuffix(lh, "]") && strings.HasSuffix(h.String(), "].") && !h.OK():
 		return

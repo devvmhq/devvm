@@ -25,14 +25,19 @@ type Host string
 // and its trailing dot is dropped when it has one alone: s with two or more stays as it is, so
 // NormHost gives the same Host however many times it runs, and HostOK refuses both forms. A dot
 // after a closing bracket ([::1].) stays too, so a bracketed address with a dot after it is no
-// address. A host with any other character stays as it is, its case and its dots too, so HostOK
-// refuses it: strings.ToLower folds some letters into ASCII (the Kelvin sign into k), and the host
-// judged would then not be the one that was named.
+// address. An address keeps its dot too, which can only be its IPv6 zone's (::1%.): dropping it
+// would leave an empty zone, ::1%, which is no address to netip, so not to the judges, but is ::1
+// to Go's resolver. A host with any other character stays as it is, its case and its dots too, so
+// HostOK refuses it: strings.ToLower folds some letters into ASCII (the Kelvin sign into k), and
+// the host judged would then not be the one that was named.
 func NormHost(s string) Host {
 	if !hostASCII(s) {
 		return Host(s)
 	}
 	s = strings.ToLower(s)
+	if _, ok := hostAddr(s); ok {
+		return Host(s)
+	}
 	if t, ok := strings.CutSuffix(s, "."); ok && !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, "]") {
 		s = t
 	}
