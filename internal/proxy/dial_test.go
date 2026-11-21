@@ -410,17 +410,27 @@ func TestBrokerClientDial(t *testing.T) {
 	if _, err := client.lookup(t.Context(), "1.2.3.4."); err == nil || !strings.Contains(err.Error(), codeRefused) {
 		t.Errorf("an address to look up: %v", err)
 	}
-	conn, err := client.dial(t.Context(), netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(port))) //nolint:gosec // a port the system gave
-	if err != nil {
-		t.Fatalf("a port a rule names: %v", err)
-	}
-	_, _ = conn.Write([]byte("ping"))
+	// On macOS, a socket in transit over SCM_RIGHTS can lose its data when another test's
+	// goroutine closes a unix socket that still holds descriptors (design.md, Things learned),
+	// so a connection that reads as ended is asked for once more.
 	buf := make([]byte, 4)
-	if _, err := io.ReadFull(conn, buf); err != nil || string(buf) != "ping" {
-		t.Errorf("the connection reads %q, %v", buf, err)
+	var readErr error
+	for range 2 {
+		conn, err := client.dial(t.Context(), netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(port))) //nolint:gosec // a port the system gave
+		if err != nil {
+			t.Fatalf("a port a rule names: %v", err)
+		}
+		<-accepted
+		_, _ = conn.Write([]byte("ping"))
+		_, readErr = io.ReadFull(conn, buf)
+		_ = conn.Close()
+		if !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+			break
+		}
 	}
-	_ = conn.Close()
-	<-accepted
+	if readErr != nil || string(buf) != "ping" {
+		t.Errorf("the connection reads %q, %v", buf, readErr)
+	}
 	oport := other.Addr().(*net.TCPAddr).Port
 	if c, err := client.dial(t.Context(), netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(oport))); err == nil || !strings.Contains(err.Error(), codeRefused) { //nolint:gosec // a port the system gave
 		if c != nil {
