@@ -57,13 +57,13 @@ devvm uses an emulation only once its review has passed, and until then it refus
 | `nix-layer` | the [nix layer](../using/images.md#nix): Nix's daemon and its store in the VM, with builds in Nix's sandbox | native ([details](images.md#the-nix-layer)) |
 | `link` | links between VMs: a program in one VM reaches a port another VM publishes, by name | native: a link session of devvm's own over Lima's ssh, with remote forwards to `127.77.0.0/16` alone ([details](ports.md#links-between-vms)) |
 
-`egress-proxy` is what every [network tier](../safety/network.md#network-tiers) but open needs. The open tier needs no feature of its own: every backend must let a VM on its own network (`NetDirect`) reach a port on the host's loopback and set the guest's proxy settings from the confinement (`Confinement.GuestProxy`, `ProxyURL`), which the conformance suite checks (`checkProxyURL`), because every VM's proxy carries its requests. So a backend without `egress-proxy` still has open VMs, and devvm refuses every other tier on it in one line (`net_tier_backend`).
+`egress-proxy` is what every [network tier](../safety/network.md#network-tiers) but open needs. The open tier needs no feature of its own: every backend must let a VM on its own network reach a port on the host's loopback and set the guest's proxy settings from what devvm confines the VM to, which the conformance suite checks ([how a backend plugs in](../contributing/extending.md#how-a-backend-plugs-in)), because every VM's proxy carries its requests. So a backend without `egress-proxy` still has open VMs, and devvm refuses every other tier on it in one line (`net_tier_backend`).
 
 ### What each backend emulates
 
 On Lima, devvm emulates forwarding ports, both the listed ones and every one, through its forwarder, and the emulation is reviewed ([port forwarding](ports.md)). Everything else on Lima is Lima's own.
 
-The forwarder is devvm's own on every backend, never a backend's. A backend that has `ports` turns its own forwards off, and devvm's forwarder reaches a running VM's sshd the way the backend's `SSH` says, which is a user, a key and a port. devvm refuses that target unless it's on this machine's loopback, `127.0.0.1`, with the same check it uses for links and the ssh config (`vmssh.FromTarget`). devvm reads which ports the VM forwards from its state, chooses which of them are free, pins the VM's host keys for its current start and starts the forwarder, which follows the backend's lifeline for the VM.
+The forwarder is devvm's own on every backend, never a backend's. A backend that has `ports` turns its own forwards off, and devvm's forwarder reaches a running VM's sshd the way the backend's `SSH` says, which is a user, a key and a port. devvm refuses that target unless it's on this machine's loopback, `127.0.0.1`, with the same check it uses for links and the ssh config. devvm reads which ports the VM forwards from its state, chooses which of them are free, pins the VM's host keys for its current start and starts the forwarder, which follows the backend's lifeline for the VM.
 
 ## Missing and unreviewed features
 

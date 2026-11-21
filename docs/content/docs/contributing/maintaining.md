@@ -26,7 +26,7 @@ The tools, by group, as `--check` prints them:
 
 | Group | Tools | What they move |
 | --- | --- | --- |
-| `images` | `docker`, `nix`, `direnv`, `nix-direnv`, `mise`, `git-lfs`, `rustup`, `crane`, `omb`, `eza`, `tealdeer` | the downloads pinned in `assets/`, and devvm's host mise |
+| `images` | `docker`, `nix`, `direnv`, `nix-direnv`, `mise`, `git-lfs`, `rustup`, `crane`, `omb`, `eza`, `tealdeer` | the downloads pinned in `assets/`, and devvm's host mise, so `scripts/bump.sh nix direnv nix-direnv` moves the [nix layer](../internals/images.md#the-nix-layer)'s three pins |
 | `shared-tools` | `cursor`, only when named | Cursor's CLI in `assets/shared-tools/mise.toml`, the one shared tool pinned for users |
 | `e2e` | `e2e-tools`, `e2e-from`, `e2e-curl`, `e2e-ubuntu`, `e2e-lima` | the end-to-end tests' own pins |
 | `go` | `go`, `go-minor` only when named, `go-mods`, `deadcode` | Go, its modules and the deadcode task |
