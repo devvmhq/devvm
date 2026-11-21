@@ -311,12 +311,18 @@ A CA in the folder can read every TLS connection a VM makes, as it can this mach
 
 ## Project folders devvm refuses
 
-A VM mounts its project folder read-write, so devvm refuses to make a VM for a folder that would give the VM more than the project. It refuses a folder that is or holds your home folder, `~/.config/devvm`, `~/.local/share/devvm` or devvm's Lima home. It also refuses a folder inside one of devvm's own folders, because a VM there could rewrite the scripts that every image build runs, or the files that devvm runs on this machine. devvm compares the folders themselves, not only their names, so on a Mac, where a name's case doesn't count, `~/.Config/devvm` is refused as `~/.config/devvm` is.
+A VM mounts its project folder read-write, so devvm refuses to make a VM for a folder that would give the VM more than the project:
 
-When devvm refuses a folder, make the VM in a project folder inside it, or keep the project somewhere else. A [`--clone`](clone.md) VM mounts nothing from the folder, so devvm doesn't refuse its folder. A folder inside a coding agent's folder on this machine, such as a skill you work on in `~/.claude/skills`, or one that holds an agent's folder, such as `~/.pi`, isn't refused, but devvm warns at each launch, because code in the VM can change that agent's settings on this machine. Keep such a project somewhere else unless you trust what runs in its VM.
+- **Your home folder and devvm's folders,** and any folder that holds one: your home folder, `~/.config/devvm`, `~/.local/share/devvm` or devvm's Lima home.
+- **A folder inside one of devvm's own folders,** because a VM there could rewrite the scripts that every image build runs, or the files that devvm runs on this machine.
+- **Another name for one of these folders.** devvm compares the folders themselves, not only their names, so on a Mac, where a name's case doesn't count, `~/.Config/devvm` is refused as `~/.config/devvm` is.
+
+When devvm refuses a folder, make the VM in a project folder inside it, or keep the project somewhere else. A [`--clone`](clone.md) VM mounts nothing from the folder, so devvm doesn't refuse its folder.
 
 > [!WARNING]
 > If you mean to give the VM the whole folder, pass `--unsafe-folder` when you make the VM, and devvm warns you that the VM gets read-write access to it ([only the project folder](../internals/security.md#only-the-project-folder)).
+
+A folder inside a coding agent's folder on this machine, such as a skill you work on in `~/.claude/skills`, or one that holds an agent's folder, such as `~/.pi`, isn't refused, but devvm warns at each launch, because code in the VM can change that agent's settings on this machine. Keep such a project somewhere else unless you trust what runs in its VM.
 
 ## Colors
 
