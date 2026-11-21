@@ -34,6 +34,24 @@ Each release is signed with devvm's minisign key, `RWSjzFsn7ETaijKJ2y7F4DtZobXmy
 - **Tested on** Apple silicon Macs and on Linux on arm64 and x86_64, but not yet on Intel Macs.
 - [Installing](https://devvm.dev/docs/getting-started/install/) has the full list of requirements and the install script's options, and [Upgrading and uninstalling](https://devvm.dev/docs/using/upgrading/) covers what comes later.
 
+### Trying the release candidate
+
+devvm 0.2.0-rc.1 is out to try before 0.2.0, and [its release notes](https://github.com/devvmhq/devvm/releases/tag/v0.2.0-rc.1) list what changes for your VMs when you upgrade. With Homebrew, install `devvm-rc`, the formula for prereleases, after uninstalling `devvm` if Homebrew installed it:
+
+```sh
+brew uninstall devvm
+brew trust --formula devvmhq/tap/devvm-rc
+brew install devvmhq/tap/devvm-rc
+```
+
+Without Homebrew, run the release candidate's own install script:
+
+```sh
+curl -fsSL https://github.com/devvmhq/devvm/releases/download/v0.2.0-rc.1/install.sh | bash
+```
+
+When the install script installed the devvm you have, `devvm upgrade --to 0.2.0-rc.1` installs it too. [Trying a prerelease](https://next.devvm.dev/docs/using/upgrading/#trying-a-prerelease) covers moving on to the release and going back.
+
 ## Quick start
 
 ```sh
