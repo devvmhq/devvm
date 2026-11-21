@@ -7,3 +7,10 @@ config:
   # does in CHANGELOG.md.
   MD024:
     siblings_only: true
+  # Inline HTML: only <details> and <summary>, which collapse a changelog
+  # entry's groups. markdownlint-cli2 can't set a rule for one file, so the
+  # two are allowed everywhere and every other element is still refused.
+  MD033:
+    allowed_elements:
+      - details
+      - summary
