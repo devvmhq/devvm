@@ -27,7 +27,8 @@
 #       go mod tidy needs them
 #     deadcode: mise.toml's deadcode task, golang.org/x/tools' newest release
 #   dev-tools: mise.toml's tools but go, through mise lock, so mise.lock keeps their checksums;
-#     nilaway has no releases, so its pin is a pseudo-version, moved to its newest commit's
+#     nilaway has no releases, so its pin is a pseudo-version, moved to its newest commit's, from the
+#     Go module proxy's @latest (mise latest prints nothing for it); no newest version is an error
 #   ci: ci-mise actions
 #     ci-mise: the mise the workflows install (jdx/mise-action's version), base's mise
 #     actions: every workflow's uses:, by its release's tag's commit, then actionlint and zizmor
@@ -643,13 +644,36 @@ bump_go-minor() {
   go_to go-minor "$new"
 }
 
+# proxy_url MODULE: MODULE's URL on the Go module proxy, its path escaped: !a for each capital A. The
+# caller checks MODULE with valid first.
+proxy_url() {
+  echo "https://proxy.golang.org/$(awk '{ for (i = 1; i <= length($0); i++) { c = substr($0, i, 1)
+    printf "%s", (c ~ /[A-Z]/ ? "!" tolower(c) : c) } }' <<<"$1")"
+}
 # mod_versions MODULE: the Go module proxy's release versions of MODULE, none for a module it hasn't.
 mod_versions() {
   valid go_module "$1"
-  # The proxy's escaped path: !a for each capital A.
-  fetch "https://proxy.golang.org/$(awk '{ for (i = 1; i <= length($0); i++) { c = substr($0, i, 1)
-    printf "%s", (c ~ /[A-Z]/ ? "!" tolower(c) : c) } }' <<<"$1")/@v/list" 2>/dev/null |
-    grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true
+  fetch "$(proxy_url "$1")/@v/list" 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true
+}
+# mod_latest PACKAGE: the Go module proxy's @latest, without its v, of the module that holds PACKAGE,
+# the longest of its path's prefixes that the proxy has; nothing when none has one. A module with no
+# releases has its newest commit's pseudo-version. Only the proxy's 404 or 410, no such module,
+# moves on to a shorter prefix: any other failure is an error, so a failed request never takes
+# another module's version.
+mod_latest() {
+  local mod=$1 code
+  valid go_module "$mod"
+  while [[ $mod == */* ]]; do
+    # fetch's flags but -f, which would hide a 404 among the other failures.
+    code=$(curl -sSL --retry 3 -o "$tmp/latest" -w '%{http_code}' "$(proxy_url "$mod")/@latest" 2>/dev/null) || code=000
+    case $code in
+      200)
+        { jq -r '.Version // empty' "$tmp/latest" 2>/dev/null || true; } | sed 's/^v//'
+        return ;;
+      404 | 410) mod=${mod%/*} ;;
+      *) echo "bump: the Go module proxy's @latest for $mod failed (HTTP $code)" >&2; exit 1 ;;
+    esac
+  done
 }
 # mod_bump NAME MODULE CURRENT: choose MODULE's newest release within its path's major, under any hold,
 # and report the next major's path when the proxy has one. Sets target.
@@ -730,14 +754,23 @@ mise_tools() {
 }
 
 # mise.toml's dev tools, go aside (bump_go): mise's newest of each, a major or a held one only
-# reported, then mise lock, so mise.lock keeps their checksums.
+# reported, then mise lock, so mise.lock keeps their checksums. A go: tool pinned to a pseudo-version
+# (nilaway, which has no releases), which mise latest prints nothing for, takes the module proxy's
+# newest commit's. No newest version is an error, never a change.
 bump_dev-tools() {
   need mise
   local key spec newest within line
   while IFS=$'\t' read -r key spec; do
     [[ $key != go ]] || continue
-    newest=$(mise latest "$key" 2>/dev/null) || { echo "bump: mise latest $key failed" >&2; exit 1; }
-    within=$(mise latest "$key@${spec%%.*}" 2>/dev/null) || within=""
+    if [[ $key == go:* && $spec =~ ^v?[0-9]+\.[0-9]+\.[0-9]+-([0-9A-Za-z.]+\.)?[0-9]{14}-[0-9a-f]{12}$ ]]; then
+      newest=$(mod_latest "${key#go:}")
+      # A pseudo-version's bump is never a major, so within is read only for a held one: none.
+      within=""
+    else
+      newest=$(mise latest "$key" 2>/dev/null) || { echo "bump: mise latest $key failed" >&2; exit 1; }
+      within=$(mise latest "$key@${spec%%.*}" 2>/dev/null) || within=""
+    fi
+    [[ -n $newest ]] || { echo "bump: no newest version of $key" >&2; exit 1; }
     choose "$key" "$spec" "$newest" "$within" || continue
     valid "${key##*/}_version" "$target"
     line=$(K=$key awk '/^\[tools\]/ { s = 1; next } /^\[/ { s = 0 } { k = $1; gsub(/"/, "", k) }

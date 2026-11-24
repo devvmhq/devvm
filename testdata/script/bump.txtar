@@ -158,7 +158,52 @@ exec repo/scripts/bump.sh dev-tools
 stdout '^  vale +[0-9.]+ +-> 3\.999\.0 \(minor\)$'
 stdout '^  node +[0-9.]+ +held below 25 \(newest 999\.0\.0\)$'
 grep '^vale = "3\.999\.0"$' repo/mise.toml
-grep '^mise lock vale$' mise.calls
+grep '^mise lock go:go\.uber\.org/nilaway/cmd/nilaway vale$' mise.calls
+
+# nilaway, pinned to a pseudo-version, which mise latest prints nothing
+# for: its newest commit's, from the module proxy's @latest for the module
+# that holds its package.
+stdout '^  go:go\.uber\.org/nilaway/cmd/nilaway [0-9a-f.-]+ +-> 0\.0\.0-29990101000000-abcdefabcdef \(change\)$'
+grep '^"go:go\.uber\.org/nilaway/cmd/nilaway" = "0\.0\.0-29990101000000-abcdefabcdef"$' repo/mise.toml
+grep 'proxy\.golang\.org/go\.uber\.org/nilaway/@latest' curl.calls
+
+# An empty latest is an error, never a change, and nothing is edited: from
+# the module proxy, from a proxy that has none of the path's prefixes as a
+# module, and from mise latest.
+exec bash repo.sh
+cp repo/mise.toml mise.toml.before
+cp nilaway-latest-none up/proxy/go.uber.org_nilaway.json
+! exec repo/scripts/bump.sh --check dev-tools
+stderr '^bump: no newest version of go:go\.uber\.org/nilaway/cmd/nilaway$'
+! stdout ' -> +\('
+! exec repo/scripts/bump.sh dev-tools
+stderr '^bump: no newest version of go:go\.uber\.org/nilaway/cmd/nilaway$'
+cmp repo/mise.toml mise.toml.before
+! grep '^mise lock' mise.calls
+exec bash repo.sh
+rm up/proxy/go.uber.org_nilaway.json
+! exec repo/scripts/bump.sh dev-tools
+stderr '^bump: no newest version of go:go\.uber\.org/nilaway/cmd/nilaway$'
+cmp repo/mise.toml mise.toml.before
+! grep '^mise lock' mise.calls
+
+# Only the proxy's 404 or 410 moves on to a shorter prefix: any other
+# failure is an error, so another module's version is never taken.
+exec bash repo.sh
+rm curl.calls
+cp code-503 up/proxy/go.uber.org_nilaway_cmd.code
+! exec repo/scripts/bump.sh dev-tools
+stderr '^bump: the Go module proxy''s @latest for go\.uber\.org/nilaway/cmd failed \(HTTP 503\)$'
+grep 'proxy\.golang\.org/go\.uber\.org/nilaway/cmd/nilaway/@latest' curl.calls
+! grep 'proxy\.golang\.org/go\.uber\.org/nilaway/@latest' curl.calls
+cmp repo/mise.toml mise.toml.before
+! grep '^mise lock' mise.calls
+exec bash repo.sh
+cp empty up/latest/vale
+! exec repo/scripts/bump.sh dev-tools
+stderr '^bump: no newest version of vale$'
+cmp repo/mise.toml mise.toml.before
+! grep '^mise lock' mise.calls
 
 # actions: the newest within the major, by its tag's commit, the next major
 # only reported, then actionlint and zizmor.
@@ -202,6 +247,10 @@ echo 3.999.0 > up/latest/vale
 echo 999.0.0 > up/latest/node
 echo 0.12 > up/latest/minisign
 echo 0.12 > up/latest/minisign_0
+# mise latest prints nothing for a go: tool pinned to a pseudo-version.
+: > up/latest/go_go.uber.org_nilaway_cmd_nilaway
+mkdir up/proxy
+cp nilaway-latest up/proxy/go.uber.org_nilaway.json
 cp lima-latest up/lima-latest
 cp lima-sums up/lima-sums
 cp "$DEVVM_REPO/assets/oci/build.sh" repo/assets/oci/
@@ -221,6 +270,14 @@ cp cloud-listing up/cloud-listing
 echo "curl $*" >> "$WORK/curl.calls"
 out=/dev/stdout
 for a in "$@"; do [[ ${o:-} == next ]] && { out=$a; o=; }; [[ $a == -o ]] && o=next; done
+# The module proxy's @latest, as -w's status with -o's body: up/proxy/'s
+# MODULE.json (its / as _) answers 200, its MODULE.code that status, and
+# any other module 404.
+for a in "$@"; do case $a in https://proxy.golang.org/*/@latest)
+  m=${a#https://proxy.golang.org/}; m=${m%/@latest}; m=$WORK/up/proxy/${m//\//_}
+  if [[ -f $m.json ]]; then cat "$m.json" > "$out"; printf 200; elif [[ -f $m.code ]]; then printf '%s' "$(cat "$m.code")"; else printf 404; fi
+  exit ;;
+esac; done
 exec >"$out"
 for a in "$@"; do case $a in
   */lima-vm/lima/releases/latest) cat "$WORK/up/lima-latest"; exit ;;
@@ -298,6 +355,13 @@ require github.com/imfing/hextra v0.13.0 // indirect
 <a href="current/">current/</a>
 -- cloud-listing-none --
 <a href="current/">current/</a>
+-- nilaway-latest --
+{"Version":"v0.0.0-29990101000000-abcdefabcdef","Time":"2999-01-01T00:00:00Z"}
+-- nilaway-latest-none --
+{}
+-- empty --
+-- code-503 --
+503
 -- latest-good --
 {"tag_name":"v9.9.9"}
 -- latest-hostile --
