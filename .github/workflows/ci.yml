@@ -41,9 +41,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
-          version: 2026.11.10
+          version: 2026.11.14
       # npm's downloads for the docs' diagrams (lint:docs runs docs:diagrams), keyed on the lock. npm ci
       # checks each package against the lock's integrity, and the Docs workflow, which publishes, keeps
       # no cache.
@@ -67,9 +67,9 @@ jobs:
         with:
           persist-credentials: false
       # Only Go and govulncheck, cached apart from the check jobs' full set.
-      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
-          version: 2026.11.10
+          version: 2026.11.14
           install_args: go go:golang.org/x/vuln/cmd/govulncheck
           cache_key_prefix: mise-v1-vuln
       # mise run would install the rest of mise.toml's tools first.
@@ -90,9 +90,9 @@ jobs:
         with:
           persist-credentials: false
       # Only Go, cached apart from the check jobs' full set.
-      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
-          version: 2026.11.10
+          version: 2026.11.14
           install_args: go
           cache_key_prefix: mise-v1-nocgo
       - run: go test -count=1 ./internal/landlock/... ./internal/proxy/...
@@ -113,9 +113,9 @@ jobs:
         with:
           persist-credentials: false
       # Only Go and nilaway, cached apart from the other jobs' tools.
-      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
-          version: 2026.11.10
+          version: 2026.11.14
           install_args: go go:go.uber.org/nilaway/cmd/nilaway
           cache_key_prefix: mise-v1-nilaway
       # scripts/nilaway.sh exits 3 on a finding the baseline hasn't, and

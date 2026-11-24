@@ -10,16 +10,16 @@ golangci-lint = "2.15.0"
 gotestsum = "1.13.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.10.0"
 # nilaway has no releases: a pseudo-version, its newest commit's.
-"go:go.uber.org/nilaway/cmd/nilaway" = "0.0.0-20261112030514-ccd005690d1e"
-goreleaser = "2.20.2"
+"go:go.uber.org/nilaway/cmd/nilaway" = "0.0.0-20261124161746-91ad9bf5d8e6"
+goreleaser = "2.20.3"
 hugo = "0.170.1"
-vale = "3.27.0"
+vale = "3.28.1"
 lychee = "0.24.2"
 node = "24.22.3"
-markdownlint-cli2 = "0.24.1"
+markdownlint-cli2 = "0.24.2"
 shellcheck = "0.11.0"
 actionlint = "1.7.12"
-zizmor = "1.32.0"
+zizmor = "1.33.1"
 # Only for signing releases; it has no linux/arm64 build.
 minisign = { version = "0.12", os = ["macos/arm64", "linux/x64", "windows"] }
 

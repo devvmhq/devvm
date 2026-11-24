@@ -219,3 +219,13 @@ The first release of devvm, which gives each project folder an isolated VM of it
 ## Unreleased
 
 These changes are on `main` and go out in the next release.
+
+### What to do
+
+1. Run `devvm update` in each existing VM's folder, and give the first one several minutes, because it builds base and its shared tools again ([details](https://next.devvm.dev/docs/releases/0.2.0/#pins-since-020-rc1)).
+
+<details><summary>Internal changes</summary>
+
+- mise is 2026.11.14 in base and on this machine, the nix layer has Nix 2.36.0, and the docker layer has buildx 0.39.1 and its model plugin 1.2.10 ([details](https://next.devvm.dev/docs/releases/0.2.0/#pins-since-020-rc1)).
+
+</details>

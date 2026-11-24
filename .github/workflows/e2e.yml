@@ -50,9 +50,9 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$f" -C "$HOME/.local"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/limactl" --version
-      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
-          version: 2026.11.10
+          version: 2026.11.14
       # devvm's image keys are computed while it builds, so the cache key
       # hashes what goes into them that this checkout fixes: assets/, the
       # pinned tool lock, e2e's Ubuntu release and Lima's version. A stale
