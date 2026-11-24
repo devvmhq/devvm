@@ -304,6 +304,21 @@ func plantSchemaRows(t *testing.T, db string, emptied, kept []string) []string {
 				continue
 			}
 			v := "devvm-planted-" + table + "-" + c[0]
+			if c[0] == "commands" {
+				// A project's commands, its start command among them, which the copy
+				// sets to NULL.
+				values = append(values, "'"+v+"'")
+				continue
+			}
+			if slices.Contains(kept, table) && c[0] == "permission" {
+				// A kept table's permission rules, as session_v2 holds a session's: its
+				// allow rule goes, its deny and ask rules stay.
+				deny, ask := "devvm-kept-"+table+"-deny", "devvm-kept-"+table+"-ask"
+				keptValues = append(keptValues, deny, ask)
+				values = append(values, `'[{"action":"`+v+`","resource":"*","effect":"allow"},{"action":"`+deny+`","resource":"*","effect":"deny"},`+
+					`{"action":"`+ask+`","resource":"*","effect":"ask"}]'`)
+				continue
+			}
 			if slices.Contains(kept, table) {
 				v = "devvm-kept-" + table + "-" + c[0]
 				keptValues = append(keptValues, v)
@@ -326,17 +341,26 @@ func plantSchemaRows(t *testing.T, db string, emptied, kept []string) []string {
 // fetched, and every other table's row, the session's among them, is
 // kept. machine, each paired machine's public key, which lets it log in
 // to the VM's home, is emptied as the VM's own pairings; the home's
-// private key is a file of its own (opencodeHomeKey).
+// private key is a file of its own (opencodeHomeKey). What would run
+// without asking in the VM that imports it goes: automation, whose shell
+// actions run unattended, permission, the requests you said always to
+// allow, job, the subagents' jobs its service starts again, and
+// session_inbox, a session's queued messages, are emptied
+// (opencodeUnattended); a session's permission rules lose their allow
+// rules, a suspended session no longer resumes on its own, and a project
+// loses its commands (opencodeNulled).
 func TestOpencodeCleanSchema(t *testing.T) {
 	needSqlite(t)
 	schema, err := os.ReadFile(opencodeFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
-	emptied := []string{"account", "account_state", "control_account", "credential", "machine"}
+	emptied := []string{
+		"account", "account_state", "automation", "control_account", "credential", "job", "machine", "permission", "session_inbox",
+	}
 	kept := []string{
-		"automation", "blob", "blob_ref", "event", "event_sequence", "instruction_blob", "instruction_entry",
-		"instruction_state", "job", "permission", "project", "project_directory", "session_inbox",
+		"blob", "blob_ref", "event", "event_sequence", "instruction_blob", "instruction_entry",
+		"instruction_state", "project", "project_directory",
 		"session_message", "session_part", "session_v2", "workspace", "worktree",
 	}
 	dir := t.TempDir()
@@ -364,6 +388,92 @@ func TestOpencodeCleanSchema(t *testing.T) {
 	if got := sqlite(t, copied, "SELECT group_concat(id) FROM migration;\nSELECT group_concat(key, ' ') FROM (SELECT key FROM kv ORDER BY key);\n"); got !=
 		"20261030054400_job\nwellknown:manifest:https://devvm-kept-org.example wellknown:sources\n" {
 		t.Errorf("migrations and kv keys: %q", got)
+	}
+	// The session, which plantSchemaRows suspended (time_suspended 1), stays, but no longer
+	// resumes on its own, and the project stays without its commands.
+	if got := sqlite(t, copied, "SELECT count(*), count(time_suspended) FROM session_v2;\nSELECT count(*), count(commands) FROM project;\n"); got != "1|0\n1|0\n" {
+		t.Errorf("sessions suspended and projects with commands: %q", got)
+	}
+}
+
+// opencodeClean's copy keeps only the deny and ask rules of a session's
+// permission rules, in their order, each written again from what sqlite3
+// read: an allow rule goes, and so does a rule without an effect, without
+// a text action or that isn't an object, a key written twice keeps its
+// first value, a missing resource or one that isn't text becomes "*", any
+// other key goes, and a
+// value that isn't a JSON array of rules, such as opencode 1's table of
+// patterns, becomes no rules at all. A column named in another case is
+// read as SQLite reads it, and a later opencode's tables of automations,
+// saved permissions or jobs are emptied too.
+func TestOpencodeCleanSessionRules(t *testing.T) {
+	needSqlite(t)
+	dir := t.TempDir()
+	db := filepath.Join(dir, "opencode.db")
+	sqlite(t, db, "CREATE TABLE session_v2 (id text PRIMARY KEY, permission text);\n"+
+		"CREATE TABLE other (id text PRIMARY KEY, PERMISSION text, Time_Suspended integer);\n"+
+		"CREATE TABLE automation_run (id text PRIMARY KEY, command text);\n"+
+		"CREATE TABLE permission_saved (id text PRIMARY KEY, resource text);\n"+
+		"CREATE TABLE job_next (id text PRIMARY KEY);\n"+
+		"INSERT INTO automation_run VALUES ('r', 'devvm-planted-run');\n"+
+		"INSERT INTO permission_saved VALUES ('p', 'devvm-planted-saved');\n"+
+		"INSERT INTO job_next VALUES ('j');\n"+
+		`INSERT INTO other VALUES ('upper', '[{"action":"*","resource":"*","effect":"allow"}]', 5);`+"\n"+
+		`INSERT INTO session_v2 VALUES ('mixed', '[{"action":"read","resource":"*","effect":"deny"},{"action":"bash","resource":"*","effect":"allow"},`+
+		`{"action":"edit","effect":"ask"},{"action":"web"},"allow",{"action":"x","effect":"ALLOW"}]'), `+
+		`('allow', '[{"action":"*","resource":"*","effect":"allow"}]'), ('table', '{"bash":"allow"}'), ('text', 'allow'), `+
+		`('twice', '[{"action":"*","resource":"*","effect":"deny","effect":"allow"},{"action":1,"effect":"deny"},`+
+		`{"action":"bash","resource":{"x":1},"effect":"ask","extra":"allow"}]'), `+
+		`('none', NULL), ('empty', '[]');`+"\n")
+	if err := runOpencodeClean(t, db); err != nil {
+		t.Fatal(err)
+	}
+	copied := filepath.Join(dir, "clean.db")
+	got := sqlite(t, copied, "SELECT id || ' ' || coalesce(permission, 'NULL') FROM session_v2 ORDER BY id;\n"+
+		"SELECT coalesce(PERMISSION, 'NULL') || ' ' || coalesce(time_suspended, 'NULL') FROM other;\n"+
+		"SELECT count(*) FROM automation_run;\nSELECT count(*) FROM permission_saved;\nSELECT count(*) FROM job_next;\n")
+	// A key written twice is read first, as sqlite3 reads it, and written once, so opencode's
+	// JSON.parse, which reads the last, finds the same effect.
+	want := "allow []\nempty []\n" +
+		`mixed [{"action":"read","resource":"*","effect":"deny"},{"action":"edit","resource":"*","effect":"ask"}]` + "\n" +
+		"none NULL\ntable NULL\ntext NULL\n" +
+		`twice [{"action":"*","resource":"*","effect":"deny"},{"action":"bash","resource":"*","effect":"ask"}]` + "\n" +
+		"[] NULL\n0\n0\n0\n"
+	if got != want {
+		t.Errorf("the copy's rules:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// opencodeClean makes no copy of a database that could hide rows from its
+// steps: a view in an emptied table's name over a table renamed out of
+// its reach is dropped and counted, and a generated permission column,
+// which pragma_table_info doesn't list, fails the check.
+func TestOpencodeCleanHidden(t *testing.T) {
+	needSqlite(t)
+	for name, schema := range map[string]string{
+		"view": "CREATE TABLE zz (id text PRIMARY KEY, command text);\nINSERT INTO zz VALUES ('a', 'devvm-planted');\n" +
+			"CREATE VIEW automation AS SELECT * FROM zz;\n",
+		"generated": `CREATE TABLE session_v2 (id text PRIMARY KEY, permission text GENERATED ALWAYS AS ('[{"action":"*","effect":"allow"}]'));` +
+			"\nINSERT INTO session_v2 (id) VALUES ('s');\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			db := filepath.Join(dir, "opencode.db")
+			sqlite(t, db, schema)
+			err := runOpencodeClean(t, db)
+			if name == "view" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := sqlite(t, filepath.Join(dir, "clean.db"), "SELECT count(*) FROM sqlite_master WHERE type = 'view';\n"); got != "0\n" {
+					t.Errorf("views left: %q", got)
+				}
+				return
+			}
+			if err == nil {
+				t.Error("a copy with a generated permission column passed its check")
+			}
+		})
 	}
 }
 
@@ -398,7 +508,7 @@ func exportNames(t *testing.T, export []byte) map[string][]byte {
 func pathWithout(t *testing.T, with bool) string {
 	t.Helper()
 	dir := t.TempDir()
-	cmds := []string{"bash", "cat", "find", "grep", "gzip", "ls", "mkdir", "mktemp", "mv", "readlink", "rm", "tar"}
+	cmds := []string{"bash", "cat", "dd", "find", "grep", "gzip", "ls", "mkdir", "mktemp", "mv", "readlink", "rm", "tar", "wc"}
 	if with {
 		cmds = append(cmds, "sqlite3")
 	}
@@ -433,7 +543,10 @@ func TestHistoryExportRuns(t *testing.T) {
 				".claude/projects/p.jsonl", ".claude/.credentials.json", opencodeData + "/auth.json",
 				opencodeData + "/mcp-auth.json", opencodeData + "/storage/s.json", ".local/state/opencode/kv.json",
 				opencodeHomeKey, opencodeState + "/service.json", opencodeState + "/pty/d/service.json",
-				opencodeState + "/service.json.pty-handoff",
+				opencodeState + "/service.json.pty-handoff", opencodeState + "/service-local.json",
+				opencodeState + "/service.json.0a1b.tmp", opencodeState + "/service.json.pty-handoff.0a1b.tmp",
+				opencodeState + "/service-local.json.pty-handoff", opencodeState + "/services.json",
+				opencodeData + "/snapshot/p/h/config", opencodeData + "/repos/r/config", opencodeData + "/worktree/w/.git",
 				piSessions + "/--p--/s.jsonl", piDir + "/auth.json", piDir + "/settings.json",
 			} {
 				if err := state.WriteFile(filepath.Join(home, f), []byte(f)); err != nil {
@@ -446,7 +559,10 @@ func TestHistoryExportRuns(t *testing.T) {
 			} else if err := state.WriteFile(db, []byte(plantedKey)); err != nil {
 				t.Fatal(err)
 			}
-			cmd := exec.CommandContext(t.Context(), "bash", "-c", historyExport()) //nolint:gosec // devvm's own export script
+			// As the VM runs it: on bash's input.
+			argv, in := onInput(historyExport(), nil)
+			cmd := exec.CommandContext(t.Context(), argv[0], argv[1:]...) //nolint:gosec // devvm's own command, its script on its input
+			cmd.Stdin = in
 			cmd.Env = []string{"HOME=" + home, "PATH=" + pathWithout(t, with)}
 			var stderr bytes.Buffer
 			cmd.Stderr = &stderr
@@ -461,8 +577,11 @@ func TestHistoryExportRuns(t *testing.T) {
 				opencodeData + "/opencode.db": with, opencodeData + "/opencode.db-wal": false, opencodeData + "/opencode.db-shm": false,
 				piSessions + "/--p--/s.jsonl": true, piDir + "/auth.json": false, piDir + "/settings.json": false,
 				opencodeHomeKey: false, opencodeState + "/machine/": false, opencodeState + "/service.json": false,
-				opencodeState + "/service.json.pty-handoff": false,
-				opencodeState + "/pty/d/service.json":       false,
+				opencodeState + "/service.json.pty-handoff": false, opencodeState + "/service-local.json": false,
+				opencodeState + "/service.json.0a1b.tmp": false, opencodeState + "/service.json.pty-handoff.0a1b.tmp": false,
+				opencodeState + "/service-local.json.pty-handoff": false, opencodeState + "/services.json": true,
+				opencodeData + "/snapshot/p/h/config": false, opencodeData + "/repos/r/config": false, opencodeData + "/worktree/w/.git": false,
+				opencodeState + "/pty/d/service.json": false,
 			} {
 				if _, ok := got[f]; ok != want {
 					t.Errorf("%s: in the export %v, want %v", f, ok, want)
@@ -539,9 +658,10 @@ func TestHistoryImportCleansOpencode(t *testing.T) {
 				files[db] = data
 			}
 			home := t.TempDir()
-			cmd := exec.CommandContext(t.Context(), "bash", "-c", historyImport()) //nolint:gosec // devvm's own import script
+			argv, in := onInput(historyImport(), bytes.NewReader(tarGz(t, []string{db, wal, opencodeData + "/storage/s.json"}, files)))
+			cmd := exec.CommandContext(t.Context(), argv[0], argv[1:]...) //nolint:gosec // devvm's own command, its script on its input
 			cmd.Env = []string{"HOME=" + home, "PATH=" + pathWithout(t, with)}
-			cmd.Stdin = bytes.NewReader(tarGz(t, []string{db, wal, opencodeData + "/storage/s.json"}, files))
+			cmd.Stdin = in
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("%v: %s", err, out)
 			}

@@ -35,8 +35,6 @@ func dynamicScripts() map[string]string {
 		"internal/backend/lima/remount.go check":                                                                                          "a fixed mountpoint test around quoted paths",
 		"internal/vm/mountcache.go script":                                                                                                "a fixed mountpoint test around a quoted path",
 		"internal/vm/agentsave.go agentSaveScript(agents)":                                                                                "built from the agents' registry: internal/vm's TestBuiltScriptsShellcheck checks it",
-		"internal/vm/lifecycle.go historyExport()":                                                                                        "built from the agents' registry: internal/vm's TestBuiltScriptsShellcheck checks it",
-		"internal/vm/lifecycle.go historyImport()":                                                                                        "built from the agents' registry: internal/vm's TestBuiltScriptsShellcheck checks it",
 		"internal/devcontainer/devcontainer.go s":                                                                                         "a devcontainer.json's own command, the user's, not devvm's",
 		"internal/vm/opencode.go string(script)":                                                                                          "assets/guest/opencode.sh, which lint:code's shellcheck checks with the assets",
 		"internal/vm/paste.go script":                                                                                                     "assets/guest/paste.sh, through pasteArgv, which lint:code's shellcheck checks with the assets",

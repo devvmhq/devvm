@@ -142,8 +142,9 @@ exec devvm rm --force
 stdout '^==> exported file=\S*/data/devvm/exports/devvm-agent-[0-9a-f]{14}-[0-9]{8}-[0-9]{6}\.tar\.gz vm=devvm-agent-[0-9a-f]{14}$'
 stdout '^==> deleted vm=devvm-agent-[0-9a-f]{14}$'
 stub_calls
-stdout 'exec ''bash'' ''-c'' ''devvm_opencode_clean\(\) \{$'
-stdout '^ *cd ~ && ls -d \.claude \.claude\.json .*--exclude=\.claude/\.credentials\.json.* -T - '
+stdout 'exec ''bash'' ''-c'' ''IFS= read -r n '
+grep '^devvm_opencode_clean\(\) \{$' $STUB_DIR/history-export.sh
+grep '^cd ~ && ls -d \.claude \.claude\.json .*--exclude=\.claude/\.credentials\.json.* -T - ' $STUB_DIR/history-export.sh
 ! exists $AGENT_dir
 cd $WORK/net
 exec devvm rm --force --no-export

@@ -381,8 +381,9 @@ func TestAddLayersAsks(t *testing.T) {
 		if c.Method != "Exec" {
 			continue
 		}
-		if argv, _ := c.Args[1].([]string); len(argv) == 3 && (argv[2] == homeOut || argv[2] == homeIn || strings.Contains(argv[2], "tar -czf")) {
-			t.Errorf("--clean-home --no-export ran %q", argv[2])
+		argv, _ := c.Args[1].([]string)
+		if len(argv) == 3 && (argv[2] == homeOut || argv[2] == homeIn || argv[2] == onInputCmd) {
+			t.Errorf("--clean-home --no-export ran %q", argv)
 		}
 	}
 	said = nil

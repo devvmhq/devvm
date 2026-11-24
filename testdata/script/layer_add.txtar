@@ -63,7 +63,7 @@ stdout '==> creating_from image=docker vm=devvm-web-[0-9a-f]{14}$'
 stdout '==> remade image=docker vm=devvm-web-[0-9a-f]{14}$'
 stdout '^==> building_image image=docker '
 stub_calls
-stdout 'tar -czf - \S*--exclude.*\n(.*\n)*.*tar -czf - --one-file-system.*\n(.*\n)*limactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl rename --tty=false devvm-web-[0-9a-f]{14} devvm-[0-9a-f]{14}-old\n'
+stdout 'exec ''bash'' ''-c'' ''IFS= read -r n .*\n(.*\n)*.*tar -czf - --one-file-system.*\n(.*\n)*limactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl rename --tty=false devvm-web-[0-9a-f]{14} devvm-[0-9a-f]{14}-old\n'
 stdout 'limactl rename --tty=false devvm-web-[0-9a-f]{14} devvm-[0-9a-f]{14}-old\n(.*\n)*limactl clone --tty=false devvm-img-[0-9a-f]+ devvm-web-[0-9a-f]{14} .*\n(.*\n)*limactl start --tty=false devvm-web-[0-9a-f]{14}\n(.*\n)*.*tar -xzf - --skip-old-files.*\n(.*\n)*limactl delete -f devvm-[0-9a-f]{14}-old\n(.*\n)*limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n'
 vm_state $WEB_dir/vm.json
 stdout '^image=docker$'

@@ -387,7 +387,8 @@ func (e Lifecycle) export(ctx context.Context, t *target, file string, failed er
 	run, cancel := context.WithCancel(ctx)
 	defer cancel()
 	w := &bounded{to: out, max: cmp.Or(e.HistoryMax, historyMax), cancel: cancel}
-	err = t.exec(run, []string{"bash", "-c", historyExport()}, backend.ExecOpts{Stdout: w, Stderr: e.vmLog()})
+	argv, in := onInput(historyExport(), nil)
+	err = t.exec(run, argv, backend.ExecOpts{Stdin: in, Stdout: w, Stderr: e.vmLog()})
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
@@ -453,7 +454,8 @@ func importHistory(ctx context.Context, e *Env, t *target, file string) error {
 	}
 	defer func() { _ = f.Close() }()
 	out := &bounded{max: len(historyUnsafe) + 1}
-	err = t.exec(ctx, []string{"bash", "-c", historyImport()}, backend.ExecOpts{Stdin: f, Stdout: out, Stderr: e.vmLog()})
+	argv, in := onInput(historyImport(), f)
+	err = t.exec(ctx, argv, backend.ExecOpts{Stdin: in, Stdout: out, Stderr: e.vmLog()})
 	switch {
 	case err == nil:
 	case ctx.Err() != nil:

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -723,6 +724,72 @@ func TestShellFloods(t *testing.T) {
 		if err := os.Remove(filepath.Join(s.dir, sw)); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// An export of agents' history on bash's input (bash -s): its script is
+// kept in history-export.sh, and the switches match it as they match a
+// command's words: shell-fails-on fails it, history-floods floods.
+func TestShellHistoryExportOnInput(t *testing.T) {
+	s := newSandbox(t)
+	export := "cd ~ && ls -d .claude .codex 2>/dev/null | tar -czf - ."
+	script := strconv.Itoa(len(export)) + "\n" + export
+	sh := []string{"shell", "--workdir", "/", "vm", "bash", "-c", `IFS= read -r n && s=$(dd bs=1 count="$n" 2>/dev/null) && exec bash -c "$s"`}
+	s.ok(script, "limactl", sh...)
+	if got := s.read("history-export.sh"); got != export {
+		t.Errorf("history-export.sh %q", got)
+	}
+	// An import's script, then its export, which the import keeps.
+	imp := "tar -xzf - --quoting-style=escape -C x"
+	s.ok(strconv.Itoa(len(imp))+"\n"+imp+"the export", "limactl", sh...)
+	if got := s.read("history-in.tgz"); got != "the export" {
+		t.Errorf("history-in.tgz %q", got)
+	}
+	if err := os.Remove(filepath.Join(s.dir, "history-in.tgz")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.dir, "shell-fails-on"), []byte("ls -d .claude"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := s.run(script, "limactl", sh...); code != 1 {
+		t.Errorf("shell-fails-on its script: %d", code)
+	}
+	if err := os.Remove(filepath.Join(s.dir, "shell-fails-on")); err != nil {
+		t.Fatal(err)
+	}
+	s.touch("history-floods")
+	s.stdout, s.stderr = &gone{left: 1 << 20}, &gone{left: 1 << 30}
+	if code, _, _ := s.run(script, "limactl", sh...); code != 1 {
+		t.Errorf("history-floods: %d", code)
+	}
+	s.stdout, s.stderr = nil, nil
+	// A script it can't keep fails the shell, rather than leave a test reading an old one.
+	if err := os.Remove(filepath.Join(s.dir, "history-export.sh")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(s.dir, "history-export.sh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := s.run(script, "limactl", sh...); code == 0 {
+		t.Error("a script it couldn't keep: 0")
+	}
+	// An import whose input it can't keep fails too.
+	if err := os.Mkdir(filepath.Join(s.dir, "history-in.tgz"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := s.run(strconv.Itoa(len(imp))+"\n"+imp+"history", "limactl", sh...); code == 0 {
+		t.Error("an import it couldn't keep: 0")
+	}
+}
+
+// On its switch, opencode.sh says opencode refused the provider the
+// switch names, and fails.
+func TestShellOpencodeRefuses(t *testing.T) {
+	s := newSandbox(t)
+	s.write("opencode-refuses", "openrouter\n")
+	code, out, _ := s.run("", "limactl", "shell", "--workdir", "/", "vm", "sh", "-c", "cd '/' && exec 'bash' '-lc' 'script' 'opencode.sh'")
+	if code != 1 || out != "devvm-opencode-failed openrouter\n" {
+		t.Errorf("opencode.sh: %d, printed %q", code, out)
 	}
 }
 

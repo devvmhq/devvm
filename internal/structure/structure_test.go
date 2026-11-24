@@ -391,10 +391,11 @@ func devvmGoroutineSites() map[string]string {
 func devvmUnboundedReads() map[string]string {
 	const stub = "the test stubs' standard input, which devvm under test writes and closes, in a stub run only by the CLI tests"
 	return map[string]string{
-		"internal/ui/status.go: tail":                      "the run's own log, which only this run writes, read from its last size bytes",
-		"internal/stubtest/stub/guest.go: guest.logScript": stub,
-		"internal/stubtest/stub/stub.go: call.copyIn":      stub,
-		"internal/stubtest/stub/control.go: control":       stub,
+		"internal/ui/status.go: tail":                        "the run's own log, which only this run writes, read from its last size bytes",
+		"internal/stubtest/stub/guest.go: guest.logScript":   stub,
+		"internal/stubtest/stub/guest.go: guest.inputScript": stub,
+		"internal/stubtest/stub/stub.go: call.copyIn":        stub,
+		"internal/stubtest/stub/control.go: control":         stub,
 	}
 }
 

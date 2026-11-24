@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,6 +20,95 @@ import (
 	"github.com/devvmhq/devvm/internal/paths"
 	"github.com/devvmhq/devvm/internal/vmname"
 )
+
+// inputScript is the script a fake Exec got on its input (onInput) and
+// the rest of that input, or "" for any other command. It reads that
+// input.
+func inputScript(argv []string, o backend.ExecOpts) (script string, rest []byte) {
+	if !slices.Equal(argv, []string{"bash", "-c", onInputCmd}) || o.Stdin == nil {
+		return "", nil
+	}
+	b, _ := io.ReadAll(o.Stdin)
+	n, after, _ := strings.Cut(string(b), "\n")
+	size, err := strconv.Atoi(n)
+	if err != nil || size > len(after) {
+		return "", nil
+	}
+	return after[:size], []byte(after[size:])
+}
+
+// exportScript is the export of agents' history that a fake Exec got on
+// its input, or "" for any other command. It reads that input.
+func exportScript(argv []string, o backend.ExecOpts) string {
+	if s, _ := inputScript(argv, o); strings.Contains(s, "tar -czf") {
+		return s
+	}
+	return ""
+}
+
+// The export's and the import's scripts go on the VM's bash's input,
+// never in its arguments, which ssh's shared connection on macOS fails to
+// pass at their length; the import's export follows its script.
+func TestHistoryScriptsOnInput(t *testing.T) {
+	e, f, _ := upEnv(t, allNative())
+	existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "open"})
+	var scripts []string
+	var rest []byte
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
+		if s, r := inputScript(argv, o); s != "" {
+			scripts, rest = append(scripts, s), r
+		}
+		for _, a := range argv {
+			if len(a) > 4096 {
+				t.Errorf("an argument of %d bytes: %.80q", len(a), a)
+			}
+		}
+		return nil
+	}
+	file := filepath.Join(t.TempDir(), "h.tar.gz")
+	if err := (Lifecycle{e}).Export(t.Context(), file); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	if err := os.WriteFile(file, []byte("the export"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := (Lifecycle{e}).Import(t.Context(), file); err != nil {
+		t.Fatal(msg.NamesOf(err))
+	}
+	want := []string{strings.TrimRight(historyExport(), "\n"), strings.TrimRight(historyImport(), "\n")}
+	if !slices.Equal(scripts, want) || string(rest) != "the export" {
+		t.Errorf("the scripts on the input: %d, rest %q", len(scripts), rest)
+	}
+}
+
+// onInput's command runs its script, with the rest of its input as the
+// script's, only when it read the whole script: an input cut short, even
+// to a whole command, runs nothing.
+func TestOnInputCutShort(t *testing.T) {
+	script := "mkdir ran\ncat > rest\n"
+	argv, in := onInput(script, strings.NewReader("the rest"))
+	b, err := io.ReadAll(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := string(b)
+	for _, n := range []int{len(full), 1, len(full) / 2, strings.Index(full, "cat")} {
+		dir := t.TempDir()
+		cmd := exec.CommandContext(t.Context(), argv[0], argv[1:]...) //nolint:gosec // devvm's own command, its script on its input
+		cmd.Dir, cmd.Stdin = dir, strings.NewReader(full[:n])
+		err := cmd.Run()
+		_, ran := os.Stat(filepath.Join(dir, "ran"))
+		if n == len(full) {
+			if err != nil || ran != nil || readFile(t, filepath.Join(dir, "rest")) != "the rest" {
+				t.Errorf("whole: %v, ran %v", err, ran)
+			}
+			continue
+		}
+		if err == nil || ran == nil {
+			t.Errorf("cut at %d of %d: %v, it ran", n, len(full), err)
+		}
+	}
+}
 
 // rm asks first in a terminal and refuses without one, unless --force;
 // --no-export deletes without the export.
@@ -35,8 +127,8 @@ func TestRmConfirms(t *testing.T) {
 		t.Fatal("deleted when declined")
 	}
 	exported := false
-	f.ExecFunc = func(_ vmname.VM, argv []string, _ backend.ExecOpts) error {
-		exported = exported || (len(argv) == 3 && strings.Contains(argv[2], "tar -czf"))
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
+		exported = exported || exportScript(argv, o) != ""
 		return nil
 	}
 	if err := lc.Rm(t.Context(), RmOptions{Force: true, NoExport: true}); err != nil {
@@ -55,8 +147,8 @@ func TestRm(t *testing.T) {
 	lc := Lifecycle{e}
 	st := existingVM(t, e, Options{Agents: &[]string{"claude"}, Network: "open"})
 	vm := st.Name().String()
-	f.ExecFunc = func(_ vmname.VM, argv []string, _ backend.ExecOpts) error {
-		if len(argv) == 3 && strings.Contains(argv[2], "tar -czf") {
+	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
+		if exportScript(argv, o) != "" {
 			return errors.New("tar failed")
 		}
 		return nil
@@ -72,8 +164,8 @@ func TestRm(t *testing.T) {
 	}
 	var script string
 	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
-		if len(argv) == 3 && strings.Contains(argv[2], "tar -czf") {
-			script = argv[2]
+		if s := exportScript(argv, o); s != "" {
+			script = s
 			_, err := o.Stdout.Write([]byte("tarball"))
 			return err
 		}
@@ -130,7 +222,7 @@ func TestRm(t *testing.T) {
 // streamForever is a VM's export that never ends: it writes until a
 // write fails, its stderr too, as a VM's root can.
 func streamForever(argv []string, o backend.ExecOpts) error {
-	if len(argv) != 3 || !strings.Contains(argv[2], "tar -czf") {
+	if exportScript(argv, o) == "" {
 		return nil
 	}
 	chunk := []byte(strings.Repeat("x", 64<<10))
@@ -317,7 +409,7 @@ func TestExport(t *testing.T) {
 	vm := existingVM(t, e, Options{Network: "open"}).Name().String()
 	tarball := "tarball"
 	f.ExecFunc = func(_ vmname.VM, argv []string, o backend.ExecOpts) error {
-		if len(argv) == 3 && strings.Contains(argv[2], "tar -czf") {
+		if exportScript(argv, o) != "" {
 			if tarball == "" {
 				_, _ = o.Stdout.Write([]byte("partial"))
 				return errors.New("tar failed")
@@ -410,7 +502,7 @@ func TestExportStartsAsLaunch(t *testing.T) {
 		switch {
 		case argv[0] == "curl" && !direct:
 			return errors.New("curl: (7) Failed to connect")
-		case len(argv) == 3 && strings.Contains(argv[2], "tar -czf"):
+		case exportScript(argv, o) != "":
 			_, err := o.Stdout.Write([]byte("tarball"))
 			return err
 		}

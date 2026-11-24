@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,11 +21,14 @@ import (
 // its second line, past its #! line or devvm's prelude, appended to $STUB_DIR/scripts, a
 // VM's setup is $STUB_DIR/sync.tar, a base build's packages
 // $STUB_DIR/packages-in.tar, what a remake puts in a new disk's home
-// $STUB_DIR/home-in.tgz, and an import of agents' history
-// $STUB_DIR/history-in.tgz. Its switches, in $STUB_DIR:
+// $STUB_DIR/home-in.tgz, an import of agents' history
+// $STUB_DIR/history-in.tgz, and the script of an export of agents' history,
+// which comes first on its input (inputScript), $STUB_DIR/history-export.sh, and an
+// import's script $STUB_DIR/history-import.sh. Its
+// switches, in $STUB_DIR:
 //
 //	shell-fails         every shell fails
-//	shell-fails-on      a shell whose arguments hold its text fails (a home folder's copy and
+//	shell-fails-on      a shell whose arguments, or script on its input, hold its text fails (a home folder's copy and
 //	                    a --clone VM's git too)
 //	shell-hangs         every shell hangs (touching hanging first)
 //	shell-waits-on      a shell whose arguments hold its text touches waiting, then waits
@@ -55,7 +59,15 @@ import (
 //	paste-in            where paste.sh put's stdin goes, with its folder and name in paste-put
 type guest struct {
 	*call
-	vm string // the VM's name, "" over ssh
+	vm     string // the VM's name, "" over ssh
+	script string // the script the shell read on its input (logScript, inputScript)
+}
+
+// mentions reports whether the shell's arguments, or the script it read
+// on its input, hold the text of the switch name.
+func (g *guest) mentions(name string) bool {
+	t, ok := g.text(name)
+	return ok && strings.Contains(g.joined()+"\n"+g.script, t)
 }
 
 // shellPrefix starts the command line Exec gives limactl shell: the
@@ -80,6 +92,9 @@ func (l *lima) shell() int {
 	}
 	if strings.Join(g.args[max(0, len(g.args)-2):], " ") == "bash -s" || strings.HasSuffix(g.joined(), "exec 'bash' '-s'") {
 		g.logScript()
+	}
+	if strings.Contains(g.joined(), "s=$(dd bs=1 count=") {
+		g.inputScript()
 	}
 	if code, done := g.files(); done {
 		return code
@@ -146,11 +161,13 @@ func (g *guest) git(words []string) int {
 // prelude, one eval line in place of its #! line (image.WithPrelude), with
 // any exports for a company proxy or the user's CAs before it on the same
 // line, so its second line is its own second line too. It reads the whole
-// script.
+// script and keeps it, so files() knows a script by what's in it, as it
+// knows a command by its words.
 func (g *guest) logScript() {
 	b, _ := io.ReadAll(g.stdin)
 	g.stdin = bytes.NewReader(nil)
-	lines := strings.Split(string(b), "\n")
+	g.script = string(b)
+	lines := strings.Split(g.script, "\n")
 	line := ""
 	if len(lines) > 1 {
 		line = lines[1]
@@ -158,10 +175,32 @@ func (g *guest) logScript() {
 	g.logLine(g.path("scripts"), line)
 }
 
+// inputScript takes the script that comes first on the shell's input, as
+// devvm's vm.onInput frames it, a line with its length then the script,
+// and leaves the rest as the shell's input, so files() knows the script by
+// what's in it and gets the rest, as an import's export.
+func (g *guest) inputScript() {
+	b, _ := io.ReadAll(g.stdin)
+	n, after, _ := strings.Cut(string(b), "\n")
+	size, err := strconv.Atoi(n)
+	if err != nil || size < 0 || size > len(after) {
+		size = len(after)
+	}
+	g.script, g.stdin = after[:size], strings.NewReader(after[size:])
+}
+
 // files answers what moves files in and out of the guest: a home folder's
 // copy, a base build's packages and a VM's setup.
 func (g *guest) files() (code int, done bool) {
-	all := g.joined()
+	all := g.joined() + "\n" + g.script
+	for name, text := range map[string]string{"history-export.sh": "ls -d .claude ", "history-import.sh": "--quoting-style=escape"} {
+		if !strings.Contains(g.script, text) {
+			continue
+		}
+		if err := g.put(name, []byte(g.script)); err != nil {
+			return g.status(err), true
+		}
+	}
 	out, in := strings.Contains(all, "tar -czf - --one-file-system"), strings.Contains(all, "tar -xzf - --skip-old-files")
 	switch {
 	case (out || in) && g.mentions("shell-fails-on"):

@@ -26,18 +26,21 @@ exec devvm history import
 stdout '^==> imported file=\S*/data/devvm/exports/devvm-agent-[0-9a-f]{14}-[0-9]{8}-[0-9]{6}\.tar\.gz vm=devvm-agent-[0-9a-f]{14}$'
 exec sh -c 'cmp "$STUB_DIR/history-in.tgz" "$EXPORTS"/*.tar.gz'
 stub_calls
-stdout 'tar -tzf "\$t/export" --absolute-names --quoting-style=escape'
-stdout 'devvm-history-unsafe'
-stdout 'tar -xzf "\$t/export" -C "\$t/x" .*--no-same-owner.*--no-same-permissions.*--anchored'
-stdout 'find "\$t/x" -type l'
-stdout 'tar --extract --file=- --directory ~ --skip-old-files .*--no-same-owner.*--no-same-permissions'
-stdout '--exclude=\.claude/\.credentials\.json'
-stdout '--exclude=\.claude\.json'
-stdout '--exclude=\.codex/auth\.json'
-stdout '--exclude=\.local/share/opencode/auth\.json'
-stdout '--exclude=\.claude/settings\.json'
-stdout '--exclude=\.claude/skills'
-! stdout 'tar (-xzf|--extract) .*(--absolute-names|-P\b)'
+# The import's script goes on the VM's input, before the export, never in its arguments.
+stdout 'exec ''bash'' ''-c'' ''IFS= read -r n '
+! stdout 'quoting-style'
+grep 'tar -tzf "\$t/export" --absolute-names --quoting-style=escape' $STUB_DIR/history-import.sh
+grep 'devvm-history-unsafe' $STUB_DIR/history-import.sh
+grep 'tar -xzf "\$t/export" -C "\$t/x" .*--no-same-owner.*--no-same-permissions.*--anchored' $STUB_DIR/history-import.sh
+grep 'find "\$t/x" -type l' $STUB_DIR/history-import.sh
+grep 'tar --extract --file=- --directory ~ --skip-old-files .*--no-same-owner.*--no-same-permissions' $STUB_DIR/history-import.sh
+grep '--exclude=\.claude/\.credentials\.json' $STUB_DIR/history-import.sh
+grep '--exclude=\.claude\.json' $STUB_DIR/history-import.sh
+grep '--exclude=\.codex/auth\.json' $STUB_DIR/history-import.sh
+grep '--exclude=\.local/share/opencode/auth\.json' $STUB_DIR/history-import.sh
+grep '--exclude=\.claude/settings\.json' $STUB_DIR/history-import.sh
+grep '--exclude=\.claude/skills' $STUB_DIR/history-import.sh
+! grep 'tar (-xzf|--extract) .*(--absolute-names|-P\b)' $STUB_DIR/history-import.sh
 
 # A file of your own, relative to here; one that isn't there fails before
 # anything runs in the VM.
@@ -50,7 +53,7 @@ stub_reset
 ! exec devvm history import nope.tar.gz
 stderr '^devvm: import_failed reason=.*nope\.tar\.gz.*$'
 stub_calls
-! stdout quoting-style
+! stdout 'IFS= read -r n '
 
 # The VM's tar finds a path outside the agents' history: nothing imported.
 # Its tar failing otherwise is a failed import.

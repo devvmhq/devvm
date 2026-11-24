@@ -176,11 +176,18 @@ func TestHistoryImportScript(t *testing.T) {
 	if !slices.IsSorted(skips) || len(slices.Compact(slices.Clone(skips))) != len(skips) {
 		t.Errorf("skips %q aren't sorted once each", skips)
 	}
+	// The clean-up after unpacking expands each one unquoted, as a pattern, so each is only of a
+	// path's plain characters and *: no space, ? or [ that would split it or match more.
+	for _, p := range skips {
+		if strings.Trim(p, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-*") != "" {
+			t.Errorf("skip %q isn't a plain path or pattern", p)
+		}
+	}
 	s := historyImport()
 	for _, want := range []string{
 		`tar -tzf "$t/export" --absolute-names --quoting-style=escape`, "grep -vqE '^(\\.claude|\\.claude\\.json|\\.codex|",
 		`grep -qE '(^|/)(\.\.?)?/|(^|/)\.\.?$'`, "echo " + historyUnsafe + "; exit 1",
-		`; do rm -rf "$t/x/$p"; done`,
+		`; do for f in "$t/x/"$p; do rm -rf "$f"; done; done`,
 		`tar -xzf "$t/export" -C "$t/x" '--no-same-owner' '--no-same-permissions' '--anchored' '--exclude=`,
 		"'--exclude=.claude.json' ", `find "$t/x" -type l`, "/* | .. | ../* | */.. | */../*) ",
 		"for p in '.claude' '.claude.json' '.codex' '.local/share/opencode' '.local/state/opencode' '.pi/agent/sessions'",
@@ -306,7 +313,9 @@ func TestHistoryImportRuns(t *testing.T) {
 			".claude/link->/etc", ".claude/projects/up->../../.bashrc", ".claude/projects/in->p.jsonl", ".codex/",
 			".codex/sessions/s", ".codex/auth.json", ".local/share/opencode/auth.json", ".local/state/opencode/x",
 			opencodeState+"/machine/", opencodeHomeKey, opencodeState+"/service.json", opencodeState+"/pty/d/service.json",
-			opencodeState+"/service.json.pty-handoff",
+			opencodeState+"/service.json.pty-handoff", opencodeState+"/service-local.json", opencodeState+"/service.json.0a1b.tmp",
+			opencodeState+"/service.json.pty-handoff.0a1b.tmp", opencodeState+"/service-local.json.pty-handoff",
+			opencodeData+"/snapshot/p/h/config", opencodeData+"/repos/r/config", opencodeData+"/worktree/w/.git",
 			".pi/agent/sessions/", ".pi/agent/sessions/--p--/s.jsonl")
 		if out, err := runImport(t, home, export); err != nil {
 			t.Fatalf("%q, %v", out, err)
@@ -315,8 +324,11 @@ func TestHistoryImportRuns(t *testing.T) {
 			".claude/projects/p.jsonl": true, ".codex/sessions/s": true, ".local/state/opencode/x": true, ".claude/projects/in": true,
 			".pi/agent/sessions/--p--/s.jsonl": true, ".pi/agent/auth.json": true,
 			opencodeHomeKey: false, opencodeState + "/machine": false, opencodeState + "/service.json": false, opencodeState + "/pty": false,
-			opencodeState + "/service.json.pty-handoff": false,
-			".claude/.credentials.json":                 false, ".claude/settings.json": false, ".claude/skills": false, ".claude.json": false,
+			opencodeState + "/service.json.pty-handoff": false, opencodeState + "/service-local.json": false,
+			opencodeState + "/service.json.0a1b.tmp": false, opencodeState + "/service.json.pty-handoff.0a1b.tmp": false,
+			opencodeState + "/service-local.json.pty-handoff": false,
+			opencodeData + "/snapshot":                        false, opencodeData + "/repos": false, opencodeData + "/worktree": false,
+			".claude/.credentials.json": false, ".claude/settings.json": false, ".claude/skills": false, ".claude.json": false,
 			".codex/auth.json": false, ".local/share/opencode/auth.json": false, ".claude/link": false, ".claude/projects/up": false,
 		} {
 			if _, err := os.Lstat(filepath.Join(home, p)); (err == nil) != want {
@@ -375,7 +387,9 @@ func TestHistoryImportRuns(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		cmd := exec.CommandContext(t.Context(), "bash", "-c", historyExport()) //nolint:gosec // devvm's own export script
+		argv, in := onInput(historyExport(), nil)
+		cmd := exec.CommandContext(t.Context(), argv[0], argv[1:]...) //nolint:gosec // devvm's own command, its script on its input
+		cmd.Stdin = in
 		cmd.Env = []string{"HOME=" + from, "PATH=" + os.Getenv("PATH")}
 		export, err := cmd.Output()
 		if err != nil {
@@ -473,10 +487,11 @@ func TestHistoryImportV010(t *testing.T) {
 // VM's user does, and returns what it printed.
 func runImport(t *testing.T, home string, export []byte) (string, error) {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), "bash", "-c", historyImport()) //nolint:gosec // devvm's own import script
+	argv, in := onInput(historyImport(), bytes.NewReader(export))
+	cmd := exec.CommandContext(t.Context(), argv[0], argv[1:]...) //nolint:gosec // devvm's own command, its script on its input
 	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
 	var stderr bytes.Buffer
-	cmd.Stdin, cmd.Stderr = bytes.NewReader(export), &stderr
+	cmd.Stdin, cmd.Stderr = in, &stderr
 	out, err := cmd.Output()
 	if err != nil {
 		t.Logf("tar's stderr: %s", stderr.String())

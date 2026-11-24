@@ -23,8 +23,10 @@ exec devvm history export
 stdout '^==> starting what=devvm-web-[0-9a-f]{14}$'
 stdout '^==> exported file=\S*/data/devvm/exports/devvm-web-[0-9a-f]{14}-[0-9]{8}-[0-9]{6}\.tar\.gz vm=devvm-web-[0-9a-f]{14}$'
 stub_calls
-stdout 'exec ''bash'' ''-c'' ''devvm_opencode_clean\(\) \{$'
-stdout '^ *cd ~ && ls -d \.claude \.claude\.json .*--exclude=\.claude/\.credentials\.json.* -T - '
+# The export's script goes on bash's input, never in its arguments.
+stdout 'exec ''bash'' ''-c'' ''IFS= read -r n '
+grep '^devvm_opencode_clean\(\) \{$' $STUB_DIR/history-export.sh
+grep '^cd ~ && ls -d \.claude \.claude\.json .*--exclude=\.claude/\.credentials\.json.* -T - ' $STUB_DIR/history-export.sh
 exec sh -c 'ls "$EXPORTS"/*.tar.gz | wc -l'
 stdout '^ *1$'
 

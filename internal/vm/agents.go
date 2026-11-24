@@ -66,6 +66,72 @@ const opencodeLogins = `type = 'table' AND name NOT LIKE 'sqlite\_%' ESCAPE '\' 
 	`JOIN pragma_table_info(m.name) c WHERE m.type = 'table' AND lower(c.name) IN ('secret', 'access_token', ` +
 	`'refresh_token', 'id_token', 'api_key', 'apikey', 'password', 'token', 'credential', 'credentials')))`
 
+// opencodeUnattended is the SQL condition that picks the tables of
+// opencode's database whose rows let something run in the VM without
+// asking, which an exported database brings from another VM, from
+// opencode v2.4.1's source: automation, each automation's trigger and the
+// shell command it runs on it, which opencode approved once, as it was
+// made, and never asks about again (core/src/automation/shell.ts);
+// permission, the requests you said always to allow in a project; job,
+// the subagents' jobs, which its service starts again when it starts
+// (core/src/session/execution/restart.ts); and session_inbox, the
+// messages queued for a session's next turn. Any table whose name starts
+// as theirs is picked too, so one a later opencode adds for them is.
+// What else runs without asking is a column (opencodeNulled,
+// opencodeAllowRules).
+const opencodeUnattended = `type = 'table' AND (name LIKE 'automation%' OR name LIKE 'permission%' OR name LIKE 'job%' ` +
+	`OR name LIKE 'session_inbox%')`
+
+// opencodeNulled is the SQL condition that picks the columns, of every
+// table (c, of m), that opencodeClean sets to NULL: time_suspended, which
+// marks a session whose turn opencode's service resumes on its own when it
+// starts (session_v2), and commands, a project's commands, whose start
+// command opencode runs with bash -lc for each worktree it makes
+// (core/src/worktree.ts). Names are compared in lower case, as SQLite
+// reads them.
+const opencodeNulled = `FROM sqlite_master m JOIN pragma_table_info(m.name) c WHERE m.type = 'table' ` +
+	`AND lower(c.name) IN ('time_suspended', 'commands')`
+
+// opencodeAllowRules is the SQL that keeps only the deny and ask rules of
+// the permission column of a table, a printf format that names the table
+// (%w) twice: opencode 2.4's session_v2 keeps each session's rules there,
+// a JSON array of {action, resource, effect}, and a session imported with
+// an allow rule would run what it allows without asking. A value that
+// isn't such an array becomes NULL, no rules, and so does a rule that
+// isn't an object with a text action. Each rule kept is written again
+// from the values sqlite3 read, so a key written twice, which sqlite3
+// reads first and opencode's JSON.parse last, can't keep an allow
+// effect behind a deny; a resource that isn't text becomes "*", every
+// resource, as opencode's Permission.Rule needs one. opencodeAllowLeft
+// counts the rows whose value is still anything else, a rule that isn't
+// in the form written again included. Each reads JSON only where CASE
+// has found it valid, as sqlite3's AND and OR may read both sides and
+// fail on what isn't JSON.
+const (
+	opencodeAllowRules = `UPDATE "%w" SET permission = NULL WHERE permission IS NOT NULL AND ` +
+		`CASE WHEN json_valid(permission) THEN json_type(permission) IS NOT 'array' ELSE 1 END; ` +
+		`UPDATE "%w" SET permission = (SELECT json_group_array(json_object('action', json_extract(r.value, '$.action'), ` +
+		`'resource', CASE WHEN json_type(r.value, '$.resource') = 'text' THEN json_extract(r.value, '$.resource') ELSE '*' END, ` +
+		`'effect', json_extract(r.value, '$.effect'))) FROM json_each(permission) AS r ` +
+		`WHERE CASE WHEN r.type = 'object' THEN json_type(r.value, '$.action') = 'text' ` +
+		`AND json_extract(r.value, '$.effect') IN ('deny', 'ask') ELSE 0 END) WHERE permission IS NOT NULL;`
+	opencodeAllowLeft = `SELECT count(*) FROM "%w" WHERE permission IS NOT NULL AND CASE WHEN NOT json_valid(permission) THEN 1 ` +
+		`WHEN json_type(permission) IS NOT 'array' THEN 1 ELSE EXISTS (SELECT 1 FROM json_each(permission) AS r WHERE ` +
+		`CASE WHEN r.type = 'object' THEN coalesce(json_extract(r.value, '$.effect') IN ('deny', 'ask'), 0) = 0 ` +
+		`OR json_type(r.value, '$.action') IS NOT 'text' OR r.value IS NOT json_object('action', json_extract(r.value, '$.action'), ` +
+		`'resource', CASE WHEN json_type(r.value, '$.resource') = 'text' THEN json_extract(r.value, '$.resource') ELSE '*' END, ` +
+		`'effect', json_extract(r.value, '$.effect')) ELSE 1 END) END;`
+	// opencodeRuleTables picks the tables with a permission column, its
+	// name in any case, as SQLite reads it.
+	opencodeRuleTables = `FROM sqlite_master m JOIN pragma_table_info(m.name) c WHERE m.type = 'table' AND lower(c.name) = 'permission'`
+)
+
+// opencodeHidden is the SQL that counts the columns of the database's
+// tables that pragma_table_info doesn't list, a generated column's or a
+// virtual table's, which opencodeClean's steps would miss, so a copy with
+// any fails its check. opencode's own tables have none.
+const opencodeHidden = `SELECT count(*) FROM sqlite_master m JOIN pragma_table_xinfo(m.name) c WHERE m.type = 'table' AND c.hidden != 0;`
+
 // opencodeAuthImport is opencode 2's migration that imports auth.json
 // into its credential table, once. opencodeClean takes its record out,
 // so the opencode that next opens the copy imports the logins devvm's
@@ -81,16 +147,22 @@ const opencodeWellknown = `key LIKE 'wellknown:config:%'`
 
 // opencodeClean is the shell function devvm_opencode_clean DB, which
 // makes clean.db in the current folder: a copy of opencode's database
-// DB without its logins. sqlite3 copies it with VACUUM INTO, which reads
+// DB without its logins, nor anything that would run without asking in
+// the VM that gets it. sqlite3 copies it with VACUUM INTO, which reads
 // the database with what its -wal file holds, as one snapshot; in the
-// copy it drops every trigger, empties the tables opencodeLogins picks,
-// deletes the kv rows opencodeWellknown picks and takes
-// opencodeAuthImport's record out, then turns WAL off and rebuilds the
-// file (secure_delete and VACUUM), so no page of it keeps a deleted row.
-// It fails when the VM has no sqlite3, when any step fails, when the
-// copy has fewer tables than DB or none, or unless each count of rows
-// left (the triggers, each table it emptied, kv's rows it deleted)
-// prints 0, so a sqlite3 that runs nothing and prints nothing fails too;
+// copy it drops every trigger and view, empties the tables opencodeLogins
+// and opencodeUnattended pick, sets the columns opencodeNulled picks to
+// NULL, keeps only the deny and ask rules of each permission column
+// (opencodeAllowRules), deletes the kv rows opencodeWellknown picks and
+// takes opencodeAuthImport's record out, then turns WAL off and rebuilds
+// the file (secure_delete and VACUUM), so no page of it keeps a deleted
+// row. It fails when the VM has no sqlite3, or one without JSON, when any
+// step fails, when the copy has fewer tables than DB or none, or unless
+// each count left (the triggers and views, the generated columns
+// (opencodeHidden), each table it emptied, each column it set to NULL,
+// each permission column's rules that aren't deny or ask, kv's rows it
+// deleted) prints 0, so a sqlite3 that runs nothing and prints nothing
+// fails too;
 // the caller then leaves the database out. The schema's own functions stay off
 // (trusted_schema), as an imported database is the export's: each
 // sqlite3 gets that pragma first in its own input, never in -cmd, as
@@ -99,13 +171,22 @@ const opencodeWellknown = `key LIKE 'wellknown:config:%'`
 func opencodeClean() string {
 	// opencodeWellknown in an SQL string literal, its quotes doubled.
 	wellknown := strings.ReplaceAll(opencodeWellknown, "'", "''")
+	allowRules, allowLeft := strings.ReplaceAll(opencodeAllowRules, "'", "''"), strings.ReplaceAll(opencodeAllowLeft, "'", "''")
 	gen := `SELECT printf('DROP TRIGGER IF EXISTS "%w";', name) FROM sqlite_master WHERE type = 'trigger';` + "\n" +
+		`SELECT printf('DROP VIEW IF EXISTS "%w";', name) FROM sqlite_master WHERE type = 'view';` + "\n" +
 		`SELECT printf('DELETE FROM "%w";', name) FROM sqlite_master WHERE ` + opencodeLogins + ";\n" +
+		`SELECT printf('DELETE FROM "%w";', name) FROM sqlite_master WHERE ` + opencodeUnattended + ";\n" +
+		`SELECT printf('UPDATE "%w" SET "%w" = NULL;', m.name, c.name) ` + opencodeNulled + ";\n" +
+		`SELECT printf('` + allowRules + `', m.name, m.name) ` + opencodeRuleTables + ";\n" +
 		`SELECT 'DELETE FROM migration WHERE id = ''` + opencodeAuthImport + `'';' FROM sqlite_master ` +
 		`WHERE type = 'table' AND name = 'migration';` + "\n" +
 		`SELECT 'DELETE FROM kv WHERE ` + wellknown + `;' FROM sqlite_master WHERE type = 'table' AND name = 'kv';`
-	check := `SELECT 'SELECT count(*) FROM sqlite_master WHERE type = ''trigger'';';` + "\n" +
+	check := `SELECT 'SELECT count(*) FROM sqlite_master WHERE type IN (''trigger'', ''view'');';` + "\n" +
+		`SELECT '` + strings.ReplaceAll(opencodeHidden, "'", "''") + `';` + "\n" +
 		`SELECT printf('SELECT count(*) FROM "%w";', name) FROM sqlite_master WHERE ` + opencodeLogins + ";\n" +
+		`SELECT printf('SELECT count(*) FROM "%w";', name) FROM sqlite_master WHERE ` + opencodeUnattended + ";\n" +
+		`SELECT printf('SELECT count(*) FROM "%w" WHERE "%w" IS NOT NULL;', m.name, c.name) ` + opencodeNulled + ";\n" +
+		`SELECT printf('` + allowLeft + `', m.name) ` + opencodeRuleTables + ";\n" +
 		`SELECT 'SELECT count(*) FROM kv WHERE ` + wellknown + `;' FROM sqlite_master WHERE type = 'table' AND name = 'kv';`
 	const untrusted = "PRAGMA trusted_schema = OFF;"
 	tables := shell.Quote("SELECT count(*) FROM sqlite_master WHERE type = 'table';")
@@ -282,7 +363,8 @@ func historyImport() string {
 		`find "$t/x" -type l -print0 | while IFS= read -r -d '' l; do`,
 		`  case $(readlink "$l") in /* | .. | ../* | */.. | */../*) echo "devvm: left out the link $l" >&2; rm -f "$l" ;; esac`,
 		"done",
-		`for p in ` + shell.QuoteJoin(importSkips()) + `; do rm -rf "$t/x/$p"; done`,
+		"# shellcheck disable=SC2231 # each is a path or a pattern (agents.Def's HistoryOwn), which the loop expands",
+		`for p in ` + shell.QuoteJoin(importSkips()) + `; do for f in "$t/x/"$p; do rm -rf "$f"; done; done`,
 		opencodeClean(),
 		`o="$t/x/"` + shell.Quote(opencodeData),
 		`for f in "$o"/` + strings.Join(opencodeDBs[1:], ` "$o"/`) + `; do rm -rf "$f"; done`,

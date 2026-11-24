@@ -223,13 +223,19 @@ These changes are on `main` and go out in the next release.
 ### What to do
 
 1. Run `devvm update` in each existing VM's folder, and give the first one several minutes, because it builds base and its shared tools again ([details](https://next.devvm.dev/docs/releases/0.2.0/#pins-since-020-rc1)).
-2. If an export that `devvm history export`, `devvm rm` or a VM made again wrote holds `.local/state/opencode/machine/home-key`, replace that key in the VM it came from and in each VM you imported it into, and pair their machines again, because the machines opencode pairs trust it. The details page has the steps, and those for a VM you deleted ([history](https://next.devvm.dev/docs/using/coding-agents/#history), [details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-machine-key-in-history-exports)).
-3. If you imported opencode's settings with `devvm agent import`, restart each running VM that has opencode with `devvm restart`, because its opencode service took the password `devvm-redacted`, which every VM had. If this machine's opencode has remote access on, turn it off and on again for a new route, because your VMs got its route ([opencode's service](https://next.devvm.dev/docs/using/coding-agents/#opencodes-service), [details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-service-settings-in-vms)).
+2. If you pair machines with opencode and an export that devvm wrote holds `.local/state/opencode/machine/home-key`, replace that key and pair again in the VM it came from and in each VM you imported it into, because every machine paired with that VM trusts the key ([history](https://next.devvm.dev/docs/using/coding-agents/#history), [details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-machine-key-in-history-exports)).
+3. If you ran `devvm agent import` or `devvm agent save` for opencode, restart each running VM that has opencode with `devvm restart`, because its service took the password `devvm-redacted`, which every VM had. If this machine's opencode has remote access on, run `opencode service set remote false` and then `opencode service set remote true` on this machine, because your VMs got its route ([opencode's service](https://next.devvm.dev/docs/using/coding-agents/#opencodes-service), [details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-service-settings-in-vms)).
+4. Before `devvm rm` of a VM where opencode made worktrees, commit the work in them, because an export no longer holds opencode's worktrees, and their commits stay in your project's repository ([history](https://next.devvm.dev/docs/using/coding-agents/#importing-history), [details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-automations-and-permissions-in-history)).
 
 <details><summary>If you use opencode</summary>
 
-- `devvm history export` and `devvm history import` now leave out opencode's machine key (2.4 and later) and its paired machines, its service's password and its terminals' access tokens, while a VM made again keeps them ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-machine-key-in-history-exports)).
+- `devvm history export` and `devvm history import` now leave out opencode 2.4's machine key and paired machines, its service's password and its terminals' access tokens, which a VM made again still keeps ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-machine-key-in-history-exports)).
 - Each VM's opencode service now has a password of its own, which `opencode service get password` shows in the VM, and this machine's service settings and remote route never reach devvm's agent store or a VM ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-service-settings-in-vms)).
+
+</details>
+<details><summary>Security hardening: a VM's history export can no longer have opencode run commands unasked in the VM you import it into</summary>
+
+- `devvm history export` and `devvm history import` leave out opencode's automations, approvals, allow rules, resumable turns, project commands and git repositories, so make again any automation you want in the new VM ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-automations-and-permissions-in-history)).
 
 </details>
 <details><summary>Internal changes</summary>

@@ -329,8 +329,10 @@ type Def struct {
 	// HistoryExcludes what of that an export leaves out and an import never writes: its logins.
 	History, HistoryExcludes []string
 	// HistoryOwn is what of its History is the VM's own as a machine, such as a private key
-	// that other machines trust: an export leaves it out and an import never writes it, as
-	// HistoryExcludes, but a VM made again keeps it, as that's the same machine.
+	// that other machines trust, or what another VM must never take from it, such as a git
+	// repository whose config can name a command that the agent's git runs: an export leaves
+	// it out and an import never writes it, as HistoryExcludes, but a VM made again keeps
+	// it, as that's the same machine.
 	HistoryOwn []string
 	// Env is the guest environment its VMs' shells get: its self-updates and telemetry off.
 	Env []Env
@@ -460,14 +462,21 @@ var Defs = []Def{
 		},
 		// From opencode v2.4.1's source, what of its state folder is its machine's own:
 		// machine/home-key, the private Ed25519 key of its home, which every machine it pairs
-		// trusts and which it never replaces; service.json, its background service's
-		// registration, with the service's password, which is its name on the latest channel,
-		// the one devvm installs (other channels' are service-<channel>.json), and its
-		// service.json.pty-handoff, a terminal's handoff ticket; and pty, its terminals'
-		// daemons' sockets and the access tokens they take.
+		// trusts and which it never replaces; its background service's registration, with the
+		// service's password, service.json on its latest, dev, beta and next channels and
+		// service-<channel>.json on the others (service-registration.ts, registration.rs),
+		// written through <file>.<id>.tmp, beside <file>.pty-handoff, a terminal's handoff
+		// ticket, written through <file>.pty-handoff.<uuid>.tmp (handoff.rs); and pty, its
+		// terminals' daemons' sockets and the access tokens they take. Of its data folder, its git
+		// repositories, whose config and attributes can name commands that git runs, such as a
+		// clean filter or core.fsmonitor, which opencode's own git commands would then run in
+		// another VM: snapshot, a repository for each project's snapshots, which opencode uses
+		// again when it's there (snapshot.ts), repos, its cache of repositories, and worktree,
+		// its git worktrees. A pattern holds *, as GNU tar's --exclude and the shell read it.
 		HistoryOwn: []string{
-			OpencodeState + "/machine", OpencodeState + "/service.json", OpencodeState + "/service.json.pty-handoff",
-			OpencodeState + "/pty",
+			OpencodeState + "/machine", OpencodeState + "/service.json", OpencodeState + "/service-*.json",
+			OpencodeState + "/service.json.*", OpencodeState + "/service-*.json.*", OpencodeState + "/pty",
+			OpencodeData + "/snapshot", OpencodeData + "/repos", OpencodeData + "/worktree",
 		},
 		Env: []Env{{Name: "OPENCODE_DISABLE_AUTOUPDATE", Value: "1"}},
 		// Its Codex login to OpenAI (its methods chatgpt-browser and chatgpt-headless), whose

@@ -108,8 +108,9 @@ exec devvm rm $WEB --force
 stdout '^==> exported file=\S*/data/devvm/exports/devvm-web-[0-9a-f]{14}-[0-9]{8}-[0-9]{6}\.tar\.gz vm=devvm-web-[0-9a-f]{14}$'
 stdout '^==> deleted vm=devvm-web-[0-9a-f]{14}$'
 stub_calls
-stdout 'exec ''bash'' ''-c'' ''devvm_opencode_clean\(\) \{$'
-stdout '^ *cd ~ && ls -d \.claude '
+stdout 'exec ''bash'' ''-c'' ''IFS= read -r n '
+grep '^devvm_opencode_clean\(\) \{$' $STUB_DIR/history-export.sh
+grep '^cd ~ && ls -d \.claude ' $STUB_DIR/history-export.sh
 ! stdout 'limactl start'
 ! exists $WEB_dir
 ! exists $WORK/web
