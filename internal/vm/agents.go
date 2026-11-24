@@ -297,7 +297,7 @@ func historyImport() string {
 // agentDirs returns an agent's settings folders, relative to home, a home
 // folder or the agent's store (agentStore): its Dirs, and for a
 // WholeFolder agent (opencode) its folder's subfolders there as they are
-// now.
+// now, but node_modules and what's each machine's own (folderSetting).
 func agentDirs(home, agent string) []string {
 	d := agents.Of(agent)
 	dirs := slices.Clone(d.Dirs)
@@ -305,7 +305,7 @@ func agentDirs(home, agent string) []string {
 		return dirs
 	}
 	for _, e := range readDir(filepath.Join(home, d.Folder)) {
-		if e.IsDir() && folderSetting(e.Name()) {
+		if e.IsDir() && folderSetting(d, e.Name()) {
 			dirs = append(dirs, d.Folder+"/"+e.Name())
 		}
 	}
@@ -323,18 +323,27 @@ func agentLink(rel string) string {
 }
 
 // folderSetting reports whether a folder of a WholeFolder agent's folder,
-// by its name, is among its settings: all but node_modules.
-func folderSetting(name string) bool { return name != "node_modules" }
+// by its name, is among its settings: all but node_modules and those
+// that are each machine's own (agents.MachineOwn).
+func folderSetting(d agents.Def, name string) bool {
+	return name != "node_modules" && !agents.MachineOwn(d.Folder+"/"+name)
+}
 
 // fileSetting reports whether a file of a WholeFolder agent's folder, by
-// its name, is among its settings: all but lock files and the like.
-func fileSetting(name string) bool {
-	return !strings.HasSuffix(name, ".lock") && name != "package-lock.json" && name != ".gitignore" && name != ".DS_Store"
+// its name, is among its settings: all but lock files and the like, and
+// those that are each machine's own (agents.MachineOwn), such as
+// opencode's service.json.
+func fileSetting(d agents.Def, name string) bool {
+	return !strings.HasSuffix(name, ".lock") && name != "package-lock.json" && name != ".gitignore" && name != ".DS_Store" &&
+		!agents.MachineOwn(d.Folder+"/"+name)
 }
 
 // agentFiles returns an agent's settings files, relative to home, a home
 // folder or the agent's store (agentStore): its Files, and for a
-// WholeFolder agent (opencode) its folder's files there, but lock files.
+// WholeFolder agent (opencode) its folder's files there, but lock files
+// and what's each machine's own, such as opencode's service.json
+// (fileSetting), which no store keeps and no VM gets, even from a store
+// that an earlier devvm agent import filled.
 func agentFiles(home, agent string) []string {
 	d := agents.Of(agent)
 	var files []string
@@ -345,7 +354,7 @@ func agentFiles(home, agent string) []string {
 		return files
 	}
 	for _, e := range readDir(filepath.Join(home, d.Folder)) {
-		if e.Type().IsRegular() && fileSetting(e.Name()) {
+		if e.Type().IsRegular() && fileSetting(d, e.Name()) {
 			files = append(files, d.Folder+"/"+e.Name())
 		}
 	}
@@ -365,7 +374,7 @@ func agentLinks(home, agent string) []string {
 	}
 	var links []string
 	for _, e := range readDir(filepath.Join(home, d.Folder)) {
-		if e.Type()&fs.ModeSymlink != 0 && folderSetting(e.Name()) && fileSetting(e.Name()) {
+		if e.Type()&fs.ModeSymlink != 0 && folderSetting(d, e.Name()) && fileSetting(d, e.Name()) {
 			links = append(links, d.Folder+"/"+e.Name())
 		}
 	}
@@ -411,22 +420,25 @@ func agentMounts(d paths.Dirs, tools []string) (dirs, comma []string) {
 	return dirs, comma
 }
 
-// cleanSeeds takes out of devvm's agent store each entry of a seed's
-// folder that is each machine's own (agents.MachineOwn), such as Claude
-// Code's plugins' data and installed_plugins.json, and warns of what it
-// took out of each folder (agent_seed_cleaned). Only devvm agent import
-// of devvm 0.1.0 put them there, as it copied the whole plugins folder,
-// and every VM with the agent mounts the seed's folder whole, so a VM
-// could read them; today's import and save copy only a seed's Entries,
-// so this finds them once, at the first start after an upgrade. The
-// folder itself stays, so no VM's mounts change. Every start takes this
-// step before the VM runs (starter.bringUp). A folder it can't clean
-// fails the start of a VM with that agent (has, the agents the VM has),
-// which would read the entries, and is a warning for any other VM
+// cleanStore takes out of devvm's agent store what is each machine's own
+// (agents.MachineOwn) and warns of what it took out of each folder. That's
+// each entry of a seed's folder that isn't one of its Entries, such as
+// Claude Code's plugins' data and installed_plugins.json
+// (agent_seed_cleaned), which only devvm agent import of devvm 0.1.0 put
+// there, as it copied the whole plugins folder, and every VM with the
+// agent mounts the seed's folder whole, so a VM could read them. It's also
+// the entries of a WholeFolder agent's folder that its FolderOwn names,
+// such as opencode's service.json, with this machine's service password
+// (cleanFolderOwn). Today's import and save copy neither, so this finds
+// them once, at the first start after an upgrade. A seed's folder itself
+// stays, so no VM's mounts change. Every start takes this step before the
+// VM runs (starter.bringUp). A seed's folder it can't clean fails the
+// start of a VM with that agent (has, the agents the VM has), which would
+// read the entries, and is a warning for any other VM
 // (agent_seed_clean_failed). It takes them out holding the store's lock
 // (lockStore), once it has found any, so a start with nothing to clean
 // never waits for an import or a save.
-func (e *Env) cleanSeeds(ctx context.Context, has []string) error {
+func (e *Env) cleanStore(ctx context.Context, has []string) error {
 	var unlock func()
 	defer func() {
 		if unlock != nil {
@@ -443,9 +455,11 @@ func (e *Env) cleanSeeds(ctx context.Context, has []string) error {
 	}
 	for _, d := range agents.Defs {
 		store := agentStore(e.Dirs, d.Name)
+		cleanFolderOwn(e.Dirs, e.Reporter, d, lock)
 		for _, sd := range d.Seeds {
 			dir := filepath.Join(store, filepath.FromSlash(sd.Rel))
-			gone, err := cleanSeed(e.Dirs.Config, store, sd, lock)
+			temp := func(en fs.DirEntry) bool { return en.Type().IsRegular() && seedTemp(sd, en.Name()) }
+			gone, err := cleanOwn(e.Dirs.Config, store, sd.Rel, temp, lock)
 			if len(gone) > 0 {
 				e.Warn(msg.AgentSeedCleaned(d.Display, dir, shownList(gone)))
 			}
@@ -465,30 +479,52 @@ func (e *Env) cleanSeeds(ctx context.Context, has []string) error {
 	return nil
 }
 
-// cleanSeed takes out what of sd's folder in an agent's store, below
-// devvm's config folder config, is each machine's own (cleanSeeds), and
-// returns the names it took out. It opens the folder through config
-// (openStoreDir), so a link on its path, which could lead to this
-// machine's own plugins folder, is an error, as the VM's mount follows
-// it, and no folder there means nothing mounted. A link among the
-// folder's entries is taken out, never followed. It leaves the temporary
-// files that devvm agent import and save write a seed's entries through
-// (seedTemp), regular files. Once it finds any to take out, it calls lock,
-// which holds the store's lock, and looks again under it.
-func cleanSeed(config, store string, sd agents.Seed, lock func() error) ([]string, error) {
-	if found, err := seedOwn(config, store, sd, false); err != nil || len(found) == 0 {
+// cleanFolderOwn takes out of a WholeFolder agent's folder in devvm's
+// agent store, d's, the entries its FolderOwn names, such as opencode's
+// service.json, and warns r of what it took out (agent_store_own_cleaned).
+// No VM gets them from the store (agentFiles), so a folder it can't clean
+// is a warning (agent_store_own_clean_failed), whichever agents the VM
+// has.
+func cleanFolderOwn(dirs paths.Dirs, r msg.Reporter, d agents.Def, lock func() error) {
+	if !d.WholeFolder || len(d.FolderOwn) == 0 {
+		return
+	}
+	store := agentStore(dirs, d.Name)
+	dir := filepath.Join(store, filepath.FromSlash(d.Folder))
+	gone, err := cleanOwn(dirs.Config, store, d.Folder, nil, lock)
+	if len(gone) > 0 {
+		r.Warn(msg.AgentStoreOwnCleaned(d.Display, dir, shownList(gone)))
+	}
+	if err != nil {
+		r.Warn(msg.AgentStoreOwnCleanFailed(dir, shownList(d.FolderOwn), err.Error()).Because(err))
+	}
+}
+
+// cleanOwn takes out what of the folder rel in an agent's store, below
+// devvm's config folder config, is each machine's own (cleanStore), but
+// the entries keep reports, and returns the names it took out. It opens
+// the folder through config (openStoreDir), so a link on its path, which
+// could lead to this machine's own plugins folder, is an error, as the
+// VM's mount follows it, and no folder there means nothing to clean. A
+// link among the folder's entries is taken out, never followed. A seed's
+// keep is the temporary files that devvm agent import and save write its
+// entries through (seedTemp), regular files. Once it finds any to take
+// out, it calls lock, which holds the store's lock, and looks again under
+// it.
+func cleanOwn(config, store, rel string, keep func(fs.DirEntry) bool, lock func() error) ([]string, error) {
+	if found, err := storeOwn(config, store, rel, keep, false); err != nil || len(found) == 0 {
 		return nil, err
 	}
 	if err := lock(); err != nil {
 		return nil, err
 	}
-	return seedOwn(config, store, sd, true)
+	return storeOwn(config, store, rel, keep, true)
 }
 
-// seedOwn returns what of sd's folder in an agent's store is each
-// machine's own, as cleanSeed says, taking each out when take.
-func seedOwn(config, store string, sd agents.Seed, take bool) ([]string, error) {
-	dir, err := openStoreDir(config, filepath.Join(store, filepath.FromSlash(sd.Rel)))
+// storeOwn returns what of the folder rel in an agent's store is each
+// machine's own, as cleanOwn says, taking each out when take.
+func storeOwn(config, store, rel string, keep func(fs.DirEntry) bool, take bool) ([]string, error) {
+	dir, err := openStoreDir(config, filepath.Join(store, filepath.FromSlash(rel)))
 	if err != nil || dir == nil {
 		return nil, err
 	}
@@ -499,7 +535,7 @@ func seedOwn(config, store string, sd agents.Seed, take bool) ([]string, error) 
 	}
 	var gone []string
 	for _, en := range es {
-		if !agents.MachineOwn(sd.Rel+"/"+en.Name()) || en.Type().IsRegular() && seedTemp(sd, en.Name()) {
+		if !agents.MachineOwn(rel+"/"+en.Name()) || keep != nil && keep(en) {
 			continue
 		}
 		if take {

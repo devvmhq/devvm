@@ -159,7 +159,7 @@ func TestCleanSeeds(t *testing.T) {
 	write(t, plugins, map[string]string{".known_marketplaces.json.tmp-123": "{}"})
 	var warned msg.Recorder
 	e := &Env{Dirs: d, Reporter: &msg.Fake{OnWarn: warned.Add}}
-	if err := e.cleanSeeds(t.Context(), []string{"claude"}); err != nil {
+	if err := e.cleanStore(t.Context(), []string{"claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(plugins, ".known_marketplaces.json.tmp-123")); err != nil {
@@ -189,13 +189,13 @@ func TestCleanSeeds(t *testing.T) {
 		t.Error("the link's target went")
 	}
 	warned.Reset()
-	if err := e.cleanSeeds(t.Context(), []string{"claude"}); err != nil || len(warned.Names()) > 0 {
+	if err := e.cleanStore(t.Context(), []string{"claude"}); err != nil || len(warned.Names()) > 0 {
 		t.Errorf("again: %v, warned %q", err, warned.Names())
 	}
 
 	// No store at all.
 	e = &Env{Dirs: paths.Dirs{Config: t.TempDir(), Data: t.TempDir()}, Reporter: &msg.Fake{OnWarn: warned.Add}}
-	if err := e.cleanSeeds(t.Context(), []string{"claude"}); err != nil || len(warned.Names()) > 0 {
+	if err := e.cleanStore(t.Context(), []string{"claude"}); err != nil || len(warned.Names()) > 0 {
 		t.Errorf("no store: %v, warned %q", err, warned.Names())
 	}
 }
@@ -219,12 +219,12 @@ func TestCleanSeedsFails(t *testing.T) {
 		}
 		var warned msg.Recorder
 		e := &Env{Dirs: d, Reporter: &msg.Fake{OnWarn: warned.Add}}
-		err := e.cleanSeeds(t.Context(), []string{"claude"})
+		err := e.cleanStore(t.Context(), []string{"claude"})
 		if want := "agent_seed_link agent=Claude Code dir=" + filepath.Join(agentStore(d, agents.Claude), ".claude/plugins") +
 			" keep=known_marketplaces.json, marketplaces, cache link=" + filepath.Join(d.Config, at); msg.NamesOf(err) != want || len(warned.Names()) > 0 {
 			t.Errorf("a link at %s: %v, warned %q", at, msg.NamesOf(err), warned.Names())
 		}
-		if err := e.cleanSeeds(t.Context(), []string{"codex"}); err != nil || !slices.Equal(warned.IDs(), []string{"agent_seed_link"}) {
+		if err := e.cleanStore(t.Context(), []string{"codex"}); err != nil || !slices.Equal(warned.IDs(), []string{"agent_seed_link"}) {
 			t.Errorf("a link at %s, a VM without Claude Code: %v, warned %q", at, err, warned.Names())
 		}
 		if readFile(t, filepath.Join(host, ".claude/plugins/data/p-m/state.json")) == "" {
@@ -245,7 +245,7 @@ func TestCleanSeedsFails(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) //nolint:gosec // G302: a folder, writable again for its cleanup
 	var warned msg.Recorder
 	e := &Env{Dirs: d, Reporter: &msg.Fake{OnWarn: warned.Add}}
-	err := e.cleanSeeds(t.Context(), []string{"claude"})
+	err := e.cleanStore(t.Context(), []string{"claude"})
 	if msg.IDOf(err) != "agent_seed_clean_failed" {
 		t.Errorf("an entry that can't go: %v", msg.NamesOf(err))
 	}

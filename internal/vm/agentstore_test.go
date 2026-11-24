@@ -108,7 +108,7 @@ func TestAgentStoreLock(t *testing.T) {
 		unlock := holdStoreLock(t, d)
 		fake.OnStatus = w.on(unlock, func() bool { return isDir(filepath.Join(plugins, "data")) })
 		e := &Env{Dirs: d, Reporter: fake}
-		if err := e.cleanSeeds(t.Context(), []string{"claude"}); err != nil {
+		if err := e.cleanStore(t.Context(), []string{"claude"}); err != nil {
 			t.Fatal(msg.NamesOf(err))
 		}
 		if w.waits != 1 || !w.unchanged || isDir(filepath.Join(plugins, "data")) {
@@ -120,7 +120,7 @@ func TestAgentStoreLock(t *testing.T) {
 		fake.OnStatus = w.on(holdStoreLock(t, d), func() bool { return true })
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		if err := e.cleanSeeds(ctx, []string{"claude"}); err != nil || w.waits != 0 {
+		if err := e.cleanStore(ctx, []string{"claude"}); err != nil || w.waits != 0 {
 			t.Errorf("nothing to clean: %v, waited %d times", err, w.waits)
 		}
 	})

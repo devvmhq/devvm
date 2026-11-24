@@ -29,7 +29,7 @@ const managedMark = "devvm-proxy-managed"
 // HasPlaceholder reports whether data holds a placeholder of a VM's copies: devvm-redacted, one
 // the proxy fills in, or a JWT-shaped one (a captured or copied login's tokens, fakeJWT).
 func HasPlaceholder(data []byte) bool {
-	for _, m := range []string{redactMark, managedMark, jwtMark} {
+	for _, m := range []string{RedactMark, managedMark, jwtMark} {
 		if bytes.Contains(data, []byte(m)) {
 			return true
 		}

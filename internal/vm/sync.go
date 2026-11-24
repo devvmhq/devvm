@@ -325,6 +325,9 @@ func (e syncer) stage(ctx context.Context, st *state.VM, in setupInputs) (*stage
 		// systemd-resolved, on a confined VM; none for the system's own.
 		{"DEVVM_RESOLVER", in.resolver},
 		{"DEVVM_PASTE_DIR", pasteDir},
+		// What the VM's copies of the agents' settings hold in place of a
+		// secret, which marks a copy that devvm made (clean_machine_own).
+		{"DEVVM_REDACTED", agentlogin.RedactMark},
 	}
 	// The devcontainer.json's variables first: devvm's own win.
 	dcEnv, err := devcontainerEnv(st)
@@ -461,7 +464,10 @@ func versionFiles() []byte {
 // stageAgents adds the agents' settings from devvm's store (agentStore)
 // to s, with the setup's own-dirs file, a line for each of their folders
 // that the VM keeps of its own (agents.Seed), which guest/sync.sh makes a
-// folder where a link was, and returns the setup's links file: two lines
+// folder where a link was, and its machine-own file, a line for each
+// pattern of what's each machine's own in the agents' folders
+// (agents.MachineOwnFiles), which guest/sync.sh takes out of the VM when
+// it's a copy an earlier devvm gave it, and returns the setup's links file: two lines
 // for each folder, its path in the VM's home (agentLink) and its mount's
 // path.
 func (e syncer) stageAgents(s *stage, names []string) ([]byte, error) {
@@ -481,6 +487,7 @@ func (e syncer) stageAgents(s *stage, names []string) ([]byte, error) {
 		}
 	}
 	s.put("own-dirs", 0o644, own.Bytes())
+	s.put("machine-own", 0o644, []byte(strings.Join(agents.MachineOwnFiles(), "\n")+"\n"))
 	return links.Bytes(), nil
 }
 

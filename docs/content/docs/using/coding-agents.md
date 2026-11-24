@@ -99,7 +99,7 @@ Each row lists the agent's paths in the VM's home, and the store keeps each one 
 | --- | --- | --- |
 | claude | `~/.claude/{skills,agents,commands,output-styles}`, and the store's `~/.claude/plugins` at `~/.claude/plugins-seed` ([Claude Code's plugins](#claude-codes-plugins)) | `~/.claude/settings.json`, `~/.claude/CLAUDE.md`, and from the logins `~/.claude.json` ([merged](#copies), only its settings, account state and MCP servers) |
 | codex | `~/.codex/{prompts,skills}` | `~/.codex/{config.toml,AGENTS.md}`, and from the logins `~/.codex/auth.json` |
-| opencode | the subfolders of `~/.config/opencode` (not `node_modules`) | the files in `~/.config/opencode` (not lock files), and from the logins `~/.local/share/opencode/auth.json` |
+| opencode | the subfolders of `~/.config/opencode` (not `node_modules`) | the files in `~/.config/opencode` (not lock files or [its service's settings](#opencodes-service)), and from the logins `~/.local/share/opencode/auth.json` |
 | pi | `~/.pi/agent/{extensions,skills,prompts,themes}` | `~/.pi/agent/{settings.json,keybindings.json,models.json,mcp.json,AGENTS.md,SYSTEM.md,APPEND_SYSTEM.md}`, and from the logins `~/.pi/agent/auth.json` |
 
 ### Importing from this machine
@@ -295,6 +295,23 @@ opencode's Anthropic login is an API key, because opencode itself has no other w
 #### Logins made in a VM
 
 A login that Codex or opencode makes in a VM, whether `devvm agent login` runs it or you run it yourself, is saved in devvm's store, and every VM with that agent gets it from its next launch. A login that shows a code to type into a browser works in a VM as it is, but opencode's Sign in with ChatGPT doesn't, so choose one of opencode's Codex logins instead, as `devvm agent login opencode` does ([how a VM's logins are saved](../internals/agents.md#logins-made-in-a-vm)). On the open tier, a program that goes around the VM's proxy gets the login's tokens itself, and devvm saves nothing ([logins made in a VM](../internals/network.md#logins-made-in-a-vm)).
+
+### opencode's service
+
+opencode's background service, which opencode starts when it needs one, signs you in with a password, and each VM's opencode makes its own the first time its service starts. To sign in to a VM's service, such as from opencode's app, read that VM's password in the VM:
+
+```sh
+opencode service get password           # in the VM: its service's password, made now if it has none
+opencode service set password PASSWORD  # in the VM: choose another, which stops its service
+```
+
+- devvm never copies this machine's opencode service settings into its agent store or a VM. They're `service.json` in `~/.config/opencode`, or `service-<channel>.json` for another channel's opencode, and they hold this machine's service password and, with remote access on, the secret route that the service is served on. So `devvm agent import` and `devvm agent save` leave them out, and each VM's service settings stay in that VM.
+- When the store holds them, because an earlier `devvm agent import` copied them, a VM's start takes them out of the store and warns once. Each VM's setup also takes out the copy that an earlier devvm gave it, whose password was `devvm-redacted` in every VM, so the VM's opencode makes its own ([how](../internals/agents.md#opencodes-service)).
+- A service that's running keeps the password it started with, so after that warning, restart each running VM that has opencode:
+
+```sh
+devvm restart   # in the VM's folder: its opencode service starts again with a password of its own
+```
 
 ### pi logins
 

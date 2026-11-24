@@ -108,7 +108,7 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 
 // check is bringUp's checks before t's VM starts or goes on as it runs,
 // under a status line: what of the agent store's seeds is each machine's
-// own taken out (cleanSeeds); its instance read once; its project
+// own taken out (cleanStore); its instance read once; its project
 // folder's identity recorded anew where a boot renumbered its disk
 // (recordFolder); for a launch, its agent folder mounts matched to the
 // host's, and a running VM that gets changes at its next start stopped
@@ -120,7 +120,7 @@ func (s starter) bringUp(ctx context.Context, t *target, o upOpts) (backend.Conf
 func (s starter) check(ctx context.Context, t *target, o upOpts) (mountsLater bool, err error) {
 	vm, st, b := t.f.Name, t.st, t.b
 	defer s.Status(msg.CheckingVM(vm))()
-	if err := s.cleanSeeds(ctx, image.AgentsOf(tools.Names(st))); err != nil {
+	if err := s.cleanStore(ctx, image.AgentsOf(tools.Names(st))); err != nil {
 		return false, err
 	}
 	if err := s.instance(ctx, t, o); err != nil {

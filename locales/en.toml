@@ -3292,6 +3292,14 @@ other = "Entries of {{.dir}} in devvm's agent store that are this machine's own 
 description = "dir is a folder of devvm's agent store; link is the link on its path; keep is what the folder should hold, comma-separated"
 other = "{{.link}} is a link, which every VM with {{.agent}} would follow to read {{.dir}} in devvm's agent store. Replace the link with a folder of its own, so that {{.dir}} holds only {{.keep}}."
 
+[agent_store_own_cleaned]
+description = "entries are the names of the files devvm took out of the folder dir, comma-separated; agent is the agent's name, such as opencode"
+other = "This machine's {{.agent}} service settings, {{.entries}}, are out of {{.dir}} in devvm's agent store now, because they hold its service password. Run devvm restart in the folder of each running VM that has {{.agent}}, so its service makes a password of its own."
+
+[agent_store_own_clean_failed]
+description = "dir is a folder of devvm's agent store; own is the names of the files there that are this machine's own, as patterns, comma-separated; why is the error"
+other = "Taking {{.own}} out of {{.dir}} in devvm's agent store failed, because {{.why}}. No VM gets these files, but delete them from that folder yourself."
+
 [agent_import_none]
 other = "There's nothing of {{.agent}} to import, because this machine has neither its settings nor its login."
 

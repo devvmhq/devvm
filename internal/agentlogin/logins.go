@@ -741,13 +741,13 @@ var (
 // among other words replaced (shapeInText, schemeInText), the words around them kept.
 func scrubText(s string) string {
 	s = urlInText.ReplaceAllStringFunc(s, scrubURL)
-	s = shapeInText.ReplaceAllString(s, "${1}devvm-redacted")
+	s = shapeInText.ReplaceAllString(s, "${1}"+RedactMark)
 	return schemeInText.ReplaceAllStringFunc(s, func(m string) string {
 		cred := schemeInText.FindStringSubmatch(m)[1]
 		if !strings.ContainsAny(cred, "0123456789+/=") || strings.HasPrefix(cred, "/") || strings.HasPrefix(cred, "~/") {
 			return m
 		}
-		return strings.TrimSuffix(m, cred) + "devvm-redacted"
+		return strings.TrimSuffix(m, cred) + RedactMark
 	})
 }
 
@@ -755,7 +755,7 @@ func scrubText(s string) string {
 // holds it: a known key's shape whole, else scrubText's.
 func scrubCommand(s string) string {
 	if secretShape.MatchString(s) {
-		return "devvm-redacted"
+		return RedactMark
 	}
 	return scrubText(s)
 }
@@ -787,7 +787,7 @@ func scrubURL(raw string) string {
 		for k, vs := range q {
 			for i, v := range vs {
 				if v != "" && (secretName.MatchString(k) || secretLike(v)) {
-					vs[i] = "devvm-redacted"
+					vs[i] = RedactMark
 					changed = true
 				}
 			}
@@ -798,7 +798,7 @@ func scrubURL(raw string) string {
 	segs := strings.Split(u.Path, "/")
 	for i, s := range segs {
 		if secretLike(s) {
-			segs[i] = "devvm-redacted"
+			segs[i] = RedactMark
 			changed = true
 		}
 	}
@@ -834,16 +834,16 @@ func scrubList(as []any) ([]any, bool) {
 		}
 		switch {
 		case strings.HasPrefix(prev, "-") && !strings.Contains(prev, "=") && secretName.MatchString(prev) && !strings.HasPrefix(s, "-"):
-			out[i], changed = "devvm-redacted", true
+			out[i], changed = RedactMark, true
 		case strings.HasPrefix(s, "-") && strings.Contains(s, "="):
 			k, val, _ := strings.Cut(s, "=")
 			if val != "" && (secretName.MatchString(k) || secretLike(val)) {
-				out[i], changed = k+"=devvm-redacted", true
+				out[i], changed = k+"="+RedactMark, true
 			} else if u := scrubURL(val); strings.Contains(val, "://") && u != val {
 				out[i], changed = k+"="+u, true
 			}
 		case secretLike(s):
-			out[i], changed = "devvm-redacted", true
+			out[i], changed = RedactMark, true
 		case strings.Contains(s, "://") && scrubURL(s) != s:
 			out[i], changed = scrubURL(s), true
 		}
@@ -923,14 +923,14 @@ func claudeVM(m map[string]any, salt string) map[string]any {
 			s["args"], _ = scrubArgs(a)
 		}
 		for k := range obj(s, "env") {
-			obj(s, "env")[k] = "devvm-redacted"
+			obj(s, "env")[k] = RedactMark
 		}
 		https := claudeHost(s) != ""
 		for _, h := range sortedKeys(obj(s, "headers")) {
 			if https {
 				obj(s, "headers")[h] = Placeholder("", claudeBindingName(n, h), salt)
 			} else {
-				obj(s, "headers")[h] = "devvm-redacted"
+				obj(s, "headers")[h] = RedactMark
 			}
 		}
 	}

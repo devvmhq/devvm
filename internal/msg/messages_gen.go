@@ -543,6 +543,16 @@ func AgentStoreLink(link string) M {
 	return M{id: "agent_store_link", vals: []val{{"link", link}}}
 }
 
+// AgentStoreOwnCleanFailed is [agent_store_own_clean_failed]: "Taking {{.own}} out of {{.dir}} in devvm's agent store failed, because {{.why}}. No VM gets these files, but delete them from that folder yourself."
+func AgentStoreOwnCleanFailed(dir string, own string, why string) M {
+	return M{id: "agent_store_own_clean_failed", vals: []val{{"dir", dir}, {"own", own}, {"why", why}}}
+}
+
+// AgentStoreOwnCleaned is [agent_store_own_cleaned]: "This machine's {{.agent}} service settings, {{.entries}}, are out of {{.dir}} in devvm's agent store now, because they hold its service password. Run devvm restart in the folder of each running VM that has {{.agent}}, so its service makes a password of its own."
+func AgentStoreOwnCleaned(agent string, dir string, entries string) M {
+	return M{id: "agent_store_own_cleaned", vals: []val{{"agent", agent}, {"dir", dir}, {"entries", entries}}}
+}
+
 // AgentStoreSaving is [agent_store_saving]: "saving into devvm's agent store"
 func AgentStoreSaving() M {
 	return M{id: "agent_store_saving"}
@@ -5827,6 +5837,8 @@ var specs = map[string]spec{
 	"agent_settings_saved":            {fields: []string{"agent", "dir", "vm"}},
 	"agent_start_failed":              {fields: []string{"sock"}},
 	"agent_store_link":                {fields: []string{"link"}},
+	"agent_store_own_clean_failed":    {fields: []string{"dir", "own", "why"}},
+	"agent_store_own_cleaned":         {fields: []string{"agent", "dir", "entries"}},
 	"agent_store_saving":              {},
 	"agent_store_waiting":             {},
 	"agent_unload_failed":             {fields: []string{"key"}},

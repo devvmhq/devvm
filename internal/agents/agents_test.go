@@ -158,6 +158,13 @@ func TestDefsWellFormed(t *testing.T) {
 				t.Errorf("%s: setting %s is outside its folder %s", d.Name, p, d.Folder)
 			}
 		}
+		// A pattern goes into the save's script as a case pattern and into the setup's
+		// machine-own file as a glob, so it's only of a name's plain characters and *.
+		for _, p := range d.FolderOwn {
+			if _, err := path.Match(p, ""); err != nil || !d.WholeFolder || strings.Trim(p, "abcdefghijklmnopqrstuvwxyz0123456789.-_*") != "" {
+				t.Errorf("%s: FolderOwn %q isn't a plain pattern of a WholeFolder agent's entry", d.Name, p)
+			}
+		}
 		for _, s := range d.Seeds {
 			if !slices.Contains(d.Dirs, s.Rel) || !strings.HasPrefix(s.Link, d.Folder+"/") || slices.Contains(d.Dirs, s.Link) || len(s.Entries) == 0 {
 				t.Errorf("%s: seed %+v isn't one of its folders, or its link isn't a path of its own", d.Name, s)
@@ -262,6 +269,21 @@ func TestSeeds(t *testing.T) {
 		".claude/plugins/flagged-plugins.json": true,
 		".claude/plugins":                      false, ".claude/plugins/cache/m/p/1.0.0/x": false, ".claude/plugins/marketplaces/m": false,
 		".claude/plugins/known_marketplaces.json": false, ".claude/plugins-seed/data": false, ".claude/skills/data": false,
+	} {
+		if got := MachineOwn(rel); got != want {
+			t.Errorf("MachineOwn(%s) = %v, want %v", rel, got, want)
+		}
+	}
+	// opencode's service settings (opencode v2.4.1's service-config.ts): service.json on its
+	// default channels, service-<channel>.json on the others, their temporary files, and
+	// whatever is below an entry of that name; none of its other files, nor a file of that name
+	// below a subfolder or another agent's folder.
+	for rel, want := range map[string]bool{
+		OpencodeConfig + "/service.json": true, OpencodeConfig + "/service-local.json": true,
+		OpencodeConfig + "/service-0123abcd.json": true, OpencodeConfig + "/service.json.4242.tmp": true,
+		OpencodeConfig + "/service-local.json.4242.tmp": true, OpencodeConfig + "/service.json/x": true,
+		OpencodeConfig + "/opencode.json": false, OpencodeConfig + "/services.json": false, OpencodeConfig + "/service.jsonc": false,
+		OpencodeConfig + "/agent/service.json": false, OpencodeConfig: false, ".claude/service.json": false,
 	} {
 		if got := MachineOwn(rel); got != want {
 			t.Errorf("MachineOwn(%s) = %v, want %v", rel, got, want)

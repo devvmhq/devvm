@@ -87,10 +87,10 @@ GITHUB_TOKEN = "DUMMY-GH" # a comment
 		"model":                     "o4",
 		"preferred_auth_method":     "apikey",
 		"model_providers.x.env_key": "OPENAI_API_KEY",
-		"model_providers.x.http_headers.Authorization": redactMark,
+		"model_providers.x.http_headers.Authorization": RedactMark,
 		"mcp_servers.s.command":                        "npx",
-		"mcp_servers.s.env.API_KEY":                    redactMark,
-		"mcp_servers.t.env.GITHUB_TOKEN":               redactMark,
+		"mcp_servers.s.env.API_KEY":                    RedactMark,
+		"mcp_servers.t.env.GITHUB_TOKEN":               RedactMark,
 	} {
 		v := any(got)
 		for _, k := range strings.Split(path, ".") {

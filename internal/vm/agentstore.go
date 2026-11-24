@@ -30,7 +30,7 @@ import (
 // only while it waits. Whatever writes the store holds it while it reads
 // what's there and writes: devvm agent import from its staging to its
 // logins, devvm agent save's writes and a start's clean of a seed's
-// folder (cleanSeeds), so no two of them change it at once. It's an OS
+// folder (cleanStore), so no two of them change it at once. It's an OS
 // lock on a file, which the OS lets go of when the process holding it
 // ends, however it ends.
 func lockStore(ctx context.Context, d paths.Dirs, r msg.Reporter) (unlock func(), err error) {

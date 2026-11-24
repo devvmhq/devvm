@@ -70,8 +70,8 @@ func saveTar(t *testing.T, own bool, es ...te) []byte {
 }
 
 // The script reads only the agents asked for: their files and folders,
-// opencode's config folder without node_modules, and for claude
-// ~/.claude.json's subset, never a login or history.
+// opencode's config folder without node_modules or its service settings,
+// and for claude ~/.claude.json's subset, never a login or history.
 func TestAgentSaveScript(t *testing.T) {
 	codex := agentSaveScript([]string{"codex"})
 	for _, s := range []string{"'.codex/config.toml'", "'.codex/skills'", `tar -cf - ${ex[@]+"${ex[@]}"} "$@" -C "$t" .devvm-save`} {
@@ -85,7 +85,7 @@ func TestAgentSaveScript(t *testing.T) {
 		}
 	}
 	all := agentSaveScript([]string{"claude", "codex", "opencode"})
-	for _, s := range []string{"'.claude/plugins'", "jq --argjson k", `"mcpServers"`, ".config/opencode/*", "!= node_modules"} {
+	for _, s := range []string{"'.claude/plugins'", "jq --argjson k", `"mcpServers"`, ".config/opencode/*", "case ${p##*/} in node_modules | service.json | service-*.json"} {
 		if !strings.Contains(all, s) {
 			t.Errorf("no %s in:\n%s", s, all)
 		}

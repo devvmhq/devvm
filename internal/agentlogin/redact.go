@@ -47,13 +47,13 @@ func agentSetting(path, k string) bool {
 	return path == "env."+k && claudeEnv.MatchString(k) && !credName.MatchString(k)
 }
 
-// redactMark is what the VM's copy holds in place of a secret.
-const redactMark = "devvm-redacted"
+// RedactMark is what the VM's copy holds in place of a secret.
+const RedactMark = "devvm-redacted"
 
 // redactKeep: a value that names where a secret is rather than holding it.
 func redactKeep(v string) bool {
 	switch {
-	case v == "" || v == redactMark:
+	case v == "" || v == RedactMark:
 		return true
 	case envName.MatchString(v): // an env var's name (Codex's env_key)
 		return true
@@ -180,7 +180,7 @@ func (r *redaction) str(s, path, k string, secret bool) string {
 	keep := redactKeep(s) || plainValue.MatchString(s) || (url && !named) || agentSetting(path, k)
 	if (secret && !keep) || secretShape.MatchString(s) { // a known key's shape, wherever it is
 		r.paths = append(r.paths, path)
-		return redactMark
+		return RedactMark
 	}
 	out := s
 	if url && !strings.ContainsFunc(s, unicode.IsSpace) { // else text holding URLs (scrubText)
@@ -202,7 +202,7 @@ func (r *redaction) list(l []any, path string, keys []string, k string, secret b
 			continue
 		}
 		if !redactKeep(s) {
-			l[i], changed = redactMark, true
+			l[i], changed = RedactMark, true
 		} else if t := scrubText(s); t != s {
 			l[i], changed = t, true
 		}

@@ -487,6 +487,8 @@ var docs = map[string]string{ //nolint:gosec // message IDs and pages, not crede
 	"agent_seed_cleaned":              "using/coding-agents#claude-codes-plugins",
 	"agent_seed_clean_failed":         "using/coding-agents#claude-codes-plugins",
 	"agent_seed_link":                 "using/coding-agents#claude-codes-plugins",
+	"agent_store_own_cleaned":         "using/coding-agents#opencodes-service",
+	"agent_store_own_clean_failed":    "using/coding-agents#opencodes-service",
 	"agent_import_none":               "using/coding-agents#importing-from-this-machine",
 	"agent_import_link_left_out":      "using/coding-agents#links-out-of-an-agents-folder",
 	"agent_import_link_not_followed":  "using/coding-agents#links-out-of-an-agents-folder",

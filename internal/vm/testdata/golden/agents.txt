@@ -48,7 +48,9 @@ mkdir "$t/.devvm-save" && printf '%s\n' "$HOME" > "$t/.devvm-save/home" || exit 
 set --
 ex=()
 for p in .config/opencode/* .config/opencode/.[!.]* .config/opencode/..?*; do
-  if { [ -e "$p" ] || [ -L "$p" ]; } && [ "${p##*/}" != node_modules ]; then set -- "$@" "$p"; fi
+  case ${p##*/} in node_modules | service.json | service-*.json | service.json.* | service-*.json.*) ;;
+  *) if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi ;;
+  esac
 done
 tar -cf - ${ex[@]+"${ex[@]}"} "$@" -C "$t" .devvm-save
 agent pi folder .pi/agent
@@ -122,6 +124,9 @@ file .config/opencode/notes.txt format  false withheld true
 file .config/opencode/plugin/x.json format  false withheld false
   listed false opencode .config/opencode/plugin true true
   listed true opencode .config/opencode/plugin true true
+file .config/opencode/service.json format json true withheld false
+  listed false   false false
+  listed true   false false
 file .pi/agent/settings.json format json true withheld false
   listed false pi .pi/agent/settings.json false true
   listed true pi .pi/agent/settings.json false true
@@ -173,7 +178,9 @@ if [ -d .claude/plugins ] && [ ! -L .claude/plugins ]; then
 fi
 for p in '.claude/settings.json' '.claude/CLAUDE.md' '.claude/skills' '.claude/agents' '.claude/commands' '.claude/output-styles' '.claude/plugins' '.codex/config.toml' '.codex/AGENTS.md' '.codex/prompts' '.codex/skills' '.pi/agent/settings.json' '.pi/agent/keybindings.json' '.pi/agent/models.json' '.pi/agent/mcp.json' '.pi/agent/AGENTS.md' '.pi/agent/SYSTEM.md' '.pi/agent/APPEND_SYSTEM.md' '.pi/agent/extensions' '.pi/agent/skills' '.pi/agent/prompts' '.pi/agent/themes' '.cursor/cli-config.json' '.cursor/mcp.json' '.cursor/rules' '.cursor/commands'; do if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi; done
 for p in .config/opencode/* .config/opencode/.[!.]* .config/opencode/..?*; do
-  if { [ -e "$p" ] || [ -L "$p" ]; } && [ "${p##*/}" != node_modules ]; then set -- "$@" "$p"; fi
+  case ${p##*/} in node_modules | service.json | service-*.json | service.json.* | service-*.json.*) ;;
+  *) if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi ;;
+  esac
 done
 if [ -f .claude.json ] && [ ! -L .claude.json ]; then
   jq --argjson k '["autoCompactEnabled","autoConnectIde","autoInstallIdeExtension","bypassPermissionsModeAccepted","diffTool","editorMode","fallbackAvailableWarningThreshold","firstStartTime","hasAcknowledgedCostThreshold","hasAvailableSubscription","hasCompletedOnboarding","hasIdeOnboardingBeenShown","hasSeenTasksHint","hasUsedBackslashReturn","isQualifiedForDataSharing","lastOnboardingVersion","lastReleaseNotesSeen","mcpServers","messageIdleNotifThresholdMs","numStartups","oauthAccount","optionAsMetaKeyInstalled","preferredNotifChannel","shiftEnterKeyBindingInstalled","showExpandedTodos","subscriptionNoticeCount","theme","tipsHistory","todoFeatureEnabled","userID","verbose"]' 'with_entries(select(.key as $x | any($k[]; . == $x)))' .claude.json > "$t/.devvm-save/claude.json" 2>/dev/null ||

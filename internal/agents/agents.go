@@ -215,9 +215,9 @@ func SeedOf(rel string) (Seed, bool) {
 	return Seed{}, false
 }
 
-// MachineOwn reports whether rel, relative to the home folder, is in a seed's folder but in
-// none of its Entries: each machine's own, which neither devvm agent import nor devvm agent
-// save copies.
+// MachineOwn reports whether rel, relative to the home folder, is each machine's own, which
+// neither devvm agent import nor devvm agent save copies: in a seed's folder but in none of its
+// Entries, or an entry of a WholeFolder agent's Folder that its FolderOwn names, or below one.
 func MachineOwn(rel string) bool {
 	for _, s := range Seeds() {
 		if rest, ok := strings.CutPrefix(rel, s.Rel+"/"); ok {
@@ -225,7 +225,29 @@ func MachineOwn(rel string) bool {
 			return !slices.Contains(s.Entries, first)
 		}
 	}
+	for _, d := range Defs {
+		if rest, ok := strings.CutPrefix(rel, d.Folder+"/"); ok && d.WholeFolder {
+			first, _, _ := strings.Cut(rest, "/")
+			return slices.ContainsFunc(d.FolderOwn, func(p string) bool {
+				m, _ := path.Match(p, first)
+				return m
+			})
+		}
+	}
 	return false
+}
+
+// MachineOwnFiles are every agent's FolderOwn, each relative to the home folder as a pattern of
+// the same form, in Defs' order: what a VM's setup takes out of the VM when it's a copy that an
+// earlier devvm gave it (guest/sync.sh's clean_machine_own).
+func MachineOwnFiles() []string {
+	var out []string
+	for _, d := range Defs {
+		for _, p := range d.FolderOwn {
+			out = append(out, d.Folder+"/"+p)
+		}
+	}
+	return out
 }
 
 // LoginCmd is an agent's own login, as devvm agent login runs it in the VM, in a login shell:
@@ -295,6 +317,11 @@ type Def struct {
 	// TOML one as a settings file, Markdown as it is, and any other withheld, as devvm can't
 	// take secrets out of it.
 	WholeFolder bool
+	// FolderOwn are the names of a WholeFolder agent's Folder's entries that are each machine's
+	// own (MachineOwn), as path.Match patterns, such as opencode's service.json, which holds
+	// its background service's password: never settings, so devvm agent import and devvm agent
+	// save never copy them, no VM gets this machine's, and each VM's agent makes its own.
+	FolderOwn []string
 	// Logins are its login files, the one devvm agent import copies from the home folder
 	// first.
 	Logins []Login
@@ -420,8 +447,14 @@ var Defs = []Def{
 			"agent", "agents", "command", "commands", "mode", "formatter", "lsp", "references",
 		},
 		NamedValues: []string{"permission", "permission.*", "agent.*.permission", "agent.*.permission.*"},
-		Logins:      []Login{{Opencode, OpencodeData + "/auth.json"}},
-		History:     []string{OpencodeData, OpencodeState},
+		// From opencode v2.4.1's source (service-config.ts), its background service's settings:
+		// service.json on its latest, dev, beta and next channels, service-<channel>.json on any
+		// other (and an earlier build's service-<hash>.json), each written through
+		// <file>.<pid>.tmp. They hold the service's password, which opencode makes when the file
+		// has none, and with remote access on, the secret route it's served on.
+		FolderOwn: []string{"service.json", "service-*.json", "service.json.*", "service-*.json.*"},
+		Logins:    []Login{{Opencode, OpencodeData + "/auth.json"}},
+		History:   []string{OpencodeData, OpencodeState},
 		HistoryExcludes: []string{
 			OpencodeData + "/auth.json", OpencodeData + "/account.json", OpencodeData + "/mcp-auth.json", OpencodeData + "/bin",
 		},

@@ -1,6 +1,9 @@
 #!/bin/bash
 # Runs inside a project VM on every devvm launch, from a staging dir the host sends over:
 #   home/        agents' settings files and logins (but Claude Code's) from devvm's store, copied into ~
+#   machine-own  what is each machine's own in the agents' folders, such as opencode's service.json,
+#                a pattern relative to ~ per line; a copy that an earlier devvm gave the VM, holding
+#                DEVVM_REDACTED, is taken out (clean_machine_own)
 #   links        agents' settings folders from devvm's store, two lines each: the path relative to
 #                ~, then the folder's path, where it's mounted read-only; linked into ~
 #   claude.json  the store's .claude.json's settings, account state and MCP servers (never its API key
@@ -22,7 +25,9 @@
 #                proxy's reserved target; transparent.sh), DEVVM_RESOLVER (on a confined VM, the
 #                one name server its programs ask, past systemd-resolved; empty for the system's
 #                own), and DEVVM_PASTE_DIR (the folder devvm
-#                paste writes to, config.toml's paste-dir: made here, the user's own, mode 700)
+#                paste writes to, config.toml's paste-dir: made here, the user's own, mode 700),
+#                and DEVVM_REDACTED (what the VM's copies of the agents' settings hold in place of
+#                a secret)
 #   transparent.sh  devvm-transparent: transparent mode, for tools that ignore the proxy settings
 #   tools        the VM's shared tool images, "FILE TOOL VERSION" lines; tools.sh mounts them
 #   tool-alias.toml  the [tool_alias] table of devvm's shared-tools/mise.toml: the backend each
@@ -211,6 +216,27 @@ git config --global --get-all safe.directory | grep -qx '\*' || git config --glo
 [[ -z "$DEVVM_GIT_EMAIL" ]] || git config --global user.email "$DEVVM_GIT_EMAIL"
 
 [[ -d "$s/home" ]] && cp -a "$s/home/." ~/
+
+# clean_machine_own LIST: of the files that LIST's lines match, patterns relative to ~ of what is
+# each machine's own in the agents' folders, such as opencode's service.json with its service's
+# password, take out each regular file that holds DEVVM_REDACTED. That's a copy of this machine's
+# that an earlier devvm gave the VM, which every VM had with the same password, so the VM's agent
+# makes its own instead. The VM's own files, links and folders stay.
+clean_machine_own() {
+  local p f
+  [[ -n ${DEVVM_REDACTED:-} && -f $1 ]] || return 0
+  while IFS= read -r p; do
+    [[ -n $p ]] || continue
+    # shellcheck disable=SC2231 # each line is a pattern, which the loop expands
+    for f in ~/$p; do
+      if [[ -f $f && ! -L $f ]] && grep -qF -- "$DEVVM_REDACTED" "$f"; then
+        rm -f "$f" || { echo "devvm: $f, a copy of this machine's settings, can't be taken out, so delete it yourself" >&2; return 1; }
+        echo "devvm: took out $f, a copy of this machine's settings, so the VM's agent makes its own" >&2
+      fi
+    done
+  done < "$1"
+}
+clean_machine_own "$s/machine-own"
 
 # The agents' folders that are the VM's own, the store's being their seed, such as Claude Code's
 # plugins: a link to the store's, as a VM from before has, becomes a folder.

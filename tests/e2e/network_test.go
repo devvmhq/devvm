@@ -1460,7 +1460,9 @@ func netOpencodeLogin(n *netRun) {
 func netOpencodeKeys(n *netRun) {
 	s := n.s
 	oc, _ := s.NewProject("net-oc")
-	vm, _, _ := launchWith(s, oc, n.home(), "--network", "allowlist", "--no-git-protect", "--agents", "opencode", "--cpus", "2", "--memory", "2", "--ports", "none")
+	stored, planted := plantOpencodeService(s)
+	vm, lr, _ := launchWith(s, oc, n.home("DEVVM_MESSAGES=names"), "--network", "allowlist", "--no-git-protect", "--agents", "opencode", "--cpus", "2", "--memory", "2", "--ports", "none")
+	netOpencodeService(n, oc, vm, stored, planted, lr)
 	s.Check("opencode's self-update is off in an opencode VM's login shell", func() error {
 		if got := vmOut(s, vm, "printenv OPENCODE_DISABLE_AUTOUPDATE"); vm == "" || got != "1" {
 			return fmt.Errorf("OPENCODE_DISABLE_AUTOUPDATE is %q", got)

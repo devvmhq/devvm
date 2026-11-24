@@ -71,8 +71,9 @@ stdout '^export CLAUDE_CODE_PLUGIN_SEED_DIR="\$HOME"/''\.claude/plugins-seed''$'
 exec tar -xOf $STUB_DIR/sync.tar vm
 stdout '\A\QDEVVM_HOSTNAME=''plain''\E\n\QDEVVM_TZ=''Europe/Paris''\E\n\QDEVVM_LANG=''en_US.UTF-8''\E\n\QDEVVM_GIT_NAME=''Test User''\E\n\QDEVVM_GIT_EMAIL=''test@example.com''\E\n'
 # An open VM's proxy too, as its environment has it, where its local proxy listens, and devvm
-# paste's folder; no transparent mode, which is for confined VMs, and the system's own resolver.
-stdout '^DEVVM_PROXY=''http://devvm:[0-9a-f]{64}@192\.168\.5\.2:[0-9]+''\n\QDEVVM_NO_PROXY=''localhost,127.0.0.1,::1''\E\n\QDEVVM_LOCAL_PROXY=''127.0.77.1:3128''\E\n\QDEVVM_TRANSPARENT_ADDR=''''\E\n\QDEVVM_TRANSPARENT_HOST=''transparent.devvm.proxy''\E\n\QDEVVM_RESOLVER=''''\E\n\QDEVVM_PASTE_DIR=''/tmp/devvm-paste''\E\n\z'
+# paste's folder; no transparent mode, which is for confined VMs, and the system's own resolver;
+# and the placeholder of the agents' settings' copies, which marks devvm's old copies to take out.
+stdout '^DEVVM_PROXY=''http://devvm:[0-9a-f]{64}@192\.168\.5\.2:[0-9]+''\n\QDEVVM_NO_PROXY=''localhost,127.0.0.1,::1''\E\n\QDEVVM_LOCAL_PROXY=''127.0.77.1:3128''\E\n\QDEVVM_TRANSPARENT_ADDR=''''\E\n\QDEVVM_TRANSPARENT_HOST=''transparent.devvm.proxy''\E\n\QDEVVM_RESOLVER=''''\E\n\QDEVVM_PASTE_DIR=''/tmp/devvm-paste''\E\n\QDEVVM_REDACTED=''devvm-redacted''\E\n\z'
 exec tar -tf $STUB_DIR/sync.tar
 stdout '^transparent\.sh$'
 # Without links, the hosts file for /etc/hosts is empty.

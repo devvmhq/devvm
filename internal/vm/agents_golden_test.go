@@ -57,7 +57,7 @@ func TestAgentsGolden(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, f := range []string{"opencode.json", "tui.jsonc", "x.toml", "AGENTS.md", ".env", "bun.lock", "package-lock.json", ".gitignore", ".DS_Store", "notes.txt"} {
+	for _, f := range []string{"opencode.json", "tui.jsonc", "x.toml", "AGENTS.md", ".env", "bun.lock", "package-lock.json", ".gitignore", ".DS_Store", "notes.txt", "service.json", "service-local.json"} {
 		if err := os.WriteFile(filepath.Join(store, ".config/opencode", f), nil, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -77,6 +77,7 @@ func TestAgentsGolden(t *testing.T) {
 		".claude/settings.json", ".claude/CLAUDE.md", ".claude/other.json", ".claude.json", ".codex/config.toml", ".codex/AGENTS.md",
 		".codex/auth.json", ".config/opencode/opencode.json", ".config/opencode/tui.jsonc", ".config/opencode/x.toml",
 		".config/opencode/AGENTS.md", ".config/opencode/.env", ".config/opencode/notes.txt", ".config/opencode/plugin/x.json",
+		".config/opencode/service.json",
 		".pi/agent/settings.json", ".pi/agent/models.json", ".pi/agent/mcp.json", ".pi/agent/keybindings.json",
 		".pi/agent/AGENTS.md", ".pi/agent/auth.json", ".pi/agent/other.json",
 	}

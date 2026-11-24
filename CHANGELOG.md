@@ -224,10 +224,12 @@ These changes are on `main` and go out in the next release.
 
 1. Run `devvm update` in each existing VM's folder, and give the first one several minutes, because it builds base and its shared tools again ([details](https://next.devvm.dev/docs/releases/0.2.0/#pins-since-020-rc1)).
 2. If an export that `devvm history export`, `devvm rm` or a VM made again wrote holds `.local/state/opencode/machine/home-key`, replace that key in the VM it came from and in each VM you imported it into, and pair their machines again, because the machines opencode pairs trust it. The details page has the steps, and those for a VM you deleted ([history](https://next.devvm.dev/docs/using/coding-agents/#history), [details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-machine-key-in-history-exports)).
+3. If you imported opencode's settings with `devvm agent import`, restart each running VM that has opencode with `devvm restart`, because its opencode service took the password `devvm-redacted`, which every VM had. If this machine's opencode has remote access on, turn it off and on again for a new route, because your VMs got its route ([opencode's service](https://next.devvm.dev/docs/using/coding-agents/#opencodes-service), [details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-service-settings-in-vms)).
 
 <details><summary>If you use opencode</summary>
 
 - `devvm history export` and `devvm history import` now leave out opencode's machine key (2.4 and later) and its paired machines, its service's password and its terminals' access tokens, while a VM made again keeps them ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-machine-key-in-history-exports)).
+- Each VM's opencode service now has a password of its own, which `opencode service get password` shows in the VM, and this machine's service settings and remote route never reach devvm's agent store or a VM ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-service-settings-in-vms)).
 
 </details>
 <details><summary>Internal changes</summary>
