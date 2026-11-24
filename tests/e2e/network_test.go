@@ -2386,9 +2386,17 @@ func setupTokenShows(n *netRun) string {
 }
 
 // claudeLogin runs devvm agent login claude, its input a FIFO this
-// process writes the code into once the address shows.
+// process writes the code into once the address shows. Since 2.1.330,
+// Claude Code shows a short address without the state, unless its
+// environment has CLAUDE_CODE_FULL_SIGN_IN_LINK=1, which Claude Code's
+// docs give scripts that read the address (code.claude.com/docs/en/env-vars,
+// 2026-11), so the VM's login shells set it for the rest of the run;
+// earlier releases ignore it and always show the full address.
 func (n *netRun) claudeLogin() error {
 	s := n.s
+	if err := inVM(s, n.vm, "echo 'export CLAUDE_CODE_FULL_SIGN_IN_LINK=1' | sudo tee /etc/profile.d/e2e-claude-link.sh >/dev/null"); err != nil {
+		return errors.New("the VM's login shells show Claude Code's full address: " + err.Error())
+	}
 	fifo := filepath.Join(s.sb.work, "claude.in")
 	_ = os.Remove(fifo)
 	madeFile(s.sb, fifo)
