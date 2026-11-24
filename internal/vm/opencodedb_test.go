@@ -262,9 +262,9 @@ func TestOpencodeCleanFailsClosed(t *testing.T) {
 	}
 }
 
-// opencodeFixture is opencode 2.2.5's own schema, which sqlite3 printed
-// in a VM; Maintaining says when to refresh it.
-const opencodeFixture = "testdata/opencode-2.2.5.sql"
+// opencodeFixture is opencode 2.4.1's own schema, as its release makes a
+// new database; Maintaining says when to refresh it.
+const opencodeFixture = "testdata/opencode-2.4.1.sql"
 
 // The secrets of the kv rows plantSchemaRows adds: an organization's
 // remote config, which opencode fetched with its well-known login.
@@ -320,22 +320,24 @@ func plantSchemaRows(t *testing.T, db string, emptied, kept []string) []string {
 	return append(keptValues, "devvm-kept-org.example", "devvm-kept-manifest")
 }
 
-// opencodeClean's copy of a database made from opencode 2.2.5's own
+// opencodeClean's copy of a database made from opencode 2.4.1's own
 // schema, a row planted in each table: no byte of it holds a value of a
 // table that holds logins or the remote config a well-known login
 // fetched, and every other table's row, the session's among them, is
-// kept.
+// kept. machine, each paired machine's public key, which lets it log in
+// to the VM's home, is emptied as the VM's own pairings; the home's
+// private key is a file of its own (opencodeHomeKey).
 func TestOpencodeCleanSchema(t *testing.T) {
 	needSqlite(t)
 	schema, err := os.ReadFile(opencodeFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
-	emptied := []string{"account", "account_state", "control_account", "credential"}
+	emptied := []string{"account", "account_state", "control_account", "credential", "machine"}
 	kept := []string{
-		"blob", "blob_ref", "event", "event_sequence", "instruction_blob", "instruction_entry", "instruction_state",
-		"job", "permission", "project", "project_directory", "schedule", "session_inbox", "session_message",
-		"session_part", "session_v2", "workspace", "worktree",
+		"automation", "blob", "blob_ref", "event", "event_sequence", "instruction_blob", "instruction_entry",
+		"instruction_state", "job", "permission", "project", "project_directory", "session_inbox",
+		"session_message", "session_part", "session_v2", "workspace", "worktree",
 	}
 	dir := t.TempDir()
 	db := filepath.Join(dir, "opencode.db")
@@ -415,8 +417,9 @@ func pathWithout(t *testing.T, with bool) string {
 // The export script, run by GNU tar and sqlite3 as the VM's are (skipped
 // where there's none): opencode's database, its WAL file holding a
 // credential opencode just saved, goes as its copy without its logins,
-// never with its WAL file, and the agents' logins stay out. Without
-// sqlite3, the database stays out.
+// never with its WAL file, and the agents' logins stay out, and so do
+// opencode's home key, its service's registration and its terminals'
+// daemons (HistoryOwn). Without sqlite3, the database stays out.
 func TestHistoryExportRuns(t *testing.T) {
 	needGNUTar(t)
 	for _, with := range []bool{true, false} {
@@ -429,6 +432,8 @@ func TestHistoryExportRuns(t *testing.T) {
 			for _, f := range []string{
 				".claude/projects/p.jsonl", ".claude/.credentials.json", opencodeData + "/auth.json",
 				opencodeData + "/mcp-auth.json", opencodeData + "/storage/s.json", ".local/state/opencode/kv.json",
+				opencodeHomeKey, opencodeState + "/service.json", opencodeState + "/pty/d/service.json",
+				opencodeState + "/service.json.pty-handoff",
 				piSessions + "/--p--/s.jsonl", piDir + "/auth.json", piDir + "/settings.json",
 			} {
 				if err := state.WriteFile(filepath.Join(home, f), []byte(f)); err != nil {
@@ -455,6 +460,9 @@ func TestHistoryExportRuns(t *testing.T) {
 				".claude/.credentials.json": false, opencodeData + "/auth.json": false, opencodeData + "/mcp-auth.json": false,
 				opencodeData + "/opencode.db": with, opencodeData + "/opencode.db-wal": false, opencodeData + "/opencode.db-shm": false,
 				piSessions + "/--p--/s.jsonl": true, piDir + "/auth.json": false, piDir + "/settings.json": false,
+				opencodeHomeKey: false, opencodeState + "/machine/": false, opencodeState + "/service.json": false,
+				opencodeState + "/service.json.pty-handoff": false,
+				opencodeState + "/pty/d/service.json":       false,
 			} {
 				if _, ok := got[f]; ok != want {
 					t.Errorf("%s: in the export %v, want %v", f, ok, want)

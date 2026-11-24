@@ -39,11 +39,14 @@ const homeIn = "cd ~ && tar -xzf - --skip-old-files"
 // the ssh key its backend logs in with, the
 // agents' links to their mounts (agentLink) and the files copied from
 // devvm's store, every agent's logins, whichever agents the VM has
-// (agents.LoginFiles), and caches, which are made again. The VM's own
-// folders of the agents' seeds, such as Claude Code's plugins, stay.
+// (agents.LoginFiles, and the logins in their history,
+// agents.HistoryLogins), and caches, which are made again. The VM's own
+// folders of the agents' seeds, such as Claude Code's plugins, stay, and
+// so does what is the VM's own as a machine (HistoryOwn), such as
+// opencode's home key, which the machines it paired trust.
 func homeSkips(d paths.Dirs, toolNames []string) []string {
 	skips := []string{".config/devvm", ".ssh/authorized_keys", ".cache"}
-	skips = append(skips, agents.HistoryExcludes()...)
+	skips = append(skips, agents.HistoryLogins()...)
 	skips = append(skips, agents.LoginFiles()...)
 	for _, a := range image.AgentsOf(toolNames) {
 		store := agentStore(d, a)

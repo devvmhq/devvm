@@ -1,8 +1,11 @@
--- opencode v2.2.5's database, opencode.db, as sqlite3's .schema printed
--- it in an e2e VM after opencode auth import, opencode mcp auth and
--- opencode run (no rows; columns reindented). TestOpencodeCleanSchema
--- builds a database from it. Refresh it when opencode's major version or
--- its migrations change (Maintaining's Updating pinned versions).
+-- opencode v2.4.1's database, opencode.db, as its release's
+-- packages/core/src/database/schema.gen.ts makes it, then its migration
+-- table (no rows; columns reindented). That's what sqlite3's .schema
+-- prints in a VM: v2.2.5's schema as printed in an e2e VM matched
+-- v2.2.5's schema.gen.ts line for line. TestOpencodeCleanSchema builds a
+-- database from it. Refresh it when
+-- opencode's major version or its migrations change (Maintaining's
+-- Updating pinned versions).
 CREATE TABLE `account_state` (
   `id` integer PRIMARY KEY,
   `active_account_id` text,
@@ -29,6 +32,30 @@ CREATE TABLE `control_account` (
   `time_created` integer NOT NULL,
   `time_updated` integer NOT NULL,
   CONSTRAINT `control_account_pk` PRIMARY KEY(`email`, `url`)
+);
+CREATE TABLE `automation` (
+  `id` text PRIMARY KEY,
+  `project_id` text NOT NULL,
+  `session_id` text,
+  `directory` text NOT NULL,
+  `name` text NOT NULL,
+  `trigger` text NOT NULL,
+  `tz` text NOT NULL,
+  `action` text NOT NULL,
+  `status` text DEFAULT 'active' NOT NULL,
+  `next_due_at` integer,
+  `expires_at` integer,
+  `run_count` integer DEFAULT 0 NOT NULL,
+  `failures` integer DEFAULT 0 NOT NULL,
+  `last_run_at` integer,
+  `last_message_id` text,
+  `last_outcome` text,
+  `last_output` text,
+  `retry_at` integer,
+  `state` text,
+  `event_position` text,
+  `time_created` integer NOT NULL,
+  `time_updated` integer NOT NULL
 );
 CREATE TABLE `credential` (
   `id` text PRIMARY KEY,
@@ -75,6 +102,11 @@ CREATE TABLE `kv` (
   `time_created` integer NOT NULL,
   `time_updated` integer NOT NULL
 );
+CREATE TABLE `machine` (
+  `id` text PRIMARY KEY,
+  `key` text,
+  `time_created` integer NOT NULL
+);
 CREATE TABLE `permission` (
   `id` text PRIMARY KEY,
   `project_id` text NOT NULL,
@@ -108,30 +140,6 @@ CREATE TABLE `project` (
   `time_archived` integer,
   `sandboxes` text NOT NULL,
   `commands` text
-);
-CREATE TABLE `schedule` (
-  `id` text PRIMARY KEY,
-  `session_id` text,
-  `name` text,
-  `action` text NOT NULL,
-  `check` text,
-  `when` text NOT NULL,
-  `tz` text NOT NULL,
-  `status` text DEFAULT 'active' NOT NULL,
-  `next_due_at` integer,
-  `ends_at` integer,
-  `remaining_runs` integer,
-  `run_count` integer DEFAULT 0 NOT NULL,
-  `checks` integer DEFAULT 0 NOT NULL,
-  `failures` integer DEFAULT 0 NOT NULL,
-  `last_fired_at` integer,
-  `last_message_id` text,
-  `last_outcome` text,
-  `retry_at` integer,
-  `state` text,
-  `time_created` integer NOT NULL,
-  `time_updated` integer NOT NULL,
-  CONSTRAINT `fk_schedule_session_id_session_v2_id_fk` FOREIGN KEY (`session_id`) REFERENCES `session_v2`(`id`) ON DELETE CASCADE
 );
 CREATE TABLE `blob_ref` (
   `session_id` text NOT NULL,
@@ -261,14 +269,16 @@ CREATE TABLE `worktree` (
   CONSTRAINT `worktree_pk` PRIMARY KEY(`project_id`, `directory`),
   CONSTRAINT `fk_worktree_project_id_project_id_fk` FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON DELETE CASCADE
 );
+CREATE INDEX `automation_project_idx` ON `automation` (`project_id`);
+CREATE INDEX `automation_session_idx` ON `automation` (`session_id`);
+CREATE INDEX `automation_active_idx` ON `automation` (`next_due_at`) WHERE "automation"."status" = 'active';
 CREATE UNIQUE INDEX `event_aggregate_seq_idx` ON `event` (`aggregate_id`,`seq`);
 CREATE INDEX `event_aggregate_type_seq_idx` ON `event` (`aggregate_id`,`type`,`seq`);
 CREATE INDEX `job_session_idx` ON `job` (`session_id`);
 CREATE INDEX `job_child_session_idx` ON `job` (`child_session_id`);
 CREATE INDEX `job_id_idx` ON `job` (`id`);
+CREATE UNIQUE INDEX `machine_key_idx` ON `machine` (`key`);
 CREATE UNIQUE INDEX `permission_project_action_resource_idx` ON `permission` (`project_id`,`action`,`resource`);
-CREATE INDEX `schedule_session_idx` ON `schedule` (`session_id`);
-CREATE INDEX `schedule_due_idx` ON `schedule` (`next_due_at`) WHERE "schedule"."status" = 'active' and "schedule"."next_due_at" is not null;
 CREATE INDEX `blob_ref_hash_idx` ON `blob_ref` (`hash`);
 CREATE INDEX `blob_ref_session_seq_idx` ON `blob_ref` (`session_id`,`seq`);
 CREATE INDEX `session_inbox_session_delivery_seq_idx` ON `session_inbox` (`session_id`,`delivery`,`enqueued_seq`);

@@ -257,8 +257,8 @@ func exportOf(t *testing.T, names ...string) []byte {
 
 // The import script, run by GNU tar as the VM's does (skipped where
 // there's none): a tarball with a path outside the agents' history,
-// absolute or with .., imports nothing; the rest leave out importSkips
-// and keep the files the VM has.
+// absolute or with .., imports nothing; the rest leave out importSkips,
+// opencode's home key among them, and keep the files the VM has.
 func TestHistoryImportRuns(t *testing.T) {
 	needGNUTar(t)
 	for _, names := range [][]string{
@@ -305,6 +305,8 @@ func TestHistoryImportRuns(t *testing.T) {
 			".claude/.credentials.json", ".claude/settings.json", ".claude/skills/", ".claude/skills/x", ".claude.json",
 			".claude/link->/etc", ".claude/projects/up->../../.bashrc", ".claude/projects/in->p.jsonl", ".codex/",
 			".codex/sessions/s", ".codex/auth.json", ".local/share/opencode/auth.json", ".local/state/opencode/x",
+			opencodeState+"/machine/", opencodeHomeKey, opencodeState+"/service.json", opencodeState+"/pty/d/service.json",
+			opencodeState+"/service.json.pty-handoff",
 			".pi/agent/sessions/", ".pi/agent/sessions/--p--/s.jsonl")
 		if out, err := runImport(t, home, export); err != nil {
 			t.Fatalf("%q, %v", out, err)
@@ -312,7 +314,9 @@ func TestHistoryImportRuns(t *testing.T) {
 		for p, want := range map[string]bool{
 			".claude/projects/p.jsonl": true, ".codex/sessions/s": true, ".local/state/opencode/x": true, ".claude/projects/in": true,
 			".pi/agent/sessions/--p--/s.jsonl": true, ".pi/agent/auth.json": true,
-			".claude/.credentials.json": false, ".claude/settings.json": false, ".claude/skills": false, ".claude.json": false,
+			opencodeHomeKey: false, opencodeState + "/machine": false, opencodeState + "/service.json": false, opencodeState + "/pty": false,
+			opencodeState + "/service.json.pty-handoff": false,
+			".claude/.credentials.json":                 false, ".claude/settings.json": false, ".claude/skills": false, ".claude.json": false,
 			".codex/auth.json": false, ".local/share/opencode/auth.json": false, ".claude/link": false, ".claude/projects/up": false,
 		} {
 			if _, err := os.Lstat(filepath.Join(home, p)); (err == nil) != want {
@@ -391,10 +395,11 @@ func TestHistoryImportRuns(t *testing.T) {
 // An export devvm 0.1.0 made, with its own script (testdata/v0.1.0-history-export.sh, which
 // 0.1.0's historyExport returned, frozen) in a home as a 0.1.0 VM had it: the store's folders
 // linked at their paths, Claude Code's plugins among them, its copied settings, sessions and
-// logins, and, where sqlite3 is, opencode's database. The export holds the links and the copied
-// settings, while 0.1.0's own excludes keep the logins out of it. It imports (skipped without GNU
-// tar): the history arrives, opencode's database included, while the links and the settings
-// stay out.
+// logins, opencode's home key and service registration, and, where sqlite3 is, opencode's
+// database. The export holds the links, the copied settings and opencode's key and registration,
+// while 0.1.0's own excludes keep the logins out of it. It imports (skipped without GNU tar): the
+// history arrives, opencode's database included, while the links, the settings and opencode's key
+// and registration stay out.
 func TestHistoryImportV010(t *testing.T) {
 	needGNUTar(t)
 	script, err := os.ReadFile(filepath.Join("testdata", "v0.1.0-history-export.sh"))
@@ -415,7 +420,7 @@ func TestHistoryImportV010(t *testing.T) {
 		".claude/todos/t.json": "[]", ".claude.json": `{"oauthAccount":{}}`,
 		".codex/sessions/2026/11/08/r.jsonl": "{}", ".codex/auth.json": "{}", ".codex/history.jsonl": "{}",
 		".local/share/opencode/storage/session/s.json": "{}", ".local/share/opencode/auth.json": "{}",
-		".local/state/opencode/kv.json": "{}",
+		".local/state/opencode/kv.json": "{}", opencodeHomeKey: "seed", opencodeState + "/service.json": "{}",
 	})
 	for _, rel := range []string{".claude/plugins", ".claude/skills"} {
 		if err := os.Symlink(filepath.Join("/host/config/devvm/agents/claude", rel), filepath.Join(old, rel)); err != nil {
@@ -436,6 +441,7 @@ func TestHistoryImportV010(t *testing.T) {
 		".claude/plugins": true, ".claude/skills": true, ".claude/settings.json": true, ".claude.json": true,
 		".claude/projects/-home-u-app/s.jsonl": true, db: noSqlite == nil,
 		".claude/.credentials.json": false, ".codex/auth.json": false, ".local/share/opencode/auth.json": false,
+		opencodeHomeKey: true, opencodeState + "/service.json": true,
 	} {
 		if _, got := names[p]; got != want {
 			t.Errorf("0.1.0's export has %s: %v, want %v", p, got, want)
@@ -455,6 +461,7 @@ func TestHistoryImportV010(t *testing.T) {
 		".codex/history.jsonl": true, ".local/share/opencode/storage/session/s.json": true, ".local/state/opencode/kv.json": true,
 		".claude/plugins": false, ".claude/skills": false, ".claude/.credentials.json": false, ".claude/settings.json": false,
 		".claude.json": false, ".codex/auth.json": false, ".local/share/opencode/auth.json": false,
+		opencodeState + "/machine": false, opencodeState + "/service.json": false,
 	} {
 		if _, err := os.Lstat(filepath.Join(home, p)); (err == nil) != want {
 			t.Errorf("%s: there %v, want %v", p, err == nil, want)

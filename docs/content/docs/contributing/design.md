@@ -773,7 +773,9 @@ The export's `tar` leaves out the database and its `-wal`, `-shm` and `-journal`
 - **A secret that's in a session itself,** such as a key you pasted into a prompt, stays in the session, as it does in Claude Code's and Codex's transcripts.
 - **A plugin's own storage and a remote workspace's binding stay.** opencode keeps each plugin's storage in its `kv` table, under the plugin's own prefix, and each remote workspace's binding, the record its provider needs to reconnect, in its `workspace` table. opencode's built-in plugins keep model catalogs and session records there, but a plugin you install, or a workspace provider, that keeps a token there takes it into the export.
 - **A VM without `sqlite3`,** made from an image built without it, exports and imports no opencode database, and opencode's sessions are lost from that export.
-- **A remake's home folder copy** keeps opencode's database with its logins, because it's the same VM's data going into the same folder's new VM ([the home folder's copy](#the-home-folders-copy)).
+- **A remake's home folder copy** keeps opencode's database with its logins, and its home key, because it's the same VM's data going into the same folder's new VM ([the home folder's copy](#the-home-folders-copy)).
+
+opencode 2.4 keeps the private Ed25519 key of its home, which every machine it pairs with `opencode machine add` trusts and which it never replaces, in a file of its own, `~/.local/state/opencode/machine/home-key`, not in the database. The database's `machine` table holds each paired machine's name and the public key it logs in to the home with, so it's the VM's own pairings, and the copy empties it with the login tables (`opencodeLogins`). The key's folder, the background service's registration (`service.json`, with the service's password, and `service.json.pty-handoff`, a terminal's handoff ticket) and the terminals' daemons (`pty`, their sockets and access tokens) are opencode's `HistoryOwn` in the agents' registry: the export leaves them out and the import never writes them, while a remake keeps them. Only the latest channel's registration is named, because that's the opencode devvm installs; another channel's is `service-<channel>.json`.
 
 **Threat check** (the security-audit skill, guidance mode, with its data isolation companion):
 
@@ -783,6 +785,7 @@ The export's `tar` leaves out the database and its `-wal`, `-shm` and `-journal`
 | The WAL or journal file carrying the rows | They never go into an export, and an import deletes them | `TestHistoryExportRuns` and `TestHistoryImportCleansOpencode` |
 | An export with the logins in it reaching another VM | The import makes the same copy in the VM before anything reaches its home folder, or leaves the database out | `TestHistoryImportCleansOpencode`, with and without `sqlite3` |
 | A trigger putting a row back as it's deleted | Every trigger is dropped first, and the rows are counted after | `TestOpencodeClean` plants one |
+| opencode's home key reaching this machine's export or another VM | The export leaves out its `machine` folder, `service.json` and `pty`, and the import never writes them, by their paths after it unpacks too; the copy of the database empties its `machine` table, the paired machines' public keys | `TestHistoryExportRuns`, `TestHistoryImportRuns` and `TestHistoryImportV010` plant them; `TestOpencodeCleanSchema` empties `machine` from opencode 2.4.1's schema; `TestHomeSkipsEveryLogin` keeps them in a remake |
 | A hostile database's schema running code in the VM | `trusted_schema` is off, and it runs as the VM's user on the VM's own files, which the export's code could reach anyway | Reviewed |
 
 ## Links out of an agent's folder

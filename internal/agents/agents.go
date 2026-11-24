@@ -42,6 +42,9 @@ const (
 	OpencodeConfig = ".config/opencode"
 	// OpencodeData is opencode's data folder, which holds its login file and its database.
 	OpencodeData = ".local/share/opencode"
+	// OpencodeState is opencode's state folder: its prompt history (prompt-history.jsonl) and
+	// the TUI's state, beside what is its machine's own, which an export leaves out.
+	OpencodeState = ".local/state/opencode"
 	// PiFolder is pi's agent folder: its settings, its logins (auth.json) and its sessions.
 	PiFolder = ".pi/agent"
 	// PiSettings is pi's settings.json, whose VM copy leaves out what undoes devvm's settings
@@ -296,8 +299,12 @@ type Def struct {
 	// first.
 	Logins []Login
 	// History is what devvm rm exports of it from a VM, relative to the home folder, and
-	// HistoryExcludes what of that an export leaves out: its logins.
+	// HistoryExcludes what of that an export leaves out and an import never writes: its logins.
 	History, HistoryExcludes []string
+	// HistoryOwn is what of its History is the VM's own as a machine, such as a private key
+	// that other machines trust: an export leaves it out and an import never writes it, as
+	// HistoryExcludes, but a VM made again keeps it, as that's the same machine.
+	HistoryOwn []string
 	// Env is the guest environment its VMs' shells get: its self-updates and telemetry off.
 	Env []Env
 	// Secret is the secret (secrets.Known) every VM with the agent uses: Claude Code's token.
@@ -414,9 +421,20 @@ var Defs = []Def{
 		},
 		NamedValues: []string{"permission", "permission.*", "agent.*.permission", "agent.*.permission.*"},
 		Logins:      []Login{{Opencode, OpencodeData + "/auth.json"}},
-		History:     []string{OpencodeData, ".local/state/opencode"},
+		History:     []string{OpencodeData, OpencodeState},
 		HistoryExcludes: []string{
 			OpencodeData + "/auth.json", OpencodeData + "/account.json", OpencodeData + "/mcp-auth.json", OpencodeData + "/bin",
+		},
+		// From opencode v2.4.1's source, what of its state folder is its machine's own:
+		// machine/home-key, the private Ed25519 key of its home, which every machine it pairs
+		// trusts and which it never replaces; service.json, its background service's
+		// registration, with the service's password, which is its name on the latest channel,
+		// the one devvm installs (other channels' are service-<channel>.json), and its
+		// service.json.pty-handoff, a terminal's handoff ticket; and pty, its terminals'
+		// daemons' sockets and the access tokens they take.
+		HistoryOwn: []string{
+			OpencodeState + "/machine", OpencodeState + "/service.json", OpencodeState + "/service.json.pty-handoff",
+			OpencodeState + "/pty",
 		},
 		Env: []Env{{Name: "OPENCODE_DISABLE_AUTOUPDATE", Value: "1"}},
 		// Its Codex login to OpenAI (its methods chatgpt-browser and chatgpt-headless), whose
@@ -638,8 +656,21 @@ func LoginFiles() []string {
 	return out
 }
 
-// HistoryExcludes are what an export of every agent's history leaves out, in Defs' order.
+// HistoryExcludes are what an export of every agent's history leaves out and an import never
+// writes, in Defs' order: each agent's HistoryExcludes, then its HistoryOwn.
 func HistoryExcludes() []string {
+	var out []string
+	for _, d := range Defs {
+		out = append(out, d.HistoryExcludes...)
+		out = append(out, d.HistoryOwn...)
+	}
+	return out
+}
+
+// HistoryLogins are every agent's HistoryExcludes alone, in Defs' order, without its
+// HistoryOwn: what a VM made again leaves out of the old VM's history, as it's the same
+// machine.
+func HistoryLogins() []string {
 	var out []string
 	for _, d := range Defs {
 		out = append(out, d.HistoryExcludes...)

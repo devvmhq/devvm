@@ -231,7 +231,7 @@ devvm reads the home folder as the VM's user before it stops the VM, and copies 
 
 - What other shells in the VM write after devvm reads the folder is lost, so close them first.
 - A file that the new image puts in your home itself, such as `~/.bashrc`, stays the image's, so put shell settings of your own in a file of yours in `~/.bashrc.d`.
-- devvm leaves out what the new VM gets from devvm itself: `~/.config/devvm`, `~/.ssh/authorized_keys`, the agents' logins, and the agents' folders and files that devvm links or copies from this machine. It leaves out `~/.cache` too.
+- devvm leaves out what the new VM gets from devvm itself: `~/.config/devvm`, `~/.ssh/authorized_keys`, the agents' logins, and the agents' folders and files that devvm links or copies from this machine. It leaves out `~/.cache` too. It keeps opencode's `~/.local/state/opencode/machine`, which an export of the VM's history leaves out, so the machines that opencode paired still trust the VM.
 - Claude Code's logins to MCP servers, which it keeps in its login file, don't come along, so you log in to those servers again in the new VM ([MCP servers' logins](coding-agents.md#mcp-servers-logins)).
 - devvm keeps only files, folders and symlinks, without setuid bits, and nothing from a filesystem mounted inside your home.
 

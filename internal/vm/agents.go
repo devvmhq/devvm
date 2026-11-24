@@ -53,11 +53,14 @@ var opencodeDBs = []string{"opencode*.db", "opencode*.db-wal", "opencode*.db-shm
 // opencode's database that hold logins: opencode 2.2's credential
 // (logins and API keys), account and control_account (its console's
 // access and refresh tokens) and account_state, an earlier opencode's
-// session_share (each share's secret), and any other table whose name or
-// a column's says it holds one, so a table a later opencode adds for its
-// logins is picked too. testdata/opencode-2.2.5.sql is opencode's own
-// schema, which TestOpencodeCleanSchema checks it against.
-const opencodeLogins = `type = 'table' AND name NOT LIKE 'sqlite\_%' ESCAPE '\' AND (` +
+// session_share (each share's secret), opencode 2.4's machine (the public
+// key each machine it paired logs in to its home with, the VM's own as
+// a machine, as its home key is: agents.Def's HistoryOwn), and any other
+// table whose name or a column's says it holds one, so a table a later
+// opencode adds for its logins is picked too. testdata/opencode-2.4.1.sql
+// is opencode's own schema, which TestOpencodeCleanSchema checks it
+// against.
+const opencodeLogins = `type = 'table' AND name NOT LIKE 'sqlite\_%' ESCAPE '\' AND (name = 'machine' OR ` +
 	`name LIKE '%credential%' OR name LIKE '%account%' OR name LIKE '%auth%' OR name LIKE '%secret%' ` +
 	`OR name LIKE '%token%' OR name LIKE '%share%' OR name IN (SELECT m.name FROM sqlite_master m ` +
 	`JOIN pragma_table_info(m.name) c WHERE m.type = 'table' AND lower(c.name) IN ('secret', 'access_token', ` +

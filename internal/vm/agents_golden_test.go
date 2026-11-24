@@ -14,10 +14,13 @@ import (
 	"github.com/devvmhq/devvm/internal/secrets"
 )
 
-// pi's folders, as the tests name them.
+// pi's folders, and opencode's state folder and the private key of its
+// home there (opencode 2.4's), as the tests name them.
 const (
-	piDir      = agents.PiFolder
-	piSessions = agents.PiFolder + "/sessions"
+	piDir           = agents.PiFolder
+	piSessions      = agents.PiFolder + "/sessions"
+	opencodeState   = agents.OpencodeState
+	opencodeHomeKey = opencodeState + "/machine/home-key"
 )
 
 // golden compares got with testdata/golden/name, or writes it there with UPDATE_GOLDEN=1 in the

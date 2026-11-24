@@ -148,7 +148,7 @@ func TestDefsWellFormed(t *testing.T) {
 				t.Errorf("LoginOf(%s) = %v, %s, %v", l.Kind, got, a.Name, ok)
 			}
 		}
-		for _, x := range d.HistoryExcludes {
+		for _, x := range slices.Concat(d.HistoryExcludes, d.HistoryOwn) {
 			if !slices.ContainsFunc(d.History, func(h string) bool { return x == h || strings.HasPrefix(x, h+"/") }) {
 				t.Errorf("%s: history exclude %s is outside its history %v", d.Name, x, d.History)
 			}
@@ -207,10 +207,12 @@ func TestSettingsFormat(t *testing.T) {
 // The lists of every agent's are each Def's, in Defs' order, and Of,
 // which code of one agent's own asks with its constant, finds it.
 func TestLists(t *testing.T) {
-	var history, excludes, kinds []string
+	var history, excludes, logins, kinds []string
 	var env []Env
 	for _, d := range Defs {
-		history, excludes, env = append(history, d.History...), append(excludes, d.HistoryExcludes...), append(env, d.Env...)
+		history, env = append(history, d.History...), append(env, d.Env...)
+		excludes = append(append(excludes, d.HistoryExcludes...), d.HistoryOwn...)
+		logins = append(logins, d.HistoryExcludes...)
 		for _, l := range d.Logins {
 			kinds = append(kinds, l.Kind)
 		}
@@ -218,8 +220,11 @@ func TestLists(t *testing.T) {
 	if got := History(); !slices.Equal(got, history) || !slices.Contains(got, ClaudeJSON) {
 		t.Errorf("History = %v", got)
 	}
-	if got := HistoryExcludes(); !slices.Equal(got, excludes) {
+	if got := HistoryExcludes(); !slices.Equal(got, excludes) || !slices.Contains(got, OpencodeState+"/machine") {
 		t.Errorf("HistoryExcludes = %v", got)
+	}
+	if got := HistoryLogins(); !slices.Equal(got, logins) || slices.Contains(got, OpencodeState+"/machine") {
+		t.Errorf("HistoryLogins = %v", got)
 	}
 	if got := GuestEnv(); !slices.Equal(got, env) || !slices.Contains(got, Env{Name: "PI_TELEMETRY", Value: "0"}) {
 		t.Errorf("GuestEnv = %v", got)

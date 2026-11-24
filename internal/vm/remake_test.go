@@ -174,6 +174,24 @@ func TestHomeSkipsEveryLogin(t *testing.T) {
 			}
 		}
 	}
+	// Every login in an agent's history is skipped, while what is the VM's own as a machine
+	// stays, which an export leaves out: the remade VM is the same machine, and the machines
+	// opencode paired trust its home key.
+	for _, d := range agents.Defs {
+		for _, rel := range d.HistoryExcludes {
+			if !skipped(rel, skips) {
+				t.Errorf("%s's %s is kept", d.Name, rel)
+			}
+		}
+		for _, rel := range d.HistoryOwn {
+			if skipped(rel, skips) {
+				t.Errorf("%s's %s isn't kept", d.Name, rel)
+			}
+		}
+	}
+	if skipped(opencodeHomeKey, skips) {
+		t.Errorf("%s isn't kept", opencodeHomeKey)
+	}
 }
 
 // What devvm layer add makes: the VM's layers with the new ones on top in

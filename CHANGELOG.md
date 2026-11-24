@@ -223,7 +223,13 @@ These changes are on `main` and go out in the next release.
 ### What to do
 
 1. Run `devvm update` in each existing VM's folder, and give the first one several minutes, because it builds base and its shared tools again ([details](https://next.devvm.dev/docs/releases/0.2.0/#pins-since-020-rc1)).
+2. If an export that `devvm history export`, `devvm rm` or a VM made again wrote holds `.local/state/opencode/machine/home-key`, replace that key in the VM it came from and in each VM you imported it into, and pair their machines again, because the machines opencode pairs trust it. The details page has the steps, and those for a VM you deleted ([history](https://next.devvm.dev/docs/using/coding-agents/#history), [details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-machine-key-in-history-exports)).
 
+<details><summary>If you use opencode</summary>
+
+- `devvm history export` and `devvm history import` now leave out opencode's machine key (2.4 and later) and its paired machines, its service's password and its terminals' access tokens, while a VM made again keeps them ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-machine-key-in-history-exports)).
+
+</details>
 <details><summary>Internal changes</summary>
 
 - mise is 2026.11.14 in base and on this machine, the nix layer has Nix 2.36.0, and the docker layer has buildx 0.39.1 and its model plugin 1.2.10 ([details](https://next.devvm.dev/docs/releases/0.2.0/#pins-since-020-rc1)).
