@@ -354,7 +354,7 @@ The parsers of what a VM can write, its output and its files, and of what comes 
 | `FuzzClientHello` | `internal/proxy` | Reading a tunnel's first bytes never hangs, a stream whose first byte starts a TLS record counts as TLS, and only a whole record of TLS's version is returned. |
 | `FuzzTransparent` | `internal/proxy` | Whatever its first bytes, a transparent connection to a proxy whose policy allows nothing reaches nothing. |
 | `FuzzNixPath` | `internal/proxy` | What `nixPath` takes is one of the cache's exact forms and names a file inside its folder. |
-| `FuzzParse` | `internal/devcontainer` | A `devcontainer.json` refuses `${localEnv:…}`, its variables are names and shell words the environment file holds as they are, and nothing it keeps has a NUL. |
+| `FuzzParse` | `internal/devcontainer` | A `devcontainer.json` refuses `${localEnv:…}` and `${env:…}`. The check reads each variable as devvm does, from `${` to the first `}` after it, so a nested one such as `${${localEnv:HOME}}` is left as text. Its environment variables are names and shell words the environment file holds as they are, and nothing it keeps has a NUL. |
 | `FuzzParseRef` | `internal/from` | Any image reference parses into a tag without `/` or `:`, and a valid one parses the same once written out in full. |
 | `FuzzRestrictNetdev` | `internal/backend/lima` | `RestrictNetdev` refuses, or returns at most one network, restricted, with nothing else changed. |
 | `FuzzQuote` | `internal/shell` | A string that `Quote` quotes reaches a shell as itself. |

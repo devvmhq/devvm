@@ -23,9 +23,9 @@ const ws = "/Users/me/web app"
 // double-quoted. Nothing else a shell would run or split.
 var shellWord = regexp.MustCompile(`^(?:'[^']*'|\\'|"\$\{[A-Za-z_][A-Za-z0-9_]*\}")+$`)
 
-// Whatever the file holds, Parse doesn't panic, refuses ${localEnv:…},
-// and its variables are names and shell words the environment file can
-// hold as they are; nothing it keeps has a NUL.
+// Whatever the file holds, Parse doesn't panic, refuses ${localEnv:…}
+// and ${env:…}, and its variables are names and shell words the
+// environment file can hold as they are; nothing it keeps has a NUL.
 func FuzzParse(f *testing.F) {
 	for _, s := range []string{
 		`{"containerEnv": {"A": "x'y ${containerEnv:PATH} $(id) ${HOME}\n"}, "remoteEnv": {"B": null}}`,
@@ -41,7 +41,7 @@ func FuzzParse(f *testing.F) {
 			return
 		}
 		for _, v := range p.Env {
-			if !shell.EnvName(v.Name) || !shellWord.MatchString(v.Value) || hostVar.MatchString(v.Value) {
+			if !shell.EnvName(v.Name) || !shellWord.MatchString(v.Value) || hostVar(v.Value) {
 				t.Errorf("variable %q=%q", v.Name, v.Value)
 			}
 		}
@@ -50,15 +50,28 @@ func FuzzParse(f *testing.F) {
 			kept = append(kept, c.Argv...)
 		}
 		for _, s := range kept {
-			if strings.IndexByte(s, 0) >= 0 || hostVar.MatchString(s) {
+			if strings.IndexByte(s, 0) >= 0 || hostVar(s) {
 				t.Errorf("kept %q", s)
 			}
 		}
 	})
 }
 
-// hostVar is a variable of this machine's environment, filled in.
-var hostVar = regexp.MustCompile(`\$\{(localEnv|env):[^}]*\}`)
+// hostVar reports whether s holds a variable of this machine's
+// environment that Parse should have refused. It reads variables as
+// subst does, each ${ to the first } after it, so ${${localEnv:} is one
+// variable whose name starts with ${, left as text.
+func hostVar(s string) bool {
+	for _, v := range variable.FindAllString(s, -1) {
+		if name := v[2 : len(v)-1]; strings.HasPrefix(name, "localEnv:") || strings.HasPrefix(name, "env:") {
+			return true
+		}
+	}
+	return false
+}
+
+// variable is a ${…} as subst reads it, to the first } after its ${.
+var variable = regexp.MustCompile(`\$\{[^}]*\}`)
 
 func parse(t *testing.T, src string) (Plan, error) {
 	t.Helper()
@@ -87,11 +100,11 @@ func TestParse(t *testing.T) {
 	},
 	"forwardPorts": [3000, "localhost:5173", "127.0.0.1:8000", "db:5432", 3000, 0],
 	"containerEnv": {"A": "it's ${containerWorkspaceFolder}", "B": "x"},
-	"remoteEnv": {"B": "y", "PATH": "${containerEnv:PATH}:/opt/x", "C": null, "E": ""},
+	"remoteEnv": {"B": "y", "PATH": "${containerEnv:PATH}:/opt/x", "C": null, "E": "", "N": "${${localEnv:HOME}}"},
 	"onCreateCommand": "echo ${containerWorkspaceFolderBasename} $HOME ${HOME}",
 	"updateContentCommand": ["npm", "ci"],
 	"postCreateCommand": {"b": "echo b", "a": ["echo", "a"], "empty": ""},
-	"postStartCommand": "echo $PATH ${containerEnv:PATH}",
+	"postStartCommand": "echo $PATH ${containerEnv:PATH} ${${localEnv:HOME}}",
 	"postAttachCommand": "x",
 	"initializeCommand": "rm -rf ~",
 	"runArgs": ["--privileged"],
@@ -117,6 +130,7 @@ func TestParse(t *testing.T) {
 		{"A", `'it'\''s ` + ws + `'`},
 		{"B", "'y'"},
 		{"E", "''"},
+		{"N", `'${${localEnv:HOME}}'`}, // one variable named ${localEnv:HOME, left as text
 		{"PATH", `"${PATH}"':/opt/x'`},
 	}
 	if !slices.Equal(p.Env, wantEnv) {
@@ -131,7 +145,7 @@ func TestParse(t *testing.T) {
 	if !slices.EqualFunc(p.Create, wantCreate, cmdEqual) {
 		t.Errorf("create = %q, want %q", p.Create, wantCreate)
 	}
-	wantStart := []Command{{PostStart, []string{"sh", "-c", "echo $PATH ${PATH}"}}}
+	wantStart := []Command{{PostStart, []string{"sh", "-c", "echo $PATH ${PATH} ${${localEnv:HOME}}"}}}
 	if !slices.EqualFunc(p.Start, wantStart, cmdEqual) {
 		t.Errorf("start = %q, want %q", p.Start, wantStart)
 	}
