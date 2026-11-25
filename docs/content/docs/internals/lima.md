@@ -44,6 +44,10 @@ devvm opens a VM's shell, and runs an agent's login, with `limactl shell`, which
 
 Every `limactl shell` that devvm runs says `--start=false`. In a terminal, `limactl shell` of a stopped VM asks whether to start it, and the question's default is yes, but that start skips every check of devvm's own start. A VM on a confined tier would run unconfined, without its proxy, and any VM would mount whatever is at the project folder's path, a folder that replaced it included, and Lima would make the folder again if it's gone. So a VM that stops while devvm works with it, such as one whose guest shut itself down, makes devvm's shell or command fail, and devvm's next launch starts it with every check.
 
+## A command's output
+
+devvm closes the output of each command that it runs in a VM, apart from a shell and an image build's steps, a second after the command ends or its time limit runs out, because the ssh that `limactl shell` runs can leave a process behind that holds the output open. So a VM can't keep devvm waiting past a command's time limit, and a command whose output was cut short that way fails.
+
 ## Confinement
 
 A VM on a confined tier, internet, allowlist or none, reaches nothing but its proxy on the host, which applies its tier's rules, and even root in the VM can't get around that. Direct connections, DNS, UDP and connections to the host's own services fail at once, while forwarded ports, mounts and ssh keep working. [Processes](processes.md) has what the hostagent and the QEMU wrapper hold, write and wait for ([Lima's hostagent](processes.md#limas-hostagent), [the QEMU wrapper](processes.md#the-qemu-wrapper-and-its-keeper)).

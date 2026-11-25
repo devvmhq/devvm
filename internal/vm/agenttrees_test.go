@@ -140,6 +140,14 @@ func TestParseAgentTrees(t *testing.T) {
 	if trees, more, err := parseAgentTrees(nil, opencodeTrees()); err != nil || more || len(trees) != 0 {
 		t.Errorf("none: %+v, %v, %v", trees, more, err)
 	}
+	// No patterns: a list all the same, empty, and any record is refused.
+	globs, of := treeGlobs(nil)
+	if of == nil || len(of) != 0 || len(globs) != 0 {
+		t.Errorf("no patterns: globs %q, of %v", globs, of)
+	}
+	if trees, _, err := parseAgentTrees([]byte(rec("path", 0, w)+rec("wstatus", 0, "")), of); err == nil {
+		t.Errorf("no patterns, a record: %+v", trees)
+	}
 }
 
 // devvm rm checks opencode's worktrees in the VM first, as an export
@@ -247,38 +255,59 @@ func (silentVM) Exec(ctx context.Context, _ vmname.VM, _ []string, _ backend.Exe
 	return ctx.Err()
 }
 
-// A VM that answers the worktrees' read without end has its command
+// A VM that answers either of rm's reads of its work, the agents'
+// worktrees' or a --clone VM's clone's, without end has its command
 // cancelled once the answer passes the most devvm reads, and one that
-// never answers is given up on after treesWait; either keeps the VM,
-// naming --no-worktree-check.
-func TestAgentTreesBounded(t *testing.T) {
+// never answers is given up on after 2 minutes; either keeps the VM,
+// naming the flag that skips that check.
+func TestWorkCheckBounded(t *testing.T) {
 	e, f, _ := upEnv(t, allNative())
 	vm := existingVM(t, e, Options{Agents: &[]string{"opencode"}, Network: "open"}).Name()
-	tg := e.newTarget(project.Folder{Dir: e.Dir, Name: vm}, nil, f)
-	check := workCheck{clones: clones{e}, command: "devvm rm", trees: true}
-	want := "trees_check_failed command=devvm rm vm=" + vm.String()
-	cancelled := false
-	f.ExecFunc = func(_ vmname.VM, _ []string, o backend.ExecOpts) error {
-		chunk := []byte(strings.Repeat("y\n", 1<<15))
-		for written := 0; written < 4*cloneStateMax; written += len(chunk) {
-			if _, err := o.Stdout.Write(chunk); err != nil {
-				cancelled = true
-				return err
+	check := workCheck{clones: clones{e}, command: "devvm rm", clone: true, trees: true}
+	for _, c := range []struct {
+		name, want string
+		read       func(context.Context, *target) error
+	}{
+		{"trees", "trees_check_failed command=devvm rm vm=" + vm.String(), func(ctx context.Context, tg *target) error {
+			_, err := check.agentTrees(ctx, tg, opencodeTrees())
+			return err
+		}},
+		{"clone", "clone_check_failed command=devvm rm vm=" + vm.String(), func(ctx context.Context, tg *target) error {
+			_, err := check.readClone(ctx, tg, []cloneRepo{{Path: "."}})
+			return err
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cancelled := false
+			f.ExecFunc = func(_ vmname.VM, _ []string, o backend.ExecOpts) error {
+				chunk := []byte(strings.Repeat("y\n", 1<<15))
+				for written := 0; written < 4*cloneStateMax; written += len(chunk) {
+					if _, err := o.Stdout.Write(chunk); err != nil {
+						cancelled = true
+						return err
+					}
+				}
+				return nil
 			}
-		}
-		return nil
+			tg := e.newTarget(project.Folder{Dir: e.Dir, Name: vm}, nil, f)
+			if err := c.read(t.Context(), tg); msg.NamesOf(err) != c.want || !cancelled {
+				t.Errorf("without end: %v, cancelled %v", msg.NamesOf(err), cancelled)
+			}
+			synctest.Test(t, func(t *testing.T) {
+				silent := e.newTarget(project.Folder{Dir: e.Dir, Name: vm}, nil, silentVM{f})
+				start := time.Now()
+				if err := c.read(t.Context(), silent); msg.NamesOf(err) != c.want || time.Since(start) != 2*time.Minute {
+					t.Errorf("no answer: %v after %v", msg.NamesOf(err), time.Since(start))
+				}
+			})
+			// An interrupt is the interrupt, never the check's failure.
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			if err := c.read(ctx, e.newTarget(project.Folder{Dir: e.Dir, Name: vm}, nil, silentVM{f})); !errors.Is(err, context.Canceled) {
+				t.Errorf("interrupted: %v", msg.NamesOf(err))
+			}
+		})
 	}
-	if _, err := check.agentTrees(t.Context(), tg, opencodeTrees()); msg.NamesOf(err) != want || !cancelled {
-		t.Errorf("without end: %v, cancelled %v", msg.NamesOf(err), cancelled)
-	}
-	synctest.Test(t, func(t *testing.T) {
-		silent := e.newTarget(project.Folder{Dir: e.Dir, Name: vm}, nil, silentVM{f})
-		start := time.Now()
-		_, err := check.agentTrees(t.Context(), silent, opencodeTrees())
-		if msg.NamesOf(err) != want || time.Since(start) != treesWait {
-			t.Errorf("no answer: %v after %v", msg.NamesOf(err), time.Since(start))
-		}
-	})
 }
 
 // devvm rm VM, of a VM whose folder is gone, checks opencode's worktrees

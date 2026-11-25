@@ -235,6 +235,11 @@ These changes are on `main` and go out in the next release.
 - `devvm agent save` no longer refuses a VM whose `~/.config/opencode` holds a `bun.lock` or another file the store doesn't keep, which stays in the VM ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-lock-files-in-a-save)).
 
 </details>
+<details><summary>If you use --clone</summary>
+
+- `devvm rm` and `devvm clone off` now stop a `--clone` VM's clone check after 2 minutes or 8 MiB and keep the VM, where a VM that never finished answering kept them waiting until Ctrl+C ([details](https://next.devvm.dev/docs/releases/0.2.0/#a-clone-check-that-never-ends)).
+
+</details>
 <details><summary>Security hardening: a VM can no longer be started unconfined past devvm's checks, and its history export can no longer have opencode run commands unasked in the VM you import it into</summary>
 
 - `devvm history export` and `devvm history import` leave out opencode's automations, approvals, allow rules, resumable turns, project commands, git repositories and approved plugins, so make again any automation you want in the new VM ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-automations-and-permissions-in-history)).

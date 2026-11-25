@@ -10,6 +10,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/msg"
@@ -305,8 +306,9 @@ const cloneWorktreesMax = 100
 // check fails.
 const cloneRefsMax = 10_000
 
-// cloneStateMax is the most of the VM's answer readClone reads, for all
-// of a clone's repos: past it, the check fails rather than miss a repo.
+// cloneStateMax is the most of the VM's answer that answer reads, for
+// all of a clone's repos (readClone) or all the agents' worktrees
+// (agentTrees): past it, the check fails rather than miss one.
 const cloneStateMax = 8 * cloneOutMax
 
 // repoInVM is what the VM has of one repo of its clone (readClone), that
@@ -429,29 +431,51 @@ for r; do
   i=$((i+1))
 done`
 
+// answerWait is how long a check of the work in a VM waits for the VM's
+// answer (answer), which a VM's git gives in seconds: past it, the check
+// fails rather than wait on a VM that never answers.
+const answerWait = 2 * time.Minute
+
+// answer runs argv, one of the work's reads (cloneState,
+// agentTreesState), in t's running VM, and returns what it printed: at
+// most cloneStateMax bytes, past which the command is cancelled, within
+// answerWait. ok is false when the command failed, or its answer was too
+// long or too late, which its caller takes as the check's failure, as the
+// VM may hold work devvm can't see; an interrupt is ctx's error.
+func (e workCheck) answer(ctx context.Context, t *target, argv []string) (out []byte, ok bool, err error) {
+	run, cancel := context.WithTimeout(ctx, answerWait)
+	defer cancel()
+	b := &bounded{max: cloneStateMax, cancel: cancel}
+	err = t.b.Exec(run, t.f.Name, argv, backend.ExecOpts{Stdout: b, Stderr: e.vmLog()})
+	if ctx.Err() != nil {
+		return nil, false, ctx.Err()
+	}
+	return b.Bytes(), err == nil && !b.over, nil
+}
+
 // readClone reads what t's running VM has of each of repos (cloneState),
-// in one command, at most cloneStateMax bytes, and checks it
-// (parseCloneState): failing, or anything devvm can't take, is the
-// check's failure (clone_check_failed).
+// in one command, as answer bounds it, and checks it (parseCloneState):
+// failing, or anything devvm can't take, is the check's failure
+// (clone_check_failed).
 func (e workCheck) readClone(ctx context.Context, t *target, repos []cloneRepo) ([]repoInVM, error) {
 	vm := t.f.Name
 	argv := []string{"sh", "-c", cloneState, "sh", t.f.Dir, strconv.Itoa(cloneWorktreesMax + 1)}
 	for _, r := range repos {
 		argv = append(argv, r.Path)
 	}
-	out := &bounded{max: cloneStateMax}
-	err := t.b.Exec(ctx, vm, argv, backend.ExecOpts{Stdout: out, Stderr: e.vmLog()})
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
+	out, ok, err := e.answer(ctx, t, argv)
+	if err != nil {
+		return nil, err
 	}
-	var got []repoInVM
-	if err == nil && !out.over {
-		got, err = parseCloneState(out.Bytes(), t.f.Dir, len(repos))
-	}
-	if err != nil || out.over {
+	if !ok {
 		return nil, msg.CloneCheckFailed(e.command, vm)
 	}
-	for i := range got {
+	got, err := parseCloneState(out, t.f.Dir, len(repos))
+	if err != nil {
+		return nil, msg.CloneCheckFailed(e.command, vm)
+	}
+	// One for each of repos, as parseCloneState makes them.
+	for i := range min(len(got), len(repos)) {
 		got[i].repo = repos[i]
 	}
 	return got, nil

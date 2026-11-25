@@ -56,7 +56,8 @@
 //     the VM's disk (clonecheck.go's workCheck: every repo read in one
 //     command, the seed's record read back, the VM's own stash entries
 //     fetched by commit; agenttrees.go: the agents' worktrees, which an
-//     export leaves out, read in one command, one question for both) and
+//     export leaves out, read in one command, one question for both; each
+//     read bounded in size and time by answer) and
 //     devvm clone's switch; a workspace
 //     clone of a folder of repos (workspace.go: finding and choosing
 //     them, their seeds, devvm clone fetch and devvm clone add;

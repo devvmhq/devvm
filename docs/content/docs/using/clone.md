@@ -346,7 +346,7 @@ Once the checks pass, devvm deletes the VM. If the remote still points at the VM
 | `--no-export` | the export of the agents' history, and it leaves both checks as they are |
 | `--no-clone-check` | both checks, so the VM goes with the commits this repo hasn't fetched and the uncommitted changes, and devvm warns you of that first |
 
-Use `--no-clone-check` when a check can't read the clone, such as when git in the VM is broken, and devvm refuses and keeps the VM. Use it too when the VM doesn't start for the check, such as when its tier isn't enforced, because devvm then says what kept it from starting and keeps the VM. devvm still asks whether to delete the VM unless you also give `--force`, and it still keeps the `devvm/*` branches you fetched as `saved/devvm/` branches.
+Use `--no-clone-check` when a check can't read the clone, such as when git in the VM is broken or the VM doesn't answer within 2 minutes, and devvm refuses and keeps the VM. Use it too when the VM doesn't start for the check, such as when its tier isn't enforced, because devvm then says what kept it from starting and keeps the VM. devvm still asks whether to delete the VM unless you also give `--force`, and it still keeps the `devvm/*` branches you fetched as `saved/devvm/` branches.
 
 ## Switching a VM that exists
 

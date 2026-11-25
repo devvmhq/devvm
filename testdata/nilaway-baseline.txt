@@ -53,7 +53,6 @@ mapkey internal/vm/agentsave.go: - vm/agentsave.go: deep read from field `entrie
 mapkey internal/vm/agentsave.go: - vm/agentsave.go: deep read from field `entries` lacking guarding; accessed field `top` via the assignment(s): - `sv.s.entries[n]` to `e` at vm/agentsave.go
 mapkey internal/vm/agentsave.go: - vm/agentsave.go: deep read from field `entries` lacking guarding; passed as arg `e` to `file()` via the assignment(s): - `sv.s.entries[n]` to `e` at vm/agentsave.go - vm/agentsave.go: function parameter `e` accessed field `data`
 checked internal/vm/agentsave.go: - vm/agentsave.go: result 0 of `Lstat()` lacking guarding; called `Mode()` via the assignment(s): - `os.Lstat(...)` to `fi` at vm/agentsave.go
-bounds internal/vm/clonecheck.go: - vm/clonecheck.go: unassigned variable `got` returned from `readClone()` in position 0 - vm/clonecheck.go: result 0 of `readClone()` sliced into via the assignment(s): - `e.readClone(...)` to `got` at vm/clonecheck.go
 checked internal/vm/clonelfs.go: - vm/clonelfs.go: result 0 of `Lstat()` lacking guarding; called `Mode()` via the assignment(s): - `r.Lstat(...)` to `fi` at vm/clonelfs.go
 checked internal/vm/cloneseed.go: - vm/cloneseed.go: result 0 of `StdoutPipe()` lacking guarding; called `Close()` via the assignment(s): - `cmd.StdoutPipe()` to `pack` at vm/cloneseed.go
 nilsafe internal/vm/cloneseed.go: - vm/cloneseed.go: unassigned variable `pack` called `Close()`

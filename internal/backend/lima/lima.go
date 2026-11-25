@@ -639,13 +639,16 @@ func (in instance) backend() backend.Instance {
 // Exec runs argv in the VM, in o.Dir. limactl shell passes each of its
 // arguments to the guest's shell quoted; the command devvm builds for it
 // (the folder, then o.ColorTerm's COLORTERM when it's set (colorTerm),
-// then argv) is quoted word by word too.
+// then argv) is quoted word by word too. Its output's pipes close a second
+// after it ends or ctx does (bounded), so a child that limactl shell's
+// ssh leaves behind, which holds them, never holds the caller past ctx;
+// output cut short then is an error (exec.ErrWaitDelay), never a success.
 func (l *machines) Exec(ctx context.Context, vm vmname.VM, argv []string, o backend.ExecOpts) error {
 	dir := o.Dir
 	if dir == "" {
 		dir = "/"
 	}
-	cmd := l.limactl(ctx, "shell", "--workdir", "/", vm.String(), "sh", "-c", "cd "+shell.Quote(dir)+" && "+colorTerm(o.ColorTerm)+"exec "+shell.QuoteJoin(argv))
+	cmd := bounded(l.limactl(ctx, "shell", "--workdir", "/", vm.String(), "sh", "-c", "cd "+shell.Quote(dir)+" && "+colorTerm(o.ColorTerm)+"exec "+shell.QuoteJoin(argv)))
 	withAgent(cmd, o.Agent)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = o.Stdin, o.Stdout, o.Stderr
 	return l.Runner.Attach(cmd)

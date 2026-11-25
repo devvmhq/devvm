@@ -1173,6 +1173,37 @@ func TestShellNeverStarts(t *testing.T) {
 	}
 }
 
+// Exec ends with its context though limactl shell leaves a child that
+// holds its output open, as its ssh does once limactl is killed, and
+// output that a child held past limactl's own success is an error, never
+// a whole answer. A real limactl stand-in, on the real clock, as os/exec
+// runs it.
+func TestExecHeldOutput(t *testing.T) {
+	l, _, _ := testLima(t, "darwin")
+	l.Runner = logRunner{}
+	bin := t.TempDir()
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, c := range []struct {
+		name, script string
+		wait         time.Duration
+	}{
+		{"killed", "sleep 30 & echo started; wait", 3 * time.Second},
+		{"ended", "sleep 30 & echo started; exit 0", time.Minute},
+	} {
+		if err := os.WriteFile(filepath.Join(bin, "limactl"), []byte("#!/bin/sh\n"+c.script+"\n"), 0o700); err != nil { //nolint:gosec // a test's own script, run as a program
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), c.wait)
+		var out strings.Builder
+		start := time.Now()
+		err := l.Exec(ctx, "v", []string{"true"}, backend.ExecOpts{Stdout: &out})
+		cancel()
+		if d := time.Since(start); err == nil || d > 10*time.Second || out.String() != "started\n" {
+			t.Errorf("%s: %v after %s, printed %q", c.name, err, d, out.String())
+		}
+	}
+}
+
 // Exec and Shell set the COLORTERM they're given in the guest's shell,
 // quoted, before the command or the login shell, which limactl shell's
 // own SendEnv doesn't (lima-vm/lima#2208); with none, they're as they

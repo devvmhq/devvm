@@ -8,10 +8,8 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/devvmhq/devvm/internal/agents"
-	"github.com/devvmhq/devvm/internal/backend"
 	"github.com/devvmhq/devvm/internal/image"
 	"github.com/devvmhq/devvm/internal/msg"
 	"github.com/devvmhq/devvm/internal/state"
@@ -46,8 +44,10 @@ func treePatterns(st *state.VM) []treePattern {
 // stands for (of), whose index a record of agentTreesState names: each *
 // of a pattern three ways, *, .[!.]* and ..?*, as a shell's * never
 // matches a name that starts with a dot, which path.Match's does, so a
-// worktree whose name does is found too.
+// worktree whose name does is found too. of is never nil, so what reads
+// a record by its index (parseAgentTrees) holds a list, even an empty one.
 func treeGlobs(pats []treePattern) (globs []string, of []treePattern) {
+	of = make([]treePattern, 0, 3*len(pats))
 	for _, p := range pats {
 		gs := []string{""}
 		for i, part := range strings.Split(p.pattern, "/") {
@@ -72,11 +72,6 @@ func treeGlobs(pats []treePattern) (globs []string, of []treePattern) {
 	}
 	return globs, of
 }
-
-// treesWait is how long agentTrees waits for the VM's answer, which a
-// VM's git answers in seconds: past it, the check fails rather than wait
-// on a VM that never answers.
-const treesWait = 2 * time.Minute
 
 // agentTree is a git worktree an agent made in the VM, as agentTreesState
 // gives it: the agent's name, its folder relative to the VM's home
@@ -125,8 +120,7 @@ for p; do
 done`
 
 // agentTrees reads the agents' worktrees that pats find in t's running
-// VM (agentTreesState), in one command, at most cloneStateMax bytes, past
-// which the command is cancelled, and for at most treesWait, and
+// VM (agentTreesState), in one command, as answer bounds it, and
 // shows each one's work that would be lost, at most cloneShown changes in
 // all: its uncommitted changes, the commits of its detached HEAD that
 // nothing else in the VM has, and a worktree whose git failed, or more
@@ -137,23 +131,19 @@ func (e workCheck) agentTrees(ctx context.Context, t *target, pats []treePattern
 	if len(pats) == 0 {
 		return false, nil
 	}
-	vm := t.f.Name
 	globs, of := treeGlobs(pats)
 	argv := append([]string{"sh", "-c", agentTreesState, "sh", strconv.Itoa(cloneWorktreesMax)}, globs...)
-	run, cancel := context.WithTimeout(ctx, treesWait)
-	defer cancel()
-	out := &bounded{max: cloneStateMax, cancel: cancel}
-	err := t.b.Exec(run, vm, argv, backend.ExecOpts{Stdout: out, Stderr: e.vmLog()})
-	if ctx.Err() != nil {
-		return false, ctx.Err()
+	out, ok, err := e.answer(ctx, t, argv)
+	if err != nil {
+		return false, err
 	}
 	var trees []agentTree
 	more := false
-	if err == nil && !out.over {
-		trees, more, err = parseAgentTrees(out.Bytes(), of)
+	if ok {
+		trees, more, err = parseAgentTrees(out, of)
 	}
-	if err != nil || out.over {
-		return false, msg.TreesCheckFailed(e.command, vm)
+	if !ok || err != nil {
+		return false, msg.TreesCheckFailed(e.command, t.f.Name)
 	}
 	return e.showTrees(trees, more), nil
 }
