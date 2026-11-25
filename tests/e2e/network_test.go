@@ -1527,8 +1527,10 @@ func netOpencodeKeys(n *netRun) {
 		return nil
 	}, Tail(40))
 	netOpencodePassKeys(n, oc, vm)
+	netOpencodeWorktrees(n, oc, vm)
 	if vm != "" {
-		_, _ = s.Run(devvmCmd(s, oc, "", n.home(), "rm", "--force", "--no-export"))
+		// Gone already, unless a check above failed.
+		_, _ = s.Run(devvmCmd(s, oc, "", n.home(), "rm", "--force", "--no-export", "--no-worktree-check"))
 	}
 }
 

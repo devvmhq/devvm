@@ -362,7 +362,7 @@ description = "a status step: devvm clone fetch fetches the VM's branches into e
 other = "fetching {{.vm}}'s branches"
 
 [clone_checking]
-description = "a status step: before a --clone VM is deleted or made again, devvm checks for work in it that isn't on this machine"
+description = "a status step: before a VM is deleted or made again, devvm checks for work in it that would be lost: a --clone VM's clone, and the agents' worktrees"
 other = "checking for work in {{.vm}}"
 
 [history_exporting]
@@ -1141,6 +1141,10 @@ other = "{{.vm}}'s backend no longer has it. Run devvm gc --orphans to delete wh
 [rm_gone_stopped]
 description = "dir is the folder vm was made for, which is gone"
 other = "{{.vm}} is stopped, and starting it to export its agents' history would make {{.dir}} again. Run devvm rm {{.vm}} --no-export to delete it without exporting."
+
+[rm_gone_stopped_trees]
+description = "dir is the folder vm was made for, which is gone"
+other = "{{.vm}} is stopped, and starting it to check its agents' worktrees for uncommitted changes would make {{.dir}} again. Run devvm rm {{.vm}} --no-export --no-worktree-check to delete it without starting it."
 
 [rm_gone_clone]
 description = "dir is the repo the --clone VM vm was made for, which is gone"
@@ -2756,6 +2760,37 @@ other = "The VM's clone has more than {{.max}} worktrees, and devvm checked only
 [no_terminal_delete]
 description = "command is the command that would lose the clone, as typed: devvm rm, devvm clone off"
 other = "Going ahead loses the uncommitted changes in the VM's clone, which can't be confirmed here. Run {{.command}} in a terminal without --no-input to confirm."
+
+[agent_tree_dirty]
+description = "agent is the agent's name, such as opencode; path is the worktree's folder in the VM, as ~/PATH"
+other = "{{.agent}}'s worktree {{.path}} in the VM has uncommitted changes, which will be lost:"
+
+[agent_tree_detached]
+description = "agent is the agent's name, such as opencode; path is the worktree's folder in the VM, as ~/PATH"
+other = "{{.agent}}'s worktree {{.path}} in the VM has commits on its detached HEAD that no branch has, which will be lost. To keep them, run git switch -c NAME in that worktree first."
+
+[agent_tree_unread]
+description = "agent is the agent's name, such as opencode; path is the worktree's folder in the VM, as ~/PATH"
+other = "git couldn't read {{.agent}}'s worktree {{.path}} in the VM, so devvm can't tell whether it has uncommitted changes, which would be lost."
+
+[agent_trees_unchecked]
+other = "The VM has more than {{.max}} of the agents' worktrees, and devvm checked only the first {{.max}} for uncommitted changes."
+
+[trees_check_failed]
+description = "command is the command as typed, with --clean-home for a remake: devvm rm, devvm rm VM, devvm update --clean-home"
+other = "Reading the agents' worktrees in {{.vm}} failed, so devvm kept the VM as it is. To go ahead without the check, losing their uncommitted changes, run {{.command}} --no-worktree-check."
+
+[trees_check_not_started]
+description = "command is the command as typed, with --clean-home for a remake: devvm rm, devvm rm VM, devvm update --clean-home"
+other = "{{.vm}} didn't start for the check of the agents' worktrees, so devvm kept the VM as it is. To go ahead without the check, losing their uncommitted changes, run {{.command}} --no-worktree-check."
+
+[trees_check_skipped]
+description = "command is the command as typed, with --clean-home for a remake: devvm rm, devvm rm VM, devvm update --clean-home"
+other = "Without the check, {{.command}} loses the uncommitted changes in the agents' worktrees in {{.vm}}."
+
+[no_terminal_delete_trees]
+description = "command is the command as typed, with --clean-home for a remake: devvm rm, devvm rm VM, devvm update --clean-home"
+other = "Going ahead loses the uncommitted changes in the agents' worktrees in the VM, which can't be confirmed here. Run {{.command}} in a terminal without --no-input to confirm, or {{.command}} --no-worktree-check to go ahead without the check."
 
 [delete_anyway]
 other = "Delete anyway?"

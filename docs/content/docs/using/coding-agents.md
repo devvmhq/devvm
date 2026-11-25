@@ -546,8 +546,27 @@ devvm history import ~/backup.tar.gz    # or an export of your own
   - a project's commands
   - opencode's git repositories and worktrees
 
-  No session resumes its turn on its own, and each session keeps only its deny and ask rules ([what an export holds](../internals/agents.md#history-exports)). In the new VM, make again any automation you want, and opencode asks again before the requests you had always allowed. `devvm rm` deletes opencode's worktrees with the VM, so commit the work in them first, and their commits stay in your project's repository.
+  No session resumes its turn on its own, and each session keeps only its deny and ask rules ([what an export holds](../internals/agents.md#history-exports)). In the new VM, make again any automation you want, and opencode asks again before the requests you had always allowed. `devvm rm` deletes opencode's worktrees with the VM, so it asks before their uncommitted changes go ([opencode's worktrees](#opencodes-worktrees)).
 - A file or folder the VM already has stays as it is, so importing into a VM that has history of its own adds the export's files without replacing any of its own.
+
+### opencode's worktrees
+
+```sh
+devvm rm                                  # show opencode's worktrees' uncommitted changes, then ask
+devvm rm --no-worktree-check              # delete the VM without checking them, losing those changes
+devvm update --clean-home                 # a remake that starts from the image's home folder checks them too
+```
+
+opencode makes its worktrees in `~/.local/share/opencode/worktree` in the VM, and an export leaves that folder out, so their uncommitted changes go with the VM. Before `devvm rm` deletes the VM, and before a command that makes it again with `--clean-home` gives it the image's home folder, devvm checks each of those worktrees, starting a stopped VM for the check as a launch does. It asks before what it finds is lost, only in a terminal, so `--force` never answers. Without a terminal, or with `--no-input`, devvm refuses and keeps the VM, and when only the worktrees have work, the refusal names `--no-worktree-check`, which warns and goes ahead without the check.
+
+devvm asks about:
+
+- **Uncommitted changes:** it lists the first 20 in all, under each worktree's path.
+- **A detached HEAD's commits** that no branch, tag or remote-tracking branch in the VM has. To keep them, run `git switch -c NAME` in that worktree first.
+- **A worktree that git can't read,** such as one whose entry your project's repository pruned, because it may hold changes devvm can't see.
+- **More than 100 worktrees,** of which devvm checks the first 100.
+
+To keep the work, commit it in the worktree, which puts it in your project's repository for a VM that mounts the folder, or in the clone, whose branches `devvm rm` offers to fetch, for a `--clone` VM ([deleting the VM](clone.md#deleting-the-vm)). For a `--clone` VM, the clone's check and the worktrees' share one question, and when the clone has work too, the refusal tells you to run the command in a terminal, as the clone's own does. When reading the worktrees fails, or the VM doesn't start for the check, devvm keeps the VM and names `--no-worktree-check`. A command that keeps the VM's home folder, such as `devvm update` without `--clean-home`, keeps the worktrees too, so it doesn't check them ([how devvm checks](../internals/agents.md#opencodes-worktrees)).
 
 ## The VM's setup
 

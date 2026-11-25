@@ -26,15 +26,16 @@ devvm clone [on|off] [flags]
 ## Options
 
 ```text
-      --clean-home       give the VM the image's home folder instead of keeping its own
-  -f, --force            don't ask to confirm, which devvm needs without a terminal or with --no-input
-  -h, --help             help for clone
-      --here             use this folder's own VM, never that of a folder it's inside
-      --json             print it as one JSON object, for scripts
-      --no-clone-check   don't check a --clone VM's clone for unfetched commits and uncommitted changes first, which are lost
-      --no-export        don't export the agents' history first
-      --parent           use the VM of the nearest folder this one is inside, even across a git repo of its own
-      --repos LIST       the repos a --clone VM of a folder of repos gets: all, none or a LIST of their paths, such as frontend,backend (default: a picker in a terminal)
+      --clean-home          give the VM the image's home folder instead of keeping its own
+  -f, --force               don't ask to confirm, which devvm needs without a terminal or with --no-input
+  -h, --help                help for clone
+      --here                use this folder's own VM, never that of a folder it's inside
+      --json                print it as one JSON object, for scripts
+      --no-clone-check      don't check a --clone VM's clone for unfetched commits and uncommitted changes first, which are lost
+      --no-export           don't export the agents' history first
+      --no-worktree-check   with --clean-home, don't check the agents' worktrees in the VM for uncommitted changes first, which are lost
+      --parent              use the VM of the nearest folder this one is inside, even across a git repo of its own
+      --repos LIST          the repos a --clone VM of a folder of repos gets: all, none or a LIST of their paths, such as frontend,backend (default: a picker in a terminal)
 ```
 
 ## Options inherited from parent commands

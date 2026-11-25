@@ -7,7 +7,8 @@ import (
 	"github.com/devvmhq/devvm/internal/vm"
 )
 
-// newUpdateCmd is devvm update [--force] [--no-export] [--clean-home].
+// newUpdateCmd is devvm update [--force] [--no-export] [--clean-home
+// [--no-worktree-check]].
 func newUpdateCmd(a *app) *cobra.Command {
 	var o vm.RemakeOptions
 	cmd := &cobra.Command{
@@ -33,7 +34,7 @@ func newUpdateCmd(a *app) *cobra.Command {
 			}, msg.RemakeFailed)
 		},
 	}
-	addRemakeFlags(cmd.Flags(), &o)
+	addRemakeFlags(cmd, &o)
 	addFolderFlags(cmd, a)
 	return cmd
 }

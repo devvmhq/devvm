@@ -17,7 +17,7 @@ import (
 // shell and through ssh alike: it answers what devvm runs in a VM. Its
 // files are $STUB_DIR/vmfs (a --clone VM's repo and worktrees, its git
 // run here, on them) and $STUB_DIR/vmhome-<vm> (a VM's home folder, as a
-// remake reads it). What it's sent is kept: a script fed to bash -s has
+// remake and the read of the agents' worktrees read it). What it's sent is kept: a script fed to bash -s has
 // its second line, past its #! line or devvm's prelude, appended to $STUB_DIR/scripts, a
 // VM's setup is $STUB_DIR/sync.tar, a base build's packages
 // $STUB_DIR/packages-in.tar, what a remake puts in a new disk's home
@@ -123,10 +123,15 @@ func (g *guest) vmfs(dir string) string { return g.path("vmfs") + dir }
 
 // git runs a clone's command on the guest's files: git -C DIR …, or sh -c
 // SCRIPT NAME DIR …, which runs with sudo as a plain call. git worktree
-// list gives its paths as the guest's, without the stubs' folder.
+// list gives its paths as the guest's, without the stubs' folder. The
+// read of the agents' worktrees, which starts in the home folder, runs in
+// the VM's, vmhome-<vm>.
 func (g *guest) git(words []string) int {
 	if len(words) < 3 {
 		return 1
+	}
+	if words[0] != "git" && strings.HasPrefix(words[2], "cd ~ ") {
+		return g.replace(append([]string{"bash", "-c"}, words[2:]...), []string{"HOME=" + g.path("vmhome-"+g.vm)})
 	}
 	if words[0] != "git" {
 		sudo := "sudo() { \"$@\"; }; export -f sudo\n"

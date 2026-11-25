@@ -611,7 +611,7 @@ func TestCloneRmTooManyWorktrees(t *testing.T) {
 func TestFetchUnfetchedInvalid(t *testing.T) {
 	e, f, _ := cloneEnv(t)
 	got := printed(t, e, true)
-	check := cloneCheck{clones: clones{e}, command: "devvm clone off", remakes: true}
+	check := workCheck{clones: clones{e}, command: "devvm clone off", remakes: true, clone: true}
 	tg := e.newTarget(project.Folder{Dir: e.Dir, Name: "devvm-web-0123456789abcd"}, nil, f)
 	work := func(branches ...string) []unfetchedIn {
 		refs := make([]fetchRef, len(branches))

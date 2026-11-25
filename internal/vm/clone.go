@@ -565,8 +565,9 @@ func (e clones) saveFetched(ctx context.Context, dir, remote string) error {
 // mode already is said to be, and nothing changes. On needs a folder
 // that's a repo's top with a commit and a branch (checkCloneRepo), and
 // the clone is made as its shell opens (seedClone), as a new VM's is.
-// Off checks the clone first as devvm rm does (cloneCheck), unless
-// --no-clone-check, which warns that its work is lost instead. command
+// Off checks the clone first as devvm rm does (remaking.checkWork), unless
+// --no-clone-check, which warns that its work is lost instead, and
+// either, with --clean-home, the agents' worktrees. command
 // is the command as typed. A remake of it that didn't finish is finished
 // first.
 func (e Lifecycle) SetClone(ctx context.Context, command, mode string, o RemakeOptions) error {
@@ -591,11 +592,8 @@ func (e Lifecycle) SetClone(ctx context.Context, command, mode string, o RemakeO
 	if ok, err := e.agreed(t, p, o); err != nil || !ok {
 		return err
 	}
-	if !on && !o.NoCloneCheck {
-		keep, err := cloneCheck{clones: e.clones, command: command, remakes: true}.run(ctx, t)
-		if err != nil || keep {
-			return err
-		}
+	if keep, err := e.remaking.checkWork(ctx, t, p, o, !on && !o.NoCloneCheck); err != nil || keep {
+		return err
 	}
 	return e.remakeNow(ctx, t, p)
 }
@@ -625,7 +623,7 @@ func (e Lifecycle) canSwitch(ctx context.Context, t *target, p *remakeInVM, o Re
 		e.Info(msg.CloneSwitchOn(vm))
 	case o.NoCloneCheck:
 		e.Info(msg.CloneSwitchOff(vm))
-		e.Warn(msg.CloneCheckSkipped(p.Command, vm))
+		e.Warn(msg.CloneCheckSkipped(p.typed(), vm))
 	default:
 		e.Info(msg.CloneSwitchOff(vm))
 	}

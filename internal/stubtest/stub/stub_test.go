@@ -589,6 +589,12 @@ func TestCloneGit(t *testing.T) {
 		got[4] != filepath.Join(s.dir, "vmfs/w") || got[5] != "a b" {
 		t.Errorf("sh ran %q", got)
 	}
+	// The read of the agents' worktrees runs in the VM's home folder.
+	s.ok("", "limactl", "shell", "vm", "sh", "-c", `cd '/' && exec 'sh' '-c' 'cd ~ || exit 1; git status --porcelain' 'sh' '100' 'a/*/*'`)
+	if got := s.replaced[2]; !slices.Equal(got, []string{"bash", "-c", "cd ~ || exit 1; git status --porcelain", "sh", "100", "a/*/*"}) ||
+		!slices.Equal(s.extra[2], []string{"HOME=" + filepath.Join(s.dir, "vmhome-vm")}) {
+		t.Errorf("the worktrees' read ran %q with %q", got, s.extra[2])
+	}
 	s.fails(1, "limactl", "shell", "vm", "cd '/' && exec 'git' '-C' ")
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git here")

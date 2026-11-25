@@ -153,6 +153,14 @@ func TestDefsWellFormed(t *testing.T) {
 				t.Errorf("%s: history exclude %s is outside its history %v", d.Name, x, d.History)
 			}
 		}
+		// A worktree's folder is one an export leaves out, which is why it's checked, and its
+		// pattern goes to the VM's shell unquoted, so it's only of a path's plain characters and *.
+		for _, p := range d.Worktrees {
+			if !slices.ContainsFunc(d.HistoryOwn, func(o string) bool { return strings.HasPrefix(p, o+"/") }) ||
+				strings.Trim(p, "abcdefghijklmnopqrstuvwxyz0123456789./-_*") != "" || path.Clean(p) != p {
+				t.Errorf("%s: worktrees %q aren't a plain pattern below its HistoryOwn", d.Name, p)
+			}
+		}
 		for _, p := range slices.Concat(d.Dirs, filesOf(d)) {
 			if !strings.HasPrefix(p, d.Folder+"/") {
 				t.Errorf("%s: setting %s is outside its folder %s", d.Name, p, d.Folder)

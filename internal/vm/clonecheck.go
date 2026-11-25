@@ -16,37 +16,85 @@ import (
 	"github.com/devvmhq/devvm/internal/vmname"
 )
 
-// cloneCheck checks a --clone VM's clone before a command loses it:
+// workCheck checks the work in a VM that a command loses with its disk,
+// before it goes: a --clone VM's clone (clone), and the git worktrees its
+// agents made where an export leaves them out (trees: agentTrees).
 // command, as typed, which its messages name, deletes the VM (devvm rm),
-// or makes it again mounting the folder (remakes: devvm clone off).
-type cloneCheck struct {
+// or makes it again (remakes: devvm clone off, or a remake with
+// --clean-home).
+type workCheck struct {
 	clones
 	command string
 	remakes bool
+	clone   bool // a --clone VM's clone, unless --no-clone-check
+	trees   bool // the agents' worktrees, unless --no-worktree-check
 }
 
-// run offers to fetch the branches whose commits the host's repos lack,
-// in every repo of the clone, and asks before uncommitted changes in a
-// repo or its worktrees (changes) are lost, starting the VM if it's
-// stopped. Where it can't ask, either refuses. It reports whether to keep
-// the VM as it is. What the VM has of every repo is read at once
-// (readClone). A repo whose copy didn't finish, the folder's own or a
-// workspace clone's, may have the VM's work too, so it's checked when
-// it's in the VM; one never made there has nothing to check.
-func (e cloneCheck) run(ctx context.Context, t *target) (bool, error) {
+// run checks the clone (cloneLost) and the agents' worktrees
+// (agentTrees), starting the VM if it's stopped, and asks once before
+// what they found is lost. Where it can't ask, it refuses, naming
+// --no-worktree-check when only the worktrees have work. It reports
+// whether to keep the VM as it is. A VM with nothing to check isn't
+// started.
+func (e workCheck) run(ctx context.Context, t *target) (bool, error) {
 	vm := t.f.Name
 	c := sectionOf[cloneInVM](t.st, cloneSection)
-	// Its recorded submodules too, each named by its path, as a workspace
-	// clone's repos are.
-	repos := c.allRepos()
-	named := c.Workspace || len(repos) > 1
-	if len(repos) == 0 {
+	var repos []cloneRepo
+	if e.clone {
+		// Its recorded submodules too, each named by its path, as a
+		// workspace clone's repos are.
+		repos = c.allRepos()
+	}
+	pats := treePatterns(t.st)
+	if !e.trees {
+		pats = nil
+	}
+	if len(repos) == 0 && len(pats) == 0 {
 		return false, nil
 	}
 	if err := t.ensureRunning(ctx); err != nil {
-		return false, e.notStarted(ctx, vm, err)
+		return false, e.notStarted(ctx, vm, len(repos) == 0, err)
 	}
 	defer e.Status(msg.CloneChecking(vm))()
+	cloneLost := false
+	if len(repos) > 0 {
+		var err error
+		if cloneLost, err = e.cloneLost(ctx, t, c, repos); err != nil {
+			return false, err
+		}
+	}
+	treesLost, err := e.agentTrees(ctx, t, pats)
+	if err != nil || !cloneLost && !treesLost {
+		return false, err
+	}
+	q := msg.DeleteAnyway()
+	if e.remakes {
+		q = msg.RemakeAnyway()
+	}
+	ask := q.RefusedWith(msg.NoTerminalDelete(e.command))
+	if !cloneLost {
+		ask = q.RefusedWith(msg.NoTerminalDeleteTrees(e.command))
+	}
+	yes, err := e.Ask(ask)
+	if err != nil {
+		return false, err
+	}
+	if !yes {
+		e.Info(msg.Kept(vm))
+		return true, nil
+	}
+	return false, nil
+}
+
+// cloneLost offers to fetch the branches whose commits the host's repos
+// lack, in every repo of the clone c (repos), and shows the uncommitted
+// changes in a repo or its worktrees (changes), reporting whether any
+// work is still to lose. What the VM has of every repo is read at once
+// (readClone). A repo whose copy didn't finish, the folder's own or a
+// workspace clone's, may have the VM's work too, so it's checked when
+// it's in the VM; one never made there has nothing to check.
+func (e workCheck) cloneLost(ctx context.Context, t *target, c cloneInVM, repos []cloneRepo) (bool, error) {
+	named := c.Workspace || len(repos) > 1
 	got, err := e.readClone(ctx, t, repos)
 	if err != nil {
 		return false, err
@@ -56,7 +104,7 @@ func (e cloneCheck) run(ctx context.Context, t *target) (bool, error) {
 			return false, nil // never made in the VM
 		}
 		// The clone itself isn't there: nothing devvm can check.
-		return false, msg.CloneCheckFailed(e.command, vm)
+		return false, msg.CloneCheckFailed(e.command, t.f.Name)
 	}
 	work, unchecked, err := e.unfetched(ctx, t, named, got)
 	if err != nil {
@@ -65,22 +113,7 @@ func (e cloneCheck) run(ctx context.Context, t *target) (bool, error) {
 	if err := e.fetchUnfetched(ctx, t, named, work); err != nil {
 		return false, err
 	}
-	if changed := e.changes(named, got); !changed && !unchecked {
-		return false, nil
-	}
-	q := msg.DeleteAnyway()
-	if e.remakes {
-		q = msg.RemakeAnyway()
-	}
-	yes, err := e.Ask(q.RefusedWith(msg.NoTerminalDelete(e.command)))
-	if err != nil {
-		return false, err
-	}
-	if !yes {
-		e.Info(msg.Kept(vm))
-		return true, nil
-	}
-	return false, nil
+	return e.changes(named, got) || unchecked, nil
 }
 
 // unfetched is the branches of each of the clone's repos (got) whose
@@ -92,7 +125,7 @@ func (e cloneCheck) run(ctx context.Context, t *target) (bool, error) {
 // unchecked asks before the VM goes, as for uncommitted changes, while
 // every other repo is checked as ever. So do the LFS objects that only
 // the VM's clone has of the commits the host has (lfsUnfetched).
-func (e cloneCheck) unfetched(ctx context.Context, t *target, workspace bool, got []repoInVM) (work []unfetchedIn, unchecked bool, err error) {
+func (e workCheck) unfetched(ctx context.Context, t *target, workspace bool, got []repoInVM) (work []unfetchedIn, unchecked bool, err error) {
 	for _, g := range got {
 		r := g.repo
 		dir := repoDir(t.f.Dir, r.Path)
@@ -135,7 +168,7 @@ func (e cloneCheck) unfetched(ctx context.Context, t *target, workspace bool, go
 // clone_check_repo_changed), which host git reads and fetches into, and
 // returns the VM other than this one that mounts it, or its common dir
 // (mountingVM), "" for none.
-func (e cloneCheck) stillOurs(ctx context.Context, t *target, r cloneRepo) (mounted vmname.VM, err error) {
+func (e workCheck) stillOurs(ctx context.Context, t *target, r cloneRepo) (mounted vmname.VM, err error) {
 	dir := repoDir(t.f.Dir, r.Path)
 	if err := checkRepoTopOf(ctx, dir, r.submodule); err != nil {
 		return "", msg.CloneCheckRepoChanged(e.command, r.Path, t.f.Name).Because(err)
@@ -143,17 +176,21 @@ func (e cloneCheck) stillOurs(ctx context.Context, t *target, r cloneRepo) (moun
 	return e.mountingVM(dir, t.f.Name), nil
 }
 
-// notStarted is the error when the VM didn't start for its clone check
-// (err): what kept it from starting, said, then the way out, the command
-// with --no-clone-check, carrying err. An interrupt, or an error that
-// isn't a message, is err as it is.
-func (e cloneCheck) notStarted(ctx context.Context, vm vmname.VM, err error) error {
+// notStarted is the error when the VM didn't start for its check (err):
+// what kept it from starting, said, then the way out, the command with
+// --no-clone-check, or with --no-worktree-check when only the agents'
+// worktrees were to be checked (trees), carrying err. An interrupt, or
+// an error that isn't a message, is err as it is.
+func (e workCheck) notStarted(ctx context.Context, vm vmname.VM, trees bool, err error) error {
 	m, ok := errors.AsType[msg.M](err)
 	if ctx.Err() != nil || !ok {
 		return err
 	}
 	e.Warn(m)
 	out := msg.CloneCheckNotStarted(e.command, vm).Because(err)
+	if trees {
+		out = msg.TreesCheckNotStarted(e.command, vm).Because(err)
+	}
 	if _, logged := errors.AsType[*backend.LoggedError](err); logged {
 		return backend.Logged(out)
 	}
@@ -167,7 +204,7 @@ func (e cloneCheck) notStarted(ctx context.Context, vm vmname.VM, err error) err
 // shown cloneShown, but goes on counting. A repo with more worktrees than
 // devvm checks counts as changed, and devvm says so, and so does a
 // worktree whose detached HEAD has commits nothing else in the VM has.
-func (e cloneCheck) changes(workspace bool, got []repoInVM) bool {
+func (e workCheck) changes(workspace bool, got []repoInVM) bool {
 	shown, dirty := 0, false
 	show := func(heading msg.M, status []byte) {
 		if len(bytes.TrimSpace(status)) == 0 {
@@ -396,7 +433,7 @@ done`
 // in one command, at most cloneStateMax bytes, and checks it
 // (parseCloneState): failing, or anything devvm can't take, is the
 // check's failure (clone_check_failed).
-func (e cloneCheck) readClone(ctx context.Context, t *target, repos []cloneRepo) ([]repoInVM, error) {
+func (e workCheck) readClone(ctx context.Context, t *target, repos []cloneRepo) ([]repoInVM, error) {
 	vm := t.f.Name
 	argv := []string{"sh", "-c", cloneState, "sh", t.f.Dir, strconv.Itoa(cloneWorktreesMax + 1)}
 	for _, r := range repos {
@@ -567,7 +604,7 @@ type unfetchedIn struct {
 // saved/<remote>/stash-N (stash-N-2 and on when a branch of the VM has
 // that name). Branches whose names git refuses are skipped. A workspace
 // clone's refusal names devvm clone fetch, which fetches every repo.
-func (e cloneCheck) fetchUnfetched(ctx context.Context, t *target, workspace bool, work []unfetchedIn) error {
+func (e workCheck) fetchUnfetched(ctx context.Context, t *target, workspace bool, work []unfetchedIn) error {
 	vm := t.f.Name
 	var fetches []savedFetch
 	for _, w := range work {

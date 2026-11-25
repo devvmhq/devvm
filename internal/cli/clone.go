@@ -11,8 +11,8 @@ import (
 )
 
 // newCloneCmd is devvm clone [on|off] [--force] [--no-export]
-// [--clean-home] [--no-clone-check] [--repos LIST], and its fetch and
-// add PATH.
+// [--clean-home [--no-worktree-check]] [--no-clone-check] [--repos LIST],
+// and its fetch and add PATH.
 func newCloneCmd(a *app) *cobra.Command {
 	var o vm.RemakeOptions
 	var asJSON bool
@@ -50,7 +50,7 @@ func newCloneCmd(a *app) *cobra.Command {
 			return printValue(a.u, asJSON, "clone", mode)
 		},
 	}
-	addRemakeFlags(cmd.Flags(), &o)
+	addRemakeFlags(cmd, &o)
 	addNoCloneCheckFlag(cmd.Flags(), &o.NoCloneCheck)
 	addReposFlag(cmd.Flags(), &o.Repos)
 	needs(cmd, "repos", vm.CloneOn)

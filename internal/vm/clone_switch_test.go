@@ -135,7 +135,7 @@ func TestSetCloneOn(t *testing.T) {
 	if err := lc.SetClone(t.Context(), "devvm clone off", CloneOff, RemakeOptions{Force: true, CleanHome: true, NoCloneCheck: true}); err != nil {
 		t.Fatal(msg.NamesOf(err))
 	}
-	if !slices.Contains(warned.Names(), "clone_check_skipped command=devvm clone off vm="+vm.String()) {
+	if !slices.Contains(warned.Names(), "clone_check_skipped command=devvm clone off --clean-home vm="+vm.String()) {
 		t.Errorf("warned %q", warned.Names())
 	}
 	after = readState(t, e.Dirs, vm)
@@ -179,7 +179,8 @@ func TestSetCloneOff(t *testing.T) {
 			t.Errorf("%s: not kept, %q", what, f.Methods())
 		}
 	}
-	if err := off(); msg.NamesOf(err) != "no_terminal_fetch command=devvm clone off" {
+	// Its refusals name the command as given, --clean-home included.
+	if err := off(); msg.NamesOf(err) != "no_terminal_fetch command=devvm clone off --clean-home" {
 		t.Errorf("unfetched, no terminal: %v", msg.NamesOf(err))
 	}
 	kept("unfetched")
@@ -187,7 +188,7 @@ func TestSetCloneOff(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(clone, "new"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := off(); msg.NamesOf(err) != "no_terminal_delete command=devvm clone off" {
+	if err := off(); msg.NamesOf(err) != "no_terminal_delete command=devvm clone off --clean-home" {
 		t.Errorf("uncommitted, no terminal: %v", msg.NamesOf(err))
 	}
 	kept("uncommitted")

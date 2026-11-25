@@ -116,6 +116,9 @@ type RmOptions struct {
 	// NoCloneCheck (--no-clone-check): a --clone VM's clone isn't checked
 	// for work the repo lacks first, which is lost.
 	NoCloneCheck bool
+	// NoWorktreeCheck (--no-worktree-check): the agents' worktrees aren't
+	// checked for uncommitted changes first (workCheck), which are lost.
+	NoWorktreeCheck bool
 }
 
 // Rm deletes the folder's VM, after asking, or with --force; where it
@@ -123,8 +126,10 @@ type RmOptions struct {
 // a remake is deleted too, its old machine with it (teardown). Its agents' history
 // is exported first unless --no-export: an export that fails keeps it.
 // A --clone VM's branches the repo lacks and uncommitted changes are
-// checked first (cloneCheck), whose questions no flag answers, unless
-// --no-clone-check, which warns that they're lost instead. A VM made
+// checked first, and so are the agents' worktrees, which an export
+// leaves out (workCheck), whose questions no flag answers, unless
+// --no-clone-check or --no-worktree-check, which warn that they're lost
+// instead. A VM made
 // for an earlier folder at this path, or a parent folder's VM found from
 // a subfolder, is deleted only after asking, which --force never
 // answers; the earlier folder's isn't
@@ -164,6 +169,11 @@ func (e Lifecycle) Rm(ctx context.Context, o RmOptions) error {
 		e.Warn(msg.CloneCheckSkipped("devvm rm", vm))
 		checkClone = false
 	}
+	checkTrees := t.exists && !t.other && len(treePatterns(st)) > 0
+	if checkTrees && o.NoWorktreeCheck {
+		e.Warn(msg.TreesCheckSkipped("devvm rm", vm))
+		checkTrees = false
+	}
 	if !asked && !o.Force {
 		yes, err := e.Ask(msg.RmConfirm(vm).AnsweredBy("--force"))
 		if err != nil {
@@ -174,11 +184,9 @@ func (e Lifecycle) Rm(ctx context.Context, o RmOptions) error {
 			return nil
 		}
 	}
-	if checkClone {
-		keep, err := cloneCheck{clones: e.clones, command: "devvm rm"}.run(ctx, t)
-		if err != nil || keep {
-			return err
-		}
+	check := workCheck{clones: e.clones, command: "devvm rm", clone: checkClone, trees: checkTrees}
+	if keep, err := check.run(ctx, t); err != nil || keep {
+		return err
 	}
 	// A remake that didn't finish may have left no machine by its name:
 	// its history was exported then, unless --no-export.
@@ -245,11 +253,25 @@ func (e Lifecycle) rmGone(ctx context.Context, t *target, folder FolderState, o 
 		return msg.RmGoneClone(st.Dir, vm)
 	}
 	export := !o.NoExport && st.Finished() && len(image.AgentsOf(tools.Names(st))) > 0
-	if err := e.stillGone(ctx, t, folder, export && !clone); err != nil {
+	trees := len(treePatterns(st)) > 0
+	// The export and the check of the agents' worktrees read the running
+	// VM, and only one that mounts no folder (a --clone VM's) is started.
+	var stopped error
+	switch {
+	case clone:
+	case trees && !o.NoWorktreeCheck:
+		stopped = msg.RmGoneStoppedTrees(st.Dir, vm)
+	case export:
+		stopped = msg.RmGoneStopped(st.Dir, vm)
+	}
+	if err := e.stillGone(ctx, t, folder, stopped); err != nil {
 		return err
 	}
 	if clone {
 		e.Warn(msg.CloneCheckSkipped("devvm rm", vm))
+	}
+	if trees && o.NoWorktreeCheck {
+		e.Warn(msg.TreesCheckSkipped("devvm rm "+vm.String(), vm))
 	}
 	if yes, err := e.askRmGone(t, folder == FolderNotConnected, o.Force); err != nil || !yes {
 		if err == nil {
@@ -259,8 +281,13 @@ func (e Lifecycle) rmGone(ctx context.Context, t *target, folder FolderState, o 
 	}
 	// While it asked, the folder may have come back (a disk plugged in
 	// again), another devvm may have made the VM again there, or stopped
-	// it, which an export would start, making its folder again.
-	if err := e.stillGone(ctx, t, folder, export && !clone); err != nil {
+	// it, which an export or the check would start, making its folder
+	// again.
+	if err := e.stillGone(ctx, t, folder, stopped); err != nil {
+		return err
+	}
+	check := workCheck{clones: e.clones, command: "devvm rm " + vm.String(), trees: trees && !o.NoWorktreeCheck}
+	if keep, err := check.run(ctx, t); err != nil || keep {
 		return err
 	}
 	if export {
@@ -287,8 +314,9 @@ func (e Lifecycle) askRmGone(t *target, unconnected, force bool) (bool, error) {
 
 // stillGone checks, for rmGone, that t's state is still the one it read
 // (its ID) and its folder still in the state it found (folder), and with
-// running that the VM still runs, so its export doesn't start it.
-func (e Lifecycle) stillGone(ctx context.Context, t *target, folder FolderState, running bool) error {
+// stopped, the refusal of a VM that isn't running, that the VM still
+// runs, so its export and its check don't start it.
+func (e Lifecycle) stillGone(ctx context.Context, t *target, folder FolderState, stopped error) error {
 	vm := t.f.Name
 	st, err := state.ReadVM(e.Dirs, vm)
 	if err != nil {
@@ -297,7 +325,7 @@ func (e Lifecycle) stillGone(ctx context.Context, t *target, folder FolderState,
 	if st.ID != t.st.ID || e.FolderOf(ctx, st) != folder {
 		return msg.RmVMFolderThere(t.st.Dir, vm)
 	}
-	if !running {
+	if stopped == nil {
 		return nil
 	}
 	in, err := t.b.Inspect(ctx, vm)
@@ -305,7 +333,7 @@ func (e Lifecycle) stillGone(ctx context.Context, t *target, folder FolderState,
 		return err
 	}
 	if in.Status != backend.StatusRunning {
-		return msg.RmGoneStopped(t.st.Dir, vm)
+		return stopped
 	}
 	return nil
 }

@@ -30,6 +30,10 @@ type RemakeOptions struct {
 	// CleanHome (--clean-home): the new disk has the image's home folder,
 	// not the VM's.
 	CleanHome bool
+	// NoWorktreeCheck (--no-worktree-check, with --clean-home): the
+	// agents' worktrees, which go with the VM's home folder, aren't
+	// checked for uncommitted changes first (workCheck), which are lost.
+	NoWorktreeCheck bool
 	// NoCloneCheck (--no-clone-check, devvm clone off's): the clone isn't
 	// checked for work the repo lacks first, which is lost.
 	NoCloneCheck bool
@@ -207,6 +211,11 @@ func (e Lifecycle) Update(ctx context.Context, command string, o RemakeOptions) 
 		if agreed, err = e.agreed(t, p, o); err != nil {
 			return err
 		}
+		if agreed {
+			if keep, err := e.remaking.checkWork(ctx, t, p, o, false); err != nil || keep {
+				return err
+			}
+		}
 	}
 	newer, err := e.vmTools.update(ctx, t)
 	if err != nil {
@@ -364,8 +373,9 @@ func (e remaking) hold(ctx context.Context, t *target) (release func(), err erro
 }
 
 // remakeTo makes t's VM again as p says (remaking.remake), once
-// remaking.check has checked that it can, and the user agrees (agreed).
-// Then it opens a shell in it.
+// remaking.check has checked that it can, the user agrees (agreed), and
+// with a clean home, the work check finds nothing to lose or the user
+// goes ahead (remaking.checkWork). Then it opens a shell in it.
 func (e Lifecycle) remakeTo(ctx context.Context, t *target, p remakeInVM, o RemakeOptions) error {
 	if err := e.remaking.check(t, p); err != nil {
 		return err
@@ -373,7 +383,36 @@ func (e Lifecycle) remakeTo(ctx context.Context, t *target, p remakeInVM, o Rema
 	if ok, err := e.agreed(t, p, o); err != nil || !ok {
 		return err
 	}
+	if keep, err := e.remaking.checkWork(ctx, t, p, o, false); err != nil || keep {
+		return err
+	}
 	return e.remakeNow(ctx, t, p)
+}
+
+// typed is p's command as the user typed it, for the work check's
+// messages, which name it to run again: with --clean-home when p gives
+// the VM the image's home folder, which --no-worktree-check needs.
+func (p remakeInVM) typed() string {
+	if p.Home {
+		return p.Command
+	}
+	return p.Command + " --clean-home"
+}
+
+// checkWork checks, before p makes t's VM again, the work it would lose
+// (workCheck): the clone, with clone, and the agents' worktrees when p
+// gives it the image's home folder, unless o's flags skip either, which
+// warns that it's lost instead. It reports whether to keep the VM as it
+// is. Its messages name the command with --clean-home when it was given,
+// which --no-worktree-check needs.
+func (e remaking) checkWork(ctx context.Context, t *target, p remakeInVM, o RemakeOptions, clone bool) (bool, error) {
+	command := p.typed()
+	trees := !p.Home && len(treePatterns(t.st)) > 0
+	if trees && o.NoWorktreeCheck {
+		e.Warn(msg.TreesCheckSkipped(command, t.f.Name))
+		trees = false
+	}
+	return workCheck{clones: e.clones, command: command, remakes: true, clone: clone, trees: trees}.run(ctx, t)
 }
 
 // agreed reports whether the user agrees to make t's VM again from p's

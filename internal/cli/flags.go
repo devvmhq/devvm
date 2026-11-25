@@ -53,13 +53,24 @@ func addReposFlag(f *pflag.FlagSet, p *string) {
 	f.StringVar(p, "repos", "", "the repos a --clone VM of a folder of repos gets: all, none or a `LIST` of their paths, such as frontend,backend (default: a picker in a terminal)")
 }
 
+// addNoWorktreeCheckFlag adds devvm rm's --no-worktree-check, which skips
+// checking the agents' worktrees in the VM before its disk goes; a remake
+// has its own, which goes only with --clean-home (addRemakeFlags).
+func addNoWorktreeCheckFlag(f *pflag.FlagSet, p *bool) {
+	f.BoolVar(p, "no-worktree-check", false, "don't check the agents' worktrees in the VM for uncommitted changes first, which are lost")
+}
+
 // addRemakeFlags adds the flags of a command that makes the folder's VM
 // again (devvm layer add, devvm layer rm, devvm update, devvm clone):
-// --force, --no-export and --clean-home.
-func addRemakeFlags(f *pflag.FlagSet, o *vm.RemakeOptions) {
+// --force, --no-export, --clean-home and --no-worktree-check, which goes
+// only with --clean-home, as only that loses the worktrees.
+func addRemakeFlags(cmd *cobra.Command, o *vm.RemakeOptions) {
+	f := cmd.Flags()
 	addForceFlag(f, &o.Force)
 	addNoExportFlag(f, &o.NoExport)
 	f.BoolVar(&o.CleanHome, "clean-home", false, "give the VM the image's home folder instead of keeping its own")
+	f.BoolVar(&o.NoWorktreeCheck, "no-worktree-check", false, "with --clean-home, don't check the agents' worktrees in the VM for uncommitted changes first, which are lost")
+	needs(cmd, "no-worktree-check", "--clean-home")
 }
 
 // addSSHConfigFlag adds --ssh-config, which answers the question whether

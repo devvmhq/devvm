@@ -334,6 +334,11 @@ type Def struct {
 	// it out and an import never writes it, as HistoryExcludes, but a VM made again keeps
 	// it, as that's the same machine.
 	HistoryOwn []string
+	// Worktrees are where in its HistoryOwn it makes git worktrees, relative to the home
+	// folder, as patterns of each worktree's folder, as the shell reads them: an export leaves
+	// them out, so their uncommitted changes go with the VM's disk, and the commands that delete
+	// it check them first: devvm rm, and the commands that make a VM again, given --clean-home.
+	Worktrees []string
 	// Env is the guest environment its VMs' shells get: its self-updates and telemetry off.
 	Env []Env
 	// Secret is the secret (secrets.Known) every VM with the agent uses: Claude Code's token.
@@ -478,7 +483,12 @@ var Defs = []Def{
 			OpencodeState + "/service.json.*", OpencodeState + "/service-*.json.*", OpencodeState + "/pty",
 			OpencodeData + "/snapshot", OpencodeData + "/repos", OpencodeData + "/worktree",
 		},
-		Env: []Env{{Name: "OPENCODE_DISABLE_AUTOUPDATE", Value: "1"}},
+		// From opencode v2.4.1's source (worktree/strategies.ts, worktree.ts): its worktree folder
+		// is worktree/<the first 6 characters of the project's ID>/<the worktree's name> in its
+		// data folder, made with git worktree add, unless its config's worktree.directory names
+		// another.
+		Worktrees: []string{OpencodeData + "/worktree/*/*"},
+		Env:       []Env{{Name: "OPENCODE_DISABLE_AUTOUPDATE", Value: "1"}},
 		// Its Codex login to OpenAI (its methods chatgpt-browser and chatgpt-headless), whose
 		// token endpoint the proxy captures: its Sign in with ChatGPT gets its tokens from
 		// another endpoint, whose replies the proxy refuses.

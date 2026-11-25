@@ -243,7 +243,7 @@ Everything else on the VM's disk is lost:
 - the Nix store
 - the processes that ran in it
 
-When saving the home folder fails, devvm keeps the VM as it was, and `--clean-home` goes ahead without it.
+When saving the home folder fails, devvm keeps the VM as it was, and `--clean-home` goes ahead without it. With `--clean-home`, opencode's worktrees go with the home folder, so devvm checks them for uncommitted changes first and asks before they go, as `devvm rm` does. `--no-worktree-check`, which works only with `--clean-home`, skips that check ([opencode's worktrees](coding-agents.md#opencodes-worktrees)).
 
 ### A remake that stops halfway
 

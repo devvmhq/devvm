@@ -66,7 +66,7 @@ func newLayerCmd(a *app) *cobra.Command {
 }
 
 // newLayerAddCmd is devvm layer add LAYER... [--force] [--no-export]
-// [--clean-home].
+// [--clean-home [--no-worktree-check]].
 func newLayerAddCmd(a *app) *cobra.Command {
 	var o vm.RemakeOptions
 	cmd := &cobra.Command{
@@ -100,12 +100,12 @@ func newLayerAddCmd(a *app) *cobra.Command {
 		},
 		ValidArgsFunction: completeLayerNames(a),
 	}
-	addRemakeFlags(cmd.Flags(), &o)
+	addRemakeFlags(cmd, &o)
 	return addFolderFlags(cmd, a)
 }
 
 // newLayerRmCmd is devvm layer rm LAYER... [--force] [--no-export]
-// [--clean-home].
+// [--clean-home [--no-worktree-check]].
 func newLayerRmCmd(a *app) *cobra.Command {
 	var o vm.RemakeOptions
 	cmd := &cobra.Command{
@@ -139,6 +139,6 @@ func newLayerRmCmd(a *app) *cobra.Command {
 		},
 		ValidArgsFunction: completeLayerNames(a),
 	}
-	addRemakeFlags(cmd.Flags(), &o)
+	addRemakeFlags(cmd, &o)
 	return addFolderFlags(cmd, a)
 }

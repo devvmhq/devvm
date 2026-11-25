@@ -61,16 +61,17 @@ func TestFlagNames(t *testing.T) {
 	// the flag names whose help differs between commands, with why it's
 	// one meaning still
 	manyUses := map[string]string{
-		"cpus":   "a new VM's says where its default comes from, and devvm size's changes the VM's",
-		"memory": "a new VM's says where its default comes from, and devvm size's changes the VM's",
-		"disk":   "a new VM's is at least the image's, and devvm size's at least what the VM has",
-		"global": "each setting's -g says which setting new VMs get",
-		"json":   "devvm doctor's also says it succeeds whatever is missing",
-		"as":     "the name a VM reaches another by: devvm link add's for the link's target, devvm group join's for this VM in the others",
-		"agents": "the coding agents a list of them gives: a new VM's, or with devvm setup new VMs' default",
-		"layers": "the layers a list of them gives: a new VM's, or with devvm setup new VMs' default",
-		"method": "the methods of the requests something covers: a rule's with devvm network allow, deny and rm, a secret of your own's with devvm secret set",
-		"path":   "the path of the requests something covers: a rule's with devvm network allow, deny and rm, a secret of your own's with devvm secret set",
+		"cpus":              "a new VM's says where its default comes from, and devvm size's changes the VM's",
+		"memory":            "a new VM's says where its default comes from, and devvm size's changes the VM's",
+		"disk":              "a new VM's is at least the image's, and devvm size's at least what the VM has",
+		"global":            "each setting's -g says which setting new VMs get",
+		"json":              "devvm doctor's also says it succeeds whatever is missing",
+		"as":                "the name a VM reaches another by: devvm link add's for the link's target, devvm group join's for this VM in the others",
+		"agents":            "the coding agents a list of them gives: a new VM's, or with devvm setup new VMs' default",
+		"layers":            "the layers a list of them gives: a new VM's, or with devvm setup new VMs' default",
+		"method":            "the methods of the requests something covers: a rule's with devvm network allow, deny and rm, a secret of your own's with devvm secret set",
+		"path":              "the path of the requests something covers: a rule's with devvm network allow, deny and rm, a secret of your own's with devvm secret set",
+		"no-worktree-check": "the same check skipped: devvm rm's always, a remake's only with --clean-home, which it goes with",
 	}
 	u, _, _ := testUI()
 	root := NewRoot(u)

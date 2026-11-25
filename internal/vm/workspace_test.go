@@ -326,7 +326,7 @@ func TestCloneChangesAcrossRepos(t *testing.T) {
 		{repo: cloneRepo{Path: "moved", Seeded: true}, gone: true},
 		{repo: cloneRepo{Path: "never-made"}, gone: true},
 	}
-	if !(cloneCheck{clones: clones{e}}).changes(true, got) {
+	if !(workCheck{clones: clones{e}}).changes(true, got) {
 		t.Error("not changed")
 	}
 	want := []string{"clone_repo_dirty repo=frontend", "clone_worktree_dirty path=/w/.worktrees/x/backend", "clone_worktrees_unchecked max=100", "clone_repo_gone repo=moved"}
@@ -335,7 +335,7 @@ func TestCloneChangesAcrossRepos(t *testing.T) {
 	}
 	said, out = msg.Recorder{}, bytes.Buffer{}
 	fake(e).OnSay = said.Add
-	if (cloneCheck{clones: clones{e}}).changes(true, []repoInVM{{repo: cloneRepo{Path: "a"}}}) || len(said.Names()) > 0 {
+	if (workCheck{clones: clones{e}}).changes(true, []repoInVM{{repo: cloneRepo{Path: "a"}}}) || len(said.Names()) > 0 {
 		t.Errorf("clean: said %q", said.Names())
 	}
 }

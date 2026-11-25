@@ -563,6 +563,26 @@ func AgentStoreWaiting() M {
 	return M{id: "agent_store_waiting"}
 }
 
+// AgentTreeDetached is [agent_tree_detached]: "{{.agent}}'s worktree {{.path}} in the VM has commits on its detached HEAD that no branch has, which will be lost. To keep them, run git switch -c NAME in that worktree first."
+func AgentTreeDetached(agent string, path string) M {
+	return M{id: "agent_tree_detached", vals: []val{{"agent", agent}, {"path", path}}}
+}
+
+// AgentTreeDirty is [agent_tree_dirty]: "{{.agent}}'s worktree {{.path}} in the VM has uncommitted changes, which will be lost:"
+func AgentTreeDirty(agent string, path string) M {
+	return M{id: "agent_tree_dirty", vals: []val{{"agent", agent}, {"path", path}}}
+}
+
+// AgentTreeUnread is [agent_tree_unread]: "git couldn't read {{.agent}}'s worktree {{.path}} in the VM, so devvm can't tell whether it has uncommitted changes, which would be lost."
+func AgentTreeUnread(agent string, path string) M {
+	return M{id: "agent_tree_unread", vals: []val{{"agent", agent}, {"path", path}}}
+}
+
+// AgentTreesUnchecked is [agent_trees_unchecked]: "The VM has more than {{.max}} of the agents' worktrees, and devvm checked only the first {{.max}} for uncommitted changes."
+func AgentTreesUnchecked(max string) M {
+	return M{id: "agent_trees_unchecked", vals: []val{{"max", max}}}
+}
+
 // AgentUnloadFailed is [agent_unload_failed]: "Removing {{.key}} from devvm's SSH agent failed, so devvm kept it on the list of keys it loads. Run devvm ssh-agent rm {{.key}} again."
 func AgentUnloadFailed(key string) M {
 	return M{id: "agent_unload_failed", vals: []val{{"key", key}}}
@@ -3573,6 +3593,11 @@ func NoTerminalDelete(command string) M {
 	return M{id: "no_terminal_delete", vals: []val{{"command", command}}}
 }
 
+// NoTerminalDeleteTrees is [no_terminal_delete_trees]: "Going ahead loses the uncommitted changes in the agents' worktrees in the VM, which can't be confirmed here. Run {{.command}} in a terminal without --no-input to confirm, or {{.command}} --no-worktree-check to go ahead without the check."
+func NoTerminalDeleteTrees(command string) M {
+	return M{id: "no_terminal_delete_trees", vals: []val{{"command", command}}}
+}
+
 // NoTerminalFetch is [no_terminal_fetch]: "There's no way to ask here whether to fetch the clone's work, so devvm kept the VM as it is. Run devvm clone fetch first, or {{.command}} in a terminal without --no-input to choose."
 func NoTerminalFetch(command string) M {
 	return M{id: "no_terminal_fetch", vals: []val{{"command", command}}}
@@ -4573,6 +4598,11 @@ func RmGoneStopped(dir string, vm vmname.VM) M {
 	return M{id: "rm_gone_stopped", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
 }
 
+// RmGoneStoppedTrees is [rm_gone_stopped_trees]: "{{.vm}} is stopped, and starting it to check its agents' worktrees for uncommitted changes would make {{.dir}} again. Run devvm rm {{.vm}} --no-export --no-worktree-check to delete it without starting it."
+func RmGoneStoppedTrees(dir string, vm vmname.VM) M {
+	return M{id: "rm_gone_stopped_trees", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
+}
+
 // RmParentVM is [rm_parent_vm]: "{{.vm}} was made for {{.dir}}, which this folder is inside. To delete it, run devvm rm in {{.dir}}, or here in a terminal without --no-input to confirm."
 func RmParentVM(dir string, vm vmname.VM) M {
 	return M{id: "rm_parent_vm", vals: []val{{"dir", dir}, {"vm", string(vm)}}}
@@ -5191,6 +5221,21 @@ func ToolsUntrusted(dir string) M {
 // ToolsWrongBase is [tools_wrong_base]: "Image {{.key}} isn't the base these shared tools are built for, so devvm didn't build them in it. Run the command again."
 func ToolsWrongBase(key string) M {
 	return M{id: "tools_wrong_base", vals: []val{{"key", key}}}
+}
+
+// TreesCheckFailed is [trees_check_failed]: "Reading the agents' worktrees in {{.vm}} failed, so devvm kept the VM as it is. To go ahead without the check, losing their uncommitted changes, run {{.command}} --no-worktree-check."
+func TreesCheckFailed(command string, vm vmname.VM) M {
+	return M{id: "trees_check_failed", vals: []val{{"command", command}, {"vm", string(vm)}}}
+}
+
+// TreesCheckNotStarted is [trees_check_not_started]: "{{.vm}} didn't start for the check of the agents' worktrees, so devvm kept the VM as it is. To go ahead without the check, losing their uncommitted changes, run {{.command}} --no-worktree-check."
+func TreesCheckNotStarted(command string, vm vmname.VM) M {
+	return M{id: "trees_check_not_started", vals: []val{{"command", command}, {"vm", string(vm)}}}
+}
+
+// TreesCheckSkipped is [trees_check_skipped]: "Without the check, {{.command}} loses the uncommitted changes in the agents' worktrees in {{.vm}}."
+func TreesCheckSkipped(command string, vm vmname.VM) M {
+	return M{id: "trees_check_skipped", vals: []val{{"command", command}, {"vm", string(vm)}}}
 }
 
 // UbuntuBadSignature is [ubuntu_bad_signature]: "Ubuntu's checksums for {{.release}} at {{.url}} don't have a valid signature from Ubuntu's cloud image key, so devvm didn't use them."
@@ -5841,6 +5886,10 @@ var specs = map[string]spec{
 	"agent_store_own_cleaned":         {fields: []string{"agent", "dir", "entries"}},
 	"agent_store_saving":              {},
 	"agent_store_waiting":             {},
+	"agent_tree_detached":             {fields: []string{"agent", "path"}},
+	"agent_tree_dirty":                {fields: []string{"agent", "path"}},
+	"agent_tree_unread":               {fields: []string{"agent", "path"}},
+	"agent_trees_unchecked":           {fields: []string{"max"}},
 	"agent_unload_failed":             {fields: []string{"key"}},
 	"agents_help":                     {},
 	"already_stopped":                 {fields: []string{"vm"}},
@@ -6443,6 +6492,7 @@ var specs = map[string]spec{
 	"no_ssh_agent":                    {},
 	"no_subcommand":                   {fields: []string{"command", "commands", "given"}},
 	"no_terminal_delete":              {fields: []string{"command"}},
+	"no_terminal_delete_trees":        {fields: []string{"command"}},
 	"no_terminal_fetch":               {fields: []string{"command"}},
 	"no_terminal_fetch_repos":         {fields: []string{"command"}},
 	"no_terminal_lfs_large":           {fields: []string{"path", "size"}},
@@ -6643,6 +6693,7 @@ var specs = map[string]spec{
 	"rm_failed":                       {fields: []string{"reason"}},
 	"rm_gone_clone":                   {fields: []string{"dir", "vm"}},
 	"rm_gone_stopped":                 {fields: []string{"dir", "vm"}},
+	"rm_gone_stopped_trees":           {fields: []string{"dir", "vm"}},
 	"rm_parent_vm":                    {fields: []string{"dir", "vm"}},
 	"rm_unknown_vm":                   {fields: []string{"name"}},
 	"rm_vm_failed":                    {fields: []string{"name", "reason"}},
@@ -6767,6 +6818,9 @@ var specs = map[string]spec{
 	"tools_unmounted":                 {fields: []string{"tools", "vm"}},
 	"tools_untrusted":                 {fields: []string{"dir"}},
 	"tools_wrong_base":                {fields: []string{"key"}},
+	"trees_check_failed":              {fields: []string{"command", "vm"}},
+	"trees_check_not_started":         {fields: []string{"command", "vm"}},
+	"trees_check_skipped":             {fields: []string{"command", "vm"}},
 	"ubuntu_bad_signature":            {fields: []string{"release", "url"}},
 	"ubuntu_mirror_invalid":           {fields: []string{"setting"}},
 	"ubuntu_newest_older":             {fields: []string{"newest", "pinned"}},
