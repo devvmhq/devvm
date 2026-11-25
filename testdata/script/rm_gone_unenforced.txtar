@@ -1,0 +1,64 @@
+# rm VM of a VM whose folder is gone, on a confined tier, running but not
+# started confined (started outside devvm): the export, and with
+# --no-export the check of the agents' worktrees, go on with it as it
+# runs, and its self-check offers a restart, confined. A yes stops it,
+# but its start refuses the folder that's gone, which the start would
+# make again (Lima makes a missing mount's folder): the VM is kept,
+# stopped, and never started. The stub's limactl start makes no folder,
+# so no limactl start is what shows the folder isn't made again.
+env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+
+# The export (claude).
+project web
+exec devvm --network allowlist --no-git-protect --agents claude
+vm_name WEB web
+# (The exit keeps limactl start sh's child, so its hostagent is sh, soon
+# gone, as existing_agents.txtar says.)
+exec sh -c 'limactl stop "$WEB" && limactl start --tty=false "$WEB"; exit $?'
+cd $WORK
+rm $WORK/web
+stub_reset
+ttyin -stdin $WORK/yes.txt
+! exec devvm rm $WEB --force
+stderr '^net_unenforced_restart vm=devvm-web-[0-9a-f]{14} \[Y/n\] devvm: project_folder_changed dir=/\S*/web vm=devvm-web-[0-9a-f]{14}$'
+stub_calls
+stdout '^limactl stop devvm-web-[0-9a-f]{14}$'
+! stdout 'limactl (start|delete)'
+! stdout 'tar -czf'
+! exists $WORK/web
+exists $WEB_dir/vm.json
+# Stopped now: refused, as ever, unless --no-export.
+! exec devvm rm $WEB --force
+stderr '^devvm: rm_gone_stopped dir=/\S*/web vm=devvm-web-[0-9a-f]{14}$'
+exec devvm rm $WEB --force --no-export
+stdout '^==> deleted vm=devvm-web-[0-9a-f]{14}$'
+! exists $WORK/web
+
+# The check of the agents' worktrees (opencode), with --no-export.
+project api
+exec git init -q -b main
+exec git commit -q --allow-empty -m one
+exec devvm --network allowlist --no-git-protect --agents opencode
+vm_name API api
+exec sh -c 'limactl stop "$API" && limactl start --tty=false "$API"; exit $?'
+cd $WORK
+rm $WORK/api
+stub_reset
+ttyin -stdin $WORK/yes.txt
+! exec devvm rm $API --force --no-export
+stderr '^net_unenforced_restart vm=devvm-api-[0-9a-f]{14} \[Y/n\] devvm: project_folder_changed dir=/\S*/api vm=devvm-api-[0-9a-f]{14}$'
+stub_calls
+stdout '^limactl stop devvm-api-[0-9a-f]{14}$'
+! stdout 'limactl (start|delete)'
+! stdout 'cd ~ \|\| exit 1'
+! exists $WORK/api
+exists $API_dir/vm.json
+# Stopped now: refused, as ever, unless --no-worktree-check too.
+! exec devvm rm $API --force --no-export
+stderr '^devvm: rm_gone_stopped_trees dir=/\S*/api vm=devvm-api-[0-9a-f]{14}$'
+exec devvm rm $API --force --no-export --no-worktree-check
+stdout '^==> deleted vm=devvm-api-[0-9a-f]{14}$'
+! exists $WORK/api
+
+-- yes.txt --
+y
