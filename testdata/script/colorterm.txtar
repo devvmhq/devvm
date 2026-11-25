@@ -8,31 +8,31 @@ project web
 env COLORTERM=truecolor
 exec devvm --network open --no-git-protect --agents codex
 stub_calls
-stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14} sh -c export COLORTERM=''truecolor'' && exec "\$SHELL" --login\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14} sh -c export COLORTERM=''truecolor'' && exec "\$SHELL" --login\n\z'
 
 # A shell in the running VM.
 env COLORTERM=24bit
 stub_reset
 exec devvm
 stub_calls
-stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14} sh -c export COLORTERM=''24bit'' && exec "\$SHELL" --login\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14} sh -c export COLORTERM=''24bit'' && exec "\$SHELL" --login\n\z'
 
 # Any other value, or none: nothing.
 env COLORTERM='truecolor'';touch /tmp/p'
 stub_reset
 exec devvm
 stub_calls
-stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
 env COLORTERM=256color
 stub_reset
 exec devvm
 stub_calls
-stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
 env COLORTERM=
 stub_reset
 exec devvm
 stub_calls
-stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
 
 # An agent's login, with truecolor, then with another value. (The stub
 # saves no login, so devvm says so.)

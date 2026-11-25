@@ -538,7 +538,7 @@ func TestStartSetsProjectCacheOnce(t *testing.T) {
 	}
 	// The folder as the guest has it after the remount: mounted with none.
 	check := checkOfP
-	remount := `limactl shell --workdir / v sudo sh -c umount '/p' || exit 3; mount '/p' || { mount '/p'; mountpoint -q '/p' || exit 4; }`
+	remount := `limactl shell --start=false --workdir / v sudo sh -c umount '/p' || exit 3; mount '/p' || { mount '/p'; mountpoint -q '/p' || exit 4; }`
 	f.stdout = map[string]string{check: mountinfoOfP("rw,access=client,msize=131072,trans=virtio") + "\n"}
 	f.out["limactl list --json"] = vm("mmap")
 	if err := os.MkdirAll(l.Dirs.LimaVM("v"), 0o700); err != nil {
@@ -712,7 +712,7 @@ func TestStartRechecksProjectCache(t *testing.T) {
 	if err := os.MkdirAll(l.Dirs.LimaVM("v"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	remount := `limactl shell --workdir / v sudo sh -c umount`
+	remount := `limactl shell --start=false --workdir / v sudo sh -c umount`
 	w := backend.Want{Project: "/p", ProjectCache: backend.CacheNone, CheckCache: true}
 	for _, tc := range []struct {
 		name   string

@@ -32,10 +32,10 @@ stdout '^limactl clone --tty=false devvm-img-[0-9a-f]{12} devvm-web-[0-9a-f]{14}
 stdout -count=1 'limactl edit --tty=false devvm-web'
 stdout '^limactl edit --tty=false devvm-web-[0-9a-f]{14} --set \.env = \{"HTTPS_PROXY":"http://devvm:devvm-proxy-password@192\.168\.5\.2:[0-9]+",.* --set \.propagateProxyEnv=false$'
 ! stdout 'devvm-tools-build'
-stdout '^limactl start --tty=false devvm-web-[0-9a-f]{14}\n(limactl list --json\n)*limactl shell --workdir / devvm-web-[0-9a-f]{14} sh -c .*/etc/ssh/ssh_host_.*\n'
+stdout '^limactl start --tty=false devvm-web-[0-9a-f]{14}\n(limactl list --json\n)*limactl shell --start=false --workdir / devvm-web-[0-9a-f]{14} sh -c .*/etc/ssh/ssh_host_.*\n'
 stdout '^ssh -F none -M -S \S+/data/devvm/run/port-[0-9a-f]{16}\.ctl -T .* -o IdentityFile=\S+/lima/_config/user .* -o UserKnownHostsFile=\S+/data/devvm/vms/[0-9a-f]{14}/run/known_hosts .* -o HostKeyAlias=devvm-web-[0-9a-f]{14} .* -p 60022 -l stub 127\.0\.0\.1 sh -s$'
 ! stdout '^docker '
-stdout '^limactl shell --workdir / devvm-web-[0-9a-f]{14} sh -c cd ''/'' && exec ''bash'' ''-c'' ''d=\$\(mktemp -d\); tar -xf - .*''\n(limactl list --json\n)+limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir / devvm-web-[0-9a-f]{14} sh -c cd ''/'' && exec ''bash'' ''-c'' ''d=\$\(mktemp -d\); tar -xf - .*''\n(limactl list --json\n)+limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
 exists $XDG_DATA_HOME/devvm/tools
 ! exists $XDG_DATA_HOME/devvm/mise.lock
 # .git's hooks and config locked (macOS); elsewhere, not.
@@ -137,7 +137,7 @@ stdout '^limactl delete -f devvm-slow-[0-9a-f]{14}$'
 [darwin] stdout '^chflags -R -P nouchg /\S*/slow/\.git/hooks$'
 ! stdout 'delete -f devvm-(web|api)'
 ! stdout 'nouchg /\S*/(web|api)/'
-! stdout 'limactl shell --workdir'
+! stdout 'limactl shell --start=false --workdir'
 exec sh -c 'cat "$VMS"/*/vm.json'
 ! stdout devvm-slow
 stdout '"name": "devvm-web-'

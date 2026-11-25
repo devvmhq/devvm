@@ -43,10 +43,10 @@ stdout '^limactl start --tty=false devvm-oci-build$'
 # With HTTPS_PROXY set, the build goes through a proxy of devvm's, which
 # alone has the host's proxy settings: the script reads that proxy's
 # address on its input first, then runs with its arguments.
-stdout '^limactl shell --workdir / devvm-oci-build sudo bash -s -- /\S*/tmp/devvm-oci\.[0-9]+/oci/build\.sh /\S*/tmp/devvm-oci\.[0-9]+/oci /\S*/tmp/devvm-oci\.[0-9]+/vm node:24@sha256:a{64} node:24@sha256:a{64} \S+ [0-9]+ /home/\S+\.guest 20G$'
+stdout '^limactl shell --start=false --workdir / devvm-oci-build sudo bash -s -- /\S*/tmp/devvm-oci\.[0-9]+/oci/build\.sh /\S*/tmp/devvm-oci\.[0-9]+/oci /\S*/tmp/devvm-oci\.[0-9]+/vm node:24@sha256:a{64} node:24@sha256:a{64} \S+ [0-9]+ /home/\S+\.guest 20G$'
 stdout '^limactl delete -f devvm-oci-build\nlimactl create --tty=false --mount-none --name=devvm-img-[0-9a-f]{12} --set \.images = \[\{"location":"/\S*/tmp/devvm-oci\.[0-9]+/vm/disk\.raw","arch":"(aarch64|x86_64)","kernel":\{"location":"/\S*/tmp/devvm-oci\.[0-9]+/vm/kernel","cmdline":"root=/dev/vda rw console=hvc0"\},"initrd":\{"location":"/\S*/tmp/devvm-oci\.[0-9]+/vm/initrd"\}\}\] --cpus=4 --memory=8 --disk=100 -$'
 cmp $STUB_DIR/create-template $DEVVM_REPO/assets/base.yaml
-stdout '^limactl shell devvm-img-[0-9a-f]{12} bash -s$'
+stdout '^limactl shell --start=false devvm-img-[0-9a-f]{12} bash -s$'
 exec sh -c 'ls "$TMPDIR"'
 ! stdout .
 # The builds' proxies are gone, with their files.
@@ -127,7 +127,7 @@ stub_calls
 stdout '^docker image inspect --format \{\{\.Id\}\} myapp:dev$'
 stdout '^docker info$'
 stdout '^docker save -o /\S*/tmp/devvm-oci\.[0-9]+/vm/image\.tar myapp:dev$'
-stdout '^limactl shell --workdir / devvm-oci-build sudo bash -s -- /\S*/tmp/devvm-oci\.[0-9]+/oci/build\.sh /\S*/tmp/devvm-oci\.[0-9]+/oci /\S*/tmp/devvm-oci\.[0-9]+/vm - myapp:dev '
+stdout '^limactl shell --start=false --workdir / devvm-oci-build sudo bash -s -- /\S*/tmp/devvm-oci\.[0-9]+/oci/build\.sh /\S*/tmp/devvm-oci\.[0-9]+/oci /\S*/tmp/devvm-oci\.[0-9]+/vm - myapp:dev '
 exec sh -c 'ls -t "$XDG_DATA_HOME"/devvm/logs/runs/*.log | head -1 | xargs cat'
 stdout '^# \[1/15\] exporting_docker from=myapp:dev$'
 stdout '^# \[15/15\] stopping vm=devvm-img-'

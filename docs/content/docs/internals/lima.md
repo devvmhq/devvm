@@ -40,6 +40,10 @@ devvm leaves Lima's `mountInotify` off, so file watchers in the VM see only the 
 
 devvm opens a VM's shell, and runs an agent's login, with `limactl shell`, which asks ssh to send your terminal's `COLORTERM`. That request never reaches the VM, because the session goes over the ssh connection that Lima shares between all of a VM's sessions, which was opened without it ([lima-vm/lima#2208](https://github.com/lima-vm/lima/issues/2208)). Closing that connection would end every session and the VM's SSH agent relay with it, so devvm sets `COLORTERM` in the command it runs in the VM instead. It passes only `truecolor` and `24bit`, the two values that say a terminal shows 24-bit color, and it quotes them for the VM's shell. Quoting alone would make any value safe, but devvm sends a VM only values it knows. It passes nothing for any other value or when `COLORTERM` isn't set, and then the shell starts as `limactl shell` starts it by itself.
 
+## A stopped VM's shell
+
+Every `limactl shell` that devvm runs says `--start=false`. In a terminal, `limactl shell` of a stopped VM asks whether to start it, and the question's default is yes, but that start skips every check of devvm's own start. A VM on a confined tier would run unconfined, without its proxy, and any VM would mount whatever is at the project folder's path, a folder that replaced it included, and Lima would make the folder again if it's gone. So a VM that stops while devvm works with it, such as one whose guest shut itself down, makes devvm's shell or command fail, and devvm's next launch starts it with every check.
+
 ## Confinement
 
 A VM on a confined tier, internet, allowlist or none, reaches nothing but its proxy on the host, which applies its tier's rules, and even root in the VM can't get around that. Direct connections, DNS, UDP and connections to the host's own services fail at once, while forwarded ports, mounts and ssh keep working. [Processes](processes.md) has what the hostagent and the QEMU wrapper hold, write and wait for ([Lima's hostagent](processes.md#limas-hostagent), [the QEMU wrapper](processes.md#the-qemu-wrapper-and-its-keeper)).

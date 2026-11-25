@@ -57,8 +57,8 @@ stub_calls
 [darwin] stdout '^tmutil addexclusion \S*/data/devvm/vms/[0-9a-f]{14}/run/ca$'
 [darwin] stdout '^limactl edit --tty=false devvm-net-[0-9a-f]{14} --set \.env = \{"HTTPS_PROXY":"http://devvm:devvm-proxy-password@192\.168\.5\.2:[0-9]+",.*"NODE_EXTRA_CA_CERTS":"/etc/ssl/devvm\.pem",.*"NO_PROXY":"localhost,127\.0\.0\.1,::1",.*\} --set \.propagateProxyEnv=false --set \.hostResolver\.enabled=false --set \.dns=\["127\.0\.0\.1"\]$'
 [linux] stdout '^limactl edit --tty=false devvm-net-[0-9a-f]{14} --set \.env = \{"HTTPS_PROXY":"http://devvm:devvm-proxy-password@192\.168\.5\.4:3128",.*\} --set \.propagateProxyEnv=false --set \.hostResolver\.enabled=false --set \.dns=\["127\.0\.0\.1"\]$'
-stdout '^limactl start --tty=false devvm-net-[0-9a-f]{14}\n(limactl list --json\n)*limactl shell --workdir / devvm-net-[0-9a-f]{14} sh -c .*/etc/ssh/ssh_host_.*\n(limactl list --json\n)*ssh -F none -M .*\nlimactl shell --workdir / devvm-net-[0-9a-f]{14} sh -c cd ''/'' && exec ''curl'' ''--noproxy'' ''\*'' ''-sS'' ''-m'' ''3'' ''-o'' ''/dev/null'' ''https://1\.1\.1\.1''\n'
-stdout '^limactl shell --workdir /\S*/net devvm-net-[0-9a-f]{14}\n\z'
+stdout '^limactl start --tty=false devvm-net-[0-9a-f]{14}\n(limactl list --json\n)*limactl shell --start=false --workdir / devvm-net-[0-9a-f]{14} sh -c .*/etc/ssh/ssh_host_.*\n(limactl list --json\n)*ssh -F none -M .*\nlimactl shell --start=false --workdir / devvm-net-[0-9a-f]{14} sh -c cd ''/'' && exec ''curl'' ''--noproxy'' ''\*'' ''-sS'' ''-m'' ''3'' ''-o'' ''/dev/null'' ''https://1\.1\.1\.1''\n'
+stdout '^limactl shell --start=false --workdir /\S*/net devvm-net-[0-9a-f]{14}\n\z'
 # The password is in no command's arguments: devvm wrote it into lima.yaml,
 # the user's alone.
 exec sh -c 'key=$(sed -n "s/^ *\"proxy_key\": \"\(.*\)\".*/\1/p" "$NET_dir/vm.json"); test -n "$key" && ! grep -qF "$key" "$STUB_LOG" && grep -qF "\"HTTPS_PROXY\":\"http://devvm:$key@" "$LIMA_HOME"/devvm-net-*/lima.yaml && ! grep -q devvm-proxy-password "$LIMA_HOME"/devvm-net-*/lima.yaml && ls -l "$LIMA_HOME"/devvm-net-*/lima.yaml'
@@ -112,7 +112,7 @@ stderr '^devvm: net_direct_route vm=devvm-leak-[0-9a-f]{14}$'
 stub_calls
 stdout '^limactl stop devvm-leak-[0-9a-f]{14}$'
 ! stdout 'tar -xf'
-! stdout 'limactl shell --workdir /\S*/leak'
+! stdout 'limactl shell --start=false --workdir /\S*/leak'
 vm_name LEAK leak
 vm_state $LEAK_dir/vm.json
 stdout '^net\.made\.check=unenforced$'
@@ -131,7 +131,7 @@ stderr '^devvm: net_proxy_down_stopped vm=devvm-net-[0-9a-f]{14}$'
 stderr '^devvm: proxy_port_taken port=[0-9]+ vm=devvm-net-[0-9a-f]{14}$'
 stub_calls
 stdout '^limactl stop devvm-net-[0-9a-f]{14}$'
-! stdout 'limactl shell --workdir /\S*/net'
+! stdout 'limactl shell --start=false --workdir /\S*/net'
 exec sh -c 'kill "$(cat "$WORK/squat.pid")"'
 
 # Secrets: claude comes with Claude Code. The proxy gets its binding, with

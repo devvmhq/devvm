@@ -1107,7 +1107,7 @@ func TestExecAndShell(t *testing.T) {
 	if err := l.Exec(t.Context(), "v", []string{"echo", "it's $HOME"}, backend.ExecOpts{Dir: "/my dir"}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"limactl", "shell", "--workdir", "/", "v", "sh", "-c", `cd '/my dir' && exec 'echo' 'it'\''s $HOME'`}
+	want := []string{"limactl", "shell", "--start=false", "--workdir", "/", "v", "sh", "-c", `cd '/my dir' && exec 'echo' 'it'\''s $HOME'`}
 	if got := f.calls[0].argv; !slices.Equal(got, want) {
 		t.Errorf("Exec ran %q, want %q", got, want)
 	}
@@ -1130,7 +1130,7 @@ func TestExecAndShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !filepath.IsAbs(c.Path) || !slices.Equal(c.Args[1:], []string{"shell", "--workdir", "/p", "v"}) ||
+	if !filepath.IsAbs(c.Path) || !slices.Equal(c.Args[1:], []string{"shell", "--start=false", "--workdir", "/p", "v"}) ||
 		c.Dir != l.Dirs.Data || !slices.Contains(c.Env, "LIMA_HOME="+l.Dirs.Lima) {
 		t.Errorf("Shell: %+v", c)
 	}
@@ -1142,6 +1142,34 @@ func TestExecAndShell(t *testing.T) {
 	}
 	if v, ok := envOf(call{env: c.Env}, "SSH_AUTH_SOCK"); ok {
 		t.Errorf("Shell without an agent: SSH_AUTH_SOCK=%q", v)
+	}
+}
+
+// Every limactl shell devvm runs, Exec's, Shell's and the builds' alike,
+// says --start=false, so limactl never asks in a terminal to start a
+// stopped VM itself (its default is yes), which would start it past
+// devvm's checks: unconfined, and mounting a project folder that's gone
+// or replaced. Other commands are as given.
+func TestShellNeverStarts(t *testing.T) {
+	l, f, _ := testLima(t, "darwin")
+	if err := l.Exec(t.Context(), "v", []string{"true"}, backend.ExecOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := l.Shell(t.Context(), "v", backend.ShellOpts{Dir: "/p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, args := range map[string][]string{
+		"Exec":    f.calls[0].argv[1:],
+		"Shell":   c.Args[1:],
+		"limactl": l.limactl(t.Context(), "shell", "--workdir", "/", "v", "sync").Args[1:],
+	} {
+		if len(args) < 2 || args[0] != "shell" || args[1] != "--start=false" {
+			t.Errorf("%s ran limactl %q, want shell --start=false first", name, args)
+		}
+	}
+	if got := l.limactl(t.Context(), "stop", "v").Args[1:]; !slices.Equal(got, []string{"stop", "v"}) {
+		t.Errorf("stop ran limactl %q", got)
 	}
 }
 
@@ -1164,7 +1192,7 @@ func TestExecAndShellColorTerm(t *testing.T) {
 		if err := l.Exec(t.Context(), "v", []string{"tput", "colors"}, backend.ExecOpts{Dir: "/p", ColorTerm: c.colorTerm}); err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"limactl", "shell", "--workdir", "/", "v", "sh", "-c", c.exec}
+		want := []string{"limactl", "shell", "--start=false", "--workdir", "/", "v", "sh", "-c", c.exec}
 		if got := f.calls[0].argv; !slices.Equal(got, want) {
 			t.Errorf("Exec with COLORTERM %q ran %q, want %q", c.colorTerm, got, want)
 		}
@@ -1172,7 +1200,7 @@ func TestExecAndShellColorTerm(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := append([]string{"shell", "--workdir", "/p", "v"}, c.shell...); !slices.Equal(cmd.Args[1:], want) {
+		if want := append([]string{"shell", "--start=false", "--workdir", "/p", "v"}, c.shell...); !slices.Equal(cmd.Args[1:], want) {
 			t.Errorf("Shell with COLORTERM %q ran %q, want %q", c.colorTerm, cmd.Args[1:], want)
 		}
 	}

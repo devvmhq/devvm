@@ -61,7 +61,7 @@ stub_calls
 stdout '^limactl clone --tty=false devvm-img-[0-9a-f]{12} devvm-web-[0-9a-f]{14} --mount-none --set \.mounts = \[\{"location":"[^"]*/data/devvm/tools","mountPoint":"/mnt/devvm-tools","writable":false\}\] '
 ! stdout 'git-receive-pack'
 ! stdout elsewhere
-stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
 ! stdout chflags
 stub_reset
 exec devvm clone fetch

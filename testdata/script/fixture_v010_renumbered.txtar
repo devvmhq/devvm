@@ -26,7 +26,7 @@ stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
 ! stderr 'unreadable|corrupt|layout_|moved|replaced|refused|failed|other_folder|folder_changed'
 stub_calls
 stdout '^limactl start --tty=false devvm-app-[0-9a-f]{14}$'
-stdout '^limactl shell --workdir \S*/home/src/app devvm-app-[0-9a-f]{14}$'
+stdout '^limactl shell --start=false --workdir \S*/home/src/app devvm-app-[0-9a-f]{14}$'
 vm_state $APP_dir/vm.json
 stdout '^folder='$FOLDER_ID'$'
 stdout '^folder_volume=uuid:EC5E5014-21A3-4154-ACE8-0C8C1C254852:[0-9]+:[0-9]+\.[0-9]+$'

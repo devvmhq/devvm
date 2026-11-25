@@ -17,7 +17,7 @@ import (
 func TestBuildImagePackages(t *testing.T) {
 	l, f := buildLima(t, "darwin", "")
 	inst := "devvm-img-" + baseKey
-	f.stdout = map[string]string{"limactl shell --workdir / " + inst + " sh -c cd '/' && exec 'sudo' 'sh' '-c' 'mkdir -p": "what came out"}
+	f.stdout = map[string]string{"limactl shell --start=false --workdir / " + inst + " sh -c cd '/' && exec 'sudo' 'sh' '-c' 'mkdir -p": "what came out"}
 	var took string
 	spec := baseSpec(t, l)
 	spec.Packages = &backend.Packages{
@@ -72,7 +72,7 @@ func TestBuildImagePackagesFail(t *testing.T) {
 			l, f := buildLima(t, "darwin", "")
 			inst := "devvm-img-" + baseKey
 			if c.fail != "" {
-				prefix := "limactl shell --workdir / " + inst + " sh -c cd '/' && exec 'sudo' "
+				prefix := "limactl shell --start=false --workdir / " + inst + " sh -c cd '/' && exec 'sudo' "
 				if c.fail == "'rm' '-rf'" {
 					f.fail = []string{prefix + c.fail}
 				} else {
@@ -114,12 +114,12 @@ func TestBuildImageNoBoot(t *testing.T) {
 func TestBuildImageSourcesUnreachable(t *testing.T) {
 	l, f := buildLima(t, "darwin", "")
 	inst := "devvm-img-" + baseKey
-	f.exit = map[string]int{"limactl shell " + inst + " bash -s": backend.ExitUnreachable}
+	f.exit = map[string]int{"limactl shell --start=false " + inst + " bash -s": backend.ExitUnreachable}
 	_, err := l.BuildImage(t.Context(), baseSpec(t, l))
 	if e, ok := errors.AsType[*backend.LoggedError](err); !ok || e.Msg.Names() != "build_sources_unreachable script=base.sh vm="+inst {
 		t.Errorf("got %v", err)
 	}
-	f.exit = map[string]int{"limactl shell " + inst + " bash -s": 1}
+	f.exit = map[string]int{"limactl shell --start=false " + inst + " bash -s": 1}
 	_, err = l.BuildImage(t.Context(), baseSpec(t, l))
 	if msg.IDOf(err) == "build_sources_unreachable" {
 		t.Errorf("exit 1: %v", err)

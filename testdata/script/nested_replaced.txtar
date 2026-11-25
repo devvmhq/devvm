@@ -62,4 +62,4 @@ stub_reset
 exec devvm
 stub_calls
 stdout '^limactl start .*devvm-inner-[0-9a-f]{14}$'
-stdout '^limactl shell --workdir /\S*/app/inner devvm-inner-[0-9a-f]{14}$'
+stdout '^limactl shell --start=false --workdir /\S*/app/inner devvm-inner-[0-9a-f]{14}$'

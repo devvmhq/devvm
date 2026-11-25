@@ -64,7 +64,7 @@ stdout '==> saving_home vm=devvm-web-[0-9a-f]{14}$'
 stdout '==> creating_from image=docker\+foo vm=devvm-web-[0-9a-f]{14}$'
 stdout '==> remade image=docker\+foo vm=devvm-web-[0-9a-f]{14}$'
 stub_calls
-stdout 'limactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl rename --tty=false devvm-web-[0-9a-f]{14} devvm-[0-9a-f]{14}-old\n(.*\n)*limactl clone --tty=false devvm-img-[0-9a-f]+ devvm-web-[0-9a-f]{14} .*\n(.*\n)*limactl start --tty=false devvm-web-[0-9a-f]{14}\n(.*\n)*.*tar -xzf - --skip-old-files.*\n(.*\n)*limactl delete -f devvm-[0-9a-f]{14}-old\n(.*\n)*limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n'
+stdout 'limactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl rename --tty=false devvm-web-[0-9a-f]{14} devvm-[0-9a-f]{14}-old\n(.*\n)*limactl clone --tty=false devvm-img-[0-9a-f]+ devvm-web-[0-9a-f]{14} .*\n(.*\n)*limactl start --tty=false devvm-web-[0-9a-f]{14}\n(.*\n)*.*tar -xzf - --skip-old-files.*\n(.*\n)*limactl delete -f devvm-[0-9a-f]{14}-old\n(.*\n)*limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n'
 vm_state $WEB_dir/vm.json
 stdout '^image=docker\+foo$'
 stdout '^ports.forward=3000$'

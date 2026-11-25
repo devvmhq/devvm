@@ -10,7 +10,7 @@ import (
 
 // checkOfP is the guest's check of the folder /p, as the fake runner
 // sees its command line.
-const checkOfP = `limactl shell --workdir / v sh -c if mountpoint -q '/p'; then P='/p' ` + lastMount +
+const checkOfP = `limactl shell --start=false --workdir / v sh -c if mountpoint -q '/p'; then P='/p' ` + lastMount +
 	` /proc/self/mountinfo; else echo devvm-not-mounted; fi`
 
 // mountinfoOfP is /p's line of mountinfo, a 9p share with the file

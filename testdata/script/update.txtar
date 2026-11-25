@@ -41,7 +41,7 @@ stdout '^==> tools_switch vm=devvm-web-[0-9a-f]{14}$'
 ! stderr remake_confirm
 stub_calls
 ! stdout 'limactl (stop|rename|clone|delete)'
-stdout 'limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n'
+stdout 'limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n'
 vm_state $WEB_dir/vm.json
 ! stdout 'claude-1\.0\.0'
 
@@ -68,7 +68,7 @@ stderr '^remake_confirm image=foo vm=devvm-web-[0-9a-f]{14} \[y/N\] '
 stdout '==> kept vm=devvm-web-[0-9a-f]{14}$'
 stub_calls
 ! stdout 'limactl (stop|rename|clone|delete)'
-stdout 'limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n'
+stdout 'limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n'
 vm_state $WEB_dir/vm.json
 ! stdout 'claude-1\.0\.0'
 
@@ -83,7 +83,7 @@ stdout '==> saving_home vm=devvm-web-[0-9a-f]{14}$'
 stdout '==> creating_from image=foo vm=devvm-web-[0-9a-f]{14}$'
 stdout '==> remade image=foo vm=devvm-web-[0-9a-f]{14}$'
 stub_calls
-stdout 'tar -czf - --one-file-system.*\n(.*\n)*limactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl rename --tty=false devvm-web-[0-9a-f]{14} devvm-[0-9a-f]{14}-old\n(.*\n)*limactl clone --tty=false devvm-img-[0-9a-f]+ devvm-web-[0-9a-f]{14} .*\n(.*\n)*limactl start --tty=false devvm-web-[0-9a-f]{14}\n(.*\n)*.*tar -xzf - --skip-old-files.*\n(.*\n)*limactl delete -f devvm-[0-9a-f]{14}-old\n(.*\n)*limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n'
+stdout 'tar -czf - --one-file-system.*\n(.*\n)*limactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl rename --tty=false devvm-web-[0-9a-f]{14} devvm-[0-9a-f]{14}-old\n(.*\n)*limactl clone --tty=false devvm-img-[0-9a-f]+ devvm-web-[0-9a-f]{14} .*\n(.*\n)*limactl start --tty=false devvm-web-[0-9a-f]{14}\n(.*\n)*.*tar -xzf - --skip-old-files.*\n(.*\n)*limactl delete -f devvm-[0-9a-f]{14}-old\n(.*\n)*limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n'
 vm_state $WEB_dir/vm.json
 stdout '^image=foo$'
 stdout '^ports.forward=3000$'

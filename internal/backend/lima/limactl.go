@@ -59,8 +59,16 @@ func (logRunner) Attach(cmd *exec.Cmd) error { return cmd.Run() }
 // those lines on to devvm's run log, which keeps URL passwords out, and
 // Start takes them out of the hostagent's own log (redactLog). It carries
 // no SSH agent: a command that reaches a VM gets the VM's own (withAgent),
-// never whichever devvm started with.
+// never whichever devvm started with. A limactl shell gets --start=false:
+// in a terminal, limactl shell of a stopped VM asks whether to start it,
+// yes by default, and its start would skip every check of devvm's start,
+// so a VM that stopped itself would run unconfined, without its proxy,
+// mounting a project folder that's gone (which Lima makes again) or
+// replaced. A stopped VM's shell fails instead.
 func (l *Lima) limactl(ctx context.Context, args ...string) *exec.Cmd {
+	if len(args) > 0 && args[0] == "shell" {
+		args = slices.Concat([]string{"shell", "--start=false"}, args[1:])
+	}
 	cmd := exec.CommandContext(ctx, "limactl", args...) //nolint:gosec // devvm's own arguments
 	cmd.Env = setEnv(os.Environ(), append(backend.ClientProxyVars(), "SSH_AUTH_SOCK", "LIMA_HOME="+l.Dirs.Lima)...)
 	cmd.Dir = l.Dirs.Data

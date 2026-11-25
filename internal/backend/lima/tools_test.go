@@ -35,7 +35,7 @@ func TestBuildTools(t *testing.T) {
 			`","mountPoint":"/mnt/devvm-tools","writable":true,"9p":{"cache":"none"}}] devvm-img-` + baseKey + " " + string(ToolsVM),
 		"limactl edit --tty=false " + string(ToolsVM) + " --set .ssh.localPort=",
 		"limactl start --tty=false " + string(ToolsVM),
-		"limactl shell --workdir / " + string(ToolsVM) + " bash -s -- node 24.21.0 node-24.21.0-0123456789ab.erofs",
+		"limactl shell --start=false --workdir / " + string(ToolsVM) + " bash -s -- node 24.21.0 node-24.21.0-0123456789ab.erofs",
 		"limactl delete -f " + string(ToolsVM),
 	})
 }
@@ -64,13 +64,13 @@ func TestBuildToolsTrust(t *testing.T) {
 // run's cleanup, so the run log ends with the script's output.
 func TestBuildToolsFails(t *testing.T) {
 	l, f := buildLima(t, "darwin", "Stopped")
-	f.fail = []string{"limactl shell --workdir / " + string(ToolsVM) + " bash -s"}
+	f.fail = []string{"limactl shell --start=false --workdir / " + string(ToolsVM) + " bash -s"}
 	err := l.BuildTools(t.Context(), toolsSpec(t, t.TempDir()))
 	if e, ok := errors.AsType[*backend.LoggedError](err); !ok || e.Msg.ID() != "tools_build_failed" {
 		t.Fatalf("BuildTools = %v", err)
 	}
 	lines := f.lines()
-	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "limactl shell --workdir / "+string(ToolsVM)) {
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "limactl shell --start=false --workdir / "+string(ToolsVM)) {
 		t.Errorf("last call %q, want the script", last)
 	}
 }

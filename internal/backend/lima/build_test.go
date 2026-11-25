@@ -124,8 +124,8 @@ func TestBuildImageBase(t *testing.T) {
 			" --cpus=4 --memory=8 --disk=100 -",
 		"limactl edit --tty=false " + inst + " --set .ssh.localPort=",
 		"sandbox-exec -f " + l.Dirs.VM(inst).Profile() + " ",
-		"limactl shell " + inst + " bash -s",
-		"limactl shell --workdir / " + inst + " sync",
+		"limactl shell --start=false " + inst + " bash -s",
+		"limactl shell --start=false --workdir / " + inst + " sync",
 		"limactl stop " + inst,
 	})
 	for _, c := range f.calls {
@@ -171,12 +171,12 @@ func TestBuildImageLayer(t *testing.T) {
 		"limactl clone --tty=false --mount-none devvm-img-" + baseKey + " " + inst,
 		"limactl edit --tty=false " + inst + " --set .ssh.localPort=",
 		"limactl start --tty=false " + inst,
-		"limactl shell --workdir / " + inst + " sudo sh -s",
-		"limactl shell " + inst + " bash -s",
-		"limactl shell " + inst + " bash -s -- a b c",
-		"limactl shell --workdir / " + inst + " sudo bash -s",
-		"limactl shell --workdir / " + inst + " sudo sh -s",
-		"limactl shell --workdir / " + inst + " sync",
+		"limactl shell --start=false --workdir / " + inst + " sudo sh -s",
+		"limactl shell --start=false " + inst + " bash -s",
+		"limactl shell --start=false " + inst + " bash -s -- a b c",
+		"limactl shell --start=false --workdir / " + inst + " sudo bash -s",
+		"limactl shell --start=false --workdir / " + inst + " sudo sh -s",
+		"limactl shell --start=false --workdir / " + inst + " sync",
 		"limactl stop " + inst,
 	})
 	// Each step as it is, after the CAs' variables; the CAs' own scripts
@@ -297,12 +297,12 @@ func TestBuildImageHostProxy(t *testing.T) {
 					scripts = append(scripts, c.line()+"\n"+c.stdin)
 				}
 			}
-			if len(scripts) != 3 || !strings.HasPrefix(scripts[1], "limactl shell "+inst+" bash -s\nexport HTTPS_PROXY='http://devvm:") ||
+			if len(scripts) != 3 || !strings.HasPrefix(scripts[1], "limactl shell --start=false "+inst+" bash -s\nexport HTTPS_PROXY='http://devvm:") ||
 				!strings.Contains(scripts[1], "@192.168.5.2:40000' https_proxy='http://devvm:") ||
 				!strings.HasSuffix(scripts[1], "@192.168.5.2:40000' NO_PROXY='.corp' no_proxy='.corp'; #!/bin/bash\necho foo\n") {
 				t.Errorf("scripts:\n%s", strings.Join(scripts, "\n--\n"))
 			}
-			if want := "limactl shell --workdir / " + inst + " sudo sh -s\nprintf '%s\\n' '" + sudoKeepProxy +
+			if want := "limactl shell --start=false --workdir / " + inst + " sudo sh -s\nprintf '%s\\n' '" + sudoKeepProxy +
 				"' > /etc/sudoers.d/devvm-build-proxy && chmod 440 /etc/sudoers.d/devvm-build-proxy\n"; len(scripts) == 3 && scripts[0] != want {
 				t.Errorf("sudo: %s", scripts[0])
 			}
@@ -405,7 +405,7 @@ func TestBuildImageHostProxyRefused(t *testing.T) {
 func TestBuildImageScriptFails(t *testing.T) {
 	l, f := buildLima(t, "darwin", "")
 	const inst = vmname.ImagePrefix + baseKey
-	f.fail = []string{"limactl shell " + inst + " bash -s"}
+	f.fail = []string{"limactl shell --start=false " + inst + " bash -s"}
 	_, err := l.BuildImage(t.Context(), baseSpec(t, l))
 	e, ok := errors.AsType[*backend.LoggedError](err)
 	if !ok || e.Msg.ID() != "script_failed" {

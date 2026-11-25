@@ -114,7 +114,7 @@ exec devvm
 stdout '^==> starting what='$APP'$'
 ! stderr 'unreadable|corrupt|refused|failed|folder_changed|other_folder'
 stub_calls
-stdout '^limactl shell --workdir \S*/home/src/app-moved '$APP'$'
+stdout '^limactl shell --start=false --workdir \S*/home/src/app-moved '$APP'$'
 exec devvm stop
 
 -- reasons.sh --

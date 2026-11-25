@@ -113,7 +113,7 @@ stub_reset
 exec devvm
 stdout '^==> using_parent_vm dir=/\S*/ws vm=devvm-ws-[0-9a-f]{14}$'
 stub_calls
-stdout '^limactl shell --workdir /\S*/ws/frontend devvm-ws-[0-9a-f]{14}$'
+stdout '^limactl shell --start=false --workdir /\S*/ws/frontend devvm-ws-[0-9a-f]{14}$'
 ! exec devvm host --here
 stderr '^devvm: no_vm dir=/\S*/ws/frontend$'
 cd ../empty

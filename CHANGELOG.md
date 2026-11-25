@@ -235,9 +235,10 @@ These changes are on `main` and go out in the next release.
 - `devvm agent save` no longer refuses a VM whose `~/.config/opencode` holds a `bun.lock` or another file the store doesn't keep, which stays in the VM ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-lock-files-in-a-save)).
 
 </details>
-<details><summary>Security hardening: a VM's history export can no longer have opencode run commands unasked in the VM you import it into</summary>
+<details><summary>Security hardening: a VM can no longer be started unconfined past devvm's checks, and its history export can no longer have opencode run commands unasked in the VM you import it into</summary>
 
 - `devvm history export` and `devvm history import` leave out opencode's automations, approvals, allow rules, resumable turns, project commands, git repositories and approved plugins, so make again any automation you want in the new VM ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-automations-and-permissions-in-history)).
+- devvm's shell or command in a VM that just shut itself down now fails, where Lima asked whether to start the VM, yes by default, and started it unconfined and past devvm's checks ([details](https://next.devvm.dev/docs/releases/0.2.0/#a-stopped-vms-shell)).
 
 </details>
 <details><summary>Internal changes</summary>

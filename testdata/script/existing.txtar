@@ -15,8 +15,8 @@ exec devvm
 [linux] stderr '\Adevvm: git_unprotected vm=devvm-web-[0-9a-f]{14}\n\z'
 stub_calls
 ! stdout 'limactl (start|stop|clone|create|edit|delete)'
-stdout '^limactl shell --workdir / devvm-web-[0-9a-f]{14} sh -c .*tar -xf - '
-stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir / devvm-web-[0-9a-f]{14} sh -c .*tar -xf - '
+stdout '^limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
 exec grep -c '^devvm-web-' $WEB_dir/run/known_hosts
 stdout '^1$'
 
@@ -66,7 +66,7 @@ exec devvm restart
 stdout '^==> starting what=devvm-web-[0-9a-f]{14}$'
 stub_calls
 stdout '^limactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl start --tty=false devvm-web-[0-9a-f]{14}\n'
-stdout '^limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
 
 # --tools, --agents and --layers change nothing on a VM that exists: it
 # opens as it is, warning that devvm tools changes its shared tools and

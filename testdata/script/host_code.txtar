@@ -29,7 +29,7 @@ stdout '^ssh_host_info dir=/\S*/web host=devvm-web$'
 stub_calls
 stdout '^limactl start --tty=false devvm-web-[0-9a-f]{14}$'
 stdout 'tar -xf'
-! stdout 'limactl shell --workdir /\S*/web devvm-web'
+! stdout 'limactl shell --start=false --workdir /\S*/web devvm-web'
 catg $DATA/ssh_config
 stdout '^Host devvm-web devvm-web-[0-9a-f]{14}$'
 ! exists $HOME/.ssh

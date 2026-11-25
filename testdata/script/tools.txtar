@@ -22,7 +22,7 @@ stdout '^mise lock --platform linux-(arm64|x64),linux-(arm64|x64)-musl$'
 # and goes before the next tool's is made.
 stdout '^limactl clone --tty=false --mount-none --set \.mounts = \[\{"location":"\S*/data/devvm/tools-build\.[0-9]+","mountPoint":"/mnt/devvm-tools","writable":true,"9p":\{"cache":"none"\}\}\] devvm-img-[0-9a-f]{12} devvm-tools-build$'
 ! stdout '"location":"\S*/data/devvm/tools","mountPoint":"/mnt/devvm-tools","writable":true'
-stdout '^limactl shell --workdir / devvm-tools-build bash -s -- node 24\.21\.0 node-24\.21\.0-[0-9a-f]{12}\.erofs\n(.*\n)*limactl delete -f devvm-tools-build\n(.*\n)*limactl clone .* devvm-tools-build\n(.*\n)*limactl shell --workdir / devvm-tools-build bash -s -- pnpm \S+ pnpm-\S+\.erofs\n(.*\n)*limactl shell --workdir / devvm-tools-build bash -s -- bun 1\.4\.2 bun-1\.4\.2-[0-9a-f]{12}\.erofs\n(.*\n)*limactl shell --workdir / devvm-tools-build bash -s -- claude 2\.1\.295 claude-2\.1\.295-[0-9a-f]{12}\.erofs\n(.*\n)*limactl delete -f devvm-tools-build$'
+stdout '^limactl shell --start=false --workdir / devvm-tools-build bash -s -- node 24\.21\.0 node-24\.21\.0-[0-9a-f]{12}\.erofs\n(.*\n)*limactl delete -f devvm-tools-build\n(.*\n)*limactl clone .* devvm-tools-build\n(.*\n)*limactl shell --start=false --workdir / devvm-tools-build bash -s -- pnpm \S+ pnpm-\S+\.erofs\n(.*\n)*limactl shell --start=false --workdir / devvm-tools-build bash -s -- bun 1\.4\.2 bun-1\.4\.2-[0-9a-f]{12}\.erofs\n(.*\n)*limactl shell --start=false --workdir / devvm-tools-build bash -s -- claude 2\.1\.295 claude-2\.1\.295-[0-9a-f]{12}\.erofs\n(.*\n)*limactl delete -f devvm-tools-build$'
 exec sh -c 'grep -c "^limactl clone .* devvm-tools-build$" "$STUB_LOG"'
 stdout '^4$'
 stub_calls
@@ -112,7 +112,7 @@ vm_state $SHOP_dir/vm.json
 stdout '^tools.names=dotnet$'
 stdout '^tools.made.files=dotnet-10\.0\.401-[0-9a-f]{12}\.erofs$'
 stub_calls
-stdout '^limactl shell --workdir / devvm-tools-build bash -s -- dotnet 10\.0\.401 dotnet-10\.0\.401-[0-9a-f]{12}\.erofs https://builds\.dotnet\.microsoft\.com/dotnet/Sdk/10\.0\.401/dotnet-sdk-10\.0\.401-linux-(arm64|x64)\.tar\.gz [0-9a-f]{128}$'
+stdout '^limactl shell --start=false --workdir / devvm-tools-build bash -s -- dotnet 10\.0\.401 dotnet-10\.0\.401-[0-9a-f]{12}\.erofs https://builds\.dotnet\.microsoft\.com/dotnet/Sdk/10\.0\.401/dotnet-sdk-10\.0\.401-linux-(arm64|x64)\.tar\.gz [0-9a-f]{128}$'
 # global.json alone calls for it too.
 project sdk
 cp $WORK/global.json global.json

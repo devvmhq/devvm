@@ -48,7 +48,7 @@ exec devvm
 stub_calls
 [darwin] stdout '^limactl edit --tty=false devvm-web-[0-9a-f]{14} --set \.mounts = \[\{"location":"/\S*/site","writable":true\}'
 [linux] stdout '^limactl edit --tty=false devvm-web-[0-9a-f]{14} --set \.mounts = \[\{"location":"/\S*/site","writable":true,"9p":\{"cache":"none"\}\}'
-stdout '^limactl shell --workdir /\S*/site devvm-web-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/site devvm-web-[0-9a-f]{14}\n\z'
 exec tar -xOf $STUB_DIR/sync.tar moved
 stdout '^moved_from=''/\S*/web''\nmoved_to=''/\S*/site''\nclaude_from=''-\S*-web''\nclaude_to=''-\S*-site''\n\z'
 ! grep '"moved"' $WEB_dir/vm.json

@@ -25,8 +25,8 @@ cmp $STUB_DIR/create-template $DEVVM_REPO/assets/base.yaml
 ! exists $XDG_DATA_HOME/devvm/assets
 stdout '^limactl edit --tty=false devvm-img-[0-9a-f]{12} .*--set \.portForwards = \[\{"guestIP":"127\.0\.0\.1"'
 stdout '^limactl start --tty=false devvm-img-[0-9a-f]{12}$'
-stdout '^limactl shell devvm-img-[0-9a-f]{12} bash -s$'
-stdout '^limactl shell --workdir / devvm-img-[0-9a-f]{12} sync$'
+stdout '^limactl shell --start=false devvm-img-[0-9a-f]{12} bash -s$'
+stdout '^limactl shell --start=false --workdir / devvm-img-[0-9a-f]{12} sync$'
 stdout '^limactl stop devvm-img-[0-9a-f]{12}$'
 # Its ssh port is devvm's, on every host, given up once it has started.
 stdout '^limactl edit --tty=false devvm-img-[0-9a-f]{12} --set \.ssh\.localPort=[1-9][0-9]+ '
@@ -128,7 +128,7 @@ stderr '^devvm: tool_not_layer tool=node$'
 exec sh -c ': > "$STUB_DIR/shell-fails"'
 ! exec devvm build foo+bar
 stderr '^--- log_end file=.*\.log$'
-stderr '^\+ limactl shell --workdir / devvm-img-[0-9a-f]{12} sudo bash -s -- lists$'
+stderr '^\+ limactl shell --start=false --workdir / devvm-img-[0-9a-f]{12} sudo bash -s -- lists$'
 stderr '^devvm: script_failed script=apt\.sh vm=devvm-img-[0-9a-f]{12}$'
 ! stdout unfinished_image
 stub_calls

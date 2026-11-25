@@ -17,7 +17,7 @@ stdout '^==> using_parent_vm dir=/\S*/app vm=devvm-app-[0-9a-f]{14}$'
 ! stdout creating
 stub_calls
 ! stdout 'limactl (clone|create)'
-stdout '^limactl shell --workdir /\S*/app/src/lib devvm-app-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/app/src/lib devvm-app-[0-9a-f]{14}\n\z'
 exec sh -c 'ls "$VMS" | wc -l'
 stdout '^ *1$'
 
@@ -42,7 +42,7 @@ stub_reset
 exec devvm
 ! stdout using_parent_vm
 stub_calls
-stdout '^limactl shell --workdir /\S*/app/src devvm-src-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/app/src devvm-src-[0-9a-f]{14}\n\z'
 
 # The nearest folder with a VM wins.
 cd $WORK/app/src/lib
@@ -63,7 +63,7 @@ stub_reset
 exec devvm --parent
 stdout '^==> using_parent_vm dir=/\S*/app vm=devvm-app-[0-9a-f]{14}$'
 stub_calls
-stdout '^limactl shell --workdir /\S*/app/tool/bin devvm-app-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/app/tool/bin devvm-app-[0-9a-f]{14}\n\z'
 exec devvm stop --parent
 stdout '^==> using_parent_vm dir=/\S*/app vm=devvm-app-[0-9a-f]{14}\n==> stopped vm=devvm-app-[0-9a-f]{14}$'
 exec devvm --network open

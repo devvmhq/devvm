@@ -74,8 +74,8 @@ stdout '^==> creating_from image=docker\+extra vm=devvm-web-[0-9a-f]{14}$'
 # the shell.
 stdout '^==> running_script script=onCreateCommand what=devvm-web-[0-9a-f]{14}\n==> running_script script=postCreateCommand a what=devvm-web-[0-9a-f]{14}\n==> running_script script=postCreateCommand b what=devvm-web-[0-9a-f]{14}\n==> running_script script=postStartCommand what=devvm-web-[0-9a-f]{14}\n'
 stub_calls
-stdout '^limactl shell --workdir / devvm-web-[0-9a-f]{14} sh -c cd ''/\S*/web'' && exec ''bash'' ''-lc'' ''exec "\$@"'' ''devvm'' ''sh'' ''-c'' ''echo made > ~/made''\n'
-stdout '^limactl shell --workdir / devvm-web-[0-9a-f]{14} sh -c cd ''/\S*/web'' && exec ''bash'' ''-lc'' ''exec "\$@"'' ''devvm'' ''touch'' ''b''\nlimactl shell --workdir / devvm-web-[0-9a-f]{14} sh -c cd ''/\S*/web'' && exec ''bash'' ''-lc'' ''exec "\$@"'' ''devvm'' ''sh'' ''-c'' ''echo started >> ~/started''\n(limactl list --json\n)*limactl shell --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir / devvm-web-[0-9a-f]{14} sh -c cd ''/\S*/web'' && exec ''bash'' ''-lc'' ''exec "\$@"'' ''devvm'' ''sh'' ''-c'' ''echo made > ~/made''\n'
+stdout '^limactl shell --start=false --workdir / devvm-web-[0-9a-f]{14} sh -c cd ''/\S*/web'' && exec ''bash'' ''-lc'' ''exec "\$@"'' ''devvm'' ''touch'' ''b''\nlimactl shell --start=false --workdir / devvm-web-[0-9a-f]{14} sh -c cd ''/\S*/web'' && exec ''bash'' ''-lc'' ''exec "\$@"'' ''devvm'' ''sh'' ''-c'' ''echo started >> ~/started''\n(limactl list --json\n)*limactl shell --start=false --workdir /\S*/web devvm-web-[0-9a-f]{14}\n\z'
 ! stdout pwned
 # Its variables are in its environment file, before devvm's own.
 exec tar -xOf $STUB_DIR/sync.tar env
@@ -144,7 +144,7 @@ stderr '^devvm: devcontainer_command_failed command=postCreateCommand a vm=devvm
 ! stdout 'running_script script=postCreateCommand b'
 stdout '^==> running_script script=postStartCommand what=devvm-fail-[0-9a-f]{14}$'
 stub_calls
-stdout '^limactl shell --workdir /\S*/fail devvm-fail-[0-9a-f]{14}\n\z'
+stdout '^limactl shell --start=false --workdir /\S*/fail devvm-fail-[0-9a-f]{14}\n\z'
 rm $STUB_DIR/shell-fails-on
 
 # --no-devcontainer: the file isn't read (this one would be refused), and

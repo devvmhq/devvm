@@ -165,7 +165,7 @@ stdout '^limactl edit --tty=false devvm-app-[0-9a-f]{14} --set \.ssh\.localPort=
 ! stdout '(?s)limactl edit .*limactl edit'
 ! stdout 'limactl (create|clone|delete)'
 [darwin] stdout '^chflags -R -P uchg \S*/home/src/app/\.git/config$'
-stdout '^limactl shell --workdir \S*/home/src/app devvm-app-[0-9a-f]{14}$'
+stdout '^limactl shell --start=false --workdir \S*/home/src/app devvm-app-[0-9a-f]{14}$'
 
 # The launch kept every field 0.1.0 wrote, but the start it records and
 # its ssh port, now one of the sandbox's list.

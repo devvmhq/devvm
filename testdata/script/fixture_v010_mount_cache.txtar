@@ -33,7 +33,7 @@ stdout '^==> starting what=devvm-app-[0-9a-f]{14}$'
 stub_calls
 stdout '^limactl edit --tty=false devvm-app-[0-9a-f]{14} --set \.mounts = \[\{"location":"\S*/app","writable":true,"9p":\{"cache":"none"\}\},'
 ! stdout '(?s)limactl edit --tty=false devvm-app.*limactl edit --tty=false devvm-app'
-stdout '^limactl start --tty=false devvm-app-[0-9a-f]{14}\n(.*\n)*limactl shell --workdir / devvm-app-[0-9a-f]{14} sudo sh -c umount ''\S*/app'' \|\| exit 3; mount '
+stdout '^limactl start --tty=false devvm-app-[0-9a-f]{14}\n(.*\n)*limactl shell --start=false --workdir / devvm-app-[0-9a-f]{14} sudo sh -c umount ''\S*/app'' \|\| exit 3; mount '
 exec devvm mount-cache --json
 stdout '\A{\n  "version": 1,\n  "mode": "none",\n  "chosen": true\n}\n\z'
 

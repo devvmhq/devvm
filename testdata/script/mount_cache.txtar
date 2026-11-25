@@ -96,8 +96,8 @@ exec devvm
 stub_calls
 stdout '^limactl edit --tty=false devvm-web-[0-9a-f]{14} --set \.mounts = \[\{"location":"\S*/web","writable":true,"9p":\{"cache":"none"\}\},'
 ! stdout '(?s)limactl edit --tty=false devvm-web.*limactl edit --tty=false devvm-web'
-stdout '^limactl start --tty=false devvm-web-[0-9a-f]{14}\n(.*\n)*limactl shell --workdir / devvm-web-[0-9a-f]{14} sudo sh -c umount ''\S*/web'' \|\| exit 3; mount '
-stdout '^limactl shell --workdir / devvm-web-[0-9a-f]{14} sh -c if mountpoint -q ''\S*/web''; then P=''\S*/web'' awk .* /proc/self/mountinfo; '
+stdout '^limactl start --tty=false devvm-web-[0-9a-f]{14}\n(.*\n)*limactl shell --start=false --workdir / devvm-web-[0-9a-f]{14} sudo sh -c umount ''\S*/web'' \|\| exit 3; mount '
+stdout '^limactl shell --start=false --workdir / devvm-web-[0-9a-f]{14} sh -c if mountpoint -q ''\S*/web''; then P=''\S*/web'' awk .* /proc/self/mountinfo; '
 exec devvm mount-cache
 stdout '\Anone\n\z'
 ! stderr .
@@ -120,7 +120,7 @@ stub_reset
 ! exec devvm
 stderr '^devvm: mount_cache_unmounted vm=devvm-web-[0-9a-f]{14}$'
 stub_calls
-! stdout '^limactl shell --workdir \S*/web devvm-web'
+! stdout '^limactl shell --start=false --workdir \S*/web devvm-web'
 stdout '(?s)sudo sh -c umount .*\nlimactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl start --tty=false devvm-web-[0-9a-f]{14}\n(.*\n)*limactl stop devvm-web-[0-9a-f]{14}\n'
 ! stdout '(?s)sudo sh -c umount .*sudo sh -c umount '
 ! stdout '(?s)(limactl start --tty=false devvm-web.*){3}'
@@ -144,7 +144,7 @@ exec devvm
 stderr -count=1 '^devvm: policy_not_rule file=\S*/policy line=\d+ rule=example\.com:x$'
 exec sh -c 'grep -v "example.com:x" "$CFG/policy" > "$WORK/p"; cat "$WORK/p" > "$CFG/policy"'
 stub_calls
-stdout '(?s)sudo sh -c umount .*\nlimactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl start --tty=false devvm-web-[0-9a-f]{14}\n(.*\n)*limactl shell --workdir \S*/web devvm-web-[0-9a-f]{14}\n'
+stdout '(?s)sudo sh -c umount .*\nlimactl stop devvm-web-[0-9a-f]{14}\n(.*\n)*limactl start --tty=false devvm-web-[0-9a-f]{14}\n(.*\n)*limactl shell --start=false --workdir \S*/web devvm-web-[0-9a-f]{14}\n'
 ! stdout '(?s)sudo sh -c umount .*sudo sh -c umount '
 exec sh -c 'cat "$DATA"/logs/runs/*.log'
 stdout 'devvm: devvm-web-[0-9a-f]{14}''s project folder after its remount: it isn''t mounted; restarting the VM$'
@@ -162,7 +162,7 @@ stub_reset
 ! exec devvm
 stderr '^devvm: project_unmounted vm=devvm-web-[0-9a-f]{14}$'
 stub_calls
-! stdout '^limactl shell --workdir \S*/web devvm-web'
+! stdout '^limactl shell --start=false --workdir \S*/web devvm-web'
 rm $STUB_DIR/mount-unmounted
 
 # A stored mmap, as a build of devvm before none alone wrote, is none
@@ -203,7 +203,7 @@ stderr '^devvm: git_strict_converted vm=devvm-app-[0-9a-f]{14}$'
 stub_calls
 stdout '^limactl edit --tty=false devvm-app-[0-9a-f]{14} --set \.mounts = \[\{"location":"\S*/app","writable":true,"9p":\{"cache":"none"\}\},'
 ! stdout '(?s)limactl edit --tty=false devvm-app.*limactl edit --tty=false devvm-app'
-stdout '^limactl start --tty=false devvm-app-[0-9a-f]{14}\n(.*\n)*limactl shell --workdir / devvm-app-[0-9a-f]{14} sudo sh -c umount ''\S*/app'' \|\| exit 3; mount '
+stdout '^limactl start --tty=false devvm-app-[0-9a-f]{14}\n(.*\n)*limactl shell --start=false --workdir / devvm-app-[0-9a-f]{14} sudo sh -c umount ''\S*/app'' \|\| exit 3; mount '
 vm_state $APP_dir/vm.json
 stdout '^git\.mode=on$'
 stdout '^mount\.cache=none$'
