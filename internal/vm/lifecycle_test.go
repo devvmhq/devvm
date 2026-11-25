@@ -79,11 +79,19 @@ func TestHistoryScriptsOnInput(t *testing.T) {
 	if !slices.Equal(scripts, want) || string(rest) != "the export" {
 		t.Errorf("the scripts on the input: %d, rest %q", len(scripts), rest)
 	}
+	// In the VM, onInputCmd passes each to bash -c as one argument, which
+	// Linux holds under 128 KiB (MAX_ARG_STRLEN).
+	for _, s := range want {
+		if len(s) >= 128<<10 {
+			t.Errorf("a script of %d bytes: %.80q", len(s), s)
+		}
+	}
 }
 
 // onInput's command runs its script, with the rest of its input as the
 // script's, only when it read the whole script: an input cut short, even
-// to a whole command, runs nothing.
+// to a whole command, runs nothing, and says why on its stderr, which
+// goes to the VM's log.
 func TestOnInputCutShort(t *testing.T) {
 	script := "mkdir ran\ncat > rest\n"
 	argv, in := onInput(script, strings.NewReader("the rest"))
@@ -92,20 +100,24 @@ func TestOnInputCutShort(t *testing.T) {
 		t.Fatal(err)
 	}
 	full := string(b)
-	for _, n := range []int{len(full), 1, len(full) / 2, strings.Index(full, "cat")} {
+	for _, n := range []int{len(full), 0, 1, len(full) / 2, strings.Index(full, "cat")} {
 		dir := t.TempDir()
+		var stderr strings.Builder
 		cmd := exec.CommandContext(t.Context(), argv[0], argv[1:]...) //nolint:gosec // devvm's own command, its script on its input
-		cmd.Dir, cmd.Stdin = dir, strings.NewReader(full[:n])
+		cmd.Dir, cmd.Stdin, cmd.Stderr = dir, strings.NewReader(full[:n]), &stderr
 		err := cmd.Run()
 		_, ran := os.Stat(filepath.Join(dir, "ran"))
 		if n == len(full) {
-			if err != nil || ran != nil || readFile(t, filepath.Join(dir, "rest")) != "the rest" {
-				t.Errorf("whole: %v, ran %v", err, ran)
+			if err != nil || ran != nil || readFile(t, filepath.Join(dir, "rest")) != "the rest" || stderr.Len() > 0 {
+				t.Errorf("whole: %v, ran %v, stderr %q", err, ran, stderr.String())
 			}
 			continue
 		}
 		if err == nil || ran == nil {
 			t.Errorf("cut at %d of %d: %v, it ran", n, len(full), err)
+		}
+		if !strings.Contains(stderr.String(), "devvm: The script on the input was cut short") {
+			t.Errorf("cut at %d of %d: stderr %q", n, len(full), stderr.String())
 		}
 	}
 }

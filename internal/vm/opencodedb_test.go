@@ -547,6 +547,9 @@ func TestHistoryExportRuns(t *testing.T) {
 				opencodeState + "/service.json.0a1b.tmp", opencodeState + "/service.json.pty-handoff.0a1b.tmp",
 				opencodeState + "/service-local.json.pty-handoff", opencodeState + "/services.json",
 				opencodeData + "/snapshot/p/h/config", opencodeData + "/repos/r/config", opencodeData + "/worktree/w/.git",
+				opencodeState + "/plugin-approvals.json", opencodeState + "/plugin-approvals.json.lock",
+				opencodeState + "/.plugin-approvals.json.42.0.tmp", opencodeState + "/plugin-staged/abc/index.ts",
+				opencodeState + "/plugin-notes.json",
 				piSessions + "/--p--/s.jsonl", piDir + "/auth.json", piDir + "/settings.json",
 			} {
 				if err := state.WriteFile(filepath.Join(home, f), []byte(f)); err != nil {
@@ -581,7 +584,10 @@ func TestHistoryExportRuns(t *testing.T) {
 				opencodeState + "/service.json.0a1b.tmp": false, opencodeState + "/service.json.pty-handoff.0a1b.tmp": false,
 				opencodeState + "/service-local.json.pty-handoff": false, opencodeState + "/services.json": true,
 				opencodeData + "/snapshot/p/h/config": false, opencodeData + "/repos/r/config": false, opencodeData + "/worktree/w/.git": false,
-				opencodeState + "/pty/d/service.json": false,
+				opencodeState + "/pty/d/service.json":    false,
+				opencodeState + "/plugin-approvals.json": false, opencodeState + "/plugin-approvals.json.lock": false,
+				opencodeState + "/.plugin-approvals.json.42.0.tmp": false, opencodeState + "/plugin-staged/abc/index.ts": false,
+				opencodeState + "/plugin-notes.json": true,
 			} {
 				if _, ok := got[f]; ok != want {
 					t.Errorf("%s: in the export %v, want %v", f, ok, want)

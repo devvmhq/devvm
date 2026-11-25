@@ -99,7 +99,7 @@ Each row lists the agent's paths in the VM's home, and the store keeps each one 
 | --- | --- | --- |
 | claude | `~/.claude/{skills,agents,commands,output-styles}`, and the store's `~/.claude/plugins` at `~/.claude/plugins-seed` ([Claude Code's plugins](#claude-codes-plugins)) | `~/.claude/settings.json`, `~/.claude/CLAUDE.md`, and from the logins `~/.claude.json` ([merged](#copies), only its settings, account state and MCP servers) |
 | codex | `~/.codex/{prompts,skills}` | `~/.codex/{config.toml,AGENTS.md}`, and from the logins `~/.codex/auth.json` |
-| opencode | the subfolders of `~/.config/opencode` (not `node_modules`) | the files in `~/.config/opencode` (not lock files or [its service's settings](#opencodes-service)), and from the logins `~/.local/share/opencode/auth.json` |
+| opencode | the subfolders of `~/.config/opencode` (not `node_modules`) | the files in `~/.config/opencode` (not lock files, `.gitignore`, `.DS_Store` or [its service's settings](#opencodes-service)), and from the logins `~/.local/share/opencode/auth.json` |
 | pi | `~/.pi/agent/{extensions,skills,prompts,themes}` | `~/.pi/agent/{settings.json,keybindings.json,models.json,mcp.json,AGENTS.md,SYSTEM.md,APPEND_SYSTEM.md}`, and from the logins `~/.pi/agent/auth.json` |
 
 ### Importing from this machine
@@ -161,7 +161,7 @@ devvm agent save          # show what changed in the VM's agents' settings, then
 devvm agent save codex    # save only Codex's
 ```
 
-It reads at most 128 MiB from the VM, in at most 20,000 files, folders and links, none of the files larger than 16 MiB, at most 128 folders deep and in paths of at most 4,096 bytes. When the VM sends more, or sends a path outside the agents' settings, devvm saves nothing. A save that fails partway leaves the store as it was.
+It reads at most 128 MiB from the VM, in at most 20,000 files, folders and links, none of the files larger than 16 MiB, at most 128 folders deep and in paths of at most 4,096 bytes. The VM sends only what the store keeps, as the table above lists, so opencode's lock files, such as the `bun.lock` that its plugins' installs write, stay in the VM. When the VM sends more, or sends a path outside the agents' settings, devvm saves nothing. A save that fails partway leaves the store as it was.
 
 For example, to give every VM a plugin that you install in one:
 
@@ -538,7 +538,7 @@ devvm history import ~/backup.tar.gz    # or an export of your own
 - When devvm makes a new VM that has an agent, and it saved an export for the same folder before, it offers that export. In a terminal it asks whether to import it into the new VM, with no as the default. Without a terminal, or with `--no-input`, it doesn't ask, and it says which export it found and that `devvm history import` in the folder puts it into the VM. devvm imports the export once the VM has started and before its setup, and if the import fails, devvm warns and makes the VM anyway, so you can run `devvm history import` later.
 - An export holds what a VM wrote, so devvm treats it as untrusted, and when it comes from a VM on a less strict tier than the VM you import it into, devvm warns you before it imports. It treats an export with no tier recorded, or a FILE elsewhere, as if it came from an open VM. When an export holds a path outside the agents' history folders, devvm imports nothing.
 - The import leaves out what devvm puts in the VM itself. That's the agents' logins, `~/.claude/.credentials.json`, with the old VM's own MCP servers' logins in it, `~/.codex/auth.json`, and opencode's `auth.json`, `account.json`, `mcp-auth.json` and `bin`. It's also `~/.claude.json`, whose copy in the old VM held that VM's own placeholders, and every agent's [mounted folders and copied files](#devvms-agent-store), which the new VM's setup links and copies from devvm's agent store.
-- The import also leaves out the old VM's opencode identity, as an export does: opencode's `~/.local/state/opencode/machine`, with the key that every machine paired with the old VM's opencode trusts, and its `service.json`, or `service-<channel>.json` for another channel's opencode, and `pty`, which hold the password of the old VM's opencode service and the access tokens of its terminals' daemons. The new VM's opencode makes its own.
+- The import also leaves out the old VM's opencode identity, as an export does: opencode's `~/.local/state/opencode/machine`, with the key that every machine paired with the old VM's opencode trusts, and its `service.json`, or `service-<channel>.json` for another channel's opencode, and `pty`, which hold the password of the old VM's opencode service and the access tokens of its terminals' daemons. The new VM's opencode makes its own. The import also leaves out the project plugins you approved in opencode's native client, `plugin-approvals.json` and `plugin-staged`, so opencode asks again before it runs one.
 - opencode's sessions come without what opencode would act on without asking. Neither an export nor an import keeps:
   - automations, whose shell commands run on their schedule without asking again
   - the requests you said always to allow

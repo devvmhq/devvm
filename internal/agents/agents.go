@@ -477,11 +477,18 @@ var Defs = []Def{
 		// clean filter or core.fsmonitor, which opencode's own git commands would then run in
 		// another VM: snapshot, a repository for each project's snapshots, which opencode uses
 		// again when it's there (snapshot.ts), repos, its cache of repositories, and worktree,
-		// its git worktrees. A pattern holds *, as GNU tar's --exclude and the shell read it.
+		// its git worktrees. Of its native client (cli-rs's plugin/src/loader/approval.rs, which
+		// doesn't ship in 2.4.1), in its state folder: plugin-approvals.json, the project plugins you
+		// approved, with its lock (.lock) and the temporary files it's written through
+		// (.plugin-approvals.json.<pid>.<n>.tmp), and plugin-staged, the approved plugins' copies,
+		// which it runs without hashing them again. A pattern holds *, as GNU tar's --exclude and the
+		// shell read it.
 		HistoryOwn: []string{
 			OpencodeState + "/machine", OpencodeState + "/service.json", OpencodeState + "/service-*.json",
 			OpencodeState + "/service.json.*", OpencodeState + "/service-*.json.*", OpencodeState + "/pty",
 			OpencodeData + "/snapshot", OpencodeData + "/repos", OpencodeData + "/worktree",
+			OpencodeState + "/plugin-approvals.json", OpencodeState + "/plugin-approvals.json.lock",
+			OpencodeState + "/.plugin-approvals.json.*", OpencodeState + "/plugin-staged",
 		},
 		// From opencode v2.4.1's source (worktree/strategies.ts, worktree.ts): its worktree folder
 		// is worktree/<the first 6 characters of the project's ID>/<the worktree's name> in its

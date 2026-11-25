@@ -27,7 +27,7 @@ stdout '^==> imported file=\S*/data/devvm/exports/devvm-agent-[0-9a-f]{14}-[0-9]
 exec sh -c 'cmp "$STUB_DIR/history-in.tgz" "$EXPORTS"/*.tar.gz'
 stub_calls
 # The import's script goes on the VM's input, before the export, never in its arguments.
-stdout 'exec ''bash'' ''-c'' ''IFS= read -r n '
+stdout 'exec ''bash'' ''-c'' ''if IFS= read -r n '
 ! stdout 'quoting-style'
 grep 'tar -tzf "\$t/export" --absolute-names --quoting-style=escape' $STUB_DIR/history-import.sh
 grep 'devvm-history-unsafe' $STUB_DIR/history-import.sh

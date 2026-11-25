@@ -135,6 +135,8 @@ The agents' logins aren't in the export, which leaves out `~/.claude/.credential
 - its `machine` folder, whose `home-key` is the private key that every machine opencode pairs with `opencode machine add` trusts
 - its `service.json`, or `service-<channel>.json` for another channel's opencode, which holds the password of opencode's background service, and the handoff tickets and temporary files that opencode writes beside it
 - its `pty` folder, which holds the sockets of its terminals' daemons and their access tokens
+- its `plugin-approvals.json`, with its lock and the temporary files it's written through, which holds the project plugins you approved in opencode's native client, which doesn't ship in opencode 2.4.1
+- its `plugin-staged` folder, the approved plugins' copies, which that client runs without checking their hash again, so an export would otherwise approve a plugin for another VM
 
 The copy of opencode's database leaves out its `machine` table too, which holds the public keys that the machines it paired log in to it with. An import never writes them either, so the new VM's opencode makes its own, and a VM made again keeps the VM's own, because it's the same machine ([what a VM made again keeps](../using/images.md#what-a-vm-made-again-keeps)).
 

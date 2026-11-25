@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -412,12 +413,21 @@ func folderSetting(d agents.Def, name string) bool {
 }
 
 // fileSetting reports whether a file of a WholeFolder agent's folder, by
-// its name, is among its settings: all but lock files and the like, and
-// those that are each machine's own (agents.MachineOwn), such as
-// opencode's service.json.
+// its name, is among its settings: all but lock files and the like
+// (notSettings), and those that are each machine's own
+// (agents.MachineOwn), such as opencode's service.json.
 func fileSetting(d agents.Def, name string) bool {
-	return !strings.HasSuffix(name, ".lock") && name != "package-lock.json" && name != ".gitignore" && name != ".DS_Store" &&
+	return !slices.ContainsFunc(notSettings(), func(p string) bool { ok, _ := path.Match(p, name); return ok }) &&
 		!agents.MachineOwn(d.Folder+"/"+name)
+}
+
+// notSettings are the names of a WholeFolder agent's files that are never
+// its settings, as patterns that path.Match and a shell's case read
+// alike: lock files and what else a package manager or a Mac leaves
+// there. fileSetting leaves them out, and the save's script doesn't send
+// them (agentSaveScript).
+func notSettings() []string {
+	return []string{"*.lock", "package-lock.json", ".gitignore", ".DS_Store"}
 }
 
 // agentFiles returns an agent's settings files, relative to home, a home

@@ -113,10 +113,17 @@ func TestAgentSaveScriptRuns(t *testing.T) {
 		".claude.json":                             `{"theme":"dark","projects":{"/p":{"history":["testfake-history"]}}}`,
 		".config/opencode/opencode.json":           `{}`,
 		".config/opencode/node_modules/x/index.js": "x",
-		".codex/auth.json":                         "testfake-auth",
-		".pi/agent/models.json":                    `{}`,
-		".pi/agent/auth.json":                      "testfake-pi-auth",
-		".pi/agent/sessions/--p--/s.jsonl":         "testfake-pi-history",
+		// What opencode's plugin installs leave, which aren't settings
+		// (fileSetting), and a folder of such a name, which is.
+		".config/opencode/bun.lock":          "x",
+		".config/opencode/package-lock.json": "{}",
+		".config/opencode/.gitignore":        "node_modules",
+		".config/opencode/.DS_Store":         "x",
+		".config/opencode/old.lock/a.md":     "# a",
+		".codex/auth.json":                   "testfake-auth",
+		".pi/agent/models.json":              `{}`,
+		".pi/agent/auth.json":                "testfake-pi-auth",
+		".pi/agent/sessions/--p--/s.jsonl":   "testfake-pi-history",
 	})
 	cmd := exec.CommandContext(t.Context(), "bash", "-c", agentSaveScript(agents.Names())) //nolint:gosec // devvm's own script
 	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "COPYFILE_DISABLE=1"}
@@ -136,7 +143,8 @@ func TestAgentSaveScriptRuns(t *testing.T) {
 	}
 	slices.Sort(names)
 	want := []string{
-		".claude/settings.json", ".claude/skills", ".claude/skills/s", ".claude/skills/s/SKILL.md", ".config/opencode/opencode.json",
+		".claude/settings.json", ".claude/skills", ".claude/skills/s", ".claude/skills/s/SKILL.md",
+		".config/opencode/old.lock", ".config/opencode/old.lock/a.md", ".config/opencode/opencode.json",
 		".pi/agent/models.json",
 	}
 	if !slices.Equal(names, want) {

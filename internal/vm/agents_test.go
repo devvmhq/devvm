@@ -316,6 +316,9 @@ func TestHistoryImportRuns(t *testing.T) {
 			opencodeState+"/service.json.pty-handoff", opencodeState+"/service-local.json", opencodeState+"/service.json.0a1b.tmp",
 			opencodeState+"/service.json.pty-handoff.0a1b.tmp", opencodeState+"/service-local.json.pty-handoff",
 			opencodeData+"/snapshot/p/h/config", opencodeData+"/repos/r/config", opencodeData+"/worktree/w/.git",
+			opencodeState+"/plugin-approvals.json", opencodeState+"/plugin-approvals.json.lock",
+			opencodeState+"/.plugin-approvals.json.42.0.tmp", opencodeState+"/plugin-staged/abc/index.ts",
+			opencodeState+"/plugin-notes.json",
 			".pi/agent/sessions/", ".pi/agent/sessions/--p--/s.jsonl")
 		if out, err := runImport(t, home, export); err != nil {
 			t.Fatalf("%q, %v", out, err)
@@ -328,7 +331,10 @@ func TestHistoryImportRuns(t *testing.T) {
 			opencodeState + "/service.json.0a1b.tmp": false, opencodeState + "/service.json.pty-handoff.0a1b.tmp": false,
 			opencodeState + "/service-local.json.pty-handoff": false,
 			opencodeData + "/snapshot":                        false, opencodeData + "/repos": false, opencodeData + "/worktree": false,
-			".claude/.credentials.json": false, ".claude/settings.json": false, ".claude/skills": false, ".claude.json": false,
+			opencodeState + "/plugin-approvals.json": false, opencodeState + "/plugin-approvals.json.lock": false,
+			opencodeState + "/.plugin-approvals.json.42.0.tmp": false, opencodeState + "/plugin-staged": false,
+			opencodeState + "/plugin-notes.json": true,
+			".claude/.credentials.json":          false, ".claude/settings.json": false, ".claude/skills": false, ".claude.json": false,
 			".codex/auth.json": false, ".local/share/opencode/auth.json": false, ".claude/link": false, ".claude/projects/up": false,
 		} {
 			if _, err := os.Lstat(filepath.Join(home, p)); (err == nil) != want {

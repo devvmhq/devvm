@@ -232,11 +232,12 @@ These changes are on `main` and go out in the next release.
 - `devvm history export` and `devvm history import` now leave out opencode 2.4's machine key and paired machines, its service's password and its terminals' access tokens, which a VM made again still keeps ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-machine-key-in-history-exports)).
 - Each VM's opencode service now has a password of its own, which `opencode service get password` shows in the VM, and this machine's service settings and remote route never reach devvm's agent store or a VM ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-service-settings-in-vms)).
 - `devvm rm`, and a remake with `--clean-home`, show the uncommitted changes in opencode's worktrees, which an export leaves out, and ask before they go ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-worktrees-before-a-vm-goes)).
+- `devvm agent save` no longer refuses a VM whose `~/.config/opencode` holds a `bun.lock` or another file the store doesn't keep, which stays in the VM ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-lock-files-in-a-save)).
 
 </details>
 <details><summary>Security hardening: a VM's history export can no longer have opencode run commands unasked in the VM you import it into</summary>
 
-- `devvm history export` and `devvm history import` leave out opencode's automations, approvals, allow rules, resumable turns, project commands and git repositories, so make again any automation you want in the new VM ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-automations-and-permissions-in-history)).
+- `devvm history export` and `devvm history import` leave out opencode's automations, approvals, allow rules, resumable turns, project commands, git repositories and approved plugins, so make again any automation you want in the new VM ([details](https://next.devvm.dev/docs/releases/0.2.0/#opencodes-automations-and-permissions-in-history)).
 
 </details>
 <details><summary>Internal changes</summary>

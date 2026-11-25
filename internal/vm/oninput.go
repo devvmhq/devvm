@@ -11,8 +11,9 @@ import (
 // then the script, then the rest of the input, which the script gets as
 // its own. It reads exactly that many bytes (dd bs=1, so not one byte of
 // the rest), and runs the script only when it read them all, so an input
-// cut short runs nothing.
-const onInputCmd = `IFS= read -r n && s=$(dd bs=1 count="$n" 2>/dev/null) && [ "$(printf %s "$s" | wc -c)" -eq "$n" ] && exec bash -c "$s" bash`
+// cut short runs nothing, and says so on its stderr, which goes to the
+// VM's log.
+const onInputCmd = `if IFS= read -r n && s=$(dd bs=1 count="$n" 2>/dev/null) && [ "$(printf %s "$s" | wc -c)" -eq "$n" ] 2>/dev/null; then exec bash -c "$s" bash; fi; echo "devvm: The script on the input was cut short, so it didn't run" >&2; exit 1`
 
 // onInput returns the command and the input that run script in a VM with
 // rest as its input: the script goes on the input, never in the command's

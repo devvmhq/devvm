@@ -34,9 +34,10 @@ const (
 // agentSaveScript is the script that sends a VM's settings of these
 // agents as a tar stream on its stdout, run there as the VM's user: the
 // files and folders their Files and Dirs name, a WholeFolder agent's
-// (opencode's) folder's entries but node_modules and those its FolderOwn
-// names, which are the VM's own, such as opencode's service.json, as they
-// are (a link as a link), and the save's own files (saveOwn): its home folder and, for
+// (opencode's) folder's entries but node_modules, those its FolderOwn
+// names, which are the VM's own, such as opencode's service.json, and
+// files that are never settings, such as a bun.lock (notSettings), which
+// the host would refuse, as they are (a link as a link), and the save's own files (saveOwn): its home folder and, for
 // claude, what devvm's store keeps of ~/.claude.json
 // (agentlogin.ClaudeTopKeys), so its per-project entries never leave the
 // VM. Of the VM's own folder of a seed (agents.Seed), only its seed's
@@ -81,6 +82,7 @@ func agentSaveScript(names []string) string {
 			lines = append(lines,
 				`for p in `+d.Folder+`/* `+d.Folder+`/.[!.]* `+d.Folder+`/..?*; do`,
 				`  case ${p##*/} in `+strings.Join(append([]string{"node_modules"}, d.FolderOwn...), " | ")+`) ;;`,
+				`  `+strings.Join(notSettings(), " | ")+`) if [ -d "$p" ] && [ ! -L "$p" ]; then set -- "$@" "$p"; fi ;;`,
 				`  *) if [ -e "$p" ] || [ -L "$p" ]; then set -- "$@" "$p"; fi ;;`,
 				"  esac",
 				"done")
